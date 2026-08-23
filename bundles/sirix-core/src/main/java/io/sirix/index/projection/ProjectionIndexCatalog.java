@@ -626,8 +626,7 @@ public final class ProjectionIndexCatalog {
       System.err.printf(
           "[cat] lazy-handle timings: metaParse %.1f ms, directoryWalk %.1f ms, bloomBlocks %.1f ms (%d leaves,"
               + " projectedWeight %d MB)%n",
-          (tParse - t0) / 1e6, (tWalk - tParse) / 1e6, (tBloom - tWalk) / 1e6, rowGroupCount,
-          projectedBytes >> 20);
+          (tParse - t0) / 1e6, (tWalk - tParse) / 1e6, (tBloom - tWalk) / 1e6, rowGroupCount, projectedBytes >> 20);
     }
     if (bloomBlocks != null) {
       store.attachBloomBlocks(bloomBlocks);
@@ -635,8 +634,7 @@ public final class ProjectionIndexCatalog {
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(),
         metadata.buildRevision(), metadata.fieldNames(), store, def.getID(), projectedBytes);
     // Metadata identifies bounded summary chunks; hydrate them before the handle can serve counts.
-    handle.setSetValueRowCounts(
-        ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
+    handle.setSetValueRowCounts(ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
     // …as do the per-column value dictionary anchors, without which a global string column can
     // only be scanned, never probed: resolving a predicate literal to an id needs the anchor.
     handle.setValueDictionaryHeaderKeys(metadata.valueDictionaryHeaderKeys());
@@ -680,10 +678,9 @@ public final class ProjectionIndexCatalog {
    * predates leaves that were added since, and a filter that has not seen a value cannot exclude it.
    */
   private static ProjectionBloomChunks.ColumnEvidence @Nullable [] readBloomBlocks(final StorageEngineReader reader,
-      final IndexDef def,
-      final byte[] columnKinds, final int rowGroupCount, final int[] physicalOrder) {
-    return ProjectionBloomChunks.reorder(
-        ProjectionBloomChunks.read(reader, def.getID(), columnKinds, rowGroupCount), physicalOrder);
+      final IndexDef def, final byte[] columnKinds, final int rowGroupCount, final int[] physicalOrder) {
+    return ProjectionBloomChunks.reorder(ProjectionBloomChunks.read(reader, def.getID(), columnKinds, rowGroupCount),
+        physicalOrder);
   }
 
   /**
@@ -713,8 +710,8 @@ public final class ProjectionIndexCatalog {
           final long[] requested = from == 0 && to == offsets.length
               ? offsets
               : Arrays.copyOfRange(offsets, from, to);
-          final byte[][] part = ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(),
-              requested);
+          final byte[][] part =
+              ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(), requested);
           if (part == null || part.length != len) {
             throw new IllegalStateException("Segment fetcher returned " + (part == null
                 ? "null"
@@ -765,12 +762,10 @@ public final class ProjectionIndexCatalog {
       final int defId, final int rowGroupCount) {
     final int[] physicalOrder;
     try (NodeReadOnlyTrx orderRtx = session.beginNodeReadOnlyTrx(revision)) {
-      physicalOrder = ProjectionIndexFences.readPhysicalOrder(orderRtx.getStorageEngineReader(), defId,
-          rowGroupCount);
+      physicalOrder = ProjectionIndexFences.readPhysicalOrder(orderRtx.getStorageEngineReader(), defId, rowGroupCount);
     }
     final int physicalUpperBound = ProjectionIndexHOTStorage.physicalSlotUpperBound(physicalOrder);
-    final int workers = Math.min(Runtime.getRuntime().availableProcessors(),
-        Math.max(1, physicalUpperBound / 64));
+    final int workers = Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, physicalUpperBound / 64));
     final long t0 = DIAG
         ? System.nanoTime()
         : 0L;
@@ -876,8 +871,8 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(),
-          metadata.rowGroupCount());
+      final int[] physicalOrder =
+          ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
       persisted = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader, def.getID(),
           metadata.rowGroupCount(), physicalOrder);
     } catch (final IllegalStateException corrupt) {
@@ -908,8 +903,7 @@ public final class ProjectionIndexCatalog {
     }
     final ProjectionIndexRegistry.Handle handle = new ProjectionIndexRegistry.Handle(metadata.rootPath(),
         metadata.buildRevision(), metadata.fieldNames(), decoded, null);
-    handle.setSetValueRowCounts(
-        ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
+    handle.setSetValueRowCounts(ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
     handle.setFieldChains(metadata.fieldChains());
     // The eager path needs the value dictionary anchors as much as the column-lazy one does: without
     // them a global column's ids have nothing to resolve against, and every route that would consume

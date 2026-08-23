@@ -55,35 +55,36 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * every crash instant materializes candidate post-power-loss states under the contract
  *
  * <ul>
- *   <li>writes covered by a completed {@code force()} on their file are durable,</li>
- *   <li>writes after the last completed force may be lost, applied, or torn (prefix only), in any
- *       combination and any order,</li>
+ * <li>writes covered by a completed {@code force()} on their file are durable,</li>
+ * <li>writes after the last completed force may be lost, applied, or torn (prefix only), in any
+ * combination and any order,</li>
  * </ul>
  *
  * and verifies each state cold ({@code Databases.clearGlobalCaches()} + fresh scratch copy):
  *
  * <ol>
- *   <li>if a commit was ACKNOWLEDGED (the API call returned) before the crash instant, the
- *       resource MUST open at a revision ≥ the acked one;</li>
- *   <li>every readable revision must serialize EXACTLY to its golden JSON (no wrong-data
- *       reads);</li>
- *   <li>a revision beyond the acked one may appear only if it is the in-flight commit's (durable
- *       but unacknowledged — documented as correct in docs/DISK_FORMAT.md);</li>
- *   <li>failures must be clean {@code Sirix(IO)Exception}s — never BufferUnderflow / IOOBE / NPE
- *       class unchecked exceptions;</li>
- *   <li>the resource must ACCEPT A WRITER again (the {@code .commit}-marker truncate-recovery
- *       path runs against the materialized state), the recovery commit must succeed, and all
- *       pre-crash revisions must still be intact afterwards.</li>
+ * <li>if a commit was ACKNOWLEDGED (the API call returned) before the crash instant, the resource
+ * MUST open at a revision ≥ the acked one;</li>
+ * <li>every readable revision must serialize EXACTLY to its golden JSON (no wrong-data reads);</li>
+ * <li>a revision beyond the acked one may appear only if it is the in-flight commit's (durable but
+ * unacknowledged — documented as correct in docs/DISK_FORMAT.md);</li>
+ * <li>failures must be clean {@code Sirix(IO)Exception}s — never BufferUnderflow / IOOBE / NPE
+ * class unchecked exceptions;</li>
+ * <li>the resource must ACCEPT A WRITER again (the {@code .commit}-marker truncate-recovery path
+ * runs against the materialized state), the recovery commit must succeed, and all pre-crash
+ * revisions must still be intact afterwards.</li>
  * </ol>
  *
- * <p>A seeded-corruption SELF-TEST validates that the verifier actually detects lost acked
- * commits, unopenable acked state and wrong data — a green gate is only meaningful with a
- * demonstrably sharp oracle. A separate metadata-split experiment additionally caps the data
- * file's length at the last {@code force(true)} (stricter than POSIX {@code fdatasync}, which
- * must persist size metadata needed to retrieve data) and reports — without failing the gate on —
- * dirty exceptions that model would produce.
+ * <p>
+ * A seeded-corruption SELF-TEST validates that the verifier actually detects lost acked commits,
+ * unopenable acked state and wrong data — a green gate is only meaningful with a demonstrably sharp
+ * oracle. A separate metadata-split experiment additionally caps the data file's length at the last
+ * {@code force(true)} (stricter than POSIX {@code fdatasync}, which must persist size metadata
+ * needed to retrieve data) and reports — without failing the gate on — dirty exceptions that model
+ * would produce.
  *
- * <p>Opt-in like the SIGKILL gate:
+ * <p>
+ * Opt-in like the SIGKILL gate:
  *
  * <pre>
  *   ./gradlew :sirix-core:test --tests "*PowerLossSimulationTest*" -Dsirix.crash.run=true
@@ -110,8 +111,8 @@ public final class PowerLossSimulationTest {
   private record CrashCandidate(long crashSeq, Set<Long> appliedInFlight, Map<Long, Integer> torn, String label) {
   }
 
-  private record UniqueState(CrashCandidate candidate, byte[] data, byte[] revisions, int ackedRev,
-      int maxAttemptedRev, boolean commitMarkerPresent) {
+  private record UniqueState(CrashCandidate candidate, byte[] data, byte[] revisions, int ackedRev, int maxAttemptedRev,
+      boolean commitMarkerPresent) {
   }
 
   private record Verdict(String code, boolean failure, String detail) {
@@ -127,8 +128,8 @@ public final class PowerLossSimulationTest {
   private record Classification(boolean dirty, boolean sirix) {
   }
 
-  private record PipelineResult(Map<String, Integer> verdictCounts, List<String> failures,
-      List<String> failureCodes, int statesVerified) {
+  private record PipelineResult(Map<String, Integer> verdictCounts, List<String> failures, List<String> failureCodes,
+      int statesVerified) {
   }
 
   // =====================================================================================
@@ -138,7 +139,7 @@ public final class PowerLossSimulationTest {
   @Test
   public void anyPowerLossInstantPreservesAcknowledgedCommits() throws Exception {
     assumeTrue("true".equals(System.getProperty("sirix.crash.run")),
-               "opt-in via -Dsirix.crash.run=true (materializes and verifies hundreds of crash states)");
+        "opt-in via -Dsirix.crash.run=true (materializes and verifies hundreds of crash states)");
 
     final Scenario scenario = recordScenario();
     try {
@@ -154,15 +155,14 @@ public final class PowerLossSimulationTest {
 
   // =====================================================================================
   // 2) METADATA-SPLIT EXPERIMENT: force(false) persists data blocks but NOT the file-size
-  //    extension. STRICTER than POSIX fdatasync (which must persist metadata required to
-  //    retrieve the data), so dirty/unopenable findings are reported as hardening
-  //    observations; only acked-durability and data-integrity violations fail.
+  // extension. STRICTER than POSIX fdatasync (which must persist metadata required to
+  // retrieve the data), so dirty/unopenable findings are reported as hardening
+  // observations; only acked-durability and data-integrity violations fail.
   // =====================================================================================
 
   @Test
   public void metadataSplitLengthLossNeverLosesAckedDataExperiment() throws Exception {
-    assumeTrue("true".equals(System.getProperty("sirix.crash.run")),
-               "opt-in via -Dsirix.crash.run=true");
+    assumeTrue("true".equals(System.getProperty("sirix.crash.run")), "opt-in via -Dsirix.crash.run=true");
 
     final Scenario scenario = recordScenario();
     try {
@@ -175,8 +175,8 @@ public final class PowerLossSimulationTest {
         if (hardCodes.contains(result.failureCodes().get(i))) {
           hardFailures.add(result.failures().get(i));
         } else {
-          System.out.println("SOFT FINDING (stricter-than-POSIX metadata-split model only):\n"
-              + result.failures().get(i));
+          System.out.println(
+              "SOFT FINDING (stricter-than-POSIX metadata-split model only):\n" + result.failures().get(i));
         }
       }
       if (!hardFailures.isEmpty()) {
@@ -190,13 +190,12 @@ public final class PowerLossSimulationTest {
 
   // =====================================================================================
   // 3) ORACLE SELF-TEST: seeded corruptions of a fully-durable state MUST be flagged.
-  //    A green gate is only trustworthy if the verifier demonstrably detects violations.
+  // A green gate is only trustworthy if the verifier demonstrably detects violations.
   // =====================================================================================
 
   @Test
   public void verifierSelfTestDetectsSeededCorruption() throws Exception {
-    assumeTrue("true".equals(System.getProperty("sirix.crash.run")),
-               "opt-in via -Dsirix.crash.run=true");
+    assumeTrue("true".equals(System.getProperty("sirix.crash.run")), "opt-in via -Dsirix.crash.run=true");
 
     final Scenario scenario = recordScenario();
     try {
@@ -227,22 +226,21 @@ public final class PowerLossSimulationTest {
         final byte[] corruptData = fullData.clone();
         final byte[] corruptRevisions = fullRevisions.clone();
         final int revisionsOffset = Math.toIntExact(IOStorage.revisionsFileOffset(finalRev));
-        Arrays.fill(corruptRevisions, revisionsOffset,
-            revisionsOffset + IOStorage.REVISIONS_FILE_RECORD_SIZE, (byte) 0);
+        Arrays.fill(corruptRevisions, revisionsOffset, revisionsOffset + IOStorage.REVISIONS_FILE_RECORD_SIZE,
+            (byte) 0);
 
         final int entryOffsetInSlot = IOStorage.tailLogEntryOffsetInSlot(finalRev);
-        for (final long beaconOffset : new long[] {
-            IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+        for (final long beaconOffset : new long[] {IOStorage.PRIMARY_BEACON_OFFSET,
+            IOStorage.SECONDARY_BEACON_OFFSET}) {
           final int entryOffset = Math.toIntExact(beaconOffset + entryOffsetInSlot);
-          Arrays.fill(corruptData, entryOffset,
-              entryOffset + IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES, (byte) 0);
+          Arrays.fill(corruptData, entryOffset, entryOffset + IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES, (byte) 0);
         }
 
         final Path stateDir = scratch.resolve("zeroed-revision-locators");
         writeStateDir(scenario.templateDb(), stateDir, corruptData, corruptRevisions, false);
         final Verdict verdict = verifyState(stateDir, finalRev, finalRev, scenario.golden());
         assertTrue(verdict.failure(),
-                   "self-test: zeroed durable locators for acked revision must be flagged, got " + verdict);
+            "self-test: zeroed durable locators for acked revision must be flagged, got " + verdict);
         System.out.println("self-test (b) flagged as expected: " + verdict.code());
       }
 
@@ -250,8 +248,8 @@ public final class PowerLossSimulationTest {
       // entry. The physical end of a preallocated data file is zero padding, not committed data.
       {
         final byte[] corrupt = fullData.clone();
-        final int primaryEntryOffset = Math.toIntExact(IOStorage.PRIMARY_BEACON_OFFSET)
-            + IOStorage.tailLogEntryOffsetInSlot(finalRev);
+        final int primaryEntryOffset =
+            Math.toIntExact(IOStorage.PRIMARY_BEACON_OFFSET) + IOStorage.tailLogEntryOffsetInSlot(finalRev);
         final ByteBuffer dataView = ByteBuffer.wrap(fullData).order(ByteOrder.LITTLE_ENDIAN);
         assertTrue(dataView.getInt(primaryEntryOffset) == finalRev,
             "self-test fixture must carry the final revision in the primary tail-log");
@@ -271,15 +269,15 @@ public final class PowerLossSimulationTest {
       // (d) lost-acked detection: a state durable only up to commit1 verified as if commit2 was acked.
       {
         final long commit1Seq = scenario.milestones().get(1).lastSeqInclusive();
-        final byte[] data = CrashStateMaterializer.materialize(ops, PowerLossRecorder.TargetFile.DATA, commit1Seq,
-            Set.of(), Map.of());
+        final byte[] data =
+            CrashStateMaterializer.materialize(ops, PowerLossRecorder.TargetFile.DATA, commit1Seq, Set.of(), Map.of());
         final byte[] revisions = CrashStateMaterializer.materialize(ops, PowerLossRecorder.TargetFile.REVISIONS,
             commit1Seq, Set.of(), Map.of());
         final Path stateDir = scratch.resolve("lost-acked");
         writeStateDir(scenario.templateDb(), stateDir, data, revisions, false);
         final Verdict verdict = verifyState(stateDir, finalRev, finalRev, scenario.golden());
         assertTrue(verdict.failure() && verdict.code().equals("FAIL_LOST_ACKED_COMMIT"),
-                   "self-test: missing acked revision must be flagged as FAIL_LOST_ACKED_COMMIT, got " + verdict);
+            "self-test: missing acked revision must be flagged as FAIL_LOST_ACKED_COMMIT, got " + verdict);
         System.out.println("self-test (d) flagged as expected: " + verdict.code());
       }
 
@@ -291,7 +289,7 @@ public final class PowerLossSimulationTest {
         writeStateDir(scenario.templateDb(), stateDir, fullData, fullRevisions, false);
         final Verdict verdict = verifyState(stateDir, finalRev, finalRev, falsifiedGolden);
         assertTrue(verdict.failure() && verdict.code().equals("FAIL_WRONG_DATA"),
-                   "self-test: golden mismatch must be flagged as FAIL_WRONG_DATA, got " + verdict);
+            "self-test: golden mismatch must be flagged as FAIL_WRONG_DATA, got " + verdict);
         System.out.println("self-test (e) flagged as expected: " + verdict.code());
       }
     } finally {
@@ -392,10 +390,11 @@ public final class PowerLossSimulationTest {
   private PipelineResult runPipeline(final Scenario scenario, final boolean metadataSplit) throws IOException {
     final List<PowerLossRecorder.Op> ops = scenario.ops();
     final List<PowerLossRecorder.Milestone> milestones = scenario.milestones();
-    final Path scratchRoot =
-        Files.createDirectories(scenario.workRoot().resolve(metadataSplit ? "scratch-split" : "scratch"));
-    final Path keptFailuresRoot =
-        scenario.workRoot().resolveSibling(scenario.workRoot().getFileName() + "-failures");
+    final Path scratchRoot = Files.createDirectories(scenario.workRoot()
+                                                             .resolve(metadataSplit
+                                                                 ? "scratch-split"
+                                                                 : "scratch"));
+    final Path keptFailuresRoot = scenario.workRoot().resolveSibling(scenario.workRoot().getFileName() + "-failures");
 
     final List<CrashCandidate> candidates = enumerateCandidates(ops);
     final LinkedHashMap<String, UniqueState> unique = new LinkedHashMap<>();
@@ -406,19 +405,21 @@ public final class PowerLossSimulationTest {
           candidate.crashSeq(), candidate.appliedInFlight(), candidate.torn(), metadataSplit);
       final PowerLossRecorder.Milestone acked = effectiveAckedMilestone(milestones, ops, candidate);
       final PowerLossRecorder.Milestone inFlight = firstMilestoneAfter(milestones, candidate.crashSeq());
-      final int ackedRev = acked == null ? -1 : acked.acknowledgedRevision();
-      final int maxAttemptedRev =
-          inFlight != null ? inFlight.acknowledgedRevision() : milestones.getLast().acknowledgedRevision();
+      final int ackedRev = acked == null
+          ? -1
+          : acked.acknowledgedRevision();
+      final int maxAttemptedRev = inFlight != null
+          ? inFlight.acknowledgedRevision()
+          : milestones.getLast().acknowledgedRevision();
       final boolean marker = inFlight != null;
-      final String key =
-          sha256(data) + '|' + sha256(revisions) + '|' + ackedRev + '|' + maxAttemptedRev + '|' + marker;
+      final String key = sha256(data) + '|' + sha256(revisions) + '|' + ackedRev + '|' + maxAttemptedRev + '|' + marker;
       unique.putIfAbsent(key, new UniqueState(candidate, data, revisions, ackedRev, maxAttemptedRev, marker));
     }
 
     final List<UniqueState> selected = capStratifiedByInstant(new ArrayList<>(unique.values()));
-    System.out.printf("=== [%s] states: %d raw candidates -> %d unique -> %d verified (cap %d) ===%n",
-                      metadataSplit ? "metadata-split" : "force-contract", candidates.size(), unique.size(),
-                      selected.size(), MAX_STATES);
+    System.out.printf("=== [%s] states: %d raw candidates -> %d unique -> %d verified (cap %d) ===%n", metadataSplit
+        ? "metadata-split"
+        : "force-contract", candidates.size(), unique.size(), selected.size(), MAX_STATES);
 
     final Map<String, Integer> verdictCounts = new TreeMap<>();
     final List<String> failures = new ArrayList<>();
@@ -437,12 +438,13 @@ public final class PowerLossSimulationTest {
       }
       verdictCounts.merge(verdict.code(), 1, Integer::sum);
       stateLines.add(String.format("  %-34s acked=%2d attempted=%d marker=%-5s data=%6dB rev=%5dB -> %s",
-                                   state.candidate().label(), state.ackedRev(), state.maxAttemptedRev(),
-                                   state.commitMarkerPresent(), state.data().length, state.revisions().length,
-                                   verdict.code()));
+          state.candidate().label(), state.ackedRev(), state.maxAttemptedRev(), state.commitMarkerPresent(),
+          state.data().length, state.revisions().length, verdict.code()));
 
       if (verdict.failure()) {
-        final Path kept = keptFailuresRoot.resolve((metadataSplit ? "split-" : "") + stateDir.getFileName());
+        final Path kept = keptFailuresRoot.resolve((metadataSplit
+            ? "split-"
+            : "") + stateDir.getFileName());
         Files.createDirectories(keptFailuresRoot);
         copyRecursive(stateDir, kept);
         failures.add(describeFailure(state, verdict, ops, kept));
@@ -453,13 +455,18 @@ public final class PowerLossSimulationTest {
       index++;
     }
 
-    System.out.println("=== [" + (metadataSplit ? "metadata-split" : "force-contract") + "] per-state verdicts ===");
+    System.out.println("=== [" + (metadataSplit
+        ? "metadata-split"
+        : "force-contract") + "] per-state verdicts ===");
     stateLines.forEach(System.out::println);
-    System.out.println("=== [" + (metadataSplit ? "metadata-split" : "force-contract") + "] verdict histogram ===");
+    System.out.println("=== [" + (metadataSplit
+        ? "metadata-split"
+        : "force-contract") + "] verdict histogram ===");
     verdictCounts.forEach((code, count) -> System.out.printf("  %-44s %d%n", code, count));
     if (!failures.isEmpty()) {
-      System.out.println("=== [" + (metadataSplit ? "metadata-split" : "force-contract") + "] FAILURES ("
-          + failures.size() + ") ===");
+      System.out.println("=== [" + (metadataSplit
+          ? "metadata-split"
+          : "force-contract") + "] FAILURES (" + failures.size() + ") ===");
       failures.forEach(System.out::println);
     }
     return new PipelineResult(verdictCounts, failures, failureCodes, selected.size());
@@ -549,7 +556,10 @@ public final class PowerLossSimulationTest {
     return candidates;
   }
 
-  /** Content-mutating ops issued at or before {@code crashSeq} but past their file's last completed force. */
+  /**
+   * Content-mutating ops issued at or before {@code crashSeq} but past their file's last completed
+   * force.
+   */
   private static List<PowerLossRecorder.Op> inFlightOps(final List<PowerLossRecorder.Op> ops, final long crashSeq) {
     final Map<PowerLossRecorder.TargetFile, Long> lastBarrier =
         new java.util.EnumMap<>(PowerLossRecorder.TargetFile.class);
@@ -577,24 +587,22 @@ public final class PowerLossSimulationTest {
   }
 
   /**
-   * The acked milestone for a crash state, with crash-boundary correction: with the
-   * write-through commit protocol a milestone's FINAL op is the primary-beacon WRITE, and the
-   * API returns only after that write completes — so when the boundary write was dropped or
-   * torn in this state, the caller never observed the acknowledgement and the previous
-   * milestone is the acked one. (Boundary FORCE ops — the legacy ack — keep the historical
-   * issued-equals-effective treatment; the not-yet-effective case is covered by the previous
-   * crash instant's enumeration.)
+   * The acked milestone for a crash state, with crash-boundary correction: with the write-through
+   * commit protocol a milestone's FINAL op is the primary-beacon WRITE, and the API returns only
+   * after that write completes — so when the boundary write was dropped or torn in this state, the
+   * caller never observed the acknowledgement and the previous milestone is the acked one. (Boundary
+   * FORCE ops — the legacy ack — keep the historical issued-equals-effective treatment; the
+   * not-yet-effective case is covered by the previous crash instant's enumeration.)
    */
-  private static PowerLossRecorder.Milestone effectiveAckedMilestone(
-      final List<PowerLossRecorder.Milestone> milestones, final List<PowerLossRecorder.Op> ops,
-      final CrashCandidate candidate) {
+  private static PowerLossRecorder.Milestone effectiveAckedMilestone(final List<PowerLossRecorder.Milestone> milestones,
+      final List<PowerLossRecorder.Op> ops, final CrashCandidate candidate) {
     PowerLossRecorder.Milestone acked = lastMilestoneAtOrBefore(milestones, candidate.crashSeq());
-    if (acked != null && acked.lastSeqInclusive() == candidate.crashSeq()
-        && candidate.crashSeq() >= 0 && candidate.crashSeq() < ops.size()) {
+    if (acked != null && acked.lastSeqInclusive() == candidate.crashSeq() && candidate.crashSeq() >= 0
+        && candidate.crashSeq() < ops.size()) {
       final PowerLossRecorder.Op boundary = ops.get((int) candidate.crashSeq());
       if (boundary.kind == PowerLossRecorder.OpKind.WRITE) {
-        final boolean fullyApplied = !candidate.torn().containsKey(boundary.seq)
-            && candidate.appliedInFlight().contains(boundary.seq);
+        final boolean fullyApplied =
+            !candidate.torn().containsKey(boundary.seq) && candidate.appliedInFlight().contains(boundary.seq);
         if (!fullyApplied) {
           acked = lastMilestoneAtOrBefore(milestones, candidate.crashSeq() - 1);
         }
@@ -603,8 +611,8 @@ public final class PowerLossSimulationTest {
     return acked;
   }
 
-  private static PowerLossRecorder.Milestone lastMilestoneAtOrBefore(
-      final List<PowerLossRecorder.Milestone> milestones, final long crashSeq) {
+  private static PowerLossRecorder.Milestone lastMilestoneAtOrBefore(final List<PowerLossRecorder.Milestone> milestones,
+      final long crashSeq) {
     PowerLossRecorder.Milestone result = null;
     for (final PowerLossRecorder.Milestone milestone : milestones) {
       if (milestone.lastSeqInclusive() <= crashSeq) {
@@ -624,7 +632,10 @@ public final class PowerLossSimulationTest {
     return null;
   }
 
-  /** Keeps at most {@link #MAX_STATES} states, round-robin across crash instants so every region keeps coverage. */
+  /**
+   * Keeps at most {@link #MAX_STATES} states, round-robin across crash instants so every region keeps
+   * coverage.
+   */
   private static List<UniqueState> capStratifiedByInstant(final List<UniqueState> states) {
     if (states.size() <= MAX_STATES) {
       return states;
@@ -696,7 +707,7 @@ public final class PowerLossSimulationTest {
     Databases.clearGlobalCaches();
     final int mostRecent;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(stateDb);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       mostRecent = session.getMostRecentRevisionNumber();
       if (mostRecent < ackedRev) {
         return Verdict.fail("FAIL_LOST_ACKED_COMMIT",
@@ -731,7 +742,7 @@ public final class PowerLossSimulationTest {
     // ---- writer recovery, cold again ----
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(stateDb);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       final int beforeRecovery = session.getMostRecentRevisionNumber();
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) { // runs marker truncate-recovery
         wtx.moveToDocumentRoot();
@@ -753,9 +764,8 @@ public final class PowerLossSimulationTest {
         final String json = serializeRevision(session, revision);
         final String expected = golden.get(revision);
         if (!json.equals(expected)) {
-          return Verdict.fail("FAIL_WRONG_DATA_AFTER_RECOVERY",
-              "after recovery commit, revision " + revision + " read back '" + json + "' but golden is '" + expected
-                  + "'");
+          return Verdict.fail("FAIL_WRONG_DATA_AFTER_RECOVERY", "after recovery commit, revision " + revision
+              + " read back '" + json + "' but golden is '" + expected + "'");
         }
       }
       final String recoveredJson = serializeRevision(session, afterRecovery);
@@ -777,13 +787,14 @@ public final class PowerLossSimulationTest {
       return Verdict.pass("PASS_WRITER_CLEAN_REJECT_NOTHING_ACKED");
     }
 
-    return Verdict.pass(ackedRev >= 0 ? "PASS" : "PASS_NOTHING_ACKED");
+    return Verdict.pass(ackedRev >= 0
+        ? "PASS"
+        : "PASS_NOTHING_ACKED");
   }
 
   /**
-   * Walks the throwable chain (causes + suppressed). "Dirty" = unchecked low-level exception
-   * classes that must never escape from reading a corrupt file; "sirix" = the documented clean
-   * failure types.
+   * Walks the throwable chain (causes + suppressed). "Dirty" = unchecked low-level exception classes
+   * that must never escape from reading a corrupt file; "sirix" = the documented clean failure types.
    */
   private static Classification classify(final Throwable root) {
     boolean dirty = false;
@@ -798,9 +809,9 @@ public final class PowerLossSimulationTest {
       }
       if (t instanceof java.nio.BufferUnderflowException || t instanceof java.nio.BufferOverflowException
           || t instanceof IndexOutOfBoundsException || t instanceof NegativeArraySizeException
-          || t instanceof NullPointerException || t instanceof ClassCastException
-          || t instanceof ArithmeticException || t instanceof ArrayStoreException
-          || t instanceof StackOverflowError || t instanceof OutOfMemoryError || t instanceof AssertionError) {
+          || t instanceof NullPointerException || t instanceof ClassCastException || t instanceof ArithmeticException
+          || t instanceof ArrayStoreException || t instanceof StackOverflowError || t instanceof OutOfMemoryError
+          || t instanceof AssertionError) {
         dirty = true;
       }
       if (t instanceof io.sirix.exception.SirixException || t instanceof io.sirix.exception.SirixRuntimeException) {
@@ -823,8 +834,8 @@ public final class PowerLossSimulationTest {
     final StringWriter out = new StringWriter();
     final PrintWriter print = new PrintWriter(out);
     final CrashCandidate candidate = state.candidate();
-    print.println("FAILURE " + verdict.code() + " at crash instant seq=" + candidate.crashSeq() + " ["
-        + candidate.label() + "]");
+    print.println(
+        "FAILURE " + verdict.code() + " at crash instant seq=" + candidate.crashSeq() + " [" + candidate.label() + "]");
     if (candidate.crashSeq() >= 0 && candidate.crashSeq() < ops.size()) {
       print.println("  last issued op: " + ops.get((int) candidate.crashSeq()));
     } else {
@@ -844,7 +855,9 @@ public final class PowerLossSimulationTest {
     final StringWriter out = new StringWriter();
     t.printStackTrace(new PrintWriter(out));
     final String full = out.toString();
-    return full.length() > 6000 ? full.substring(0, 6000) + "\n  ... (truncated)" : full;
+    return full.length() > 6000
+        ? full.substring(0, 6000) + "\n  ... (truncated)"
+        : full;
   }
 
   // =====================================================================================
@@ -884,10 +897,12 @@ public final class PowerLossSimulationTest {
     }
   }
 
-  /** Drop the per-path repository entries a verified scratch state registered, keeping the JVM tidy. */
+  /**
+   * Drop the per-path repository entries a verified scratch state registered, keeping the JVM tidy.
+   */
   private static void dropPerPathRegistryEntries(final Path stateDb) {
-    final Path cacheKey = resourceDir(stateDb).resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                              .resolve("sirix.data");
+    final Path cacheKey =
+        resourceDir(stateDb).resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve("sirix.data");
     StorageType.CACHE_REPOSITORY.remove(cacheKey);
     StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
   }

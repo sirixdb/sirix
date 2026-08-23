@@ -24,8 +24,8 @@ import java.io.PrintWriter;
  * <ol>
  * <li>{@code KeyValueLeafPage.readFusedObjectNamedStringStoredBytes} answered {@code null} for a
  * zero-length payload, conflating "the value is the empty string" with "there is no payload here".
- * The PAX region builder drops every slot that method declines, so a page holding {@code ""} built a
- * string column with fewer values than the field had occurrences — and no {@code ""} dictionary
+ * The PAX region builder drops every slot that method declines, so a page holding {@code ""} built
+ * a string column with fewer values than the field had occurrences — and no {@code ""} dictionary
  * entry.</li>
  * <li>The column consumers' completeness oracle noticed exactly that and refused to serve such a
  * page, which is why the answer was merely slow rather than wrong for most literals.</li>
@@ -116,8 +116,9 @@ public final class EmptyStringPredicateCountTest extends AbstractJsonTest {
   }
 
   private String answer(final String q) throws IOException {
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
         final ByteArrayOutputStream out = new ByteArrayOutputStream();

@@ -40,23 +40,19 @@ import org.junit.jupiter.api.io.TempDir;
 final class FileChannelWriterDeferredMetadataForceTest {
 
   private enum ChannelRole {
-    DATA,
-    REVISIONS,
-    BEACON
+    DATA, REVISIONS, BEACON
   }
 
   private enum Operation {
-    WRITE,
-    FORCE
+    WRITE, FORCE
   }
 
   private record Event(ChannelRole channel, Operation operation, long offset, int length, boolean metadata) {
   }
 
-  private record Fixture(FileChannelWriter writer, List<Event> events,
-      AtomicBoolean failNextDataMetadataForce, AtomicBoolean failNextRevisionsMetadataForce,
-      FileChannel data, FileChannel revisions, FileChannel beacon, FileChannelReader reader,
-      Path revisionsFilePath) {
+  private record Fixture(FileChannelWriter writer, List<Event> events, AtomicBoolean failNextDataMetadataForce,
+      AtomicBoolean failNextRevisionsMetadataForce, FileChannel data, FileChannel revisions, FileChannel beacon,
+      FileChannelReader reader, Path revisionsFilePath) {
   }
 
   @Test
@@ -127,14 +123,12 @@ final class FileChannelWriterDeferredMetadataForceTest {
   @Test
   void fullTruncateInvalidatesTheDurableFrontierHandoff(@TempDir final Path tempDir) throws Exception {
     final Fixture fixture = fixture(tempDir);
-    final RevisionRecordDurability durability = RevisionRecordDurability.forFile(
-        fixture.revisionsFilePath(), 0L, 0L);
+    final RevisionRecordDurability durability = RevisionRecordDurability.forFile(fixture.revisionsFilePath(), 0L, 0L);
     durability.storeFrontiers(20_000L, 40_000L, 8_192L, 4, 19_000L, 91L);
 
     fixture.writer().truncate();
 
-    assertEquals(-1L, RevisionRecordDurability.forFile(
-        fixture.revisionsFilePath(), 0L, 0L).cachedFrontiers()[0]);
+    assertEquals(-1L, RevisionRecordDurability.forFile(fixture.revisionsFilePath(), 0L, 0L).cachedFrontiers()[0]);
   }
 
   @Test
@@ -151,7 +145,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
     assertEquals(1, releases.get(), "a failed force must not prevent the pooled borrow from being returned");
 
     final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(), newReader(),
-        first.revisionsFilePath(), sharedDurability, () -> { });
+        first.revisionsFilePath(), sharedDurability, () -> {
+        });
     successor.forceAll();
     successor.forceAll();
 
@@ -186,8 +181,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
       return length;
     });
 
-    final SirixIOException allocationFailure = assertThrows(SirixIOException.class,
-        () -> flushUncommittedTail(first.writer(), new byte[] {2, 7, 1, 8}));
+    final SirixIOException allocationFailure =
+        assertThrows(SirixIOException.class, () -> flushUncommittedTail(first.writer(), new byte[] {2, 7, 1, 8}));
     assertEquals("injected partial allocation failure", allocationFailure.getCause().getMessage());
 
     // Close must still surrender the pooled borrow. Inject another failure so only the shared
@@ -197,7 +192,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
     assertEquals(1, releases.get());
 
     final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(), newReader(),
-        first.revisionsFilePath(), sharedDurability, () -> { });
+        first.revisionsFilePath(), sharedDurability, () -> {
+        });
     successor.forceAll();
     successor.forceAll();
     assertEquals(List.of(true, true, false), dataForces(first.events()),
@@ -210,8 +206,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
     final Fixture fixture = fixture(tempDir);
     fixture.failNextRevisionsMetadataForce().set(true);
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("revisions-growth-force")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .build();
     config.resourcePath = tempDir;
 
     try (MemorySegmentBytesOut appendBuffer = new MemorySegmentBytesOut(4_096)) {
@@ -222,27 +218,26 @@ final class FileChannelWriterDeferredMetadataForceTest {
 
     assertEquals(List.of(true, true), revisionsForces(fixture.events()),
         "a failed revisions fsync must retry the same grow instead of publishing its frontier");
-    assertEquals(List.of(
-        new Event(ChannelRole.REVISIONS, Operation.WRITE, 0L, 64 * 1_024, false),
-        new Event(ChannelRole.REVISIONS, Operation.FORCE, -1L, 0, true),
-        new Event(ChannelRole.REVISIONS, Operation.WRITE, 0L, 64 * 1_024, false),
-        new Event(ChannelRole.REVISIONS, Operation.FORCE, -1L, 0, true),
-        new Event(ChannelRole.REVISIONS, Operation.WRITE, IOStorage.revisionsFileOffset(0),
-            IOStorage.REVISIONS_FILE_RECORD_SIZE, false)),
+    assertEquals(
+        List.of(new Event(ChannelRole.REVISIONS, Operation.WRITE, 0L, 64 * 1_024, false),
+            new Event(ChannelRole.REVISIONS, Operation.FORCE, -1L, 0, true),
+            new Event(ChannelRole.REVISIONS, Operation.WRITE, 0L, 64 * 1_024, false),
+            new Event(ChannelRole.REVISIONS, Operation.FORCE, -1L, 0, true),
+            new Event(ChannelRole.REVISIONS, Operation.WRITE, IOStorage.revisionsFileOffset(0),
+                IOStorage.REVISIONS_FILE_RECORD_SIZE, false)),
         fixture.events().stream().filter(event -> event.channel() == ChannelRole.REVISIONS).toList(),
         "revisions allocation must force immediately, retry after failure, then publish its record");
   }
 
   @Test
-  void commitMetadataBarrierFollowsThePageTailAndPrecedesBothBeacons(@TempDir final Path tempDir)
-      throws Exception {
+  void commitMetadataBarrierFollowsThePageTailAndPrecedesBothBeacons(@TempDir final Path tempDir) throws Exception {
     final Fixture fixture = fixture(tempDir);
     final byte[] pageTail = {9, 7, 9};
     flushUncommittedTail(fixture.writer(), pageTail);
 
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("deferred-metadata-force")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .build();
     config.resourcePath = tempDir;
     try (MemorySegmentBytesOut beaconBuffer = new MemorySegmentBytesOut(2 * IOStorage.BEACON_SLOT_BYTES)) {
       fixture.writer().writeUberPageReference(config, new PageReference(), new UberPage(), beaconBuffer);
@@ -259,9 +254,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
     final List<Integer> beaconWriteIndexes = new ArrayList<>();
     for (int index = 0; index < fixture.events().size(); index++) {
       final Event event = fixture.events().get(index);
-      if (event.operation() == Operation.WRITE
-          && (event.offset() == IOStorage.PRIMARY_BEACON_OFFSET
-              || event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)) {
+      if (event.operation() == Operation.WRITE && (event.offset() == IOStorage.PRIMARY_BEACON_OFFSET
+          || event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)) {
         beaconWriteIndexes.add(index);
       }
     }
@@ -271,29 +265,29 @@ final class FileChannelWriterDeferredMetadataForceTest {
     assertTrue(barrier > tail,
         "the allocation fsync must be coalesced after the complete page tail, not run inside growth");
     assertEquals(2, beaconWriteIndexes.size(), "the commit must publish exactly two uber-page beacon writes");
-    assertEquals(1L, beaconWriteIndexes.stream()
-        .map(fixture.events()::get)
-        .filter(event -> event.offset() == IOStorage.PRIMARY_BEACON_OFFSET)
-        .count());
-    assertEquals(1L, beaconWriteIndexes.stream()
-        .map(fixture.events()::get)
-        .filter(event -> event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)
-        .count());
+    assertEquals(1L,
+        beaconWriteIndexes.stream()
+                          .map(fixture.events()::get)
+                          .filter(event -> event.offset() == IOStorage.PRIMARY_BEACON_OFFSET)
+                          .count());
+    assertEquals(1L,
+        beaconWriteIndexes.stream()
+                          .map(fixture.events()::get)
+                          .filter(event -> event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)
+                          .count());
     assertTrue(beaconWriteIndexes.stream().allMatch(index -> index > barrier),
         "both durable uber-page beacons must follow allocation + page-tail durability");
   }
 
   @Test
-  void missingRevisionRecordFailsBeforeEitherBeaconIsPublished(@TempDir final Path tempDir)
-      throws Exception {
+  void missingRevisionRecordFailsBeforeEitherBeaconIsPublished(@TempDir final Path tempDir) throws Exception {
     final Fixture fixture = fixture(tempDir);
     flushUncommittedTail(fixture.writer(), new byte[] {3, 5, 8});
-    when(fixture.reader().getRevisionFileData(0))
-        .thenThrow(new SirixIOException("injected missing revision record"));
+    when(fixture.reader().getRevisionFileData(0)).thenThrow(new SirixIOException("injected missing revision record"));
 
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("missing-revision-record")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .build();
     config.resourcePath = tempDir;
     try (MemorySegmentBytesOut beaconBuffer = new MemorySegmentBytesOut(2 * IOStorage.BEACON_SLOT_BYTES)) {
       final SirixIOException failure = assertThrows(SirixIOException.class,
@@ -301,11 +295,14 @@ final class FileChannelWriterDeferredMetadataForceTest {
       assertEquals("injected missing revision record", failure.getMessage());
     }
 
-    assertEquals(0L, fixture.events().stream()
-        .filter(event -> event.operation() == Operation.WRITE)
-        .filter(event -> event.offset() == IOStorage.PRIMARY_BEACON_OFFSET
-            || event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)
-        .count(), "a missing revision locator must fail before either durable beacon write");
+    assertEquals(0L,
+        fixture.events()
+               .stream()
+               .filter(event -> event.operation() == Operation.WRITE)
+               .filter(event -> event.offset() == IOStorage.PRIMARY_BEACON_OFFSET
+                   || event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)
+               .count(),
+        "a missing revision locator must fail before either durable beacon write");
   }
 
   private static Fixture fixture(final Path tempDir) throws IOException {
@@ -313,8 +310,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
   }
 
   private static Fixture fixture(final Path tempDir,
-      final FileChannelWriter.DataAllocationDurability dataAllocationDurability,
-      final Runnable releaseAction) throws IOException {
+      final FileChannelWriter.DataAllocationDurability dataAllocationDurability, final Runnable releaseAction)
+      throws IOException {
     final Path revisionsFilePath = tempDir.resolve("sirix.revisions");
     RevisionRecordDurability.invalidateFor(revisionsFilePath);
     final List<Event> events = new ArrayList<>();
@@ -334,28 +331,27 @@ final class FileChannelWriterDeferredMetadataForceTest {
     recordForces(beacon, ChannelRole.BEACON, events, new AtomicBoolean());
 
     final FileChannelReader reader = newReader();
-    final FileChannelWriter writer = newWriter(data, revisions, beacon, reader, revisionsFilePath,
-        dataAllocationDurability, releaseAction);
-    return new Fixture(writer, events, failNextDataMetadataForce, failNextRevisionsMetadataForce,
-        data, revisions, beacon, reader, revisionsFilePath);
+    final FileChannelWriter writer =
+        newWriter(data, revisions, beacon, reader, revisionsFilePath, dataAllocationDurability, releaseAction);
+    return new Fixture(writer, events, failNextDataMetadataForce, failNextRevisionsMetadataForce, data, revisions,
+        beacon, reader, revisionsFilePath);
   }
 
   private static FileChannelWriter newWriter(final FileChannel data, final FileChannel revisions,
       final FileChannel beacon, final FileChannelReader reader, final Path revisionsFilePath,
-      final FileChannelWriter.DataAllocationDurability dataAllocationDurability,
-      final Runnable releaseAction) throws IOException {
-    return new FileChannelWriter(data, revisions, beacon, SerializationType.DATA,
-        new PagePersister(), Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader,
-        true, true, revisionsFilePath, 0L, 0L, dataAllocationDurability, releaseAction);
+      final FileChannelWriter.DataAllocationDurability dataAllocationDurability, final Runnable releaseAction)
+      throws IOException {
+    return new FileChannelWriter(data, revisions, beacon, SerializationType.DATA, new PagePersister(),
+        Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader, true, true, revisionsFilePath, 0L, 0L,
+        dataAllocationDurability, releaseAction);
   }
 
   private static FileChannelReader newReader() {
     final FileChannelReader reader = mock(FileChannelReader.class);
     when(reader.beaconRevisionOrMinusOne(anyLong())).thenReturn(-1);
-    when(reader.getRevisionFileData(0))
-        .thenReturn(new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L));
-    when(reader.readBeaconSlot(anyLong()))
-        .thenAnswer(invocation -> ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES));
+    when(reader.getRevisionFileData(0)).thenReturn(
+        new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L));
+    when(reader.readBeaconSlot(anyLong())).thenAnswer(invocation -> ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES));
     return reader;
   }
 
@@ -366,8 +362,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
     }
   }
 
-  private static void recordWrites(final FileChannel channel, final ChannelRole role,
-      final List<Event> events) throws IOException {
+  private static void recordWrites(final FileChannel channel, final ChannelRole role, final List<Event> events)
+      throws IOException {
     when(channel.write(any(ByteBuffer.class), anyLong())).thenAnswer(invocation -> {
       final ByteBuffer source = invocation.getArgument(0);
       final long offset = invocation.getArgument(1);
@@ -378,8 +374,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
     });
   }
 
-  private static void recordForces(final FileChannel channel, final ChannelRole role,
-      final List<Event> events, final AtomicBoolean failNextMetadataForce) throws IOException {
+  private static void recordForces(final FileChannel channel, final ChannelRole role, final List<Event> events,
+      final AtomicBoolean failNextMetadataForce) throws IOException {
     doAnswer(invocation -> {
       final boolean metadata = invocation.getArgument(0);
       events.add(new Event(role, Operation.FORCE, -1L, 0, metadata));
@@ -392,16 +388,16 @@ final class FileChannelWriterDeferredMetadataForceTest {
 
   private static List<Boolean> dataForces(final List<Event> events) {
     return events.stream()
-        .filter(event -> event.channel() == ChannelRole.DATA && event.operation() == Operation.FORCE)
-        .map(Event::metadata)
-        .toList();
+                 .filter(event -> event.channel() == ChannelRole.DATA && event.operation() == Operation.FORCE)
+                 .map(Event::metadata)
+                 .toList();
   }
 
   private static List<Boolean> revisionsForces(final List<Event> events) {
     return events.stream()
-        .filter(event -> event.channel() == ChannelRole.REVISIONS && event.operation() == Operation.FORCE)
-        .map(Event::metadata)
-        .toList();
+                 .filter(event -> event.channel() == ChannelRole.REVISIONS && event.operation() == Operation.FORCE)
+                 .map(Event::metadata)
+                 .toList();
   }
 
   private static int indexOf(final List<Event> events, final int from,

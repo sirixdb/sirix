@@ -56,8 +56,9 @@ import java.util.function.Consumer;
  * splits and deletes may later reuse ids or leave physical gaps. Document order is therefore the
  * explicit order stored with the fence chunks, and
  * {@link #readAllRowGroupsFromColumnSegmentSlots(StorageEngineReader, int, int, int[])} validates
- * that exact ordered descriptor set rather than inferring position from numeric id order. A missing,
- * duplicate, or extra descriptor fails loudly instead of silently mislabelling following rows.</li>
+ * that exact ordered descriptor set rather than inferring position from numeric id order. A
+ * missing, duplicate, or extra descriptor fails loudly instead of silently mislabelling following
+ * rows.</li>
  * <li><b>Descriptor slot value = RowGroupDescriptor (PIXD)</b> — a zone-map-only directory of the
  * leaf's semantic segments (KEYS, per-column BODY/DICT), each entry carrying columnSegmentId,
  * byteLen and an XXH3-64 content hash. It holds no segment bytes: the hashes are what a later
@@ -130,9 +131,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * Create storage for an append-oriented bulk build.
    *
-   * <p>Only genuinely fresh side-map keys are staged; a rebuild/update that replaces an existing
-   * reference stays resident until final commit, so an intermediate append cannot become a
-   * permanent hole inside a successfully published revision.</p>
+   * <p>
+   * Only genuinely fresh side-map keys are staged; a rebuild/update that replaces an existing
+   * reference stays resident until final commit, so an intermediate append cannot become a permanent
+   * hole inside a successfully published revision.
+   * </p>
    */
   public static ProjectionIndexHOTStorage forBulkBuild(final StorageEngineWriter storageEngineWriter,
       final int indexNumber) {
@@ -256,8 +259,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public int probeLiveRowGroupCountFrom(final int knownLiveCount) {
     if (knownLiveCount < 0 || knownLiveCount > MAX_ROW_GROUPS) {
-      throw new IllegalArgumentException(
-          "knownLiveCount out of range [0, " + MAX_ROW_GROUPS + "]: " + knownLiveCount);
+      throw new IllegalArgumentException("knownLiveCount out of range [0, " + MAX_ROW_GROUPS + "]: " + knownLiveCount);
     }
     int count = knownLiveCount;
     for (long slot = knownLiveCount + 1L; slot <= MAX_ROW_GROUPS; slot++) {
@@ -267,8 +269,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       count++;
     }
-    throw new IllegalStateException("More than " + MAX_ROW_GROUPS
-        + " contiguous projection leaves — implausible store, refusing to probe further");
+    throw new IllegalStateException(
+        "More than " + MAX_ROW_GROUPS + " contiguous projection leaves — implausible store, refusing to probe further");
   }
 
   /**
@@ -424,8 +426,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   private static void checkRowGroupId(final long rowGroupId) {
     if (rowGroupId < 1 || rowGroupId > MAX_ROW_GROUPS) {
-      throw new IllegalArgumentException(
-          "rowGroupId out of range [1, " + MAX_ROW_GROUPS + "]: " + rowGroupId);
+      throw new IllegalArgumentException("rowGroupId out of range [1, " + MAX_ROW_GROUPS + "]: " + rowGroupId);
     }
   }
 
@@ -481,12 +482,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * Publish one independently encoded column while carrying every other segment slot forward without
-   * reading its bytes.  The caller supplies the descriptor it read and the descriptor produced by
+   * reading its bytes. The caller supplies the descriptor it read and the descriptor produced by
    * {@link ProjectionIndexColumnSegmentCodec#spliceReferencedColumn}; an intervening same-transaction
    * mutation therefore fails loudly instead of patching against stale metadata.
    */
-  ColumnPatchResult putColumnPatch(final long rowGroupId, final byte[] priorDescriptor,
-      final byte[] patchedDescriptor, final ProjectionIndexColumnSegmentCodec.EncodedColumn encodedColumn) {
+  ColumnPatchResult putColumnPatch(final long rowGroupId, final byte[] priorDescriptor, final byte[] patchedDescriptor,
+      final ProjectionIndexColumnSegmentCodec.EncodedColumn encodedColumn) {
     checkRowGroupId(rowGroupId);
     if (priorDescriptor == null || patchedDescriptor == null || encodedColumn == null) {
       throw new IllegalArgumentException("prior descriptor, patched descriptor, and encoded column are required");
@@ -520,10 +521,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final int priorEntry = RowGroupDescriptor.entryIndexOf(priorDescriptor, ids[i]);
       final int nextEntry = RowGroupDescriptor.entryIndexOf(next, ids[i]);
       final boolean unchanged = priorEntry >= 0
-          && RowGroupDescriptor.entryByteLen(priorDescriptor, priorEntry)
-              == RowGroupDescriptor.entryByteLen(next, nextEntry)
-          && RowGroupDescriptor.entryContentHash(priorDescriptor, priorEntry)
-              == RowGroupDescriptor.entryContentHash(next, nextEntry);
+          && RowGroupDescriptor.entryByteLen(priorDescriptor, priorEntry) == RowGroupDescriptor.entryByteLen(next,
+              nextEntry)
+          && RowGroupDescriptor.entryContentHash(priorDescriptor,
+              priorEntry) == RowGroupDescriptor.entryContentHash(next, nextEntry);
       if (!unchanged) {
         putColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, ids[i]), segments[i]);
         written++;
@@ -573,8 +574,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   boolean putRowGroupAsColumnSegmentSlots(final long rowGroupId,
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded,
-      final long @Nullable [] changedColumnWords, final boolean keysChanged) {
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded, final long @Nullable [] changedColumnWords,
+      final boolean keysChanged) {
     checkRowGroupId(rowGroupId);
     if (encoded == null) {
       throw new IllegalArgumentException("encoded leaf must not be null — use tombstoneRowGroupAsColumnSegmentSlots");
@@ -640,10 +641,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final boolean changed;
       if (priorId == nextId) {
         changedId = priorId;
-        changed = RowGroupDescriptor.entryByteLen(prior, priorIndex)
-            != RowGroupDescriptor.entryByteLen(descriptor, nextIndex)
-            || RowGroupDescriptor.entryContentHash(prior, priorIndex)
-            != RowGroupDescriptor.entryContentHash(descriptor, nextIndex);
+        changed =
+            RowGroupDescriptor.entryByteLen(prior, priorIndex) != RowGroupDescriptor.entryByteLen(descriptor, nextIndex)
+                || RowGroupDescriptor.entryContentHash(prior,
+                    priorIndex) != RowGroupDescriptor.entryContentHash(descriptor, nextIndex);
         priorIndex++;
         nextIndex++;
       } else if (priorId < nextId) {
@@ -661,15 +662,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
   }
 
-  private static boolean columnSegmentMayChange(final int columnSegmentId,
-      final long[] changedColumnWords, final boolean keysChanged) {
+  private static boolean columnSegmentMayChange(final int columnSegmentId, final long[] changedColumnWords,
+      final boolean keysChanged) {
     final int column = ProjectionIndexColumnSegmentCodec.columnOfColumnSegment(columnSegmentId);
     if (column < 0) {
       return keysChanged;
     }
     final int word = column >>> 6;
-    return word < changedColumnWords.length
-        && (changedColumnWords[word] & (1L << (column & 63))) != 0L;
+    return word < changedColumnWords.length && (changedColumnWords[word] & (1L << (column & 63))) != 0L;
   }
 
   /**
@@ -899,14 +899,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         columnSegmentId -> getColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, columnSegmentId)));
   }
 
-  byte @Nullable [] getVerifiedColumnSegment(final long rowGroupId,
-      final int columnSegmentId, final byte expectedKind) {
+  byte @Nullable [] getVerifiedColumnSegment(final long rowGroupId, final int columnSegmentId,
+      final byte expectedKind) {
     checkRowGroupId(rowGroupId);
     final byte[] descriptor = getVerifiedRowGroupDescriptor(rowGroupId);
-    return descriptor == null ? null : getVerifiedColumnSegment(rowGroupId, descriptor, columnSegmentId, expectedKind);
+    return descriptor == null
+        ? null
+        : getVerifiedColumnSegment(rowGroupId, descriptor, columnSegmentId, expectedKind);
   }
 
-  /** Read and structurally validate one writer-visible zone-map descriptor without fetching segments. */
+  /**
+   * Read and structurally validate one writer-visible zone-map descriptor without fetching segments.
+   */
   byte @Nullable [] getVerifiedRowGroupDescriptor(final long rowGroupId) {
     checkRowGroupId(rowGroupId);
     final byte[] descriptor = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
@@ -918,8 +922,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /** Resolve one segment against a descriptor the caller already fetched. */
-  byte @Nullable [] getVerifiedColumnSegment(final long rowGroupId, final byte[] descriptor,
-      final int columnSegmentId, final byte expectedKind) {
+  byte @Nullable [] getVerifiedColumnSegment(final long rowGroupId, final byte[] descriptor, final int columnSegmentId,
+      final byte expectedKind) {
     checkRowGroupId(rowGroupId);
     if (descriptor == null) {
       throw new IllegalArgumentException("descriptor is required");
@@ -932,8 +936,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         ? RowGroupDescriptor.inlineColumnSegmentBytesAt(descriptor, entry,
             RowGroupDescriptor.inlineDataOffset(descriptor, entry))
         : getColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, columnSegmentId));
-    ProjectionIndexColumnSegmentCodec.verifyColumnSegment(descriptor, segment,
-        columnSegmentId, expectedKind, entry);
+    ProjectionIndexColumnSegmentCodec.verifyColumnSegment(descriptor, segment, columnSegmentId, expectedKind, entry);
     return segment;
   }
 
@@ -1159,8 +1162,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return;
     }
     if (valueSize != BLOB_MARKER_BYTES) {
-      throw new IllegalStateException("Referenced blob slot " + slotKey + " has marker length " + valueSize
-          + " instead of " + BLOB_MARKER_BYTES);
+      throw new IllegalStateException(
+          "Referenced blob slot " + slotKey + " has marker length " + valueSize + " instead of " + BLOB_MARKER_BYTES);
     }
     capture.offset = resolvedSegmentPageOffset(leaf, slotKey);
     if (capture.offset == Constants.NULL_ID_LONG) {
@@ -1192,9 +1195,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * topology order "can diverge from key order after splits") it collects everything first and
    * resolves positions afterward, so a leaf's segment slot seen before its descriptor is fine.
    * Loud-on-gap and loud-on-orphan both fall out of validating the descriptor key set against the
-   * exact live physical ids named by that order — checked before the committed segment BATCH — and a segment for a
-   * non-existent leaf, or with no matching descriptor entry, throws unambiguously. (An uncommitted
-   * blob is read in-walk, so its page read precedes validation, but still throws just as loudly.)
+   * exact live physical ids named by that order — checked before the committed segment BATCH — and a
+   * segment for a non-existent leaf, or with no matching descriptor entry, throws unambiguously. (An
+   * uncommitted blob is read in-walk, so its page read precedes validation, but still throws just as
+   * loudly.)
    *
    * <p>
    * Serves both committed and uncommitted (writer, this-transaction) reads, like the descriptor
@@ -1203,8 +1207,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * take the coalesced batch — so a same-transaction build-then-query still serves from the store.
    */
   /**
-   * ONE trie range scan over a projection sub-tree, returning the row groups' DESCRIPTOR slots in
-   * the supplied logical order with the physical key set already validated against that order.
+   * ONE trie range scan over a projection sub-tree, returning the row groups' DESCRIPTOR slots in the
+   * supplied logical order with the physical key set already validated against that order.
    *
    * <p>
    * This is the shared front half of every full read. Doing it as a range scan rather than
@@ -1226,8 +1230,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    *        descriptor-tier count cheap
    */
   private static RawBlobSlot[] orderedDescriptorSlots(final StorageEngineReader reader, final int indexNumber,
-      final int rowGroupCount, final int[] physicalOrder,
-      final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
+      final int rowGroupCount, final int[] physicalOrder, final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
     final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
     collectSlotsRange(reader, indexNumber, rowGroupCount, 1, MAX_ROW_GROUPS, descriptors, segmentSlotsOut);
     return drainOrderedDescriptors(descriptors, rowGroupCount, indexNumber, physicalOrder);
@@ -1293,8 +1296,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           // above any rowGroupId<<16). Both are skipped; tombstones are zero-length. The DESCRIPTOR
           // slot (slotKind 0) is a hashed blob; SEGMENT slots (slotKind >= 1) are BARE (discriminator
           // byte).
-          if (valueSize != 0 && slotKey > 0 && rowGroupId != 0
-              && slotKey < ProjectionIndexFences.CHUNK_SLOT_BASE) {
+          if (valueSize != 0 && slotKey > 0 && rowGroupId != 0 && slotKey < ProjectionIndexFences.CHUNK_SLOT_BASE) {
             final int slotKind = (int) (slotKey & 0xFFFF);
             if (slotKind == 0) {
               descriptorSlot =
@@ -1365,8 +1367,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         if (DIAG) {
           System.err.println(describeDescriptorKeySet(descriptors, rowGroupCount));
         }
-        throw new IllegalStateException("segment-slot store names unexpected physical leaf " + slot
-            + " (indexNumber=" + indexNumber + ")");
+        throw new IllegalStateException(
+            "segment-slot store names unexpected physical leaf " + slot + " (indexNumber=" + indexNumber + ")");
       }
       descArr[logicalByPhysical[(int) slot]] = e.getValue();
     }
@@ -1381,8 +1383,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return order;
   }
 
-  private static int[] persistedPhysicalOrder(final StorageEngineReader reader,
-      final int indexNumber, final int rowGroupCount) {
+  private static int[] persistedPhysicalOrder(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount) {
     if (readBlob(reader, indexNumber, ProjectionIndexFences.ORDER_HEADER_SLOT) == null) {
       return identityPhysicalOrder(rowGroupCount);
     }
@@ -1463,8 +1465,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final int indexNumber, final int rowGroupCount, final int[] physicalOrder) {
     final ArrayList<RawBlobSlot> segmentSlots = new ArrayList<>();
     // Phases 1-2 — one walk, then validate descriptors against the explicit live physical order.
-    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, physicalOrder,
-        segmentSlots);
+    final RawBlobSlot[] descArr =
+        orderedDescriptorSlots(reader, indexNumber, rowGroupCount, physicalOrder, segmentSlots);
     return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots, physicalOrder);
   }
 
@@ -1483,8 +1485,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots,
       final int[] physicalOrder) {
-    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots,
-        physicalOrder, null);
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots, physicalOrder, null);
   }
 
   /**
@@ -1516,8 +1517,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // A segment naming a leaf past rowGroupCount is a leaked orphan (rowGroupId is an unsigned >>>16 of
       // a
       // non-zero, sub-CHUNK_SLOT_BASE key, so it is always >= 1). Caught before this segment's I/O.
-      if (s.rowGroupId() >= logicalByPhysical.length
-          || logicalByPhysical[(int) s.rowGroupId()] < 0) {
+      if (s.rowGroupId() >= logicalByPhysical.length || logicalByPhysical[(int) s.rowGroupId()] < 0) {
         throw new IllegalStateException("segment-slot segment slot " + s.slotKey() + " names leaf " + s.rowGroupId()
             + " outside the live physical order (leaked orphan, indexNumber=" + indexNumber + ")");
       }
@@ -1962,8 +1962,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
-      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
-      final int[] physicalOrder) {
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return rowGroupCount == 0
@@ -2015,8 +2014,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
-      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
-      final int[] physicalOrder, final @Nullable ParallelWalkReaders workerReaders) {
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ParallelWalkReaders workerReaders) {
     if (workerReaders != null && PARALLEL_DIRECTORY_WALK && !reader.hasTrxIntentLog()) {
       List<RowGroupDirectory> parallel;
       try {
@@ -2678,8 +2677,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     /** Validate a row group id and turn it into an index into the per-row-group arrays. */
     private int slotOf(final long rowGroupId) {
-      if (rowGroupId < 1 || rowGroupId >= logicalByPhysical.length
-          || logicalByPhysical[(int) rowGroupId] < 0) {
+      if (rowGroupId < 1 || rowGroupId >= logicalByPhysical.length || logicalByPhysical[(int) rowGroupId] < 0) {
         throw new IllegalStateException("segment-slot store names leaf " + rowGroupId + " but metadata declares "
             + rowGroupCount + " live leaves in a different physical order (indexNumber=" + indexNumber + ")");
       }
@@ -2746,8 +2744,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             }
           }
         }
-        out[slot] = new RowGroupDirectory(physicalOrder[slot], descriptors[slot], ids, offsets[slot],
-            inlineBytes[slot]);
+        out[slot] =
+            new RowGroupDirectory(physicalOrder[slot], descriptors[slot], ids, offsets[slot], inlineBytes[slot]);
       }
     }
   }
@@ -3097,7 +3095,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /** Writer-side read of one raw HOT slot (no PIXB framing), for the sparse record locator. */
   byte @Nullable [] getRawSlot(final long slotKey) {
     final byte[] value = readSlotValueForWrite(slotKey);
-    return value == null || value.length == 0 ? null : value;
+    return value == null || value.length == 0
+        ? null
+        : value;
   }
 
   /** Writer-side raw HOT slot put; callers own their compact value format and validation. */
@@ -3150,8 +3150,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /** Reader-side committed read of one raw HOT slot (no blob/segment interpretation). */
-  static byte @Nullable [] readRawSlot(final StorageEngineReader reader, final int indexNumber,
-      final long slotKey) {
+  static byte @Nullable [] readRawSlot(final StorageEngineReader reader, final int indexNumber, final long slotKey) {
     if (slotKey >= 0) {
       throw new IllegalArgumentException("raw sparse-locator slot must be negative: " + slotKey);
     }
@@ -3169,7 +3168,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         byte @Nullable [] value;
         try {
           final int index = leaf.findEntry(keyBuf);
-          value = index < 0 ? null : leaf.getValue(index);
+          value = index < 0
+              ? null
+              : leaf.getValue(index);
         } catch (final RuntimeException failure) {
           if (trieReader.validateCurrentLeaf()) {
             throw failure;
@@ -3179,7 +3180,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         if (!trieReader.validateCurrentLeaf()) {
           continue;
         }
-        return value == null || value.length == 0 ? null : value;
+        return value == null || value.length == 0
+            ? null
+            : value;
       }
       throw HOTTrieReader.stampRetriesExhausted("readRawSlot(slot " + slotKey + ")");
     }
@@ -3504,7 +3507,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         + "): bulk-staged side keys are append-only until foreground publication; abort the transaction instead");
   }
 
-  /** Fail before an owning slot is rewritten when its side reference still belongs to the append batch. */
+  /**
+   * Fail before an owning slot is rewritten when its side reference still belongs to the append
+   * batch.
+   */
   private void rejectPendingSidePageMutation(final long ownerSlotKey, final int columnSegmentId,
       final String operation) {
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);

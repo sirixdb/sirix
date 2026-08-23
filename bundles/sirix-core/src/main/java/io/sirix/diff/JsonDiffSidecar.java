@@ -34,9 +34,8 @@ public final class JsonDiffSidecar {
    * @throws IllegalStateException if strict JSON, identity, integrity, Unicode, or operation schema
    *         validation fails
    */
-  public static JsonObject read(final Path path, final String expectedResource,
-      final int expectedOldRevision, final int expectedNewRevision, final boolean requireDeweyMetadata)
-      throws IOException {
+  public static JsonObject read(final Path path, final String expectedResource, final int expectedOldRevision,
+      final int expectedNewRevision, final boolean requireDeweyMetadata) throws IOException {
     final JsonElement root;
     try (final var bufferedReader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
         final var reader = new JsonReader(bufferedReader)) {
@@ -89,15 +88,13 @@ public final class JsonDiffSidecar {
     }
 
     final boolean valid = switch (entry.getKey()) {
-      case "insert" -> hasNodeKey(payload, "nodeKey")
-          && hasNodeKey(payload, "insertPositionNodeKey")
+      case "insert" -> hasNodeKey(payload, "nodeKey") && hasNodeKey(payload, "insertPositionNodeKey")
           && hasAllowedString(payload, "insertPosition", "asFirstChild", "asRightSibling")
           && hasTypedValue(payload, "data", true);
       case "delete" -> hasNodeKey(payload, "nodeKey");
       case "update" -> hasNodeKey(payload, "nodeKey") && hasValidUpdatePayload(payload);
-      case "replace" -> hasNodeKey(payload, "oldNodeKey")
-          && hasNodeKey(payload, "newNodeKey")
-          && hasTypedValue(payload, "data", true);
+      case "replace" ->
+        hasNodeKey(payload, "oldNodeKey") && hasNodeKey(payload, "newNodeKey") && hasTypedValue(payload, "data", true);
       default -> false;
     };
     if (!valid) {
@@ -108,8 +105,7 @@ public final class JsonDiffSidecar {
   private static boolean hasValidUpdatePayload(final JsonObject payload) {
     final boolean hasName = payload.has("name");
     final boolean hasTypedValue = payload.has("type") || payload.has("value");
-    return (hasName || hasTypedValue)
-        && (!hasName || hasString(payload, "name"))
+    return (hasName || hasTypedValue) && (!hasName || hasString(payload, "name"))
         && (!hasTypedValue || hasTypedValue(payload, "value", false));
   }
 
@@ -146,8 +142,8 @@ public final class JsonDiffSidecar {
     };
   }
 
-  private static boolean hasAllowedString(final JsonObject object, final String name,
-      final String firstAllowed, final String secondAllowed) {
+  private static boolean hasAllowedString(final JsonObject object, final String name, final String firstAllowed,
+      final String secondAllowed) {
     if (!hasString(object, name)) {
       return false;
     }

@@ -145,7 +145,10 @@ public final class ParallelChainFetchTest extends AbstractJsonTest {
       if (i > 0) {
         records.append(',');
       }
-      records.append("{\"age\": ").append(20 + i % 60).append(", \"dept\": \"").append(DEPTS[i % DEPTS.length])
+      records.append("{\"age\": ")
+             .append(20 + i % 60)
+             .append(", \"dept\": \"")
+             .append(DEPTS[i % DEPTS.length])
              .append("\"}");
     }
     records.append(']');

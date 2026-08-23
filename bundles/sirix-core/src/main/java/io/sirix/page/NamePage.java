@@ -84,43 +84,45 @@ public final class NamePage extends AbstractForwardingPage {
   public static final int PROCESSING_INSTRUCTION_REFERENCE_OFFSET = 3;
 
   /**
-   * Offset of reference to the JSON object-KEY dictionary — every object member NAME in the
-   * resource, in one dictionary.
+   * Offset of reference to the JSON object-KEY dictionary — every object member NAME in the resource,
+   * in one dictionary.
    *
-   * <p>One dictionary for all six fused {@code OBJECT_NAMED_*} kinds, and that is not a
-   * simplification: the kind records what a member's VALUE is
-   * ({@code OBJECT_NAMED_STRING} is a member whose value is a string), while what is stored here is
-   * the member's name, which is an object key whatever the value turns out to be. {@code setName}
-   * writes all six here and {@code getName}/{@code getRawName} read all six back from here, so a
-   * member that changes value type keeps its name key.
+   * <p>
+   * One dictionary for all six fused {@code OBJECT_NAMED_*} kinds, and that is not a simplification:
+   * the kind records what a member's VALUE is ({@code OBJECT_NAMED_STRING} is a member whose value is
+   * a string), while what is stored here is the member's name, which is an object key whatever the
+   * value turns out to be. {@code setName} writes all six here and {@code getName}/{@code getRawName}
+   * read all six back from here, so a member that changes value type keeps its name key.
    *
-   * <p>Shares offset 0 with {@link #ATTRIBUTES_REFERENCE_OFFSET}: a resource is either JSON or XML,
-   * so within one resource the offset denotes exactly one dictionary.
+   * <p>
+   * Shares offset 0 with {@link #ATTRIBUTES_REFERENCE_OFFSET}: a resource is either JSON or XML, so
+   * within one resource the offset denotes exactly one dictionary.
    */
   public static final int JSON_OBJECT_KEY_REFERENCE_OFFSET = 0;
 
   /**
    * Offset of reference to the FSST symbol-table tree in a JSON resource.
    *
-   * <p>Symbol tables are strings-about-strings, and they need exactly what this page already
-   * provides: a copy-on-write versioned sub-trie whose entries are individual records. Putting
-   * them here rather than behind a new {@link io.sirix.index.IndexType} and a new
-   * {@link RevisionRootPage} slot matters — the revision root's reference count is the on-disk
-   * contract, with no per-page count written alongside it, so growing it is a wire-format change.
-   * A new offset inside this page is not: the delegate promotes itself from
-   * {@link ReferencesPage4} to {@link BitmapReferencesPage} on demand, and a slot that is never
-   * written costs a resource nothing.
+   * <p>
+   * Symbol tables are strings-about-strings, and they need exactly what this page already provides: a
+   * copy-on-write versioned sub-trie whose entries are individual records. Putting them here rather
+   * than behind a new {@link io.sirix.index.IndexType} and a new {@link RevisionRootPage} slot
+   * matters — the revision root's reference count is the on-disk contract, with no per-page count
+   * written alongside it, so growing it is a wire-format change. A new offset inside this page is
+   * not: the delegate promotes itself from {@link ReferencesPage4} to {@link BitmapReferencesPage} on
+   * demand, and a slot that is never written costs a resource nothing.
    *
-   * <p><b>Why the offset differs by database type.</b> The offsets are per-type namespaces already
-   * — {@link #JSON_OBJECT_KEY_REFERENCE_OFFSET} and {@link #ATTRIBUTES_REFERENCE_OFFSET} are both
-   * 0, because a resource is either JSON or XML and never both. That is not merely tidy here, it
-   * is required: this page's bookkeeping maps are serialized <em>positionally</em> (a count,
-   * followed by one value per offset from 0 upwards), so the offsets in use must form a gapless
-   * run. A JSON resource occupies only offset 0, so its symbol tables go at 1; an XML resource
-   * occupies 0-3, so its symbol tables go at 4. Picking one constant for both would leave a JSON
-   * resource holding {0, 4} and the serializer would write offsets 0 and 1 — losing the symbol
-   * tables' bookkeeping and making every stored table unreachable after a reload.
-   * {@code PageKind.NAMEPAGE} now rejects a gapped map outright rather than writing it.
+   * <p>
+   * <b>Why the offset differs by database type.</b> The offsets are per-type namespaces already —
+   * {@link #JSON_OBJECT_KEY_REFERENCE_OFFSET} and {@link #ATTRIBUTES_REFERENCE_OFFSET} are both 0,
+   * because a resource is either JSON or XML and never both. That is not merely tidy here, it is
+   * required: this page's bookkeeping maps are serialized <em>positionally</em> (a count, followed by
+   * one value per offset from 0 upwards), so the offsets in use must form a gapless run. A JSON
+   * resource occupies only offset 0, so its symbol tables go at 1; an XML resource occupies 0-3, so
+   * its symbol tables go at 4. Picking one constant for both would leave a JSON resource holding {0,
+   * 4} and the serializer would write offsets 0 and 1 — losing the symbol tables' bookkeeping and
+   * making every stored table unreachable after a reload. {@code PageKind.NAMEPAGE} now rejects a
+   * gapped map outright rather than writing it.
    */
   public static final int JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET = 1;
 
@@ -144,24 +146,27 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Offset of reference to the global projection VALUE dictionary in a JSON resource — the
-   * sub-trie holding {@code id -> value} records and their forward directory for every
-   * high-cardinality string column of every projection index on the resource.
+   * Offset of reference to the global projection VALUE dictionary in a JSON resource — the sub-trie
+   * holding {@code id -> value} records and their forward directory for every high-cardinality string
+   * column of every projection index on the resource.
    *
-   * <p>Third use of the extension pattern {@link #JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET}
-   * documents, and for the same reason: what is stored is copy-on-write versioned state made of
-   * individual records, which is precisely what this page's sub-tries are. Row cells in a
-   * projection's row groups refer to values by id, so an id must keep meaning the same thing in
-   * every revision that can still be read — which CoW gives for free and a side blob does not.
+   * <p>
+   * Third use of the extension pattern {@link #JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET} documents,
+   * and for the same reason: what is stored is copy-on-write versioned state made of individual
+   * records, which is precisely what this page's sub-tries are. Row cells in a projection's row
+   * groups refer to values by id, so an id must keep meaning the same thing in every revision that
+   * can still be read — which CoW gives for free and a side blob does not.
    *
-   * <p><b>One sub-trie, not one per column.</b> The offsets are a scarce, wire-format-adjacent
-   * resource that must form a gapless run per database type, and a projection's column set is not
-   * known at bootstrap and grows with every index definition — so one offset per column is not
-   * merely wasteful, it is unimplementable. The node-key space inside the single sub-trie is
-   * partitioned into per-column namespaces instead; see
-   * {@code io.sirix.index.projection.GlobalValueDictionary} for the key layout.
+   * <p>
+   * <b>One sub-trie, not one per column.</b> The offsets are a scarce, wire-format-adjacent resource
+   * that must form a gapless run per database type, and a projection's column set is not known at
+   * bootstrap and grows with every index definition — so one offset per column is not merely
+   * wasteful, it is unimplementable. The node-key space inside the single sub-trie is partitioned
+   * into per-column namespaces instead; see {@code io.sirix.index.projection.GlobalValueDictionary}
+   * for the key layout.
    *
-   * <p>JSON occupies {0, 1}, so this is 2.
+   * <p>
+   * JSON occupies {0, 1}, so this is 2.
    */
   public static final int JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET = 2;
 
@@ -170,7 +175,8 @@ public final class NamePage extends AbstractForwardingPage {
    * name dictionaries and the symbol-table tree. See
    * {@link #JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET}.
    *
-   * <p>Defined for symmetry and to keep the per-type offset run coherent. Projection indexes are
+   * <p>
+   * Defined for symmetry and to keep the per-type offset run coherent. Projection indexes are
    * declared over JSON resources only today, so nothing writes here.
    */
   public static final int XML_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET = 5;
@@ -194,21 +200,24 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * The dictionary offset a node kind's names live at, or {@link #NO_DICTIONARY}.
    *
-   * <p>Exists because a caller outside this page needs the offset to build a
+   * <p>
+   * Exists because a caller outside this page needs the offset to build a
    * {@link io.sirix.cache.NamesCacheKey} without first resolving a {@code NamePage} — which is the
    * whole point, since resolving one costs a page read.
    *
-   * <p>It answers {@link #NO_DICTIONARY} rather than throwing for everything else, and that is
+   * <p>
+   * It answers {@link #NO_DICTIONARY} rather than throwing for everything else, and that is
    * load-bearing rather than defensive: {@link #getName} answers some kinds WITHOUT consulting any
    * dictionary at all ({@code ARRAY} and {@code OBJECT} yield the synthetic {@code __array__} /
-   * {@code __object__} literals the path summary uses), and {@link #getRawName} does not accept
-   * those kinds at all. So the three are deliberately not the same set, and a caller using this to
-   * take a shortcut must fall back to {@code getName}/{@code getRawName} whenever the answer is
-   * {@code NO_DICTIONARY} — which keeps this page the authority for every kind it does not name
-   * here, and makes a future kind added there but forgotten here merely slow, never wrong.
+   * {@code __object__} literals the path summary uses), and {@link #getRawName} does not accept those
+   * kinds at all. So the three are deliberately not the same set, and a caller using this to take a
+   * shortcut must fall back to {@code getName}/{@code getRawName} whenever the answer is
+   * {@code NO_DICTIONARY} — which keeps this page the authority for every kind it does not name here,
+   * and makes a future kind added there but forgotten here merely slow, never wrong.
    *
-   * <p>Note that {@code ATTRIBUTES} and {@code JSON_OBJECT_KEY} share offset 0: a resource is either
-   * XML or JSON, so within one resource the offset denotes exactly one dictionary.
+   * <p>
+   * Note that {@code ATTRIBUTES} and {@code JSON_OBJECT_KEY} share offset 0: a resource is either XML
+   * or JSON, so within one resource the offset denotes exactly one dictionary.
    *
    * @param nodeKind the kind whose names are wanted
    * @return the dictionary offset, or {@link #NO_DICTIONARY}
@@ -223,8 +232,9 @@ public final class NamePage extends AbstractForwardingPage {
       // All six fused kinds, one dictionary: the kind says what the member's VALUE is, while what
       // is stored is the member's NAME, which is an object key regardless. Mirrors setName and
       // getName/getRawName, which write and read all six through jsonObjectKeys.
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> JSON_OBJECT_KEY_REFERENCE_OFFSET;
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL ->
+        JSON_OBJECT_KEY_REFERENCE_OFFSET;
       default -> NO_DICTIONARY;
     };
   }
@@ -271,8 +281,8 @@ public final class NamePage extends AbstractForwardingPage {
   private final Int2LongMap maxNodeKeys;
 
   /**
-   * Maximum HOT page keys per index number. Used by HOTTrieWriter for persistent page key
-   * allocation across transactions.
+   * Maximum HOT page keys per index number. Used by HOTTrieWriter for persistent page key allocation
+   * across transactions.
    */
   private final Int2LongMap maxHotPageKeys;
 
@@ -334,16 +344,18 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
-   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
-   * mutations to a child reference cannot bleed back into the historical revision's view through
-   * cache aliasing. Bookkeeping maps are duplicated.
+   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}: the
+   * underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so mutations
+   * to a child reference cannot bleed back into the historical revision's view through cache
+   * aliasing. Bookkeeping maps are duplicated.
    *
-   * <p>Eager-loads any {@link Names} dictionary that is currently {@code null} on {@code other}
-   * before sharing — without this, a subsequent lazy-load via either side creates an independent
-   * instance that diverges from its sibling, and writes via the deep-copy never become visible to
-   * the cached page (and vice-versa). Pass a non-null {@code storageEngineReader} to enable the
-   * eager-load; pass {@code null} only when neither side will be queried before commit.</p>
+   * <p>
+   * Eager-loads any {@link Names} dictionary that is currently {@code null} on {@code other} before
+   * sharing — without this, a subsequent lazy-load via either side creates an independent instance
+   * that diverges from its sibling, and writes via the deep-copy never become visible to the cached
+   * page (and vice-versa). Pass a non-null {@code storageEngineReader} to enable the eager-load; pass
+   * {@code null} only when neither side will be queried before commit.
+   * </p>
    */
   public NamePage(final NamePage other, final StorageEngineReader storageEngineReader) {
     final Page otherDelegate = other.delegate;
@@ -367,8 +379,8 @@ public final class NamePage extends AbstractForwardingPage {
     }
     this.numberOfArrays = other.numberOfArrays;
     if (storageEngineReader != null
-        && storageEngineReader.getResourceSession().getResourceConfig().indexBackendType
-            == io.sirix.access.IndexBackendType.HOT) {
+        && storageEngineReader.getResourceSession()
+                              .getResourceConfig().indexBackendType == io.sirix.access.IndexBackendType.HOT) {
       // Eager-load any null dictionary on the source so the shared reference is non-null on both
       // sides; subsequent lazy-loads short-circuit since the field is already populated.
       //
@@ -404,11 +416,11 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Convenience copy constructor that doesn't pre-load Names dictionaries. Use only when the
-   * caller can guarantee Names won't be queried via either side.
+   * Convenience copy constructor that doesn't pre-load Names dictionaries. Use only when the caller
+   * can guarantee Names won't be queried via either side.
    *
-   * @deprecated prefer {@link #NamePage(NamePage, StorageEngineReader)} so Names dictionaries
-   *             stay in sync between cached and CoW'd pages.
+   * @deprecated prefer {@link #NamePage(NamePage, StorageEngineReader)} so Names dictionaries stay in
+   *             sync between cached and CoW'd pages.
    */
   @Deprecated
   public NamePage(final NamePage other) {
@@ -450,8 +462,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         rawName = processingInstructions.getRawName(key);
       }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -471,14 +483,15 @@ public final class NamePage extends AbstractForwardingPage {
     }
 
     final Cache<NamesCacheKey, Names> namesCache = storageEngineReader.getBufferManager().getNamesCache();
-    final NamesCacheKey namesCacheKey =
-        new NamesCacheKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber(), offset);
-    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys)));
+    final NamesCacheKey namesCacheKey = new NamesCacheKey(storageEngineReader.getDatabaseId(),
+        storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber(), offset);
+    return namesCache.get(namesCacheKey,
+        (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey, liveKeys)));
   }
 
   /**
-   * Set the deserialized live entry node-key set for a dictionary offset (called during
-   * NamePage deserialization). Package-private: only the page deserializer populates this.
+   * Set the deserialized live entry node-key set for a dictionary offset (called during NamePage
+   * deserialization). Package-private: only the page deserializer populates this.
    *
    * @param offset the dictionary offset
    * @param bitmap the persisted live entry node-keys
@@ -500,17 +513,24 @@ public final class NamePage extends AbstractForwardingPage {
   public Roaring64Bitmap getLiveEntryNodeKeysToSerialize(final int offset) {
     final Roaring64Bitmap derived = switch (offset) {
       case JSON_OBJECT_KEY_REFERENCE_OFFSET -> orLiveKeys(jsonObjectKeys, attributes);
-      case ELEMENTS_REFERENCE_OFFSET -> elements == null ? null : elements.liveEntryNodeKeys();
-      case NAMESPACE_REFERENCE_OFFSET -> namespaces == null ? null : namespaces.liveEntryNodeKeys();
-      case PROCESSING_INSTRUCTION_REFERENCE_OFFSET ->
-          processingInstructions == null ? null : processingInstructions.liveEntryNodeKeys();
+      case ELEMENTS_REFERENCE_OFFSET -> elements == null
+          ? null
+          : elements.liveEntryNodeKeys();
+      case NAMESPACE_REFERENCE_OFFSET -> namespaces == null
+          ? null
+          : namespaces.liveEntryNodeKeys();
+      case PROCESSING_INSTRUCTION_REFERENCE_OFFSET -> processingInstructions == null
+          ? null
+          : processingInstructions.liveEntryNodeKeys();
       default -> null;
     };
     if (derived != null) {
       return derived; // a loaded dictionary is authoritative for this revision, even if now empty
     }
     final Roaring64Bitmap carried = liveEntryNodeKeys.get(offset);
-    return carried != null ? carried : new Roaring64Bitmap();
+    return carried != null
+        ? carried
+        : new Roaring64Bitmap();
   }
 
   private static Roaring64Bitmap orLiveKeys(final Names a, final Names b) {
@@ -559,8 +579,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         yield processingInstructions.getName(key);
       }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -604,8 +624,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         yield processingInstructions.getCount(key);
       }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -650,8 +670,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         return processingInstructions.setName(name, storageEngineReader);
       }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -697,8 +717,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         return processingInstructions.keyForName(name);
       }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -717,10 +737,11 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Read the FSST symbol table with the given id.
    *
-   * <p>Fetched one record at a time rather than materialised as a whole dictionary the way names
-   * are. Names are looked up by key thousands of times per page and are worth holding in a map;
-   * symbol tables are looked up once per page and there are a handful per resource, so paying for
-   * the whole trie to answer one question would be backwards.
+   * <p>
+   * Fetched one record at a time rather than materialised as a whole dictionary the way names are.
+   * Names are looked up by key thousands of times per page and are worth holding in a map; symbol
+   * tables are looked up once per page and there are a handful per resource, so paying for the whole
+   * trie to answer one question would be backwards.
    *
    * @param id the dictionary id, which is the record's node key
    * @param databaseType the database type, which fixes the dictionary offset
@@ -734,14 +755,13 @@ public final class NamePage extends AbstractForwardingPage {
     if (id <= 0) {
       throw new IllegalArgumentException("symbol table id must be positive, got " + id);
     }
-    final var record =
-        storageEngineReader.getRecord(id, IndexType.NAME, fsstSymbolTableOffset(databaseType));
+    final var record = storageEngineReader.getRecord(id, IndexType.NAME, fsstSymbolTableOffset(databaseType));
     if (record == null) {
       return null;
     }
     if (!(record instanceof FsstSymbolTableNode symbolTable)) {
-      throw new IllegalStateException("record " + id + " in the FSST symbol-table tree is a "
-          + record.getKind() + ", not a symbol table");
+      throw new IllegalStateException(
+          "record " + id + " in the FSST symbol-table tree is a " + record.getKind() + ", not a symbol table");
     }
     return symbolTable.getTable();
   }
@@ -749,14 +769,15 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Append a new FSST symbol table and return the id pages should refer to it by.
    *
-   * <p>Always appends. Overwriting an existing table would be the natural way to "update the
-   * dictionary", and it would silently corrupt every page in every earlier revision that still
-   * points at the old one — the compressed bytes on those pages are only meaningful against the
-   * exact table they were encoded with. Copy-on-write keeps the old record reachable from the old
-   * revision root; a new id keeps the new one from displacing it.
+   * <p>
+   * Always appends. Overwriting an existing table would be the natural way to "update the
+   * dictionary", and it would silently corrupt every page in every earlier revision that still points
+   * at the old one — the compressed bytes on those pages are only meaningful against the exact table
+   * they were encoded with. Copy-on-write keeps the old record reachable from the old revision root;
+   * a new id keeps the new one from displacing it.
    *
-   * @param table the serialized symbol table; must not be empty, since "no compression" is
-   *        expressed by pages omitting the reference rather than by an empty table
+   * @param table the serialized symbol table; must not be empty, since "no compression" is expressed
+   *        by pages omitting the reference rather than by an empty table
    * @param databaseType the database type, needed to root the sub-trie on first use
    * @param storageEngineWriter the writer for the revision being built
    * @param log the transaction intent log of the revision being built
@@ -770,8 +791,7 @@ public final class NamePage extends AbstractForwardingPage {
     Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
     Objects.requireNonNull(log, "log must not be null");
     if (table.length == 0) {
-      throw new IllegalArgumentException(
-          "refusing to store an empty symbol table; pages omit the reference instead");
+      throw new IllegalArgumentException("refusing to store an empty symbol table; pages omit the reference instead");
     }
     final int offset = fsstSymbolTableOffset(databaseType);
     // Idempotent — it inspects the reference and returns early once the tree exists. Resources
@@ -793,12 +813,13 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Read one record of the global projection value dictionary.
    *
-   * <p>Fetched one record at a time rather than materialised as a whole dictionary the way names
-   * are, and that is the point of the structure: a high-cardinality column holds millions of
-   * values, so the {@link Names}-style "load the map, answer from memory" shape is exactly the
-   * behaviour that has to be avoided (it is the name-dictionary blow-up in a new place). Records
-   * are buffer-managed pages, so a repeated lookup costs a cache hit and a cold one costs the page
-   * holding the wanted id and nothing else.
+   * <p>
+   * Fetched one record at a time rather than materialised as a whole dictionary the way names are,
+   * and that is the point of the structure: a high-cardinality column holds millions of values, so
+   * the {@link Names}-style "load the map, answer from memory" shape is exactly the behaviour that
+   * has to be avoided (it is the name-dictionary blow-up in a new place). Records are buffer-managed
+   * pages, so a repeated lookup costs a cache hit and a cold one costs the page holding the wanted id
+   * and nothing else.
    *
    * @param nodeKey the record's node key, produced by the caller's namespace key layout
    * @param databaseType the database type, which fixes the dictionary offset
@@ -806,8 +827,8 @@ public final class NamePage extends AbstractForwardingPage {
    * @return the record, or {@code null} if no record with that key exists in this revision
    * @throws IllegalArgumentException if {@code nodeKey} is not positive
    */
-  public @Nullable DataRecord getProjectionValueDictionaryRecord(final long nodeKey,
-      final DatabaseType databaseType, final StorageEngineReader storageEngineReader) {
+  public @Nullable DataRecord getProjectionValueDictionaryRecord(final long nodeKey, final DatabaseType databaseType,
+      final StorageEngineReader storageEngineReader) {
     if (nodeKey <= 0) {
       throw new IllegalArgumentException("value dictionary node key must be positive, got " + nodeKey);
     }
@@ -817,11 +838,12 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Store one record of the global projection value dictionary under the key it carries.
    *
-   * <p>Uses {@code persistRecord} rather than {@code createRecord} for the same reason
+   * <p>
+   * Uses {@code persistRecord} rather than {@code createRecord} for the same reason
    * {@link #setFsstSymbolTable} does: the caller chooses the key (it encodes the namespace and the
    * id), and only {@code persistRecord} derives the target record page from the record's own key.
-   * {@code createRecord} would allocate a different key from this page's counter and file the
-   * record on a page its own key does not address.
+   * {@code createRecord} would allocate a different key from this page's counter and file the record
+   * on a page its own key does not address.
    *
    * @param record the record to store, carrying its own node key
    * @param databaseType the database type, needed to root the sub-trie on first use
@@ -842,14 +864,15 @@ public final class NamePage extends AbstractForwardingPage {
    * Root the value-dictionary sub-trie, and the offsets below it that would otherwise leave a gap.
    * Idempotent.
    *
-   * <p>The second half is what makes this more than a one-liner. This page's bookkeeping is
-   * serialized positionally, so the offsets in use must be exactly {@code 0..n-1} — see
-   * {@link #getDictionaryOffsetCount()}, which throws rather than write a gapped map. The FSST
-   * offset immediately below this one is only registered when a resource actually stores a symbol
-   * table, so a resource that never enabled FSST holds {0} and creating this tree alone would leave
-   * it holding {0, 2}: not a wrong answer later, but a hard failure at the next commit. Rooting the
-   * symbol-table tree first costs one empty page on a resource that will never use it, and is the
-   * only way the run stays gapless without the caller having to know any of this.
+   * <p>
+   * The second half is what makes this more than a one-liner. This page's bookkeeping is serialized
+   * positionally, so the offsets in use must be exactly {@code 0..n-1} — see
+   * {@link #getDictionaryOffsetCount()}, which throws rather than write a gapped map. The FSST offset
+   * immediately below this one is only registered when a resource actually stores a symbol table, so
+   * a resource that never enabled FSST holds {0} and creating this tree alone would leave it holding
+   * {0, 2}: not a wrong answer later, but a hard failure at the next commit. Rooting the symbol-table
+   * tree first costs one empty page on a resource that will never use it, and is the only way the run
+   * stays gapless without the caller having to know any of this.
    *
    * @param databaseType the database type, which fixes the offsets
    * @param storageEngineWriter the writer for the revision being built
@@ -862,8 +885,8 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * Whether the global projection value dictionary sub-trie exists in this revision. A reader uses
-   * it to skip the probe entirely on a resource that has none.
+   * Whether the global projection value dictionary sub-trie exists in this revision. A reader uses it
+   * to skip the probe entirely on a resource that has none.
    *
    * @param databaseType the database type, which fixes the dictionary offset
    * @return whether the sub-trie was ever rooted
@@ -879,9 +902,9 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
-   * The id of the most recently stored FSST symbol table, or {@code 0} when none was ever
-   * stored. This is the single place that knows how ids relate to the dictionary's key counter
-   * — every reuse and insert-time path resolves "the latest table" through it.
+   * The id of the most recently stored FSST symbol table, or {@code 0} when none was ever stored.
+   * This is the single place that knows how ids relate to the dictionary's key counter — every reuse
+   * and insert-time path resolves "the latest table" through it.
    *
    * @param databaseType the database type, which fixes the dictionary offset
    * @return the latest table id, or {@code 0} for none
@@ -893,12 +916,13 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * The dictionary offsets this page currently holds bookkeeping for, as a gapless count.
    *
-   * <p>The page's three bookkeeping maps and its live-key bitmaps are all written positionally —
-   * a count, then one entry per offset from 0 upwards — so the offsets in use must be exactly
+   * <p>
+   * The page's three bookkeeping maps and its live-key bitmaps are all written positionally — a
+   * count, then one entry per offset from 0 upwards — so the offsets in use must be exactly
    * {@code 0..n-1}. That has always held because the offsets are allocated at bootstrap in a
-   * contiguous block per database type, but nothing enforced it, and a gap does not fail: the
-   * writer emits the wrong count, fabricates a zero for the missing offset, and drops the highest
-   * one. The result is a resource that reloads with a dictionary silently truncated to nothing.
+   * contiguous block per database type, but nothing enforced it, and a gap does not fail: the writer
+   * emits the wrong count, fabricates a zero for the missing offset, and drops the highest one. The
+   * result is a resource that reloads with a dictionary silently truncated to nothing.
    *
    * @return the number of offsets, i.e. one past the highest offset in use
    * @throws IllegalStateException if the offsets in use have a gap
@@ -943,11 +967,11 @@ public final class NamePage extends AbstractForwardingPage {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("elements", elements)
-                      .add("attributes", attributes)
-                      .add("URIs", namespaces)
-                      .add("PIs", processingInstructions)
-                      .toString();
+                         .add("elements", elements)
+                         .add("attributes", attributes)
+                         .add("URIs", namespaces)
+                         .add("PIs", processingInstructions)
+                         .toString();
   }
 
   /**
@@ -982,8 +1006,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         processingInstructions.removeName(key, storageEngineReader);
       }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
-           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -1093,20 +1117,22 @@ public final class NamePage extends AbstractForwardingPage {
    * Reserve a contiguous run of node keys in the global projection value dictionary's sub-trie and
    * return the first of them.
    *
-   * <p><b>Why a run, and why it has to be contiguous and monotonic.</b> The indirect-page trie a
+   * <p>
+   * <b>Why a run, and why it has to be contiguous and monotonic.</b> The indirect-page trie a
    * sub-trie is built from grows a level only when the page key being prepared is exactly the
    * power-of-two boundary of the current height ({@code KeyedTrieWriter#prepareLeafOfTree}). That
-   * makes dense, monotonically allocated keys not a convention but a requirement: a key space with
-   * a stride jumps past every boundary without ever triggering growth, and the traversal then
-   * resolves every page key to the root reference — so records at wildly different keys silently
-   * land on one page and overwrite each other. Allocating from this counter is the only way to get
-   * keys the trie can address, which is why the dictionary records where its run starts instead of
-   * computing its keys from a namespace.
+   * makes dense, monotonically allocated keys not a convention but a requirement: a key space with a
+   * stride jumps past every boundary without ever triggering growth, and the traversal then resolves
+   * every page key to the root reference — so records at wildly different keys silently land on one
+   * page and overwrite each other. Allocating from this counter is the only way to get keys the trie
+   * can address, which is why the dictionary records where its run starts instead of computing its
+   * keys from a namespace.
    *
-   * <p>Never reset. A rebuild reserves a fresh run rather than reusing the old one, which leaves
-   * the previous run's records in the trie unreferenced by any live dictionary — the same
-   * append-only, never-reclaimed treatment {@link #setFsstSymbolTable} gives symbol tables, and for
-   * the same reason: an earlier revision may still be reading them.
+   * <p>
+   * Never reset. A rebuild reserves a fresh run rather than reusing the old one, which leaves the
+   * previous run's records in the trie unreferenced by any live dictionary — the same append-only,
+   * never-reclaimed treatment {@link #setFsstSymbolTable} gives symbol tables, and for the same
+   * reason: an earlier revision may still be reading them.
    *
    * @param count how many keys to reserve
    * @return the first key of the run

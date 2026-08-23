@@ -52,8 +52,8 @@ public final class HftRuntimeEvidence {
     }
     final String classpath = System.getProperty("java.class.path", "");
     try {
-      final Path mainLocation = Path.of(mainClass.getProtectionDomain().getCodeSource().getLocation().toURI())
-          .toAbsolutePath().normalize();
+      final Path mainLocation =
+          Path.of(mainClass.getProtectionDomain().getCodeSource().getLocation().toURI()).toAbsolutePath().normalize();
       boolean mainLocationPresent = false;
       for (final String rawEntry : classpath.split(java.util.regex.Pattern.quote(File.pathSeparator), -1)) {
         if (!rawEntry.isBlank() && Path.of(rawEntry).toAbsolutePath().normalize().equals(mainLocation)) {
@@ -113,18 +113,22 @@ public final class HftRuntimeEvidence {
   private static byte[] hashDirectoryEntry(final Path directory) throws IOException, NoSuchAlgorithmException {
     final List<Path> files;
     try (var walk = Files.walk(directory)) {
-      files = walk.filter(Files::isRegularFile)
-          .filter(path -> !directory.relativize(path).toString().replace(File.separatorChar, '/')
-              .equals(BUILD_IDENTITY_RESOURCE))
-          .sorted(Comparator.comparing(path -> directory.relativize(path).toString().replace(File.separatorChar, '/')))
-          .toList();
+      files =
+          walk.filter(Files::isRegularFile)
+              .filter(path -> !directory.relativize(path)
+                                        .toString()
+                                        .replace(File.separatorChar, '/')
+                                        .equals(BUILD_IDENTITY_RESOURCE))
+              .sorted(
+                  Comparator.comparing(path -> directory.relativize(path).toString().replace(File.separatorChar, '/')))
+              .toList();
     }
     final MessageDigest digest = MessageDigest.getInstance("SHA-256");
     digest.update((byte) 'D');
     digest.update((byte) 0);
     for (final Path file : files) {
-      final byte[] name = directory.relativize(file).toString().replace(File.separatorChar, '/')
-          .getBytes(StandardCharsets.UTF_8);
+      final byte[] name =
+          directory.relativize(file).toString().replace(File.separatorChar, '/').getBytes(StandardCharsets.UTF_8);
       updateLong(digest, name.length);
       digest.update(name);
       updateLong(digest, Files.size(file));
@@ -158,13 +162,13 @@ public final class HftRuntimeEvidence {
     }
     final EmbeddedBuild embedded = embeddedBuild(mainClass);
     if (!embedded.clean() || !embedded.gitSha().equals(expected)) {
-      throw new IllegalStateException("embedded HFT build commit " + embedded.gitSha()
-          + " is not a clean build of " + expected);
+      throw new IllegalStateException(
+          "embedded HFT build commit " + embedded.gitSha() + " is not a clean build of " + expected);
     }
     final String actual = gitOutput("rev-parse", "HEAD");
     if (!actual.matches("[0-9a-f]{40}") || !actual.equals(embedded.gitSha())) {
-      throw new IllegalStateException("HFT worktree commit " + actual + " does not match embedded build "
-          + embedded.gitSha());
+      throw new IllegalStateException(
+          "HFT worktree commit " + actual + " does not match embedded build " + embedded.gitSha());
     }
     if (!gitOutput("status", "--porcelain", "--untracked-files=normal").isEmpty()) {
       throw new IllegalStateException("HFT evidence requires a clean tracked worktree");
@@ -199,8 +203,8 @@ public final class HftRuntimeEvidence {
     }
     try {
       return Path.of(mainClass.getProtectionDomain().getCodeSource().getLocation().toURI())
-          .toAbsolutePath()
-          .normalize();
+                 .toAbsolutePath()
+                 .normalize();
     } catch (final URISyntaxException error) {
       throw new IllegalStateException("Cannot resolve executable main-class location", error);
     }
@@ -209,7 +213,9 @@ public final class HftRuntimeEvidence {
   private static InputStream buildIdentitySource(final Path codeSource) throws IOException {
     if (Files.isDirectory(codeSource)) {
       final Path identity = codeSource.resolve(BUILD_IDENTITY_RESOURCE);
-      return Files.isRegularFile(identity) ? Files.newInputStream(identity) : null;
+      return Files.isRegularFile(identity)
+          ? Files.newInputStream(identity)
+          : null;
     }
     if (!Files.isRegularFile(codeSource)) {
       throw new IllegalStateException("executable main-class CodeSource is unreadable: " + codeSource);
@@ -287,8 +293,12 @@ public final class HftRuntimeEvidence {
         continue;
       }
       final String[] fields = argument.substring("-Xlog:".length()).split(":", -1);
-      final String selectors = fields[0].isBlank() ? "all=info" : fields[0];
-      final String output = fields.length < 2 || fields[1].isBlank() ? "stdout" : fields[1];
+      final String selectors = fields[0].isBlank()
+          ? "all=info"
+          : fields[0];
+      final String output = fields.length < 2 || fields[1].isBlank()
+          ? "stdout"
+          : fields[1];
       if (!"stdout".equals(output)) {
         continue;
       }
@@ -297,7 +307,9 @@ public final class HftRuntimeEvidence {
         final String[] parts = rawSelector.split("=", 2);
         final String selector = parts[0];
         if (selectorCoversTag(selector, tag)) {
-          final String level = parts.length == 1 ? "info" : parts[1].toLowerCase(java.util.Locale.ROOT);
+          final String level = parts.length == 1
+              ? "info"
+              : parts[1].toLowerCase(java.util.Locale.ROOT);
           optionEnabled = "info".equals(level) || "debug".equals(level) || "trace".equals(level);
         }
       }

@@ -520,11 +520,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Insert or resolve a path node below an explicitly known path-summary parent.
    *
-   * <p>This is the cursor-independent twin of {@link #getPathNodeKey(QNm, NodeKind)}. Insert callers
+   * <p>
+   * This is the cursor-independent twin of {@link #getPathNodeKey(QNm, NodeKind)}. Insert callers
    * that already know the structural parent's path node key must not move the document cursor to the
    * parent merely so this writer can discover the same key again. The path-summary cursor is still
    * positioned on the explicit parent before a miss is inserted, preserving the ordinary method's
-   * lookup, reference-count, and insertion semantics.</p>
+   * lookup, reference-count, and insertion semantics.
+   * </p>
    *
    * @param parentPathNodeKey path node key of the new entry's parent; {@code 0} is the document root
    * @param name the name of the path node to search for

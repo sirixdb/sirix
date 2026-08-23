@@ -49,16 +49,16 @@ final class SirixVectorizedExecutorLifecycleTest {
   @Test
   void genericThreadSafeProxyConstructionDoesNotReadMetadataEagerly() {
     final AtomicInteger metadataReads = new AtomicInteger();
-    final JsonNodeReadOnlyTrx owner = (JsonNodeReadOnlyTrx) Proxy.newProxyInstance(
-        JsonNodeReadOnlyTrx.class.getClassLoader(), new Class<?>[] {JsonNodeReadOnlyTrx.class},
-        (proxy, method, args) -> {
-          if (method.getName().equals("getResourceSession") || method.getName().equals("getRevisionNumber")
-              || method.getName().equals("getRevisionTimestamp") || method.getName().equals("getMaxNodeKey")
-              || method.getName().equals("getId")) {
-            metadataReads.incrementAndGet();
-          }
-          return defaultValue(method.getReturnType());
-        });
+    final JsonNodeReadOnlyTrx owner =
+        (JsonNodeReadOnlyTrx) Proxy.newProxyInstance(JsonNodeReadOnlyTrx.class.getClassLoader(),
+            new Class<?>[] {JsonNodeReadOnlyTrx.class}, (proxy, method, args) -> {
+              if (method.getName().equals("getResourceSession") || method.getName().equals("getRevisionNumber")
+                  || method.getName().equals("getRevisionTimestamp") || method.getName().equals("getMaxNodeKey")
+                  || method.getName().equals("getId")) {
+                metadataReads.incrementAndGet();
+              }
+              return defaultValue(method.getReturnType());
+            });
 
     new ThreadSafeJsonReadOnlyTrx(owner);
 
@@ -125,17 +125,17 @@ final class SirixVectorizedExecutorLifecycleTest {
    * The warm-up lane reads through the resource's striped {@code FileChannel}s, which the storage
    * lends to every reader of that resource at once. {@code FileChannel} is an
    * {@code InterruptibleChannel}: interrupting a thread blocked in one of its operations closes the
-   * channel — not just for that thread, but for every other borrower of the same stripe. While
-   * close used {@code shutdownNow()}, a per-query executor closing over a running segment sweep
-   * therefore took down an unrelated concurrent parallel scan with a bare
-   * {@code ClosedChannelException}: ClickBench query 20 failed that way in 2 of 8 full sweeps.
+   * channel — not just for that thread, but for every other borrower of the same stripe. While close
+   * used {@code shutdownNow()}, a per-query executor closing over a running segment sweep therefore
+   * took down an unrelated concurrent parallel scan with a bare {@code ClosedChannelException}:
+   * ClickBench query 20 failed that way in 2 of 8 full sweeps.
    * </p>
    *
    * <p>
-   * The job below waits for close to publish the shutdown and then sleeps, so an interrupt issued
-   * by close lands inside a call that reports it. A queued-but-unstarted job is a different case
-   * and stays cancellable — {@link #closeCancelsQueuedWarmupsWithoutInterruptingTheRunningOne}
-   * pins that half.
+   * The job below waits for close to publish the shutdown and then sleeps, so an interrupt issued by
+   * close lands inside a call that reports it. A queued-but-unstarted job is a different case and
+   * stays cancellable — {@link #closeCancelsQueuedWarmupsWithoutInterruptingTheRunningOne} pins that
+   * half.
    * </p>
    */
   @Test
@@ -221,8 +221,7 @@ final class SirixVectorizedExecutorLifecycleTest {
 
     assertFalse(queuedRan.get(), "a queued warm-up must not run after close");
     assertTrue(queuedCancelled.get(),
-        "a queued warm-up must receive its cancellation hook, or the one-shot latch it guards is "
-            + "never released");
+        "a queued warm-up must receive its cancellation hook, or the one-shot latch it guards is " + "never released");
   }
 
   @Test
@@ -330,10 +329,8 @@ final class SirixVectorizedExecutorLifecycleTest {
 
   @Test
   void sharedTerminalFenceDrainsTopLevelWorkOnAnAlreadyRetiredExecutor() throws Exception {
-    final SirixVectorizedExecutor.ExecutionLifecycle lifecycle =
-        new SirixVectorizedExecutor.ExecutionLifecycle();
-    final SirixVectorizedExecutor retired =
-        new SirixVectorizedExecutor(unusedSessionStub(), 1, 1, lifecycle);
+    final SirixVectorizedExecutor.ExecutionLifecycle lifecycle = new SirixVectorizedExecutor.ExecutionLifecycle();
+    final SirixVectorizedExecutor retired = new SirixVectorizedExecutor(unusedSessionStub(), 1, 1, lifecycle);
     retired.retire();
     final CountDownLatch entered = new CountDownLatch(1);
     final CountDownLatch release = new CountDownLatch(1);
@@ -385,11 +382,10 @@ final class SirixVectorizedExecutorLifecycleTest {
   @Test
   void revisionAdvancesKeepScanAndLazyResultTransactionsBounded() {
     final TrackingSession tracking = new TrackingSession();
-    final SirixVectorizedExecutor.ExecutionLifecycle lifecycle =
-        new SirixVectorizedExecutor.ExecutionLifecycle();
-    final JsonDBCollection collection = (JsonDBCollection) Proxy.newProxyInstance(
-        JsonDBCollection.class.getClassLoader(), new Class<?>[] {JsonDBCollection.class},
-        (proxy, method, args) -> defaultValue(method.getReturnType()));
+    final SirixVectorizedExecutor.ExecutionLifecycle lifecycle = new SirixVectorizedExecutor.ExecutionLifecycle();
+    final JsonDBCollection collection =
+        (JsonDBCollection) Proxy.newProxyInstance(JsonDBCollection.class.getClassLoader(),
+            new Class<?>[] {JsonDBCollection.class}, (proxy, method, args) -> defaultValue(method.getReturnType()));
     final List<SirixVectorizedExecutor> executors = new ArrayList<>();
     final List<JsonDBObject> oldResults = new ArrayList<>();
 
@@ -403,7 +399,9 @@ final class SirixVectorizedExecutorLifecycleTest {
         // This is the ordinary aggregate/scan cursor route. Each fixed worker keeps one cursor for
         // executor-local reuse; retirement must release those four slots in one bounded step.
         executor.parallel(4, lane -> assertEquals(1_000L + boundRevision, executor.workerTrx().getNodeKey()));
-        final int scanAndPriorConsumerCursors = revision == 1 ? 4 : 5;
+        final int scanAndPriorConsumerCursors = revision == 1
+            ? 4
+            : 5;
         assertEquals(scanAndPriorConsumerCursors, tracking.active.get(),
             "one cursor per live worker plus the revision-rebindable consumer cursor is expected");
 
@@ -467,22 +465,22 @@ final class SirixVectorizedExecutorLifecycleTest {
             }
           }
 
-          final AbstractResourceSession<?, ?> trackedSession =
-              assertInstanceOf(AbstractResourceSession.class, session);
-          final SirixVectorizedExecutor.ExecutionLifecycle lifecycle =
-              new SirixVectorizedExecutor.ExecutionLifecycle();
-          final JsonDBCollection collection = (JsonDBCollection) Proxy.newProxyInstance(
-              JsonDBCollection.class.getClassLoader(), new Class<?>[] {JsonDBCollection.class},
-              (proxy, method, args) -> defaultValue(method.getReturnType()));
+          final AbstractResourceSession<?, ?> trackedSession = assertInstanceOf(AbstractResourceSession.class, session);
+          final SirixVectorizedExecutor.ExecutionLifecycle lifecycle = new SirixVectorizedExecutor.ExecutionLifecycle();
+          final JsonDBCollection collection =
+              (JsonDBCollection) Proxy.newProxyInstance(JsonDBCollection.class.getClassLoader(),
+                  new Class<?>[] {JsonDBCollection.class},
+                  (proxy, method, args) -> defaultValue(method.getReturnType()));
           final List<SirixVectorizedExecutor> executors = new ArrayList<>();
           final List<JsonDBObject> results = new ArrayList<>();
           try {
             for (int revision = 1; revision <= 12; revision++) {
-              final SirixVectorizedExecutor executor =
-                  new SirixVectorizedExecutor(session, revision, 2, lifecycle);
+              final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2, lifecycle);
               executors.add(executor);
               executor.parallel(2, lane -> assertTrue(executor.workerTrx().moveToDocumentRoot()));
-              final int scanAndPriorConsumerCursors = revision == 1 ? 2 : 3;
+              final int scanAndPriorConsumerCursors = revision == 1
+                  ? 2
+                  : 3;
               assertEquals(scanAndPriorConsumerCursors, trackedSession.activeTrxCount(),
                   "fixed workers retain one reusable cursor until this revision executor retires");
 
@@ -599,8 +597,8 @@ final class SirixVectorizedExecutorLifecycleTest {
     return (ExecutorService) field.get(executor);
   }
 
-  private static SirixVectorizedExecutor.ExecutionLifecycle executionLifecycle(
-      final SirixVectorizedExecutor executor) throws Exception {
+  private static SirixVectorizedExecutor.ExecutionLifecycle executionLifecycle(final SirixVectorizedExecutor executor)
+      throws Exception {
     final Field field = SirixVectorizedExecutor.class.getDeclaredField("executionLifecycle");
     field.setAccessible(true);
     return (SirixVectorizedExecutor.ExecutionLifecycle) field.get(executor);
@@ -666,8 +664,9 @@ final class SirixVectorizedExecutorLifecycleTest {
     private final AtomicInteger maximum = new AtomicInteger();
     private final AtomicInteger nextId = new AtomicInteger();
     private final AtomicInteger sharedLookups = new AtomicInteger();
-    private final JsonResourceSession session = (JsonResourceSession) Proxy.newProxyInstance(
-        JsonResourceSession.class.getClassLoader(), new Class<?>[] {JsonResourceSession.class}, this::invokeSession);
+    private final JsonResourceSession session =
+        (JsonResourceSession) Proxy.newProxyInstance(JsonResourceSession.class.getClassLoader(),
+            new Class<?>[] {JsonResourceSession.class}, this::invokeSession);
 
     private Object invokeSession(final Object proxy, final Method method, final Object[] args) {
       return switch (method.getName()) {

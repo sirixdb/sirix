@@ -26,9 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Seeding the sequence near the wrap reproduces in a few hundred iterations what would otherwise
  * take a hundred million records, and asserts the two properties the persisted lane depends on:
- * every label is strictly greater than its predecessor as a {@link SirixDeweyID}, and stays strictly
- * greater under {@link ProjectionIndexRowGroupPage#compareOrderLabels}, which is how the lane
- * actually orders them.
+ * every label is strictly greater than its predecessor as a {@link SirixDeweyID}, and stays
+ * strictly greater under {@link ProjectionIndexRowGroupPage#compareOrderLabels}, which is how the
+ * lane actually orders them.
  */
 final class ProjectionIndexBuilderOrderLabelSequenceTest {
 
@@ -37,7 +37,7 @@ final class ProjectionIndexBuilderOrderLabelSequenceTest {
   @Test
   void theBuildSequenceStaysStrictlyIncreasingAcrossTheIntegerDivisionWrap() {
     // One step short of the wrap: the next few appends must carry rather than go negative.
-    SirixDeweyID previous = new SirixDeweyID(new int[] { 1, Integer.MAX_VALUE - 8 });
+    SirixDeweyID previous = new SirixDeweyID(new int[] {1, Integer.MAX_VALUE - 8});
     byte[] previousBytes = previous.toBytes();
 
     for (int append = 0; append < APPENDS; append++) {
@@ -50,9 +50,8 @@ final class ProjectionIndexBuilderOrderLabelSequenceTest {
       }
 
       final byte[] nextBytes = next.toBytes();
-      assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(previousBytes, 0, previousBytes.length,
-          nextBytes, 0, nextBytes.length) < 0,
-          "append " + append + " did not advance the PERSISTED order label encoding");
+      assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(previousBytes, 0, previousBytes.length, nextBytes, 0,
+          nextBytes.length) < 0, "append " + append + " did not advance the PERSISTED order label encoding");
 
       // The directory persists these labels through putLocalLabel, which rejects anything whose
       // level is not 1, and re-reads them through a byte round-trip that RECOMPUTES that level from
@@ -83,8 +82,7 @@ final class ProjectionIndexBuilderOrderLabelSequenceTest {
           "append " + append + " left an interior division that cannot be descended through: " + label);
     }
     final int last = divisions[divisions.length - 1];
-    assertTrue(last >= 3 && (last & 1) == 1,
-        "append " + append + " did not end on an odd division: " + label);
+    assertTrue(last >= 3 && (last & 1) == 1, "append " + append + " did not end on an odd division: " + label);
   }
 
   @Test
@@ -94,7 +92,7 @@ final class ProjectionIndexBuilderOrderLabelSequenceTest {
     assertTrue(first.compareTo(second) < 0, "the build sequence must advance from its first label");
     final byte[] firstBytes = first.toBytes();
     final byte[] secondBytes = second.toBytes();
-    assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(firstBytes, 0, firstBytes.length,
-        secondBytes, 0, secondBytes.length) < 0);
+    assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(firstBytes, 0, firstBytes.length, secondBytes, 0,
+        secondBytes.length) < 0);
   }
 }

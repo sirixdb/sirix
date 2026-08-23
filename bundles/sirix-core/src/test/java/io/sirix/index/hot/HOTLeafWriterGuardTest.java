@@ -124,8 +124,9 @@ class HOTLeafWriterGuardTest {
     try {
       final Future<?> eviction = executor.submit(cache::evictUnderPressure);
       assertTrue(evictionObservedZero.await(5, TimeUnit.SECONDS));
-      final Future<PageContainer> copy = executor.submit(() -> new HOTTrieWriter().prepareKeyedLeafForModification(
-          storageEngineWriter, log, reference, new byte[] {2}, IndexType.PATH, 0));
+      final Future<PageContainer> copy =
+          executor.submit(() -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference,
+              new byte[] {2}, IndexType.PATH, 0));
       assertTrue(writerAcquiredGuard.await(5, TimeUnit.SECONDS));
       allowEviction.countDown();
 
@@ -164,10 +165,8 @@ class HOTLeafWriterGuardTest {
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
     when(storageEngineWriter.getLog()).thenReturn(log);
     attachCache(storageEngineWriter, cache);
-    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(ResourceConfiguration
-        .newBuilder("hot-writer-guard")
-        .versioningApproach(VersioningType.FULL)
-        .build());
+    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
+        ResourceConfiguration.newBuilder("hot-writer-guard").versioningApproach(VersioningType.FULL).build());
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
 
     assertSame(modified, invokeCow(writer, reference, source.page()));
@@ -191,9 +190,8 @@ class HOTLeafWriterGuardTest {
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
 
     final HOTTrieWriter writer = new HOTTrieWriter();
-    assertThrows(OutOfMemoryError.class,
-        () -> writer.prepareKeyedLeafForModification(storageEngineWriter, log, reference,
-            new byte[] {4}, IndexType.PATH, 0));
+    assertThrows(OutOfMemoryError.class, () -> writer.prepareKeyedLeafForModification(storageEngineWriter, log,
+        reference, new byte[] {4}, IndexType.PATH, 0));
 
     assertEquals(0, source.guards().get());
     assertTrue(source.orphaned().get());
@@ -220,8 +218,8 @@ class HOTLeafWriterGuardTest {
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
 
     final AssertionError thrown = assertThrows(AssertionError.class,
-        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference,
-            new byte[] {41}, IndexType.PATH, 0));
+        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {41},
+            IndexType.PATH, 0));
 
     assertSame(copyFailure, thrown);
     assertEquals(1, thrown.getSuppressed().length);
@@ -247,10 +245,8 @@ class HOTLeafWriterGuardTest {
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
     when(storageEngineWriter.getLog()).thenReturn(log);
     attachCache(storageEngineWriter, cache);
-    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(ResourceConfiguration
-        .newBuilder("hot-writer-release-failure")
-        .versioningApproach(VersioningType.FULL)
-        .build());
+    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
+        ResourceConfiguration.newBuilder("hot-writer-release-failure").versioningApproach(VersioningType.FULL).build());
 
     final AssertionError thrown = assertThrows(AssertionError.class,
         () -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, source.page()));
@@ -280,8 +276,8 @@ class HOTLeafWriterGuardTest {
 
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
     assertThrows(IllegalStateException.class,
-        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference,
-            new byte[] {5}, IndexType.PATH, 0));
+        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {5},
+            IndexType.PATH, 0));
 
     assertTrue(source.closed().get(), "the detached complete page has no owner after failed publication");
     assertTrue(modified.closed().get(), "the detached modified page has no owner after failed publication");
@@ -310,8 +306,8 @@ class HOTLeafWriterGuardTest {
 
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
     assertThrows(IllegalStateException.class,
-        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference,
-            new byte[] {7}, IndexType.PATH, 0));
+        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {7},
+            IndexType.PATH, 0));
 
     assertSame(source.page(), published.get().getComplete());
     assertSame(modified.page(), published.get().getModified());
@@ -424,8 +420,8 @@ class HOTLeafWriterGuardTest {
   private static HOTLeafPage invokeCow(final TestIndexWriter writer, final PageReference reference,
       final HOTLeafPage source) {
     try {
-      final Method method = AbstractHOTIndexWriter.class
-          .getDeclaredMethod("cowHOTLeafForModification", PageReference.class, HOTLeafPage.class);
+      final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod("cowHOTLeafForModification",
+          PageReference.class, HOTLeafPage.class);
       method.setAccessible(true);
       return (HOTLeafPage) method.invoke(writer, reference, source);
     } catch (final InvocationTargetException invocationFailure) {

@@ -24,8 +24,7 @@ public final class JsonNumberTest {
     String s = Double.toString(f);
     Number n = JsonNumber.stringToNumber(s);
 
-    assertTrue("float-range exponent literal is now kept as a faithful Double, not a lossy Float",
-        n instanceof Double);
+    assertTrue("float-range exponent literal is now kept as a faithful Double, not a lossy Float", n instanceof Double);
   }
 
   @Test
@@ -84,23 +83,11 @@ public final class JsonNumberTest {
 
   @Test
   public void jacksonParserPathMatchesStringParserExactly() throws IOException {
-    final String[] literals = {
-        "0",
-        "-1",
-        Integer.toString(Integer.MIN_VALUE),
-        Integer.toString(Integer.MAX_VALUE),
-        Long.toString(Long.MIN_VALUE),
-        Long.toString(Long.MAX_VALUE),
+    final String[] literals = {"0", "-1", Integer.toString(Integer.MIN_VALUE), Integer.toString(Integer.MAX_VALUE),
+        Long.toString(Long.MIN_VALUE), Long.toString(Long.MAX_VALUE),
         BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE).toString(),
-        BigInteger.valueOf(Long.MIN_VALUE).subtract(BigInteger.ONE).toString(),
-        "1.0",
-        "-0.0000000000000000000000001",
-        "6.022e23",
-        "2.2e-308",
-        "-5e-324",
-        "1e309",
-        "1.234567890123456789e42"
-    };
+        BigInteger.valueOf(Long.MIN_VALUE).subtract(BigInteger.ONE).toString(), "1.0", "-0.0000000000000000000000001",
+        "6.022e23", "2.2e-308", "-5e-324", "1e309", "1.234567890123456789e42"};
 
     final JsonFactory factory = new JsonFactory();
     for (final String literal : literals) {

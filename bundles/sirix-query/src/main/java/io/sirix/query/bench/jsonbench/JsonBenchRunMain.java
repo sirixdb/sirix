@@ -58,9 +58,9 @@ import java.util.Set;
  * for every try: the executor memoizes aggregate and group-by results by (source path, predicate),
  * and a memo hit would report a hash lookup as the hot runtime. The store, its page caches and the
  * OS page cache stay shared across tries, which is what a hot run is supposed to measure. Pass
- * {@code --reuse-executor} to measure the memoized behaviour instead.
- * {@code run-benchmark.sh} invokes this runner once per query attempt with {@code --tries 1}, so its
- * published protocol uses a fresh process for the cold attempt and every hot attempt.
+ * {@code --reuse-executor} to measure the memoized behaviour instead. {@code run-benchmark.sh}
+ * invokes this runner once per query attempt with {@code --tries 1}, so its published protocol uses
+ * a fresh process for the cold attempt and every hot attempt.
  *
  * <p>
  * {@code --dump DIR} writes each query's result to {@code DIR/qN.jsonl}, one JSON array per result
@@ -160,15 +160,15 @@ public final class JsonBenchRunMain {
   /**
    * Catalog discovery and segment readahead performed inside the first query's measured window.
    *
-   * <p>A published benchmark requires a usable covering projection. Diagnostic runs may explicitly
-   * allow the generic pipeline with {@code --allow-missing-projection}.
+   * <p>
+   * A published benchmark requires a usable covering projection. Diagnostic runs may explicitly allow
+   * the generic pipeline with {@code --allow-missing-projection}.
    */
-  static void warmCatalog(final JsonResourceSession session, final int revision,
-      final boolean allowMissingProjection) {
+  static void warmCatalog(final JsonResourceSession session, final int revision, final boolean allowMissingProjection) {
     final long t0 = System.nanoTime();
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-        session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
-        REQUIRED_PROJECTION_FIELDS);
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
+            new String[] {"[]"}, REQUIRED_PROJECTION_FIELDS);
     final long tLookup = System.nanoTime();
     requireUsableProjection(handle, allowMissingProjection);
     if (handle != null && handle.columnStoreOrNull() != null) {

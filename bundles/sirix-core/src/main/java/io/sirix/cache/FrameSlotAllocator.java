@@ -119,10 +119,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static final int VERSION_CHUNK_SIZE = 1 << VERSION_CHUNK_SHIFT;
   private static final int VERSION_CHUNK_MASK = VERSION_CHUNK_SIZE - 1;
   private static final int MAX_RECYCLED_SCAN_PASSES = 4;
-  private static final VarHandle SCOPE_CHUNK =
-      MethodHandles.arrayElementVarHandle(MemorySegment.Scope[][].class);
-  private static final VarHandle SCOPE_ENTRY =
-      MethodHandles.arrayElementVarHandle(MemorySegment.Scope[].class);
+  private static final VarHandle SCOPE_CHUNK = MethodHandles.arrayElementVarHandle(MemorySegment.Scope[][].class);
+  private static final VarHandle SCOPE_ENTRY = MethodHandles.arrayElementVarHandle(MemorySegment.Scope[].class);
   private static final VarHandle VERSION_ENTRY = MethodHandles.arrayElementVarHandle(long[].class);
 
   // ===== Size classes (must match LinuxMemorySegmentAllocator.SEGMENT_SIZES) =
@@ -144,17 +142,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Fixed, eagerly materialized chunks for per-slot optimistic versions.
    *
    * <p>
-   * A single {@code AtomicLongArray} for the one-million-slot classes has an 8 MiB backing array.
-   * G1 therefore retains it as multiple humongous regions for the allocator's entire lifetime. A
-   * chunk contains at most 32,768 longs (256 KiB of payload), safely below even the 512 KiB
-   * humongous threshold of G1's smallest 1 MiB region size. Eager construction is deliberate: it
-   * keeps allocation, release, and optimistic reads allocation-free, including the first access to
-   * a new slot range.
+   * A single {@code AtomicLongArray} for the one-million-slot classes has an 8 MiB backing array. G1
+   * therefore retains it as multiple humongous regions for the allocator's entire lifetime. A chunk
+   * contains at most 32,768 longs (256 KiB of payload), safely below even the 512 KiB humongous
+   * threshold of G1's smallest 1 MiB region size. Eager construction is deliberate: it keeps
+   * allocation, release, and optimistic reads allocation-free, including the first access to a new
+   * slot range.
    *
    * <p>
    * The VarHandle access modes exactly mirror the former {@link AtomicLongArray}: {@link #get(int)}
-   * is volatile, reader snapshots use acquire, ownership publications use release, and release
-   * claims use a full atomic compare-and-set.
+   * is volatile, reader snapshots use acquire, ownership publications use release, and release claims
+   * use a full atomic compare-and-set.
    */
   static final class ChunkedAtomicLongArray {
     private final long[][] chunks;
@@ -165,7 +163,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         throw new IllegalArgumentException("length must be non-negative: " + length);
       }
       this.length = length;
-      final int chunkCount = length == 0 ? 0 : ((length - 1) >>> VERSION_CHUNK_SHIFT) + 1;
+      final int chunkCount = length == 0
+          ? 0
+          : ((length - 1) >>> VERSION_CHUNK_SHIFT) + 1;
       this.chunks = new long[chunkCount][];
       for (int chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
         final int remaining = length - (chunkIndex << VERSION_CHUNK_SHIFT);
@@ -218,16 +218,16 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * <p>
    * Slot-index allocation strategy: fresh slots are handed out lazily via {@link #nextFreshIndex};
-   * recycled slots are represented by one bit in {@link #recycledSlots}. The allocator always tries
-   * a recycled slot first, biased toward {@link #recycleHint}, so stable-address recycling dominates
+   * recycled slots are represented by one bit in {@link #recycledSlots}. The allocator always tries a
+   * recycled slot first, biased toward {@link #recycleHint}, so stable-address recycling dominates
    * once the cache is warm. The bit set is both bounded and allocation-free: unlike a linked stack,
    * it has neither boxed indices nor per-release nodes, and a FREE-to-OWNED CAS has no linked-head
    * ABA state to stamp.
    *
    * <p>
    * Interface allocations publish their allocation-era identity in {@link #liveScopes}. The outer
-   * table is fixed at initialization, while 4,096-slot reference chunks are materialized only when
-   * an interface allocation first reaches that range. Thus unused virtual capacity does not pin a
+   * table is fixed at initialization, while 4,096-slot reference chunks are materialized only when an
+   * interface allocation first reaches that range. Thus unused virtual capacity does not pin a
    * multi-million-entry reference array, and warmed allocation/release performs no metadata
    * allocation.
    */
@@ -269,10 +269,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private volatile long budgetBytes;
 
   /**
-   * Physical/touchable capacity retained by committed frame slots plus live oversized arenas.
-   * A frame slot remains committed across recycle cycles, so its bytes leave this counter only when
-   * the whole size-class region is released at shutdown. This is the counter constrained by the
-   * global budget and exposed through {@link #getPhysicalMemoryBytes()}.
+   * Physical/touchable capacity retained by committed frame slots plus live oversized arenas. A frame
+   * slot remains committed across recycle cycles, so its bytes leave this counter only when the whole
+   * size-class region is released at shutdown. This is the counter constrained by the global budget
+   * and exposed through {@link #getPhysicalMemoryBytes()}.
    */
   private final AtomicLong committedBytes = new AtomicLong();
 
@@ -326,7 +326,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     poisonOnRelease = poison;
   }
 
-  /** Number of live interface-issued slots, maintained for diagnostics without scanning scope chunks. */
+  /**
+   * Number of live interface-issued slots, maintained for diagnostics without scanning scope chunks.
+   */
   private final AtomicInteger issuedSlotCount = new AtomicInteger();
 
   /**
@@ -625,8 +627,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         if (!reserveCommittedBytes(size)) {
           firePressure();
           if (!reserveCommittedBytes(size)) {
-            throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size
-                + " bytes exceeds the " + budgetBytes + "-byte physical budget");
+            throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size + " bytes exceeds the "
+                + budgetBytes + "-byte physical budget");
           }
         }
         Arena arena = null;
@@ -706,11 +708,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     final long ownedVersion = c.slotVersion.getAcquire(slotIdx);
     try {
       final Arena scopeArena = Arena.ofShared();
-      final MemorySegment segment = c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize)
-          .reinterpret(c.slotSize, scopeArena, null);
+      final MemorySegment segment =
+          c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize).reinterpret(c.slotSize, scopeArena, null);
       if (!publishScope(c, slotIdx, segment.scope())) {
-        throw new IllegalStateException("slot " + slotIdx + " in size class " + classIdx
-            + " retained a live allocation scope while marked free");
+        throw new IllegalStateException(
+            "slot " + slotIdx + " in size class " + classIdx + " retained a live allocation scope while marked free");
       }
       issuedSlotCount.incrementAndGet();
       return segment;
@@ -790,8 +792,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       // The exact current scope was claimed, so this can only indicate internal metadata corruption.
       // Restore ownership instead of leaking the live slot behind a null identity entry.
       if (!publishExistingScope(c, slotIdx, allocationScope)) {
-        throw new IllegalStateException("unable to restore allocation scope after failed slot release for class "
-            + classIdx + ", slot " + slotIdx);
+        throw new IllegalStateException(
+            "unable to restore allocation scope after failed slot release for class " + classIdx + ", slot " + slotIdx);
       }
       LOGGER.warn("Rejected stale release of address {} ({} bytes): the segment belongs to a prior "
           + "allocation era of this slot (double-release detected).", address, segment.byteSize());
@@ -814,8 +816,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /**
    * Dumps per-class allocator state when an allocation saturates — live slot count, total lifetime
-   * allocates/releases, live interface scopes, and committed/active-byte accounting. Emitted
-   * to stderr so it lands even when logback config swallows WARN. Diagnostic tool for cases where the
+   * allocates/releases, live interface scopes, and committed/active-byte accounting. Emitted to
+   * stderr so it lands even when logback config swallows WARN. Diagnostic tool for cases where the
    * pool appears exhausted but the cache should have evicted.
    */
   private void dumpStateForOOM(final int failedClass, final long failedSize, final long waitedNanos) {
@@ -928,7 +930,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       c.recycleScanCursor.setRelease(claimedWord);
       return;
     }
-    final int nextWord = claimedWord + 1 == c.recycledSlots.length() ? 0 : claimedWord + 1;
+    final int nextWord = claimedWord + 1 == c.recycledSlots.length()
+        ? 0
+        : claimedWord + 1;
     c.recycleScanCursor.setRelease(nextWord);
   }
 
@@ -1008,8 +1012,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     return true;
   }
 
-  private static boolean publishScope(final SizeClass c, final int slotIdx,
-      final MemorySegment.Scope allocationScope) {
+  private static boolean publishScope(final SizeClass c, final int slotIdx, final MemorySegment.Scope allocationScope) {
     final int chunkIndex = slotIdx >>> SCOPE_CHUNK_SHIFT;
     MemorySegment.Scope[] chunk = (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, chunkIndex);
     if (chunk == null) {
@@ -1030,12 +1033,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     return chunk != null && SCOPE_ENTRY.compareAndSet(chunk, slotIdx & SCOPE_CHUNK_MASK, null, allocationScope);
   }
 
-  private static boolean clearScope(final SizeClass c, final int slotIdx,
-      final MemorySegment.Scope allocationScope) {
+  private static boolean clearScope(final SizeClass c, final int slotIdx, final MemorySegment.Scope allocationScope) {
     final MemorySegment.Scope[] chunk =
         (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, slotIdx >>> SCOPE_CHUNK_SHIFT);
-    return chunk != null
-        && SCOPE_ENTRY.compareAndSet(chunk, slotIdx & SCOPE_CHUNK_MASK, allocationScope, null);
+    return chunk != null && SCOPE_ENTRY.compareAndSet(chunk, slotIdx & SCOPE_CHUNK_MASK, allocationScope, null);
   }
 
   private static MemorySegment.Scope currentScope(final SizeClass c, final int slotIdx) {
@@ -1062,7 +1063,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     return -1;
   }
 
-  /** Return the exact slot whose first byte is {@code address}; interior and out-of-region addresses fail. */
+  /**
+   * Return the exact slot whose first byte is {@code address}; interior and out-of-region addresses
+   * fail.
+   */
   private static int slotIndexForAddress(final SizeClass c, final long address) {
     final long offset = address - c.baseAddress;
     if (Long.compareUnsigned(offset, c.regionBytes) >= 0 || (offset & (c.slotSize - 1L)) != 0L) {

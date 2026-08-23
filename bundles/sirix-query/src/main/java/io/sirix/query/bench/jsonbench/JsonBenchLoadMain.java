@@ -121,8 +121,7 @@ public final class JsonBenchLoadMain {
         autoCommit, pathSummary, pathStatistics, hashType);
 
     final long start = System.nanoTime();
-    try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, hashType)
-        .build()) {
+    try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, hashType).build()) {
       try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
         if (projection && incrementalProjection) {
           store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader, JsonBenchProjection.spec());
@@ -282,8 +281,8 @@ public final class JsonBenchLoadMain {
    * the projection arm would put Dewey-ID generation and its extra page bytes inside the measured
    * load window and into the reported data size with no counterpart in the ClickHouse arm.
    */
-  static BasicJsonDBStore.Builder newLoadStoreBuilder(final Path dbDir, final int autoCommit,
-      final boolean pathSummary, final boolean pathStatistics, final HashType hashType) {
+  static BasicJsonDBStore.Builder newLoadStoreBuilder(final Path dbDir, final int autoCommit, final boolean pathSummary,
+      final boolean pathStatistics, final HashType hashType) {
     return BasicJsonDBStore.newBuilder()
                            .location(dbDir)
                            .numberOfNodesBeforeAutoCommit(autoCommit)

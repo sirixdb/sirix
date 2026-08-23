@@ -58,9 +58,9 @@ final class FinalCommitEmptyPipelineTest {
   @Test
   @DisplayName("Empty final-commit preparation retains no identity copy and cold-reads the file append")
   void emptyPipelinePreparesInParallelAndEncodesOnlyIntoSynchronousAppendScratch(@TempDir final Path tempDir) {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("final-empty-pipeline")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("final-empty-pipeline").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                 .build();
     config.resourcePath = tempDir.resolve("resource");
 
     final byte[] first = {3, 1, 4, 1, 5, 9};
@@ -69,8 +69,7 @@ final class FinalCommitEmptyPipelineTest {
       second[i] = (byte) (i * 17 + 11);
     }
 
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(41L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage page = new KeyValueLeafPage(41L, IndexType.DOCUMENT, config, 1, null, null, false);
     KeyValueLeafPage coldPage = null;
     final FileChannelStorage storage = new FileChannelStorage(config, Caffeine.newBuilder().buildAsync());
     try {
@@ -87,7 +86,7 @@ final class FinalCommitEmptyPipelineTest {
 
       final PageReference writtenReference = new PageReference();
       try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
-           Writer writer = storage.createWriter()) {
+          Writer writer = storage.createWriter()) {
         writer.write(config, writtenReference, page, appendBuffer);
         writer.flushBufferedWrites(appendBuffer);
         IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);
@@ -118,11 +117,12 @@ final class FinalCommitEmptyPipelineTest {
   @Test
   @DisplayName("A configured handler keeps the parallel final-commit encoded cache")
   void nonEmptyPipelineStillRetainsOwnedParallelCache() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("final-nonempty-pipeline")
-        .byteHandlerPipeline(new ByteHandlerPipeline(new PrefixMemorySegmentHandler()))
-        .build();
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(42L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("final-nonempty-pipeline")
+                                                                    .byteHandlerPipeline(new ByteHandlerPipeline(
+                                                                        new PrefixMemorySegmentHandler()))
+                                                                    .build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(42L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       page.setSlot(new byte[] {2, 7, 1, 8, 2, 8}, 17);
 
@@ -139,16 +139,16 @@ final class FinalCommitEmptyPipelineTest {
   @Test
   @DisplayName("The preparation verdict reports actual cache absence for unresolved overflow")
   void nonEmptyPipelineWithUnresolvedOverflowReportsNoCache() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("final-unresolved-overflow")
-        .byteHandlerPipeline(new ByteHandlerPipeline(new PrefixMemorySegmentHandler()))
-        .build();
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(45L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("final-unresolved-overflow")
+                                                                      .byteHandlerPipeline(new ByteHandlerPipeline(
+                                                                          new PrefixMemorySegmentHandler()))
+                                                                      .build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(45L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       final byte[] value = {8, 6, 7, 5, 3, 0, 9};
       page.setSlot(value, 19);
-      page.getReferencesMap().put((page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT) + 19L,
-          new PageReference());
+      page.getReferencesMap().put((page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT) + 19L, new PageReference());
 
       assertFalse(NodeStorageEngineWriter.prepareFinalCommitKeyValuePage(config, page),
           "the return value must describe actual cache presence, not merely pipeline configuration");
@@ -163,22 +163,19 @@ final class FinalCommitEmptyPipelineTest {
   @Test
   @DisplayName("Default MemorySegment sinks retain identity; synchronous scratch does not")
   void memorySegmentSinkRetentionContractIsExplicit() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("memory-segment-retention")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage retainingPage =
-        new KeyValueLeafPage(43L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage scratchPage =
-        new KeyValueLeafPage(44L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("memory-segment-retention").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                     .build();
+    final KeyValueLeafPage retainingPage = new KeyValueLeafPage(43L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage scratchPage = new KeyValueLeafPage(44L, IndexType.DOCUMENT, config, 1, null, null, false);
     try (MemorySegmentBytesOut retainingSink = new MemorySegmentBytesOut(128 * 1024);
-         MemorySegmentBytesOut synchronousScratch = MemorySegmentBytesOut.synchronousScratch(128 * 1024)) {
+        MemorySegmentBytesOut synchronousScratch = MemorySegmentBytesOut.synchronousScratch(128 * 1024)) {
       retainingPage.setSlot(new byte[] {1, 6, 1, 8}, 3);
       scratchPage.setSlot(new byte[] {0, 3, 3, 9}, 4);
 
       assertTrue(retainingSink.retainsEmptyPipelineIdentityCache());
       PageKind.KEYVALUELEAFPAGE.serializePage(config, retainingSink, retainingPage, SerializationType.DATA);
-      assertNotNull(retainingPage.getCompressedSegment(),
-          "ordinary sinks keep the conservative owned-copy contract");
+      assertNotNull(retainingPage.getCompressedSegment(), "ordinary sinks keep the conservative owned-copy contract");
 
       assertFalse(synchronousScratch.retainsEmptyPipelineIdentityCache());
       PageKind.KEYVALUELEAFPAGE.serializePage(config, synchronousScratch, scratchPage, SerializationType.DATA);
@@ -203,11 +200,11 @@ final class FinalCommitEmptyPipelineTest {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder(resource)
-          .byteHandlerPipeline(new ByteHandlerPipeline())
-          .stringCompressionType(StringCompressionType.NONE)
-          .build()));
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .stringCompressionType(StringCompressionType.NONE)
+                                                              .build()));
       try (JsonResourceSession session = database.beginResourceSession(resource);
-           JsonNodeTrx wtx = session.beginNodeTrx()) {
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         nodeKey = wtx.insertStringValueAsFirstChild(value).getNodeKey();
         wtx.commit();
@@ -219,8 +216,8 @@ final class FinalCommitEmptyPipelineTest {
     // child, installed that disk key in the leaf wire, and then wrote the parent KVL.
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
-         JsonResourceSession session = database.beginResourceSession(resource);
-         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        JsonResourceSession session = database.beginResourceSession(resource);
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveTo(nodeKey));
       assertEquals(value, rtx.getValue());
     } finally {

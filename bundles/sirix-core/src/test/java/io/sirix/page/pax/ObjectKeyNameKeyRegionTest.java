@@ -99,7 +99,7 @@ final class ObjectKeyNameKeyRegionTest {
   @DisplayName("encodeInto retains the exact V1 little-endian wire layout")
   void encodeIntoMatchesFixedWireFixture() {
     final byte[] expected = new byte[141];
-    expected[0] = 2;                 // dictionary size
+    expected[0] = 2; // dictionary size
     expected[1] = 0x04;
     expected[2] = 0x03;
     expected[3] = 0x02;
@@ -108,14 +108,13 @@ final class ObjectKeyNameKeyRegionTest {
     expected[6] = (byte) 0xFF;
     expected[7] = (byte) 0xFF;
     expected[8] = (byte) 0xFF;
-    expected[9] = 2;                 // OBJECT_KEY count, little-endian short
-    expected[11] = 1;                // slot 0
-    expected[19] = 2;                // slot 65: bit 1 of bitmap word 1
-    expected[140] = 1;               // dictionary ids 0, 1
+    expected[9] = 2; // OBJECT_KEY count, little-endian short
+    expected[11] = 1; // slot 0
+    expected[19] = 2; // slot 65: bit 1 of bitmap word 1
+    expected[140] = 1; // dictionary ids 0, 1
     final byte[] reusable = new byte[expected.length];
 
-    final int length = ObjectKeyNameKeyRegion.encodeInto(
-        new int[] {0x01020304, -2}, new int[] {0, 65}, 2, reusable);
+    final int length = ObjectKeyNameKeyRegion.encodeInto(new int[] {0x01020304, -2}, new int[] {0, 65}, 2, reusable);
 
     assertEquals(expected.length, length);
     assertArrayEquals(expected, reusable);
@@ -137,8 +136,7 @@ final class ObjectKeyNameKeyRegionTest {
 
     final byte[] expected = ObjectKeyNameKeyRegion.encode(NAME_KEYS, SLOTS, SLOTS.length);
     assertThrows(IllegalArgumentException.class,
-        () -> ObjectKeyNameKeyRegion.encodeInto(NAME_KEYS, SLOTS, SLOTS.length,
-            new byte[expected.length - 1]));
+        () -> ObjectKeyNameKeyRegion.encodeInto(NAME_KEYS, SLOTS, SLOTS.length, new byte[expected.length - 1]));
     assertThrows(IllegalArgumentException.class,
         () -> ObjectKeyNameKeyRegion.encodeInto(new int[] {7}, new int[] {1024}, 1, reusable));
 

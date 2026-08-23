@@ -48,8 +48,8 @@ public final class ProjectionIndexRowExtractor {
   /**
    * Flattened (pathNodeKey → column) pairs for the declared fields. A field path resolving to
    * MULTIPLE pathNodeKeys (same shape under different roots) contributes one pair per PCR —
-   * {@link #nextFieldMapping(long, long[], int)} matches all of them. A field whose path resolves to nothing contributes no
-   * pair: such records carry only {@code present == false} for that column.
+   * {@link #nextFieldMapping(long, long[], int)} matches all of them. A field whose path resolves to
+   * nothing contributes no pair: such records carry only {@code present == false} for that column.
    *
    * <p>
    * Non-final because an INCREMENTAL (load-time) build resolves them against a path summary that is
@@ -84,8 +84,8 @@ public final class ProjectionIndexRowExtractor {
   private final int[] rowStringUtf8Lengths;
 
   /**
-   * Grow-only caller-owned scalar-string buffers. Kept separate from {@link #rowStringUtf8} because
-   * a custom cursor's public byte API may return node-owned storage that must never be overwritten.
+   * Grow-only caller-owned scalar-string buffers. Kept separate from {@link #rowStringUtf8} because a
+   * custom cursor's public byte API may return node-owned storage that must never be overwritten.
    */
   private final byte[][] rowStringUtf8Scratch;
 
@@ -239,8 +239,8 @@ public final class ProjectionIndexRowExtractor {
       return false;
     }
     if (rtx.getKind() != NodeKind.ELEMENT) {
-      throw new IllegalStateException("XML projection record roots must be elements; node " + recordKey
-          + " has kind " + rtx.getKind());
+      throw new IllegalStateException(
+          "XML projection record roots must be elements; node " + recordKey + " has kind " + rtx.getKind());
     }
     if (!isXmlRecordRoot(rtx.getPathNodeKey())) {
       return false;
@@ -330,17 +330,16 @@ public final class ProjectionIndexRowExtractor {
    *
    * @return {@code false} when {@code leaf} is at capacity (caller opens a fresh leaf and retries)
    */
-  boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey,
-      final boolean orderException, final byte[] orderLabel) {
-    return leaf.appendExtractedUtf8Row(recordKey, rowLongs, rowBools, rowStringUtf8,
-        rowStringUtf8Lengths,
-        stringSetsForAppend(), rowPresent, rowUnrepresentable, rowNonIntegral, rowNonDoubleSource,
-        orderException, orderLabel);
+  boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey, final boolean orderException,
+      final byte[] orderLabel) {
+    return leaf.appendExtractedUtf8Row(recordKey, rowLongs, rowBools, rowStringUtf8, rowStringUtf8Lengths,
+        stringSetsForAppend(), rowPresent, rowUnrepresentable, rowNonIntegral, rowNonDoubleSource, orderException,
+        orderLabel);
   }
 
   /**
    * Append one selected source column to a one-column maintenance page without manufacturing
-   * projection-width value arrays or a trimmed set array.  The row buffers are borrowed only for the
+   * projection-width value arrays or a trimmed set array. The row buffers are borrowed only for the
    * synchronous append; the page copies/interns every value it retains.
    */
   boolean appendColumnTo(final ProjectionIndexRowGroupPage leaf, final long recordKey, final int sourceColumn) {
@@ -353,9 +352,8 @@ public final class ProjectionIndexRowExtractor {
     // classified the logical string column as STRING_DICT. Ordinary maintenance must keep feeding
     // the extractor's UTF-8 cell into that elected STRING_GLOBAL page; requiring byte-identical
     // kinds here rejects every value-only update to such a column.
-    final boolean compatibleGlobalString =
-        sourceKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            && maintenanceKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    final boolean compatibleGlobalString = sourceKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        && maintenanceKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
     if (leaf.getColumnCount() != 1 || (maintenanceKind != sourceKind && !compatibleGlobalString)) {
       throw new IllegalArgumentException("maintenance page kind does not match source column " + sourceColumn);
     }
@@ -395,8 +393,7 @@ public final class ProjectionIndexRowExtractor {
     extractAt(rtx, recordKey, null);
   }
 
-  private void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey,
-      final long[] selectedColumns) {
+  private void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey, final long[] selectedColumns) {
     resetRow(selectedColumns);
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -418,15 +415,15 @@ public final class ProjectionIndexRowExtractor {
           // direct extraction, no synthetic-child navigation. Fused nodes have no children,
           // so there is nothing to descend into.
           final long pathNodeKey = rtx.getPathNodeKey();
-          for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0;
-              mapping = nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
+          for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0; mapping =
+              nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
             final int col = fieldPcrColumns[mapping];
             readFusedValueIntoRow(rtx, kind, col);
           }
         } else if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
           final long pk = rtx.getPathNodeKey();
-          for (int mapping = nextFieldMapping(pk, selectedColumns, 0); mapping >= 0;
-              mapping = nextFieldMapping(pk, selectedColumns, mapping + 1)) {
+          for (int mapping = nextFieldMapping(pk, selectedColumns, 0); mapping >= 0; mapping =
+              nextFieldMapping(pk, selectedColumns, mapping + 1)) {
             final int col = fieldPcrColumns[mapping];
             if (kind == NodeKind.OBJECT_NAMED_ARRAY
                 && columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
@@ -463,8 +460,7 @@ public final class ProjectionIndexRowExtractor {
     extractAt(rtx, recordKey, null);
   }
 
-  private void extractAt(final XmlNodeReadOnlyTrx rtx, final long recordKey,
-      final long[] selectedColumns) {
+  private void extractAt(final XmlNodeReadOnlyTrx rtx, final long recordKey, final long[] selectedColumns) {
     resetRow(selectedColumns);
     workListSize = 0;
     if (!rtx.moveTo(recordKey) || rtx.getKind() != NodeKind.ELEMENT) {
@@ -481,8 +477,8 @@ public final class ProjectionIndexRowExtractor {
         if (kind == NodeKind.ELEMENT) {
           extractXmlAttributes(rtx, current, selectedColumns);
           final long pathNodeKey = rtx.getPathNodeKey();
-          for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0;
-              mapping = nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
+          for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0; mapping =
+              nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
             final int column = fieldPcrColumns[mapping];
             readXmlElementIntoRow(rtx, current, column);
           }
@@ -497,16 +493,15 @@ public final class ProjectionIndexRowExtractor {
     rtx.moveTo(recordKey);
   }
 
-  private void extractXmlAttributes(final XmlNodeReadOnlyTrx rtx, final long elementKey,
-      final long[] selectedColumns) {
+  private void extractXmlAttributes(final XmlNodeReadOnlyTrx rtx, final long elementKey, final long[] selectedColumns) {
     final int attributeCount = rtx.getAttributeCount();
     for (int index = 0; index < attributeCount; index++) {
       if (!rtx.moveToAttribute(index)) {
         throw new IllegalStateException("XML attribute " + index + " disappeared during projection extraction");
       }
       final long pathNodeKey = rtx.getPathNodeKey();
-      for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0;
-          mapping = nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
+      for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0; mapping =
+          nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
         final int column = fieldPcrColumns[mapping];
         readXmlScalarIntoRow(rtx.getValue(), column);
       }
@@ -514,8 +509,7 @@ public final class ProjectionIndexRowExtractor {
     }
   }
 
-  private void readXmlElementIntoRow(final XmlNodeReadOnlyTrx rtx, final long elementKey,
-      final int column) {
+  private void readXmlElementIntoRow(final XmlNodeReadOnlyTrx rtx, final long elementKey, final int column) {
     final boolean setColumn = columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
     if (rowPresent[column] && !setColumn) {
       // XML permits repeated element names and wildcard paths can intentionally match more than
@@ -781,12 +775,11 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
-   * Reads an integral fused-number payload through the internal primitive cursor capability.
-   * Returns {@code false} for non-integral wire kinds and custom cursors, which preserves the
-   * ordinary {@link Number} fallback below.
+   * Reads an integral fused-number payload through the internal primitive cursor capability. Returns
+   * {@code false} for non-integral wire kinds and custom cursors, which preserves the ordinary
+   * {@link Number} fallback below.
    */
-  private boolean readPrimitiveNumberIntoRow(final JsonNodeReadOnlyTrx rtx, final byte columnKind,
-      final int col) {
+  private boolean readPrimitiveNumberIntoRow(final JsonNodeReadOnlyTrx rtx, final byte columnKind, final int col) {
     if (!(rtx instanceof PrimitiveNumberCursor primitiveNumberCursor)) {
       return false;
     }
@@ -839,8 +832,8 @@ public final class ProjectionIndexRowExtractor {
     while (result < FusedStringCursor.UNAVAILABLE) {
       final int required = FusedStringCursor.requiredCapacity(result);
       if (required <= scratch.length) {
-        throw new IllegalStateException("fused string cursor requested capacity " + required
-            + " after receiving a " + scratch.length + "-byte destination");
+        throw new IllegalStateException("fused string cursor requested capacity " + required + " after receiving a "
+            + scratch.length + "-byte destination");
       }
       scratch = Arrays.copyOf(scratch, grownStringCapacity(scratch.length, required));
       rowStringUtf8Scratch[col] = scratch;
@@ -850,8 +843,8 @@ public final class ProjectionIndexRowExtractor {
       return false;
     }
     if (result > scratch.length) {
-      throw new IllegalStateException("fused string cursor reported " + result
-          + " bytes from a " + scratch.length + "-byte destination");
+      throw new IllegalStateException(
+          "fused string cursor reported " + result + " bytes from a " + scratch.length + "-byte destination");
     }
     rowStringUtf8[col] = scratch;
     rowStringUtf8Lengths[col] = result;
@@ -878,9 +871,9 @@ public final class ProjectionIndexRowExtractor {
    */
   private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind, final int col) {
     if (rowPresent[col]) {
-      // A descendant/wildcard field path can resolve more than one scalar below one record.  Scalar
+      // A descendant/wildcard field path can resolve more than one scalar below one record. Scalar
       // projection columns have no sequence/last-wins semantics, so retaining either match would let
-      // an indexed predicate return a wrong answer.  Mirror XML's repeated-scalar discipline and
+      // an indexed predicate return a wrong answer. Mirror XML's repeated-scalar discipline and
       // poison the cell so value consumers fall back to the generic pipeline.
       rowUnrepresentable[col] = true;
       return;
@@ -947,7 +940,9 @@ public final class ProjectionIndexRowExtractor {
           if (!readFusedStringIntoRow(rtx, col)) {
             final byte[] value = rtx.getValueBytes();
             rowStringUtf8[col] = value;
-            rowStringUtf8Lengths[col] = value == null ? 0 : value.length;
+            rowStringUtf8Lengths[col] = value == null
+                ? 0
+                : value.length;
           }
         } else {
           rowUnrepresentable[col] = true;

@@ -256,18 +256,18 @@ public class JsonNodeTrxUpdateTest {
   }
 
   /**
-   * Drives the rev1 → rev2 mutation sequence shared by the diff and update-ops tests. Legacy
-   * keys are shifted by one per fused field encountered before the targeted node:
+   * Drives the rev1 → rev2 mutation sequence shared by the diff and update-ops tests. Legacy keys are
+   * shifted by one per fused field encountered before the targeted node:
    * <ul>
-   *   <li>foo's NULL — legacy 5 → fused 4 (foo: OBJECT_KEY+ARRAY → OBJECT_NAMED_ARRAY).</li>
-   *   <li>foo's STRING "bar" — legacy 4 → fused 3.</li>
-   *   <li>foo's NUMBER 2.33 — legacy 6 → fused 5.</li>
-   *   <li>bar's "hello" field — legacy OBJECT_KEY 9 → fused OBJECT_NAMED_STRING 7
-   *     (bar: OBJECT_KEY+OBJECT → OBJECT_NAMED_OBJECT, then hello: OBJECT_KEY+STRING →
-   *     OBJECT_NAMED_STRING).</li>
-   *   <li>top-level "baz" — legacy OBJECT_KEY 13 → fused OBJECT_NAMED_STRING 9.</li>
-   *   <li>top-level "tada" — legacy OBJECT_KEY 15 → fused OBJECT_NAMED_ARRAY 10.</li>
-   *   <li>"baz" inside tada[1] — legacy BOOLEAN 22 → fused OBJECT_NAMED_BOOLEAN 14.</li>
+   * <li>foo's NULL — legacy 5 → fused 4 (foo: OBJECT_KEY+ARRAY → OBJECT_NAMED_ARRAY).</li>
+   * <li>foo's STRING "bar" — legacy 4 → fused 3.</li>
+   * <li>foo's NUMBER 2.33 — legacy 6 → fused 5.</li>
+   * <li>bar's "hello" field — legacy OBJECT_KEY 9 → fused OBJECT_NAMED_STRING 7 (bar:
+   * OBJECT_KEY+OBJECT → OBJECT_NAMED_OBJECT, then hello: OBJECT_KEY+STRING →
+   * OBJECT_NAMED_STRING).</li>
+   * <li>top-level "baz" — legacy OBJECT_KEY 13 → fused OBJECT_NAMED_STRING 9.</li>
+   * <li>top-level "tada" — legacy OBJECT_KEY 15 → fused OBJECT_NAMED_ARRAY 10.</li>
+   * <li>"baz" inside tada[1] — legacy BOOLEAN 22 → fused OBJECT_NAMED_BOOLEAN 14.</li>
    * </ul>
    */
   private static void mutateForDiffScenario(final JsonNodeTrx wtx) {

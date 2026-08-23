@@ -70,17 +70,18 @@ public final class FileChannelStorage implements IOStorage {
   /**
    * Number of shared reader channel stripes per storage. {@link FileChannelReader} uses positional
    * reads exclusively, which are lock-free in the JDK on POSIX (straight {@code pread(2)}), but on
-   * Windows {@code FileDispatcherImpl.needsPositionLock()} is {@code true} and every positional
-   * read on a channel serializes on that channel's position lock. A single shared channel would
-   * therefore serialize concurrent readers of the same resource on Windows; striping restores
-   * uncontended reads for up to {@code stripes} concurrent readers.
+   * Windows {@code FileDispatcherImpl.needsPositionLock()} is {@code true} and every positional read
+   * on a channel serializes on that channel's position lock. A single shared channel would therefore
+   * serialize concurrent readers of the same resource on Windows; striping restores uncontended reads
+   * for up to {@code stripes} concurrent readers.
    *
-   * <p>The pool is REFERENCE-COUNTED and closes when the last borrowing reader closes: workloads
-   * holding many concurrent read transactions (query evaluation against a long-lived session)
-   * share O(stripes) descriptors instead of the per-reader channels that exhausted the process FD
-   * limit, while workloads with many short-lived sessions/resources drop back to zero descriptors
-   * as soon as their transactions close — holding stripes open for a session's whole lifetime
-   * exhausted the FD limit from the other direction (many idle sessions × stripes).
+   * <p>
+   * The pool is REFERENCE-COUNTED and closes when the last borrowing reader closes: workloads holding
+   * many concurrent read transactions (query evaluation against a long-lived session) share
+   * O(stripes) descriptors instead of the per-reader channels that exhausted the process FD limit,
+   * while workloads with many short-lived sessions/resources drop back to zero descriptors as soon as
+   * their transactions close — holding stripes open for a session's whole lifetime exhausted the FD
+   * limit from the other direction (many idle sessions × stripes).
    */
   private static final int READER_CHANNEL_STRIPES =
       Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors()));
@@ -94,18 +95,18 @@ public final class FileChannelStorage implements IOStorage {
    * Grace period the shared stripes stay open after the LAST reader closes, in milliseconds
    * ({@code 0} restores immediate close). Reference counting alone made a workload of back-to-back
    * short read transactions — the common shape: open transaction, read a handful of nodes, close —
-   * pay two {@code open(2)}s and two {@code close(2)}s per transaction, because the count returned
-   * to zero between every pair. Lingering keeps the descriptors for a moment so the next
-   * transaction finds them warm, while a session that genuinely goes idle still drops to zero
-   * descriptors a moment later.
+   * pay two {@code open(2)}s and two {@code close(2)}s per transaction, because the count returned to
+   * zero between every pair. Lingering keeps the descriptors for a moment so the next transaction
+   * finds them warm, while a session that genuinely goes idle still drops to zero descriptors a
+   * moment later.
    */
   private static final long READER_CHANNEL_LINGER_MILLIS =
       Math.max(0L, Long.getLong("sirix.io.readerChannelLingerMillis", 2_000L));
 
   /**
-   * One daemon timer for the whole JVM that closes stripe pools whose grace period expired. A
-   * single thread suffices: the task is a lock acquisition plus at most {@code 2 × stripes}
-   * channel closes, and it only runs for storages that actually went idle.
+   * One daemon timer for the whole JVM that closes stripe pools whose grace period expired. A single
+   * thread suffices: the task is a lock acquisition plus at most {@code 2 × stripes} channel closes,
+   * and it only runs for storages that actually went idle.
    */
   private static final ScheduledExecutorService READER_CHANNEL_REAPER =
       Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -138,8 +139,8 @@ public final class FileChannelStorage implements IOStorage {
   private ScheduledFuture<?> lingerTask;
 
   /**
-   * Set once {@link #close()} ran: no further lingering, and a late release closes immediately
-   * rather than arming a timer against a dead storage. Guarded by {@link #readerChannelLock}.
+   * Set once {@link #close()} ran: no further lingering, and a late release closes immediately rather
+   * than arming a timer against a dead storage. Guarded by {@link #readerChannelLock}.
    */
   private boolean readerPoolClosed;
 
@@ -148,11 +149,12 @@ public final class FileChannelStorage implements IOStorage {
   /**
    * Lock guarding the writer channel triple and its borrow count.
    *
-   * <p>A writer needs THREE descriptors (buffered data, revisions, and a second DSYNC handle to the
-   * data file for the beacon slots), and writers are per-transaction — under {@code KEEP_OPEN} a
-   * fresh one is created per COMMIT — so every commit opened and closed three files purely to
-   * re-reach state the previous writer had. All writer I/O is positional, so one triple serves any
-   * number of writers; the pool is reference-counted and lingers exactly like the reader pool.
+   * <p>
+   * A writer needs THREE descriptors (buffered data, revisions, and a second DSYNC handle to the data
+   * file for the beacon slots), and writers are per-transaction — under {@code KEEP_OPEN} a fresh one
+   * is created per COMMIT — so every commit opened and closed three files purely to re-reach state
+   * the previous writer had. All writer I/O is positional, so one triple serves any number of
+   * writers; the pool is reference-counted and lingers exactly like the reader pool.
    */
   private final Object writerChannelLock = new Object();
 
@@ -178,14 +180,14 @@ public final class FileChannelStorage implements IOStorage {
   private boolean writerPoolClosed;
 
   /**
-   * Shared data file channels handed to readers, one stripe picked per reader at creation.
-   * Guarded by {@link #readerChannelLock}.
+   * Shared data file channels handed to readers, one stripe picked per reader at creation. Guarded by
+   * {@link #readerChannelLock}.
    */
   private FileChannel[] sharedDataFileChannels;
 
   /**
-   * Shared revisions-offset file channels (same striping as {@link #sharedDataFileChannels}).
-   * Guarded by {@link #readerChannelLock}.
+   * Shared revisions-offset file channels (same striping as {@link #sharedDataFileChannels}). Guarded
+   * by {@link #readerChannelLock}.
    */
   private FileChannel[] sharedRevisionsOffsetFileChannels;
 
@@ -203,8 +205,12 @@ public final class FileChannelStorage implements IOStorage {
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
-    resourceUuidMsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getMostSignificantBits() : 0L;
-    resourceUuidLsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getLeastSignificantBits() : 0L;
+    resourceUuidMsb = resourceConfig.resourceUuid != null
+        ? resourceConfig.resourceUuid.getMostSignificantBits()
+        : 0L;
+    resourceUuidLsb = resourceConfig.resourceUuid != null
+        ? resourceConfig.resourceUuid.getLeastSignificantBits()
+        : 0L;
   }
 
   /**
@@ -228,8 +234,8 @@ public final class FileChannelStorage implements IOStorage {
    * actually avoids the two extra file opens + header reads per request.
    */
   private void validateSuperblocksOnce() {
-    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA,
-        resourceUuidMsb, resourceUuidLsb);
+    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA, resourceUuidMsb,
+        resourceUuidLsb);
     io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS,
         resourceUuidMsb, resourceUuidLsb);
   }
@@ -256,8 +262,7 @@ public final class FileChannelStorage implements IOStorage {
           final Path dataFilePath = createDirectoriesAndFile();
           final Path revisionsOffsetFilePath = getRevisionFilePath();
           createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-          sharedRevisionsOffsetFileChannels[borrowedStripe] =
-              createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+          sharedRevisionsOffsetFileChannels[borrowedStripe] = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
           sharedDataFileChannels[borrowedStripe] = createDataFileChannel(dataFilePath);
         }
         dataFileChannel = sharedDataFileChannels[borrowedStripe];
@@ -277,10 +282,11 @@ public final class FileChannelStorage implements IOStorage {
   /**
    * Choose the stripe for a new reader. Must be called under {@link #readerChannelLock}.
    *
-   * <p>Preference order: an idle stripe that is ALREADY OPEN (free, and costs no {@code open(2)}),
-   * then any idle stripe, then round-robin. Round-robin alone assigned overlapping readers to the
-   * same stripe while others sat idle — on Windows, where positional reads take the channel's
-   * position lock, that is exactly the serialization striping exists to avoid.
+   * <p>
+   * Preference order: an idle stripe that is ALREADY OPEN (free, and costs no {@code open(2)}), then
+   * any idle stripe, then round-robin. Round-robin alone assigned overlapping readers to the same
+   * stripe while others sat idle — on Windows, where positional reads take the channel's position
+   * lock, that is exactly the serialization striping exists to avoid.
    *
    * @return the stripe index to borrow
    */
@@ -315,8 +321,8 @@ public final class FileChannelStorage implements IOStorage {
           closeSharedReaderChannels();
         } else {
           cancelLingerClose();
-          lingerTask = READER_CHANNEL_REAPER.schedule(this::closeStripesIfStillIdle,
-                                                      READER_CHANNEL_LINGER_MILLIS, TimeUnit.MILLISECONDS);
+          lingerTask = READER_CHANNEL_REAPER.schedule(this::closeStripesIfStillIdle, READER_CHANNEL_LINGER_MILLIS,
+              TimeUnit.MILLISECONDS);
         }
       }
     }
@@ -354,8 +360,8 @@ public final class FileChannelStorage implements IOStorage {
 
   /**
    * Best-effort close of every non-null channel. Used both for cleanup after a partially failed
-   * stripe open (the original failure is rethrown by the caller) and on storage close, where a
-   * close failure on a read-only channel must not mask or abort the remaining closes.
+   * stripe open (the original failure is rethrown by the caller) and on storage close, where a close
+   * failure on a read-only channel must not mask or abort the remaining closes.
    */
   private static void closeAll(final FileChannel[] channels) {
     for (final FileChannel channel : channels) {
@@ -453,7 +459,7 @@ public final class FileChannelStorage implements IOStorage {
           sharedWriterRevisionsChannel = lazyRevisionRecords
               ? FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE)
               : FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
-                                 StandardOpenOption.SYNC);
+                  StandardOpenOption.SYNC);
           sharedWriterBeaconChannel =
               FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
           // Opened LAST: if either open above threw, nothing has been published and the next
@@ -472,12 +478,13 @@ public final class FileChannelStorage implements IOStorage {
       // The reader delegate shares the pooled channels, so it gets a no-op release: closing it must
       // free its own state without closing channels other writers are still using.
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
-          serializationType, pagePersister, cache.synchronous(), () -> { });
+          serializationType, pagePersister, cache.synchronous(), () -> {
+          });
 
-      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
-          serializationType, pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit,
-          lazyRevisionRecords, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb,
-          sharedWriterDataAllocationDurability, this::releaseWriterChannels);
+      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType,
+          pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords,
+          revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb, sharedWriterDataAllocationDurability,
+          this::releaseWriterChannels);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -510,9 +517,9 @@ public final class FileChannelStorage implements IOStorage {
   }
 
   /**
-   * Hand back one writer's borrow of the shared triple. Mirrors
-   * {@link #releaseReaderChannels(int)}: the pool closes once the last borrower is gone AND the
-   * linger period expires, so a stream of per-commit writers reuses one set of descriptors.
+   * Hand back one writer's borrow of the shared triple. Mirrors {@link #releaseReaderChannels(int)}:
+   * the pool closes once the last borrower is gone AND the linger period expires, so a stream of
+   * per-commit writers reuses one set of descriptors.
    */
   private void releaseWriterChannels() {
     synchronized (writerChannelLock) {
@@ -522,7 +529,7 @@ public final class FileChannelStorage implements IOStorage {
         } else {
           cancelWriterLingerClose();
           writerLingerTask = READER_CHANNEL_REAPER.schedule(this::closeWriterChannelsIfStillIdle,
-                                                            READER_CHANNEL_LINGER_MILLIS, TimeUnit.MILLISECONDS);
+              READER_CHANNEL_LINGER_MILLIS, TimeUnit.MILLISECONDS);
         }
       }
     }
@@ -549,14 +556,14 @@ public final class FileChannelStorage implements IOStorage {
   /**
    * Close the writer triple. Must be called under {@link #writerChannelLock}.
    *
-   * <p>The data channel is FORCED first: it is buffered, and the last writer's {@code close()}
-   * already forced it, but a pool that outlived that writer may have absorbed writes from a
-   * subsequent one that failed before its own force. Closing a buffered channel does not flush, so
-   * skipping this could drop bytes a commit believed it had handed to the OS.
+   * <p>
+   * The data channel is FORCED first: it is buffered, and the last writer's {@code close()} already
+   * forced it, but a pool that outlived that writer may have absorbed writes from a subsequent one
+   * that failed before its own force. Closing a buffered channel does not flush, so skipping this
+   * could drop bytes a commit believed it had handed to the OS.
    */
   private void closeSharedWriterChannels() {
-    final FileChannel[] channels =
-        {sharedWriterDataChannel, sharedWriterRevisionsChannel, sharedWriterBeaconChannel};
+    final FileChannel[] channels = {sharedWriterDataChannel, sharedWriterRevisionsChannel, sharedWriterBeaconChannel};
     sharedWriterDataChannel = null;
     sharedWriterRevisionsChannel = null;
     sharedWriterBeaconChannel = null;

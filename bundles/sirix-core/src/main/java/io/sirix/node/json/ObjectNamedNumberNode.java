@@ -65,10 +65,12 @@ import java.util.Objects;
 /**
  * Fused JSON node representing an object key bound to a NUMBER value in a single slot.
  *
- * <p>Replaces the legacy pair {@code OBJECT_KEY + OBJECT_NUMBER_VALUE} for the common
+ * <p>
+ * Replaces the legacy pair {@code OBJECT_KEY + OBJECT_NUMBER_VALUE} for the common
  * {@code {"fieldname": 42}} pattern, eliminating one record per such field.
  *
  * <h2>Wire layout</h2>
+ * 
  * <pre>
  * [kindByte=45][offsetTable: FIELD_COUNT × 1 byte][data region]
  *
@@ -84,12 +86,13 @@ import java.util.Objects;
  *   8 payload [numberType:1][numberData:variable]
  * </pre>
  *
- * <p>The number payload reuses {@link NodeKind#serializeNumber} /
- * {@link NodeKind#deserializeNumber} so it is identical to the legacy
- * {@code OBJECT_NUMBER_VALUE} body format.
+ * <p>
+ * The number payload reuses {@link NodeKind#serializeNumber} / {@link NodeKind#deserializeNumber}
+ * so it is identical to the legacy {@code OBJECT_NUMBER_VALUE} body format.
  *
- * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
- * bind/unbind, offset-table lookups in O(1).
+ * <p>
+ * HFT contract: primitive fields only, {@code final} where possible, zero-alloc bind/unbind,
+ * offset-table lookups in O(1).
  */
 public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     implements StructNode, NameNode, ImmutableJsonNode, NumericValueNode, FlyweightNode {
@@ -146,8 +149,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.hashFunction = hashFunction;
   }
 
-  public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
-      int nameKey, long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, Number value,
+  public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
+      long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, Number value,
       LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -165,8 +168,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.valueParsed = true;
   }
 
-  public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
-      int nameKey, long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, Number value,
+  public ObjectNamedNumberNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
+      long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, Number value,
       LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -264,8 +267,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
    * Read the Number payload from page memory when bound.
    */
   private void readPayloadFromPage() {
-    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final int payloadFieldOff =
+        page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = dataRegionStart + payloadFieldOff;
     final MemorySegmentBytesIn bytesIn = new MemorySegmentBytesIn(page);
     bytesIn.position(payloadStart);
@@ -277,10 +280,12 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
    * Copies an integral payload into caller-owned primitive storage without materializing an
    * {@link Integer} or {@link Long}.
    *
-   * <p>The method reads the stable number wire tag directly while this flyweight is page-bound. A
-   * lazy serialized source is decoded through an independent cursor, and an already materialized
-   * heap node simply unboxes its existing value. The output slot is changed only on success, and no
-   * page-backed state escapes this call.</p>
+   * <p>
+   * The method reads the stable number wire tag directly while this flyweight is page-bound. A lazy
+   * serialized source is decoded through an independent cursor, and an already materialized heap node
+   * simply unboxes its existing value. The output slot is changed only on success, and no page-backed
+   * state escapes this call.
+   * </p>
    *
    * @param valueOut caller-owned output storage
    * @param index output index in {@code valueOut}
@@ -291,8 +296,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     Objects.checkIndex(index, valueOut.length);
 
     if (page != null) {
-      final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+      final int payloadFieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
       final long payloadStart = dataRegionStart + payloadFieldOff;
       final byte wireTag = page.get(ValueLayout.JAVA_BYTE, payloadStart);
       if (wireTag == INTEGER_WIRE_TAG) {
@@ -355,44 +360,36 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   // ==================== SERIALIZE TO HEAP ====================
 
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int nameKey, final long pathNodeKey,
-      final int prevRev, final int lastModRev, final long hash, final Number value) {
-    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
-        nameKey, pathNodeKey, prevRev, lastModRev, hash, value, BOXED_PAYLOAD, 0L);
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final Number value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, nameKey,
+        pathNodeKey, prevRev, lastModRev, hash, value, BOXED_PAYLOAD, 0L);
   }
 
   /**
    * Writes the same record format as {@link #writeNewRecord}, keeping an {@code int} unboxed.
    */
-  public static int writeNewIntRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int nameKey, final long pathNodeKey,
-      final int prevRev, final int lastModRev, final long hash, final int value) {
-    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
-        nameKey, pathNodeKey, prevRev, lastModRev, hash, null, INT_PAYLOAD, value);
+  public static int writeNewIntRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final int value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, nameKey,
+        pathNodeKey, prevRev, lastModRev, hash, null, INT_PAYLOAD, value);
   }
 
   /**
    * Writes the same record format as {@link #writeNewRecord}, keeping a {@code long} unboxed.
    */
-  public static int writeNewLongRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int nameKey, final long pathNodeKey,
-      final int prevRev, final int lastModRev, final long hash, final long value) {
-    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
-        nameKey, pathNodeKey, prevRev, lastModRev, hash, null, LONG_PAYLOAD, value);
+  public static int writeNewLongRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final long value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, nameKey,
+        pathNodeKey, prevRev, lastModRev, hash, null, LONG_PAYLOAD, value);
   }
 
-  private static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int nameKey, final long pathNodeKey,
-      final int prevRev, final int lastModRev, final long hash, final Number fallbackValue,
+  private static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final Number fallbackValue,
       final byte primitiveType, final long primitiveValue) {
     long pos = offset;
 
@@ -467,10 +464,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     if (!valueParsed) {
       parseValueField();
     }
-    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
-        parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey,
-        previousRevision, lastModifiedRevision, hash, value);
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value);
   }
 
   @Override
@@ -503,8 +498,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PARENT_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PARENT_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
@@ -512,8 +507,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_PARENT_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_PARENT_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
       return;
     }
@@ -558,8 +552,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PREV_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PREV_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -567,8 +561,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_PREV_REVISION, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_PREV_REVISION, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
@@ -578,8 +571,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -587,8 +580,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_LAST_MOD_REVISION, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_LAST_MOD_REVISION, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
@@ -609,8 +601,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   @Override
   public void setHash(final long hash) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_HASH) & 0xFF;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_HASH) & 0xFF;
       DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
       return;
     }
@@ -659,8 +650,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   public void setNameKey(final int nameKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_NAME_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_NAME_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(nameKey);
@@ -668,8 +659,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, nameKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_NAME_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_NAME_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, nameKey));
       return;
     }
@@ -716,8 +706,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   public void setPathNodeKey(final long pathNodeKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PATH_NODE_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PATH_NODE_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
@@ -725,8 +715,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_PATH_NODE_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_PATH_NODE_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
       return;
     }
@@ -743,8 +732,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   public void setRightSiblingKey(final long rightSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_RIGHT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_RIGHT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
@@ -752,8 +741,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_RIGHT_SIB_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_RIGHT_SIB_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
       return;
     }
@@ -770,8 +758,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   public void setLeftSiblingKey(final long leftSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_LEFT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_LEFT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
@@ -779,8 +767,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNUM_LEFT_SIB_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNUM_LEFT_SIB_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
       return;
     }
@@ -874,7 +861,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       owner.resizeRecord(this, nk, slot);
       return;
     }
-    if (page != null) unbind();
+    if (page != null)
+      unbind();
     this.value = value;
     this.valueParsed = true;
   }
@@ -944,7 +932,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   }
 
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
@@ -1027,12 +1015,11 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       if (!valueParsed) {
         readPayloadFromPage();
       }
-      return new ObjectNamedNumberNode(nodeKey,
-          getParentKey(), getRightSiblingKey(), getLeftSiblingKey(),
-          getNameKey(), getPathNodeKey(),
-          getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), getHash(), value,
-          hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+      return new ObjectNamedNumberNode(nodeKey, getParentKey(), getRightSiblingKey(), getLeftSiblingKey(), getNameKey(),
+          getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), getHash(), value,
+          hashFunction, getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null);
     }
     if (!metadataParsed) {
       parseMetadataFields();
@@ -1040,19 +1027,16 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     if (!valueParsed) {
       parseValueField();
     }
-    return new ObjectNamedNumberNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value, hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+    return new ObjectNamedNumberNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+        previousRevision, lastModifiedRevision, hash, value, hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null);
   }
 
   @Override
   public String toString() {
-    return "ObjectNamedNumberNode{" +
-        "nodeKey=" + nodeKey +
-        ", parentKey=" + parentKey +
-        ", nameKey=" + nameKey +
-        ", value=" + value +
-        '}';
+    return "ObjectNamedNumberNode{" + "nodeKey=" + nodeKey + ", parentKey=" + parentKey + ", nameKey=" + nameKey
+        + ", value=" + value + '}';
   }
 
   @Override
@@ -1065,9 +1049,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     if (!(obj instanceof final ObjectNamedNumberNode other)) {
       return false;
     }
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && nameKey == other.nameKey
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && nameKey == other.nameKey
         && Objects.equals(value, other.value);
   }
 }

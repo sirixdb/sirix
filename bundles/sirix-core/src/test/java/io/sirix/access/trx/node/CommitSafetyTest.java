@@ -20,12 +20,14 @@ import static org.junit.Assert.assertTrue;
 /**
  * Regression tests for the commit-safety pair #1061/#1062.
  *
- * <p>#1061: a failed commit used to flip the state machine to COMMITTING and zero the modification
+ * <p>
+ * #1061: a failed commit used to flip the state machine to COMMITTING and zero the modification
  * counter before anything was durable — stranding the transaction (every further operation threw
  * "state is not running") while close() silently discarded the uncommitted work.
  *
- * <p>#1062: compound structural operations (move, replace) internally call public mutators, each
- * of which runs the count-based auto-commit check; crossing maxNodeCount mid-operation durably
+ * <p>
+ * #1062: compound structural operations (move, replace) internally call public mutators, each of
+ * which runs the count-based auto-commit check; crossing maxNodeCount mid-operation durably
  * committed a structurally inconsistent tree (e.g. a moved subtree detached from its old position
  * but not yet re-attached).
  */
@@ -172,7 +174,7 @@ public final class CommitSafetyTest {
         try (final var rtx = manager.beginNodeReadOnlyTrx(revision)) {
           rtx.moveToDocumentRoot();
           boolean found = false;
-          for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext(); ) {
+          for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext();) {
             if (axis.nextLong() == movedNodeKey) {
               found = true;
               break;

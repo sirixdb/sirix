@@ -22,10 +22,12 @@ public interface PathNodeKeyChangeListener extends ChangeListener {
   /**
    * Parent-aware primitive notification for callers that already hold the changed node.
    *
-   * <p>The default preserves source and binary behaviour for listeners that do not need ancestry:
-   * they continue to receive the original primitive notification. Listeners whose classification
-   * requires the parent chain can override this overload and avoid reading the changed record back
-   * from the page layer merely to recover {@code parentKey}.</p>
+   * <p>
+   * The default preserves source and binary behaviour for listeners that do not need ancestry: they
+   * continue to receive the original primitive notification. Listeners whose classification requires
+   * the parent chain can override this overload and avoid reading the changed record back from the
+   * page layer merely to recover {@code parentKey}.
+   * </p>
    *
    * @param type type of change
    * @param nodeKey key of the changed node

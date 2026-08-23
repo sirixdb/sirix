@@ -42,8 +42,8 @@ final class ProjectionIndexParentKeyNotificationTest {
   void parentAwareBulkNotificationDoesNotReadTheChangedRecordBack() throws Exception {
     final Fixture fixture = fixture();
 
-    fixture.listener.listen(IndexController.ChangeType.INSERT, RECORD_KEY, NodeKind.OBJECT,
-        ARRAY_ROOT_KEY, ROOT_PCR, null, null);
+    fixture.listener.listen(IndexController.ChangeType.INSERT, RECORD_KEY, NodeKind.OBJECT, ARRAY_ROOT_KEY, ROOT_PCR,
+        null, null);
 
     verify(fixture.load).observeRecord(RECORD_KEY);
     verifyNoInteractions(fixture.storageEngineWriter);
@@ -56,8 +56,7 @@ final class ProjectionIndexParentKeyNotificationTest {
     when(self.getParentKey()).thenReturn(ARRAY_ROOT_KEY);
     doReturn(self).when(fixture.storageEngineWriter).getRecord(RECORD_KEY, IndexType.DOCUMENT, -1);
 
-    fixture.listener.listen(IndexController.ChangeType.INSERT, RECORD_KEY, NodeKind.OBJECT,
-        ROOT_PCR, null, null);
+    fixture.listener.listen(IndexController.ChangeType.INSERT, RECORD_KEY, NodeKind.OBJECT, ROOT_PCR, null, null);
 
     verify(fixture.storageEngineWriter).getRecord(RECORD_KEY, IndexType.DOCUMENT, -1);
     verify(fixture.load).observeRecord(RECORD_KEY);
@@ -67,8 +66,8 @@ final class ProjectionIndexParentKeyNotificationTest {
   void parentAwareListenerDefaultKeepsLegacyImplementationsCompatible() {
     final LegacyPrimitiveListener listener = new LegacyPrimitiveListener();
 
-    listener.listen(IndexController.ChangeType.DELETE, RECORD_KEY, NodeKind.STRING_VALUE,
-        ARRAY_ROOT_KEY, ROOT_PCR, null, null);
+    listener.listen(IndexController.ChangeType.DELETE, RECORD_KEY, NodeKind.STRING_VALUE, ARRAY_ROOT_KEY, ROOT_PCR,
+        null, null);
 
     assertEquals(1, listener.calls);
     assertEquals(RECORD_KEY, listener.nodeKey);

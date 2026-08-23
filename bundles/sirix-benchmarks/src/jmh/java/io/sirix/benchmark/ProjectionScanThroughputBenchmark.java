@@ -53,19 +53,20 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * JMH throughput benchmark for the columnar projection scan kernels in
- * {@link ProjectionIndexByteScan} — the vectorised path the README describes
- * ("scans with SIMD kernels"). Operates on synthetic serialised
- * {@link ProjectionIndexRowGroupPage}s (a {@code long} age column, a {@code boolean}
- * active column and a dictionary-encoded {@code dept} string column, 1024 rows
- * per leaf) so the numbers isolate the scan kernel from session/HOT I/O.
+ * {@link ProjectionIndexByteScan} — the vectorised path the README describes ("scans with SIMD
+ * kernels"). Operates on synthetic serialised {@link ProjectionIndexRowGroupPage}s (a {@code long}
+ * age column, a {@code boolean} active column and a dictionary-encoded {@code dept} string column,
+ * 1024 rows per leaf) so the numbers isolate the scan kernel from session/HOT I/O.
  *
- * <p>The numeric-compare arms exercise the two-pass compare-then-pack kernel
- * whose inner compare loop C2 SuperWord auto-vectorises to {@code VPCMPGTQ}
- * (allocation-free); {@code AverageTime} over a known row count converts
- * directly to <b>ns/row</b>, the figure comparable to a columnar engine's
+ * <p>
+ * The numeric-compare arms exercise the two-pass compare-then-pack kernel whose inner compare loop
+ * C2 SuperWord auto-vectorises to {@code VPCMPGTQ} (allocation-free); {@code AverageTime} over a
+ * known row count converts directly to <b>ns/row</b>, the figure comparable to a columnar engine's
  * per-record filter cost.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="ProjectionScanThroughputBenchmark"
  * </pre>
@@ -81,17 +82,12 @@ import java.util.concurrent.TimeUnit;
     jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 public class ProjectionScanThroughputBenchmark {
 
-  private static final byte[] KINDS = {
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-  };
+  private static final byte[] KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
-  private static final String[] DEPTS = {
-      "Eng", "Sales", "Ops", "Finance", "HR", "Marketing", "Legal", "Support",
-      "Research", "Platform", "Data", "Security", "Design", "QA", "Partners",
-      "Customer", "Mobile", "Cloud", "Compliance", "Analytics"
-  };
+  private static final String[] DEPTS =
+      {"Eng", "Sales", "Ops", "Finance", "HR", "Marketing", "Legal", "Support", "Research", "Platform", "Data",
+          "Security", "Design", "QA", "Partners", "Customer", "Mobile", "Cloud", "Compliance", "Analytics"};
 
   /** Total rows across all leaves. Divide the reported µs by this to get ns/row. */
   @Param({"1048576"})
@@ -132,13 +128,12 @@ public class ProjectionScanThroughputBenchmark {
       remaining -= n;
     }
     numericGt = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 40L) };
-    numericBetween = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.numericBetween(0, ProjectionIndexScan.Op.GE, 30L,
-            ProjectionIndexScan.Op.LT, 55L) };
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 40L)};
+    numericBetween = new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.numericBetween(0,
+        ProjectionIndexScan.Op.GE, 30L, ProjectionIndexScan.Op.LT, 55L)};
     conjunction = new ProjectionIndexScan.ColumnPredicate[] {
         ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 40L),
-        ProjectionIndexScan.ColumnPredicate.booleanEq(1, true) };
+        ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)};
     none = new ProjectionIndexScan.ColumnPredicate[0];
     // Pre-sized past the DEPTS cardinality so it never resizes during a run.
     deptGroups = new Object2LongOpenHashMap<>(2 * DEPTS.length);
@@ -197,9 +192,9 @@ public class ProjectionScanThroughputBenchmark {
   }
 
   /**
-   * Dense NUMERIC_LONG group-by-count over the age column: one 8-byte load and one array
-   * increment per row. Relative to {@link #groupByDeptCount} this deletes the per-leaf dict
-   * prefix-sum, the {@code String} cache, the FNV-1a intern and the hash probe.
+   * Dense NUMERIC_LONG group-by-count over the age column: one 8-byte load and one array increment
+   * per row. Relative to {@link #groupByDeptCount} this deletes the per-leaf dict prefix-sum, the
+   * {@code String} cache, the FNV-1a intern and the hash probe.
    *
    * <p>
    * {@code groupByDeptCount} is the CONTROL arm and both live in the same fork so they interleave:

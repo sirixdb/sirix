@@ -69,8 +69,7 @@ final class ProjectionBulkLoadFailureTest {
       final String resourceKey = session.getResourceConfig().getResource().toString();
       final JsonIndexController controller =
           (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
-      final ProjectionBulkLoad first =
-          controller.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
+      final ProjectionBulkLoad first = controller.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
 
       try {
         assertThrows(IllegalStateException.class,
@@ -89,13 +88,12 @@ final class ProjectionBulkLoadFailureTest {
   void arrayChildCountRejectsCompletelyMissedRecordAttribution() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
-          IndexDef.DbType.JSON);
+          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);
       final String resourceKey = session.getResourceConfig().getResource().toString();
-      final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey, wtx,
-          wtx.getPathSummary(), wtx.getStorageEngineWriter(), 2L);
+      final ProjectionBulkLoad load =
+          ProjectionBulkLoad.begin(indexDef, resourceKey, wtx, wtx.getPathSummary(), wtx.getStorageEngineWriter(), 2L);
       assertTrue(wtx.moveToDocumentRoot());
       assertTrue(wtx.moveToFirstChild());
       load.noteArrayRootInstance(wtx.getNodeKey(), wtx);
@@ -105,8 +103,7 @@ final class ProjectionBulkLoadFailureTest {
       load.drain(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx);
 
       final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> load.finish(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx,
-              wtx.getRevisionNumber()));
+          () -> load.finish(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx, wtx.getRevisionNumber()));
       assertTrue(failure.getMessage().contains("emitted 0 rows for 3 records"));
       assertTrue(load.isFinished());
       assertNull(ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER, wtx));
@@ -126,20 +123,19 @@ final class ProjectionBulkLoadFailureTest {
         "a numeric-only AUTO projection must stream instead of retaining a useless sample");
   }
 
-  private static void assertSampleBypassed(final String mode, final String fieldPath,
-      final Type fieldType, final String message) throws ReflectiveOperationException {
+  private static void assertSampleBypassed(final String mode, final String fieldPath, final Type fieldType,
+      final String message) throws ReflectiveOperationException {
     final String priorMode = System.getProperty("sirix.projection.globalDict");
     System.setProperty("sirix.projection.globalDict", mode);
     try {
       final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-            List.of(parse(fieldPath, PathParser.Type.JSON)), List.of(fieldType), INDEX_NUMBER,
-            IndexDef.DbType.JSON);
+            List.of(parse(fieldPath, PathParser.Type.JSON)), List.of(fieldType), INDEX_NUMBER, IndexDef.DbType.JSON);
         final String resourceKey = session.getResourceConfig().getResource().toString();
-        final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey,
-            wtx.getPathSummary(), wtx.getStorageEngineWriter());
+        final ProjectionBulkLoad load =
+            ProjectionBulkLoad.begin(indexDef, resourceKey, wtx.getPathSummary(), wtx.getStorageEngineWriter());
         try {
           final Field builderField = ProjectionBulkLoad.class.getDeclaredField("builder");
           builderField.setAccessible(true);
@@ -166,8 +162,7 @@ final class ProjectionBulkLoadFailureTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-          List.of(parse("/[]/text", PathParser.Type.JSON)), List.of(Type.STR), INDEX_NUMBER,
-          IndexDef.DbType.JSON);
+          List.of(parse("/[]/text", PathParser.Type.JSON)), List.of(Type.STR), INDEX_NUMBER, IndexDef.DbType.JSON);
       final String resourceKey = session.getResourceConfig().getResource().toString();
       final RuntimeException injected = new RuntimeException("injected row-group publication failure");
       final AtomicInteger publicationAttempts = new AtomicInteger();
@@ -223,13 +218,12 @@ final class ProjectionBulkLoadFailureTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
-          IndexDef.DbType.JSON);
+          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);
       final String resourceKey = session.getResourceConfig().getResource().toString();
       final RuntimeException injected = new RuntimeException("injected final row-group publication failure");
       final AtomicInteger publicationAttempts = new AtomicInteger();
-      final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey, wtx,
-          wtx.getPathSummary(), wtx.getStorageEngineWriter(), -1L, (storage, rowGroupId, encoded) -> {
+      final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey, wtx, wtx.getPathSummary(),
+          wtx.getStorageEngineWriter(), -1L, (storage, rowGroupId, encoded) -> {
             publicationAttempts.incrementAndGet();
             storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
             throw injected;
@@ -250,8 +244,7 @@ final class ProjectionBulkLoadFailureTest {
 
       final ProjectionIndexHOTStorage storage =
           ProjectionIndexHOTStorage.forBulkBuild(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      assertNotNull(storage.getRowGroupFromColumnSegmentSlots(1),
-          "the fixture must fail after a real row-group write");
+      assertNotNull(storage.getRowGroupFromColumnSegmentSlots(1), "the fixture must fail after a real row-group write");
       final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
       assertNotNull(metadata);
       assertTrue(metadata.isStale(), "a partial finalization became reachable through live metadata");
@@ -260,8 +253,7 @@ final class ProjectionBulkLoadFailureTest {
           "a failed pre-publication commit advanced the durable revision");
       try (final var committed = session.beginNodeReadOnlyTrx(0)) {
         assertTrue(committed.moveToDocumentRoot());
-        assertFalse(committed.moveToFirstChild(),
-            "the uncommitted JSON tree leaked into the preceding revision");
+        assertFalse(committed.moveToFirstChild(), "the uncommitted JSON tree leaked into the preceding revision");
         assertNull(ProjectionIndexHOTStorage.readBlob(committed.getStorageEngineReader(), INDEX_NUMBER, 0L),
             "the uncommitted projection valve leaked into the preceding revision");
       }
@@ -294,8 +286,7 @@ final class ProjectionBulkLoadFailureTest {
 
     final Field currentLeafField = ProjectionIndexBuilder.class.getDeclaredField("currentLeaf");
     currentLeafField.setAccessible(true);
-    currentLeafField.set(builder,
-        fullStringPage(15L * ProjectionIndexRowGroupPage.MAX_ROWS));
+    currentLeafField.set(builder, fullStringPage(15L * ProjectionIndexRowGroupPage.MAX_ROWS));
 
     final Field rowsEmittedField = ProjectionIndexBuilder.class.getDeclaredField("rowsEmitted");
     rowsEmittedField.setAccessible(true);

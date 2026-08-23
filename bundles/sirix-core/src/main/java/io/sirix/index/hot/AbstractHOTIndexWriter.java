@@ -744,8 +744,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     HOTLeafPage sourceLeaf = hotLeaf;
     for (int attempt = 0; attempt < MAX_HOT_LEAF_GUARD_RETRIES; attempt++) {
       final PageContainer existing = log.get(currentRef);
-      if (existing != null && existing.getModified() instanceof HOTLeafPage modifiedLeaf
-          && !modifiedLeaf.isClosed()) {
+      if (existing != null && existing.getModified() instanceof HOTLeafPage modifiedLeaf && !modifiedLeaf.isClosed()) {
         return modifiedLeaf;
       }
 
@@ -802,8 +801,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       sourceLeaf = reloadedLeaf;
     }
 
-    throw new IllegalStateException("HOT leaf was retired before it could be guarded after "
-        + MAX_HOT_LEAF_GUARD_RETRIES + " attempts");
+    throw new IllegalStateException(
+        "HOT leaf was retired before it could be guarded after " + MAX_HOT_LEAF_GUARD_RETRIES + " attempts");
   }
 
   /**
@@ -812,9 +811,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * owned and may be retired. If the ownership check itself fails, retain rather than risk closing a
    * TIL-owned page.
    */
-  private static void cleanupFailedHOTLeafLogTransfer(final TransactionIntentLog log,
-      final PageReference currentRef, final PageContainer attemptedContainer, final HOTLeafPage sourceLeaf,
-      final HOTLeafPage modifiedLeaf, final Throwable logFailure) {
+  private static void cleanupFailedHOTLeafLogTransfer(final TransactionIntentLog log, final PageReference currentRef,
+      final PageContainer attemptedContainer, final HOTLeafPage sourceLeaf, final HOTLeafPage modifiedLeaf,
+      final Throwable logFailure) {
     final PageContainer published;
     try {
       published = log.get(currentRef);
@@ -1748,9 +1747,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Direction-1 ordering guard for a child of one freshly compressed half produced by
    * {@link HOTIncrementalInsert#splitIndirect}. The half is not on {@code navResult}'s original
-   * spine, so the regular guard cannot describe the first-key propagation. This method checks the
-   * new boundary inside the half, the boundary between both split halves, and—only when the changed
-   * half is the left half and its first slot changed—the original ancestors above {@code d*}.
+   * spine, so the regular guard cannot describe the first-key propagation. This method checks the new
+   * boundary inside the half, the boundary between both split halves, and—only when the changed half
+   * is the left half and its first slot changed—the original ancestors above {@code d*}.
    */
   private boolean isSplitHalfDirectionOneSafe(final LeafNavigationResult navResult, final int insertDepth,
       final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half, final boolean rightHalf,
@@ -2346,8 +2345,8 @@ public abstract class AbstractHOTIndexWriter<K> {
                 valueSlice, valueSlice.length);
           }
           final int collisionSlot = findChildSlotByPartial(node, comboPartial);
-          if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot,
-              analysis.affectedChildIndex(), keySlice, valueSlice)) {
+          if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot, analysis.affectedChildIndex(),
+              keySlice, valueSlice)) {
             return true;
           }
           DIRECTION_ONE_FALLBACK.incrementAndGet();
@@ -2454,8 +2453,8 @@ public abstract class AbstractHOTIndexWriter<K> {
                 valueSlice.length);
           }
           final int collisionSlot = findChildSlotByPartial(child, comboPartial);
-          if (tryDirectionOneLeafPairSplice(navResult, child, insertDepth + 1, collisionSlot, childEntryIndex,
-              keySlice, valueSlice)) {
+          if (tryDirectionOneLeafPairSplice(navResult, child, insertDepth + 1, collisionSlot, childEntryIndex, keySlice,
+              valueSlice)) {
             return true;
           }
           DIRECTION_ONE_FALLBACK.incrementAndGet();
@@ -2790,8 +2789,8 @@ public abstract class AbstractHOTIndexWriter<K> {
           // parent pages from their (now updated) child references. This is page-local structural
           // maintenance—not entry collection or a subtree rebuild.
           keyLeaf.close();
-          return directionOneIntoSplitHalf(navResult, node, insertDepth, split, half,
-              kMsbBit, childIdx, keySlice, valueSlice, revision);
+          return directionOneIntoSplitHalf(navResult, node, insertDepth, split, half, kMsbBit, childIdx, keySlice,
+              valueSlice, revision);
         }
         foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, keyLeafRef, half.getHeight(),
             revision, pageKeyAllocator);
@@ -2850,9 +2849,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     // post-insert structure exactly. The first speculative split was never published or registered.
     final HOTIncrementalInsert.BiNode refreshedSplit =
         HOTIncrementalInsert.splitIndirect(originalNode, revision, pageKeyAllocator);
-    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, refreshedSplit, revision,
-        pageKeyAllocator);
+    final HOTIncrementalInsert.IntegrationResult result =
+        HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+            insertDepth, refreshedSplit, revision, pageKeyAllocator);
     lastDispatchHandler = "h:combo-site2-d1";
     registerFreshSubtree(result.touchedRef());
     DIRECTION_ONE_SUBINSERT.incrementAndGet();
@@ -3339,14 +3338,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    * parent's partial trie. Every member must be a direct leaf. That bounded frontier (plus the new
    * key) is rebuilt as a canonical mini-HOT, then the complete range is replaced by one mini-root.
    *
-   * <p>This is a leaf-unit structural splice, not an arbitrary subtree rebuild: it never descends an
-   * indirect child, is hard-capped by one HOT block's fanout, preserves every side-map reference,
-   * and re-encodes only the direct parent plus height-changed ancestors. The retained parent partial
-   * is the complete range's lower partial; all entries are checked against the recompressed
-   * candidate's actual coordinates and router before publication.</p>
+   * <p>
+   * This is a leaf-unit structural splice, not an arbitrary subtree rebuild: it never descends an
+   * indirect child, is hard-capped by one HOT block's fanout, preserves every side-map reference, and
+   * re-encodes only the direct parent plus height-changed ancestors. The retained parent partial is
+   * the complete range's lower partial; all entries are checked against the recompressed candidate's
+   * actual coordinates and router before publication.
+   * </p>
    */
-  private boolean tryDirectionOneLeafPairSplice(LeafNavigationResult navResult, HOTIndirectPage node,
-      int nodeDepth, int collisionSlot, int affectedSlot, byte[] keySlice, byte[] valueSlice) {
+  private boolean tryDirectionOneLeafPairSplice(LeafNavigationResult navResult, HOTIndirectPage node, int nodeDepth,
+      int collisionSlot, int affectedSlot, byte[] keySlice, byte[] valueSlice) {
     final int numChildren = node.getNumChildren();
     if (nodeDepth < 0 || nodeDepth >= navResult.pathDepth() || numChildren < 2 || collisionSlot < 0
         || affectedSlot != collisionSlot + 1 || affectedSlot >= numChildren) {
@@ -3431,8 +3432,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         for (int i = 0; i < entries.size(); i++) {
           final byte[] entryKey = entries.get(i).key();
           final int densePartial = candidate.computeDensePartialKey(entryKey);
-          if ((replacementPartial & ~densePartial) != 0
-              || candidate.findChildIndex(entryKey) != replacementSlot) {
+          if ((replacementPartial & ~densePartial) != 0 || candidate.findChildIndex(entryKey) != replacementSlot) {
             closeFreshHOTSubtree(miniRoot);
             return false; // I5/routing in the candidate's final compressed coordinates
           }
@@ -3669,15 +3669,16 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Preflight every deterministic condition {@link #propagateRebuildUpSpine} can encounter after an
    * incremental splice. The live path still points at the old subtree, so this walk substitutes the
-   * candidate's exact key range and height in registers while resolving every unaffected sibling.
-   * No PageReference is changed and no page is allocated.
+   * candidate's exact key range and height in registers while resolving every unaffected sibling. No
+   * PageReference is changed and no page is allocated.
    *
-   * <p>A {@code false} result leaves the caller free to discard the unpublished mini-HOT. Once this
+   * <p>
+   * A {@code false} result leaves the caller free to discard the unpublished mini-HOT. Once this
    * returns {@code true}, propagation can fail only through an unexpected allocation/TIL/runtime
    * fault; the caller therefore poisons the transaction if such a failure occurs after publication.
    */
-  private boolean canPropagateIncrementalSplice(final LeafNavigationResult navResult,
-      final int rebuiltDepth, final PageReference candidateRef) {
+  private boolean canPropagateIncrementalSplice(final LeafNavigationResult navResult, final int rebuiltDepth,
+      final PageReference candidateRef) {
     final Page candidatePage = resolveHOTPageForTraversal(candidateRef);
     if (candidatePage == null) {
       return false;
@@ -3991,9 +3992,8 @@ public abstract class AbstractHOTIndexWriter<K> {
             "Segment-ref reattach after rebuild: refKey " + captured.refKey() + " has no PageReference");
       }
       if (!uniqueRefKeys.add(captured.refKey())) {
-        throw new IllegalStateException(
-            "Segment-ref reattach after rebuild: duplicate refKey " + captured.refKey()
-                + " was captured from more than one source leaf");
+        throw new IllegalStateException("Segment-ref reattach after rebuild: duplicate refKey " + captured.refKey()
+            + " was captured from more than one source leaf");
       }
       final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
       PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
@@ -4144,12 +4144,11 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Best-effort, allocation-free cleanup for a fresh subtree that registration has not visited.
-   * A disk key or log key marks a shared/TIL-owned boundary and is never crossed. Each recursive
-   * call absorbs its own cleanup failure so siblings are still examined.
+   * Best-effort, allocation-free cleanup for a fresh subtree that registration has not visited. A
+   * disk key or log key marks a shared/TIL-owned boundary and is never crossed. Each recursive call
+   * absorbs its own cleanup failure so siblings are still examined.
    */
-  private static void closeUnregisteredFreshSubtree(final @Nullable PageReference ref,
-      final Throwable primaryFailure) {
+  private static void closeUnregisteredFreshSubtree(final @Nullable PageReference ref, final Throwable primaryFailure) {
     try {
       if (ref == null || ref.getLogKey() >= 0 || ref.getKey() >= 0) {
         return;
@@ -4165,8 +4164,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  private static void closeUnregisteredFreshChildren(final HOTIndirectPage indirect,
-      final int fromInclusive, final Throwable primaryFailure) {
+  private static void closeUnregisteredFreshChildren(final HOTIndirectPage indirect, final int fromInclusive,
+      final Throwable primaryFailure) {
     final int numChildren;
     try {
       numChildren = indirect.getNumChildren();

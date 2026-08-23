@@ -40,8 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The move-to-first-child twin of {@link ProjectionPrependOrderRebalanceTest}. Moving a record to
  * the front of its array repeatedly is the same ORDPATH worst case as inserting one there
  * repeatedly: each move re-derives the moved record's label from the current head with
- * {@code newBetween(null, head)}, adding a division every few moves. Unless the bounded rebalance is
- * armed on the MOVE path too — not just the insert path — the label grows without limit and
+ * {@code newBetween(null, head)}, adding a division every few moves. Unless the bounded rebalance
+ * is armed on the MOVE path too — not just the insert path — the label grows without limit and
  * eventually aborts an otherwise valid transaction.
  *
  * <p>
@@ -71,14 +71,14 @@ final class ProjectionMoveOrderRebalanceTest {
   void repeatedMoveToFirstChildCommitsAndKeepsOrderLabelsBounded() throws Exception {
     final Path databasePath = temporaryDirectory.resolve("move");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        parse("/records/[]", PathParser.Type.JSON),
-        List.of(parse("/records/[]/score", PathParser.Type.JSON)),
-        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(parse("/records/[]", PathParser.Type.JSON),
+        List.of(parse("/records/[]/score", PathParser.Type.JSON)), List.of(Type.LON), 0, IndexDef.DbType.JSON);
 
     final StringBuilder json = new StringBuilder("{\"records\":[");
     for (int record = 0; record < RECORDS; record++) {
-      json.append(record == 0 ? "" : ",").append("{\"score\":").append(record).append('}');
+      json.append(record == 0
+          ? ""
+          : ",").append("{\"score\":").append(record).append('}');
     }
     json.append("]}");
 
@@ -93,15 +93,12 @@ final class ProjectionMoveOrderRebalanceTest {
                                                               .build()));
 
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx();
-           var parser = JacksonJsonShredder.createStringParser(json.toString())) {
-        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                   .build()
-                                                                                   .call();
+          var wtx = session.beginNodeTrx();
+          var parser = JacksonJsonShredder.createStringParser(json.toString())) {
+        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
 
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
         session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
         wtx.commit();
       }
@@ -109,7 +106,7 @@ final class ProjectionMoveOrderRebalanceTest {
       final long recordsKey;
       final List<Long> recordKeys = new ArrayList<>(RECORDS);
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         recordsKey = namedArrayKey(rtx);
         assertTrue(rtx.moveTo(recordsKey));
         assertTrue(rtx.moveToFirstChild());
@@ -126,8 +123,7 @@ final class ProjectionMoveOrderRebalanceTest {
       for (int move = 0; move < MOVES; move++) {
         final int position = move % RECORDS;
         final long moved = recordKeys.get(position);
-        try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-             var wtx = session.beginNodeTrx()) {
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
           assertTrue(wtx.moveTo(recordsKey));
           wtx.moveSubtreeToFirstChild(moved);
           wtx.commit();
@@ -162,12 +158,10 @@ final class ProjectionMoveOrderRebalanceTest {
    */
   private static void assertPersistedLabelsMatchTheDirectory(final Database<JsonResourceSession> database,
       final IndexDef definition, final List<Long> recordKeys) {
-    try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         var wtx = session.beginNodeTrx()) {
+    try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), definition.getID());
-      final ProjectionStructuralOrderDirectory.Accessor directory =
-          ProjectionStructuralOrderDirectory.open(storage);
+      final ProjectionStructuralOrderDirectory.Accessor directory = ProjectionStructuralOrderDirectory.open(storage);
       final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
       assertNotNull(metadata, "the projection must still carry live metadata");
       final ProjectionPersistedRecordLookup lookup = new ProjectionPersistedRecordLookup(storage,
@@ -182,10 +176,11 @@ final class ProjectionMoveOrderRebalanceTest {
                                        .copyOrderLabelAt(ProjectionPersistedRecordLookup.row(location));
         final byte[] current = directory.fullLabel(recordKey,
             nodeKey -> (io.sirix.node.interfaces.immutable.ImmutableNode) wtx.getStorageEngineWriter()
-                                                                            .getRecord(nodeKey, io.sirix.index.IndexType.DOCUMENT, -1),
+                                                                             .getRecord(nodeKey,
+                                                                                 io.sirix.index.IndexType.DOCUMENT, -1),
             ProjectionStructuralOrderDirectory.RelabelSink.SEALED).toBytes();
-        assertEquals(0, ProjectionIndexRowGroupPage.compareOrderLabels(persisted, 0, persisted.length,
-            current, 0, current.length),
+        assertEquals(0,
+            ProjectionIndexRowGroupPage.compareOrderLabels(persisted, 0, persisted.length, current, 0, current.length),
             "record " + recordKey + " kept a stale persisted order label after a rebalance");
       }
     }
@@ -196,11 +191,11 @@ final class ProjectionMoveOrderRebalanceTest {
       final int revision, final List<Long> expected) {
     ProjectionIndexCatalog.clearCache();
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(session, revision, definition);
       assertNotNull(handle, "the projection index must still be usable after a move-heavy history");
-      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, revision, definition.getID(), handle.rowGroupCount()));
+      final List<byte[]> leaves = handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, revision, definition.getID(), handle.rowGroupCount()));
 
       final List<Long> values = new ArrayList<>(expected.size());
       byte[] previousLabel = null;
@@ -212,16 +207,15 @@ final class ProjectionMoveOrderRebalanceTest {
           final byte[] label = page.copyOrderLabelAt(row);
           widestLabel = Math.max(widestLabel, label.length);
           if (previousLabel != null) {
-            assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(previousLabel, 0, previousLabel.length,
-                label, 0, label.length) < 0, "persisted order labels must be strictly increasing");
+            assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(previousLabel, 0, previousLabel.length, label, 0,
+                label.length) < 0, "persisted order labels must be strictly increasing");
           }
           previousLabel = label;
         }
       }
       assertEquals(expected, values, "the projection must report its records in document order");
-      assertTrue(widestLabel <= MAX_PERSISTED_ORDER_LABEL_BYTES,
-          "repeated move-to-first-child grew an order label to " + widestLabel
-              + " bytes; the bounded rebalance must keep it within " + MAX_PERSISTED_ORDER_LABEL_BYTES);
+      assertTrue(widestLabel <= MAX_PERSISTED_ORDER_LABEL_BYTES, "repeated move-to-first-child grew an order label to "
+          + widestLabel + " bytes; the bounded rebalance must keep it within " + MAX_PERSISTED_ORDER_LABEL_BYTES);
     }
   }
 
@@ -235,8 +229,8 @@ final class ProjectionMoveOrderRebalanceTest {
       }
       if (rtx.getKind() == NodeKind.ARRAY) {
         final long arrayKey = rtx.getNodeKey();
-        final boolean named = rtx.moveToParent() && rtx.getKind().playsObjectKeyRole()
-            && "records".equals(rtx.getName().getLocalName());
+        final boolean named =
+            rtx.moveToParent() && rtx.getKind().playsObjectKeyRole() && "records".equals(rtx.getName().getLocalName());
         rtx.moveTo(arrayKey);
         if (named) {
           return arrayKey;

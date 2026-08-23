@@ -33,8 +33,7 @@ public final class JsonNumber {
     // shorter Float.toString() form re-parses to a different double, which silently corrupted
     // values such as 2.2e-308 (underflowed to 0.0f) and 2^-52.
     final double asDouble = exact.doubleValue();
-    if (Double.isFinite(asDouble)
-        && new BigDecimal(Double.toString(asDouble)).compareTo(exact) == 0) {
+    if (Double.isFinite(asDouble) && new BigDecimal(Double.toString(asDouble)).compareTo(exact) == 0) {
       return Double.valueOf(asDouble);
     }
     return exact;
@@ -53,11 +52,12 @@ public final class JsonNumber {
   /**
    * Parse an integral JSON literal without using exceptions for ordinary type widening.
    *
-   * <p>The JDK's parse-and-catch sequence allocates a {@link NumberFormatException} and its stack
-   * trace for every value outside the {@code int} range, even though such values are routine in
-   * analytical data. Accumulating negatively (the same overflow-safe technique used by the JDK)
-   * also represents {@link Long#MIN_VALUE}, whose magnitude has no positive {@code long}
-   * representation.</p>
+   * <p>
+   * The JDK's parse-and-catch sequence allocates a {@link NumberFormatException} and its stack trace
+   * for every value outside the {@code int} range, even though such values are routine in analytical
+   * data. Accumulating negatively (the same overflow-safe technique used by the JDK) also represents
+   * {@link Long#MIN_VALUE}, whose magnitude has no positive {@code long} representation.
+   * </p>
    */
   private static Number stringInteger(final String stringValue) {
     final int length = stringValue.length();
@@ -75,7 +75,9 @@ public final class JsonNumber {
       }
     }
 
-    final long limit = negative ? Long.MIN_VALUE : -Long.MAX_VALUE;
+    final long limit = negative
+        ? Long.MIN_VALUE
+        : -Long.MAX_VALUE;
     final long multiplyLimit = limit / 10;
     long result = 0;
     while (index < length) {
@@ -93,7 +95,9 @@ public final class JsonNumber {
       result -= digit;
     }
 
-    final long value = negative ? result : -result;
+    final long value = negative
+        ? result
+        : -result;
     // Do not express this as an Integer/Long conditional expression: binary numeric promotion
     // unboxes both branches, widens the int to long, and boxes every result as Long.
     if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
@@ -130,11 +134,13 @@ public final class JsonNumber {
    * Reads the current Jackson numeric token without materializing its lexical form as a
    * {@link String}.
    *
-   * <p>Jackson already classifies integral tokens while scanning them, so using its typed accessors
+   * <p>
+   * Jackson already classifies integral tokens while scanning them, so using its typed accessors
    * preserves Sirix's narrowest exact {@link Integer}/{@link Long}/{@link BigInteger} representation.
-   * Decimal tokens are requested as {@link BigDecimal} to avoid Jackson's default eager narrowing
-   * to {@code double}. The parser-owned character buffer is inspected only to retain the existing
-   * distinction between ordinary decimal and exponent notation.</p>
+   * Decimal tokens are requested as {@link BigDecimal} to avoid Jackson's default eager narrowing to
+   * {@code double}. The parser-owned character buffer is inspected only to retain the existing
+   * distinction between ordinary decimal and exponent notation.
+   * </p>
    *
    * @param parser parser positioned on an integer or floating-point token
    * @return the exact Sirix numeric representation

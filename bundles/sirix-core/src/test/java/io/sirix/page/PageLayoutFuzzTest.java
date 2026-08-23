@@ -17,9 +17,9 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Fuzz tests for {@link PageLayout} (slotted page format).
  *
- * <p>Tests the page header, bitmap, directory, heap allocation,
- * and DeweyID trailer under random workloads. On failure the seed
- * is printed for reproducibility.
+ * <p>
+ * Tests the page header, bitmap, directory, heap allocation, and DeweyID trailer under random
+ * workloads. On failure the seed is printed for reproducibility.
  */
 class PageLayoutFuzzTest {
 
@@ -40,36 +40,26 @@ class PageLayoutFuzzTest {
 
       PageLayout.initializePage(page, recordPageKey, revision, indexType, deweyIDs);
 
-      assertEquals(recordPageKey, PageLayout.getRecordPageKey(page),
-          "recordPageKey [seed=" + seed + "]");
-      assertEquals(revision, PageLayout.getRevision(page),
-          "revision [seed=" + seed + "]");
-      assertEquals(0, PageLayout.getPopulatedCount(page),
-          "populatedCount should be 0 after init [seed=" + seed + "]");
-      assertEquals(0, PageLayout.getHeapEnd(page),
-          "heapEnd should be 0 after init [seed=" + seed + "]");
-      assertEquals(0, PageLayout.getHeapUsed(page),
-          "heapUsed should be 0 after init [seed=" + seed + "]");
-      assertEquals(indexType, PageLayout.getIndexType(page),
-          "indexType [seed=" + seed + "]");
-      assertEquals(deweyIDs, PageLayout.areDeweyIDsStored(page),
-          "deweyIDs flag [seed=" + seed + "]");
+      assertEquals(recordPageKey, PageLayout.getRecordPageKey(page), "recordPageKey [seed=" + seed + "]");
+      assertEquals(revision, PageLayout.getRevision(page), "revision [seed=" + seed + "]");
+      assertEquals(0, PageLayout.getPopulatedCount(page), "populatedCount should be 0 after init [seed=" + seed + "]");
+      assertEquals(0, PageLayout.getHeapEnd(page), "heapEnd should be 0 after init [seed=" + seed + "]");
+      assertEquals(0, PageLayout.getHeapUsed(page), "heapUsed should be 0 after init [seed=" + seed + "]");
+      assertEquals(indexType, PageLayout.getIndexType(page), "indexType [seed=" + seed + "]");
+      assertEquals(deweyIDs, PageLayout.areDeweyIDsStored(page), "deweyIDs flag [seed=" + seed + "]");
 
       // Mutate and re-read
       final long newKey = rng.nextLong();
       PageLayout.setRecordPageKey(page, newKey);
-      assertEquals(newKey, PageLayout.getRecordPageKey(page),
-          "recordPageKey after set [seed=" + seed + "]");
+      assertEquals(newKey, PageLayout.getRecordPageKey(page), "recordPageKey after set [seed=" + seed + "]");
 
       final int newRev = rng.nextInt(Integer.MAX_VALUE);
       PageLayout.setRevision(page, newRev);
-      assertEquals(newRev, PageLayout.getRevision(page),
-          "revision after set [seed=" + seed + "]");
+      assertEquals(newRev, PageLayout.getRevision(page), "revision after set [seed=" + seed + "]");
 
       final int newCount = rng.nextInt(PageLayout.SLOT_COUNT + 1);
       PageLayout.setPopulatedCount(page, newCount);
-      assertEquals(newCount, PageLayout.getPopulatedCount(page),
-          "populatedCount after set [seed=" + seed + "]");
+      assertEquals(newCount, PageLayout.getPopulatedCount(page), "populatedCount after set [seed=" + seed + "]");
     }
   }
 
@@ -143,9 +133,7 @@ class PageLayoutFuzzTest {
 
       // Compare all bitmap words
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-        assertEquals(
-            PageLayout.getBitmapWord(page, w),
-            PageLayout.getBitmapWord(page2, w),
+        assertEquals(PageLayout.getBitmapWord(page, w), PageLayout.getBitmapWord(page2, w),
             "Bitmap word " + w + " mismatch after copy [seed=" + seed + "]");
       }
     }
@@ -219,12 +207,9 @@ class PageLayoutFuzzTest {
       PageLayout.setDirEntry(page, slot, 12345, 6789, 42);
       PageLayout.clearDirEntry(page, slot);
 
-      assertEquals(0, PageLayout.getDirHeapOffset(page, slot),
-          "heapOffset not zeroed [seed=" + seed + "]");
-      assertEquals(0, PageLayout.getDirDataLength(page, slot),
-          "dataLength not zeroed [seed=" + seed + "]");
-      assertEquals(0, PageLayout.getDirNodeKindId(page, slot),
-          "nodeKindId not zeroed [seed=" + seed + "]");
+      assertEquals(0, PageLayout.getDirHeapOffset(page, slot), "heapOffset not zeroed [seed=" + seed + "]");
+      assertEquals(0, PageLayout.getDirDataLength(page, slot), "dataLength not zeroed [seed=" + seed + "]");
+      assertEquals(0, PageLayout.getDirNodeKindId(page, slot), "nodeKindId not zeroed [seed=" + seed + "]");
       assertEquals(0, PageLayout.dirEntryDataLength(PageLayout.getDirEntry(page, slot)),
           "packed dataLength not zeroed [seed=" + seed + "]");
     }
@@ -248,17 +233,15 @@ class PageLayoutFuzzTest {
       assertEquals(nodeKindId, PageLayout.unpackNodeKindId(packed),
           "unpackNodeKindId mismatch [seed=" + seed + ", nodeKindId=" + nodeKindId + "]");
     } catch (final Exception e) {
-      fail("Exception [seed=" + seed + ", dataLength=" + dataLength
-          + ", nodeKindId=" + nodeKindId + "]: " + e.getMessage(), e);
+      fail("Exception [seed=" + seed + ", dataLength=" + dataLength + ", nodeKindId=" + nodeKindId + "]: "
+          + e.getMessage(), e);
     }
   }
 
   @Test
   void compactDirEntryRejectsOversizedLength() {
-    assertThrows(IllegalArgumentException.class,
-        () -> PageLayout.packCompactDirEntry(0x1000000, 0)); // 16777216
-    assertThrows(IllegalArgumentException.class,
-        () -> PageLayout.packCompactDirEntry(Integer.MAX_VALUE, 0));
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(0x1000000, 0)); // 16777216
+    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(Integer.MAX_VALUE, 0));
   }
 
   // ==================== HEAP ALLOCATION FUZZ ====================
@@ -297,8 +280,7 @@ class PageLayoutFuzzTest {
 
       // Verify remaining capacity
       final int remaining = PageLayout.heapCapacityRemaining(page);
-      assertEquals(maxHeapSpace - totalAllocated, remaining,
-          "heapCapacityRemaining mismatch [seed=" + seed + "]");
+      assertEquals(maxHeapSpace - totalAllocated, remaining, "heapCapacityRemaining mismatch [seed=" + seed + "]");
 
       // Fresh page should have no fragmentation
       assertEquals(0.0, PageLayout.heapFragmentation(page), 0.0001,
@@ -317,8 +299,7 @@ class PageLayoutFuzzTest {
       PageLayout.allocateHeap(page, maxHeap - 10);
 
       // This should overflow
-      assertThrows(IllegalStateException.class,
-          () -> PageLayout.allocateHeap(page, 11));
+      assertThrows(IllegalStateException.class, () -> PageLayout.allocateHeap(page, 11));
     }
   }
 
@@ -348,12 +329,10 @@ class PageLayoutFuzzTest {
       final double expected = 1.0 - ((double) usedFraction / totalAlloc);
 
       assertEquals(expected, frag, 0.0001,
-          "Fragmentation calculation [seed=" + seed
-              + ", heapEnd=" + totalAlloc + ", heapUsed=" + usedFraction + "]");
+          "Fragmentation calculation [seed=" + seed + ", heapEnd=" + totalAlloc + ", heapUsed=" + usedFraction + "]");
 
       // needsCompaction should be true when frag > 0.25
-      assertEquals(frag > 0.25, PageLayout.needsCompaction(page),
-          "needsCompaction inconsistency [seed=" + seed + "]");
+      assertEquals(frag > 0.25, PageLayout.needsCompaction(page), "needsCompaction inconsistency [seed=" + seed + "]");
     }
   }
 
@@ -369,10 +348,8 @@ class PageLayoutFuzzTest {
 
     final int newSize = PageLayout.computeGrowthSize(currentSize, needed);
 
-    assertTrue(newSize >= needed,
-        "Growth size " + newSize + " < needed " + needed + " [seed=" + seed + "]");
-    assertTrue(newSize >= currentSize,
-        "Growth size " + newSize + " < current " + currentSize + " [seed=" + seed + "]");
+    assertTrue(newSize >= needed, "Growth size " + newSize + " < needed " + needed + " [seed=" + seed + "]");
+    assertTrue(newSize >= currentSize, "Growth size " + newSize + " < current " + currentSize + " [seed=" + seed + "]");
     // Should be a power of 2 multiple of currentSize
     assertTrue(Integer.bitCount(newSize / currentSize) <= 1 || newSize == needed,
         "Growth size not a clean doubling [seed=" + seed + "]");
@@ -389,8 +366,7 @@ class PageLayoutFuzzTest {
       final MemorySegment page = arena.allocate(PageLayout.INITIAL_PAGE_SIZE);
       PageLayout.initializePage(page, 0, 0, (byte) 0, false);
 
-      assertFalse(PageLayout.hasPreservedSlots(page),
-          "Fresh page should have no preserved slots [seed=" + seed + "]");
+      assertFalse(PageLayout.hasPreservedSlots(page), "Fresh page should have no preserved slots [seed=" + seed + "]");
 
       // Mark random slots preserved
       final boolean[] preserved = new boolean[PageLayout.SLOT_COUNT];
@@ -412,8 +388,7 @@ class PageLayoutFuzzTest {
         }
       }
 
-      assertEquals(anyPreserved, PageLayout.hasPreservedSlots(page),
-          "hasPreservedSlots mismatch [seed=" + seed + "]");
+      assertEquals(anyPreserved, PageLayout.hasPreservedSlots(page), "hasPreservedSlots mismatch [seed=" + seed + "]");
 
       // Clear and verify
       PageLayout.clearPreservationBitmap(page);
@@ -455,8 +430,7 @@ class PageLayoutFuzzTest {
       }
 
       // Read back
-      assertEquals(nodeKind, PageLayout.readRecordKind(page, recordBase),
-          "nodeKind mismatch [seed=" + seed + "]");
+      assertEquals(nodeKind, PageLayout.readRecordKind(page, recordBase), "nodeKind mismatch [seed=" + seed + "]");
 
       for (int i = 0; i < fieldCount; i++) {
         assertEquals(offsets[i], PageLayout.readFieldOffset(page, recordBase, i),
@@ -465,8 +439,7 @@ class PageLayoutFuzzTest {
 
       // Verify dataRegionStart
       final long dataStart = PageLayout.dataRegionStart(recordBase, fieldCount);
-      assertEquals(recordBase + 1 + fieldCount, dataStart,
-          "dataRegionStart mismatch [seed=" + seed + "]");
+      assertEquals(recordBase + 1 + fieldCount, dataStart, "dataRegionStart mismatch [seed=" + seed + "]");
     }
   }
 
@@ -496,8 +469,8 @@ class PageLayoutFuzzTest {
       // Write DeweyID data
       final byte[] deweyIdData = new byte[deweyIdLen];
       rng.nextBytes(deweyIdData);
-      final long deweyIdStart = PageLayout.heapAbsoluteOffset(heapOff) + totalLen
-          - PageLayout.DEWEY_ID_TRAILER_SIZE - deweyIdLen;
+      final long deweyIdStart =
+          PageLayout.heapAbsoluteOffset(heapOff) + totalLen - PageLayout.DEWEY_ID_TRAILER_SIZE - deweyIdLen;
       for (int i = 0; i < deweyIdLen; i++) {
         page.set(java.lang.foreign.ValueLayout.JAVA_BYTE, deweyIdStart + i, deweyIdData[i]);
       }
@@ -507,8 +480,7 @@ class PageLayoutFuzzTest {
       PageLayout.writeDeweyIdTrailer(page, absEnd, deweyIdLen);
 
       // Read back
-      assertEquals(deweyIdLen, PageLayout.getDeweyIdLength(page, slot),
-          "DeweyID length mismatch [seed=" + seed + "]");
+      assertEquals(deweyIdLen, PageLayout.getDeweyIdLength(page, slot), "DeweyID length mismatch [seed=" + seed + "]");
 
       final int recordOnlyLen = PageLayout.getRecordOnlyLength(page, slot);
       assertEquals(totalLen - deweyIdLen - PageLayout.DEWEY_ID_TRAILER_SIZE, recordOnlyLen,
@@ -516,12 +488,10 @@ class PageLayoutFuzzTest {
 
       if (deweyIdLen > 0) {
         final MemorySegment deweySlice = PageLayout.getDeweyId(page, slot);
-        assertEquals(deweyIdLen, deweySlice.byteSize(),
-            "DeweyID slice size mismatch [seed=" + seed + "]");
+        assertEquals(deweyIdLen, deweySlice.byteSize(), "DeweyID slice size mismatch [seed=" + seed + "]");
 
         for (int i = 0; i < deweyIdLen; i++) {
-          assertEquals(deweyIdData[i],
-              deweySlice.get(java.lang.foreign.ValueLayout.JAVA_BYTE, i),
+          assertEquals(deweyIdData[i], deweySlice.get(java.lang.foreign.ValueLayout.JAVA_BYTE, i),
               "DeweyID byte " + i + " mismatch [seed=" + seed + "]");
         }
       }
@@ -565,8 +535,7 @@ class PageLayoutFuzzTest {
       }
 
       // Verify all slots
-      assertEquals(numSlots, PageLayout.countPopulatedSlots(page),
-          "populatedSlots count [seed=" + seed + "]");
+      assertEquals(numSlots, PageLayout.countPopulatedSlots(page), "populatedSlots count [seed=" + seed + "]");
 
       for (int i = 0; i < numSlots; i++) {
         assertTrue(PageLayout.isSlotPopulated(page, slots[i]),
@@ -579,8 +548,7 @@ class PageLayoutFuzzTest {
         // Verify data integrity
         final long absOff = PageLayout.heapAbsoluteOffset(heapOffsets[i]);
         for (int b = 0; b < dataLens[i]; b++) {
-          assertEquals(recordData[i][b],
-              page.get(java.lang.foreign.ValueLayout.JAVA_BYTE, absOff + b),
+          assertEquals(recordData[i][b], page.get(java.lang.foreign.ValueLayout.JAVA_BYTE, absOff + b),
               "Data byte " + b + " at slot " + slots[i] + " [seed=" + seed + "]");
         }
       }
@@ -619,16 +587,13 @@ class PageLayoutFuzzTest {
 
       final byte flags = (byte) rng.nextInt(256);
       PageLayout.setFlags(page, flags);
-      assertEquals(flags, PageLayout.getFlags(page),
-          "Flags read/write mismatch [seed=" + seed + "]");
+      assertEquals(flags, PageLayout.getFlags(page), "Flags read/write mismatch [seed=" + seed + "]");
 
       // Test individual flag bits
       final boolean expectDewey = (flags & PageLayout.FLAG_DEWEY_IDS_STORED) != 0;
       final boolean expectFsst = (flags & PageLayout.FLAG_HAS_FSST_TABLE) != 0;
-      assertEquals(expectDewey, PageLayout.areDeweyIDsStored(page),
-          "DeweyID flag mismatch [seed=" + seed + "]");
-      assertEquals(expectFsst, PageLayout.hasFsstTable(page),
-          "FSST flag mismatch [seed=" + seed + "]");
+      assertEquals(expectDewey, PageLayout.areDeweyIDsStored(page), "DeweyID flag mismatch [seed=" + seed + "]");
+      assertEquals(expectFsst, PageLayout.hasFsstTable(page), "FSST flag mismatch [seed=" + seed + "]");
     }
   }
 
@@ -638,8 +603,7 @@ class PageLayoutFuzzTest {
   void dirEntryOffsetCalculation() {
     for (int i = 0; i < PageLayout.SLOT_COUNT; i++) {
       final long expected = PageLayout.DIR_OFF + (long) i * PageLayout.DIR_ENTRY_SIZE;
-      assertEquals(expected, PageLayout.dirEntryOffset(i),
-          "dirEntryOffset(" + i + ")");
+      assertEquals(expected, PageLayout.dirEntryOffset(i), "dirEntryOffset(" + i + ")");
     }
   }
 

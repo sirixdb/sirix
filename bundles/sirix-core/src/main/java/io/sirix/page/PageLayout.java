@@ -7,12 +7,15 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 /**
- * Slotted page layout (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap) for {@link KeyValueLeafPage}.
+ * Slotted page layout (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap) for
+ * {@link KeyValueLeafPage}.
  *
- * <p>All page metadata, slot directory, and record data live in a single contiguous
+ * <p>
+ * All page metadata, slot directory, and record data live in a single contiguous
  * {@link MemorySegment}. In-memory format = on-disk format. ZERO conversion at commit time.
  *
  * <h2>Page Layout (Runtime)</h2>
+ * 
  * <pre>
  * Offset   Size      Field                      Disk?
  * ──────── ───────── ────────────────────────── ─────
@@ -35,6 +38,7 @@ import java.lang.foreign.ValueLayout;
  * </pre>
  *
  * <h2>Slot Directory Entry (8 bytes each)</h2>
+ * 
  * <pre>
  * Bytes 0-3: heapOffset (int) — offset into heap region (relative to HEAP_START)
  * Bytes 4-6: dataLength (3 bytes, unsigned) — total byte length of the record in the heap
@@ -42,20 +46,21 @@ import java.lang.foreign.ValueLayout;
  * </pre>
  *
  * <h2>Heap Record Format</h2>
+ * 
  * <pre>
  * [nodeKind: 1 byte]
  * [fieldOffsetTable: fieldCount × 1 byte] — O(1) access to any field
  * [data region: varint fields + hash + optional payload]
  * </pre>
  *
- * <h2>Header redundancy — retained by design (format decision)</h2>
- * The header's recordPageKey/revision/indexType duplicate information the reader already knows
- * from the page's reference, and heapEnd/heapUsed are runtime bump-allocator state. They stay in
- * the on-disk header deliberately: (1) "in-memory format = on-disk format" means the 160-byte
- * block is bulk-copied verbatim — stripping fields would reintroduce a per-commit conversion
- * pass; (2) the redundancy makes every page SELF-DESCRIBING, so recovery/forensic tooling can
- * interpret a page from its bytes alone and readers can cross-check the header against the
- * reference (a mismatch is corruption caught early). The cost is 21 bytes per ~64 KiB page.
+ * <h2>Header redundancy — retained by design (format decision)</h2> The header's
+ * recordPageKey/revision/indexType duplicate information the reader already knows from the page's
+ * reference, and heapEnd/heapUsed are runtime bump-allocator state. They stay in the on-disk header
+ * deliberately: (1) "in-memory format = on-disk format" means the 160-byte block is bulk-copied
+ * verbatim — stripping fields would reintroduce a per-commit conversion pass; (2) the redundancy
+ * makes every page SELF-DESCRIBING, so recovery/forensic tooling can interpret a page from its
+ * bytes alone and readers can cross-check the header against the reference (a mismatch is
+ * corruption caught early). The cost is 21 bytes per ~64 KiB page.
  */
 public final class PageLayout {
 
@@ -125,8 +130,8 @@ public final class PageLayout {
   // ==================== DISK FORMAT BOUNDARY ====================
 
   /**
-   * Size of the on-disk header + bitmap region (V0 format).
-   * The serializer writes exactly these bytes to disk. NEVER changes.
+   * Size of the on-disk header + bitmap region (V0 format). The serializer writes exactly these bytes
+   * to disk. NEVER changes.
    */
   public static final int DISK_HEADER_BITMAP_SIZE = HEADER_SIZE + BITMAP_SIZE; // 160
 
@@ -155,13 +160,12 @@ public final class PageLayout {
   public static final int COMPACT_DIR_ENTRY_SIZE = 4;
 
   /**
-   * Pack a compact directory entry: top 3 bytes = dataLength, bottom byte = nodeKindId.
-   * Same bit layout as existing directory entry bytes 4-7.
+   * Pack a compact directory entry: top 3 bytes = dataLength, bottom byte = nodeKindId. Same bit
+   * layout as existing directory entry bytes 4-7.
    */
   public static int packCompactDirEntry(final int dataLength, final int nodeKindId) {
     if (dataLength > 0xFFFFFF) {
-      throw new IllegalArgumentException(
-          "dataLength " + dataLength + " exceeds 3-byte maximum (16,777,215)");
+      throw new IllegalArgumentException("dataLength " + dataLength + " exceeds 3-byte maximum (16,777,215)");
     }
     return (dataLength << 8) | (nodeKindId & 0xFF);
   }
@@ -337,8 +341,8 @@ public final class PageLayout {
   }
 
   /**
-   * Copy the entire bitmap from the page into a Java long[] array.
-   * Useful for snapshot/iteration without repeated segment access.
+   * Copy the entire bitmap from the page into a Java long[] array. Useful for snapshot/iteration
+   * without repeated segment access.
    */
   public static void copyBitmapTo(final MemorySegment page, final long[] dest) {
     for (int i = 0; i < BITMAP_WORDS; i++) {
@@ -358,12 +362,11 @@ public final class PageLayout {
   // ==================== PRESERVATION BITMAP ACCESSORS ====================
 
   /**
-   * Check if a slot is marked for preservation in the runtime-only preservation bitmap.
-   * Used by DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT versioning at commit time.
+   * Check if a slot is marked for preservation in the runtime-only preservation bitmap. Used by
+   * DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT versioning at commit time.
    */
   public static boolean isSlotPreserved(final MemorySegment page, final int slotIndex) {
-    final long word = page.get(JAVA_LONG_UNALIGNED,
-        PRESERVATION_BITMAP_OFF + ((long) (slotIndex >>> 6) << 3));
+    final long word = page.get(JAVA_LONG_UNALIGNED, PRESERVATION_BITMAP_OFF + ((long) (slotIndex >>> 6) << 3));
     return (word & (1L << (slotIndex & 63))) != 0;
   }
 
@@ -406,18 +409,17 @@ public final class PageLayout {
   }
 
   /**
-   * Read the heap offset from a slot directory entry.
-   * Returns {@link #DIR_ENTRY_EMPTY} if the slot is not populated
-   * (caller must check bitmap first for correctness).
+   * Read the heap offset from a slot directory entry. Returns {@link #DIR_ENTRY_EMPTY} if the slot is
+   * not populated (caller must check bitmap first for correctness).
    */
   public static int getDirHeapOffset(final MemorySegment page, final int slotIndex) {
     return page.get(JAVA_INT_UNALIGNED, dirEntryOffset(slotIndex) + DIRENTRY_OFF_HEAP_OFFSET);
   }
 
   /**
-   * Read the data length from a slot directory entry.
-   * The length is stored in 3 bytes (unsigned, big-endian packing within the 4-byte field).
-   * Byte layout: [dataLength_b2][dataLength_b1][dataLength_b0][nodeKindId]
+   * Read the data length from a slot directory entry. The length is stored in 3 bytes (unsigned,
+   * big-endian packing within the 4-byte field). Byte layout:
+   * [dataLength_b2][dataLength_b1][dataLength_b0][nodeKindId]
    *
    * @return data length in bytes (0 to 16,777,215)
    */
@@ -442,18 +444,19 @@ public final class PageLayout {
   /**
    * Read a whole 8-byte slot directory entry in ONE access.
    *
-   * <p>The entry holds the heap offset and the packed length+kind in adjacent ints, and the
-   * cursor's same-page bind needs both. Reading them separately costs two bounds-checked
-   * {@code MemorySegment} accesses on the hottest step of a traversal — measured at 48.9 % of warm
-   * scan CPU in {@code AbstractNodeReadOnlyTrx.moveToSingleton}, with segment bounds checking a
-   * further 7.5 %. This is the read counterpart of {@link #setDirEntry}, which already packs the
-   * same two halves into a single long write, and it makes the same little-endian assumption that
-   * method documents and asserts.
+   * <p>
+   * The entry holds the heap offset and the packed length+kind in adjacent ints, and the cursor's
+   * same-page bind needs both. Reading them separately costs two bounds-checked {@code MemorySegment}
+   * accesses on the hottest step of a traversal — measured at 48.9 % of warm scan CPU in
+   * {@code AbstractNodeReadOnlyTrx.moveToSingleton}, with segment bounds checking a further 7.5 %.
+   * This is the read counterpart of {@link #setDirEntry}, which already packs the same two halves
+   * into a single long write, and it makes the same little-endian assumption that method documents
+   * and asserts.
    *
    * @param page the page segment
    * @param slotIndex the slot index
-   * @return the raw entry; decode with {@link #dirEntryHeapOffset}, {@link #dirEntryDataLength},
-   *         and {@link #dirEntryNodeKindId}
+   * @return the raw entry; decode with {@link #dirEntryHeapOffset}, {@link #dirEntryDataLength}, and
+   *         {@link #dirEntryNodeKindId}
    */
   public static long getDirEntry(final MemorySegment page, final int slotIndex) {
     assert DIRENTRY_OFF_HEAP_OFFSET == 0 && DIRENTRY_OFF_LENGTH_AND_KIND == 4
@@ -479,14 +482,14 @@ public final class PageLayout {
   /**
    * Write a complete slot directory entry.
    *
-   * @param page       the page MemorySegment
-   * @param slotIndex  the slot index (0 to SLOT_COUNT-1)
+   * @param page the page MemorySegment
+   * @param slotIndex the slot index (0 to SLOT_COUNT-1)
    * @param heapOffset offset into the heap region (relative to HEAP_START)
    * @param dataLength total byte length of the record in the heap (0 to 16,777,215)
    * @param nodeKindId NodeKind ordinal (0 to 255)
    */
-  public static void setDirEntry(final MemorySegment page, final int slotIndex,
-      final int heapOffset, final int dataLength, final int nodeKindId) {
+  public static void setDirEntry(final MemorySegment page, final int slotIndex, final int heapOffset,
+      final int dataLength, final int nodeKindId) {
     final long base = dirEntryOffset(slotIndex);
     // Pack heapOffset (low 32 bits) + lengthAndKind (high 32 bits) into one
     // unaligned long write — halves the VarHandle dispatch on the dir-rebuild
@@ -522,8 +525,7 @@ public final class PageLayout {
   }
 
   /**
-   * Allocate space in the heap using bump allocation.
-   * Updates the heapEnd in the page header.
+   * Allocate space in the heap using bump allocation. Updates the heapEnd in the page header.
    *
    * @param page the page MemorySegment
    * @param size number of bytes to allocate
@@ -536,9 +538,8 @@ public final class PageLayout {
 
     // Check if we've exceeded the page capacity (use long arithmetic to prevent int overflow)
     if ((long) HEAP_START + newHeapEnd > page.byteSize()) {
-      throw new IllegalStateException(
-          "Heap overflow: need " + ((long) HEAP_START + newHeapEnd) +
-              " bytes but page is " + page.byteSize() + " bytes");
+      throw new IllegalStateException("Heap overflow: need " + ((long) HEAP_START + newHeapEnd) + " bytes but page is "
+          + page.byteSize() + " bytes");
     }
 
     setHeapEnd(page, newHeapEnd);
@@ -574,17 +575,17 @@ public final class PageLayout {
   // ==================== PAGE INITIALIZATION ====================
 
   /**
-   * Initialize a fresh page MemorySegment with default header values.
-   * Zeroes the bitmap and directory regions.
+   * Initialize a fresh page MemorySegment with default header values. Zeroes the bitmap and directory
+   * regions.
    *
-   * @param page           the page MemorySegment (must be at least INITIAL_PAGE_SIZE)
-   * @param recordPageKey  the page key
-   * @param revision       the revision number
-   * @param indexType      the index type byte
-   * @param areDeweyIDs    whether DeweyIDs will be stored
+   * @param page the page MemorySegment (must be at least INITIAL_PAGE_SIZE)
+   * @param recordPageKey the page key
+   * @param revision the revision number
+   * @param indexType the index type byte
+   * @param areDeweyIDs whether DeweyIDs will be stored
    */
-  public static void initializePage(final MemorySegment page, final long recordPageKey,
-      final int revision, final byte indexType, final boolean areDeweyIDs) {
+  public static void initializePage(final MemorySegment page, final long recordPageKey, final int revision,
+      final byte indexType, final boolean areDeweyIDs) {
     // Clear header + bitmap + directory (all zeros)
     page.asSlice(0, HEAP_START).fill((byte) 0);
 
@@ -608,7 +609,7 @@ public final class PageLayout {
    * Compute the new page size for growth (doubling strategy).
    *
    * @param currentSize the current page size
-   * @param needed      the minimum total size needed
+   * @param needed the minimum total size needed
    * @return the new page size (at least needed, typically 2x current)
    */
   public static int computeGrowthSize(final int currentSize, final int needed) {
@@ -622,35 +623,35 @@ public final class PageLayout {
   // ==================== RECORD OFFSET TABLE ====================
 
   /**
-   * Read a field offset from a record's offset table.
-   * The offset table starts at recordBase + 1 (after the nodeKind byte).
+   * Read a field offset from a record's offset table. The offset table starts at recordBase + 1
+   * (after the nodeKind byte).
    *
-   * @param page         the page MemorySegment
-   * @param recordBase   absolute byte offset of the record start
-   * @param fieldIndex   the field index (0 to fieldCount-1)
+   * @param page the page MemorySegment
+   * @param recordBase absolute byte offset of the record start
+   * @param fieldIndex the field index (0 to fieldCount-1)
    * @return the field offset (0-255) relative to the data region start
    */
-  public static int readFieldOffset(final MemorySegment page, final long recordBase,
-      final int fieldIndex) {
+  public static int readFieldOffset(final MemorySegment page, final long recordBase, final int fieldIndex) {
     return page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
   }
 
   /**
    * Write a field offset into a record's offset table.
    *
-   * <p>The table entry is a single unsigned byte, so offsets are limited to 0-255. Current
-   * layouts keep the one unbounded (variable-length value) field last so preceding offsets stay
-   * in range; the guard turns a violation of that invariant into a loud error instead of a
-   * silently truncated offset that corrupts the record.
+   * <p>
+   * The table entry is a single unsigned byte, so offsets are limited to 0-255. Current layouts keep
+   * the one unbounded (variable-length value) field last so preceding offsets stay in range; the
+   * guard turns a violation of that invariant into a loud error instead of a silently truncated
+   * offset that corrupts the record.
    *
-   * @param page        the page MemorySegment
-   * @param recordBase  absolute byte offset of the record start
-   * @param fieldIndex  the field index (0 to fieldCount-1)
-   * @param offset      the field offset (0-255) relative to the data region start
+   * @param page the page MemorySegment
+   * @param recordBase absolute byte offset of the record start
+   * @param fieldIndex the field index (0 to fieldCount-1)
+   * @param offset the field offset (0-255) relative to the data region start
    * @throws IllegalStateException if the offset exceeds the unsigned-byte range of the table entry
    */
-  public static void writeFieldOffset(final MemorySegment page, final long recordBase,
-      final int fieldIndex, final int offset) {
+  public static void writeFieldOffset(final MemorySegment page, final long recordBase, final int fieldIndex,
+      final int offset) {
     if ((offset & ~0xFF) != 0) {
       throw new IllegalStateException("Record field offset " + offset + " for field " + fieldIndex
           + " exceeds the 1-byte offset-table range (0-255)");
@@ -659,8 +660,8 @@ public final class PageLayout {
   }
 
   /**
-   * Compute the absolute offset of the data region for a record.
-   * Data region starts after: [nodeKind: 1 byte] + [offset table: fieldCount bytes].
+   * Compute the absolute offset of the data region for a record. Data region starts after: [nodeKind:
+   * 1 byte] + [offset table: fieldCount bytes].
    *
    * @param recordBase absolute byte offset of the record start
    * @param fieldCount number of fields in the offset table
@@ -673,7 +674,7 @@ public final class PageLayout {
   /**
    * Read the nodeKind byte from a record in the heap.
    *
-   * @param page       the page MemorySegment
+   * @param page the page MemorySegment
    * @param recordBase absolute byte offset of the record start
    * @return the nodeKind byte
    */
@@ -684,28 +685,27 @@ public final class PageLayout {
   /**
    * Write the nodeKind byte for a record in the heap.
    *
-   * @param page       the page MemorySegment
+   * @param page the page MemorySegment
    * @param recordBase absolute byte offset of the record start
-   * @param kindId     the nodeKind byte
+   * @param kindId the nodeKind byte
    */
-  public static void writeRecordKind(final MemorySegment page, final long recordBase,
-      final byte kindId) {
+  public static void writeRecordKind(final MemorySegment page, final long recordBase, final byte kindId) {
     page.set(ValueLayout.JAVA_BYTE, recordBase, kindId);
   }
 
   // ==================== DEWEY ID INLINE SUPPORT ====================
 
   /**
-   * Size of the DeweyID length trailer appended to each heap allocation
-   * when FLAG_DEWEY_IDS_STORED is set. Unsigned 16-bit (0-65535).
+   * Size of the DeweyID length trailer appended to each heap allocation when FLAG_DEWEY_IDS_STORED is
+   * set. Unsigned 16-bit (0-65535).
    */
   public static final int DEWEY_ID_TRAILER_SIZE = 2;
 
   /**
-   * Read the DeweyID length from the trailer at the end of a slot's heap allocation.
-   * Returns 0 if DeweyIDs are not stored or the slot has no DeweyID.
+   * Read the DeweyID length from the trailer at the end of a slot's heap allocation. Returns 0 if
+   * DeweyIDs are not stored or the slot has no DeweyID.
    *
-   * @param page      the page MemorySegment
+   * @param page the page MemorySegment
    * @param slotIndex the slot index
    * @return DeweyID data length in bytes (0 if none)
    */
@@ -723,10 +723,10 @@ public final class PageLayout {
   }
 
   /**
-   * Get the record-only data length (excluding DeweyID data and trailer).
-   * When DeweyIDs are not stored, this equals the full dataLength.
+   * Get the record-only data length (excluding DeweyID data and trailer). When DeweyIDs are not
+   * stored, this equals the full dataLength.
    *
-   * @param page      the page MemorySegment
+   * @param page the page MemorySegment
    * @param slotIndex the slot index
    * @return record-only byte length
    */
@@ -743,10 +743,10 @@ public final class PageLayout {
   }
 
   /**
-   * Get the DeweyID data from a slot's heap allocation as a MemorySegment slice.
-   * Returns null if the slot has no DeweyID.
+   * Get the DeweyID data from a slot's heap allocation as a MemorySegment slice. Returns null if the
+   * slot has no DeweyID.
    *
-   * @param page      the page MemorySegment
+   * @param page the page MemorySegment
    * @param slotIndex the slot index
    * @return MemorySegment slice containing DeweyID bytes, or null
    */
@@ -758,28 +758,26 @@ public final class PageLayout {
     final int dataLength = getDirDataLength(page, slotIndex);
     final int heapOffset = getDirHeapOffset(page, slotIndex);
     // DeweyID data is between record data and the 2-byte trailer
-    final long deweyIdStart = heapAbsoluteOffset(heapOffset) + dataLength
-        - DEWEY_ID_TRAILER_SIZE - deweyIdLen;
+    final long deweyIdStart = heapAbsoluteOffset(heapOffset) + dataLength - DEWEY_ID_TRAILER_SIZE - deweyIdLen;
     return page.asSlice(deweyIdStart, deweyIdLen);
   }
 
   /**
    * Write a 2-byte DeweyID length trailer (u16) at the end of a heap allocation.
    *
-   * @param page       the page MemorySegment
-   * @param absEnd     absolute byte position of the allocation end (where trailer goes)
+   * @param page the page MemorySegment
+   * @param absEnd absolute byte position of the allocation end (where trailer goes)
    * @param deweyIdLen length of the DeweyID data (0 if none)
    */
-  public static void writeDeweyIdTrailer(final MemorySegment page, final long absEnd,
-      final int deweyIdLen) {
+  public static void writeDeweyIdTrailer(final MemorySegment page, final long absEnd, final int deweyIdLen) {
     page.set(JAVA_SHORT_UNALIGNED, absEnd - DEWEY_ID_TRAILER_SIZE, (short) deweyIdLen);
   }
 
   // ==================== COMPACTION ====================
 
   /**
-   * Check whether the heap needs compaction.
-   * Returns true when dead space exceeds the compaction threshold (25%).
+   * Check whether the heap needs compaction. Returns true when dead space exceeds the compaction
+   * threshold (25%).
    */
   public static boolean needsCompaction(final MemorySegment page) {
     return heapFragmentation(page) > 0.25;

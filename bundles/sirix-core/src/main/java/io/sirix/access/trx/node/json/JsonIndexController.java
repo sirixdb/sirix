@@ -93,8 +93,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * slot 0 for the duration, so a load that never finishes leaves an index every reader skips rather
    * than an empty one every reader trusts.
    *
-   * @throws IllegalStateException if the resource already holds records under a definition's root path
-   *         — the load-time build appends, and would append after rows nobody extracted
+   * @throws IllegalStateException if the resource already holds records under a definition's root
+   *         path — the load-time build appends, and would append after rows nobody extracted
    */
   public JsonIndexController createProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
       final JsonNodeTrx nodeWriteTrx) {
@@ -103,8 +103,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   /**
    * As above, carrying an expected record count so each build's global-dictionary election can
-   * decline a column that would not fit its budget. {@code -1} means unknown, and leaves the
-   * writer's runtime cap as the only protection.
+   * decline a column that would not fit its budget. {@code -1} means unknown, and leaves the writer's
+   * runtime cap as the only protection.
    */
   public JsonIndexController createProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
       final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
@@ -116,17 +116,17 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * Arm one load-time projection and return its exact lifecycle owner. Unlike an ACTIVE-map lookup,
    * the returned handle can never name a pre-existing build that won a concurrent/duplicate arm.
    */
-  public ProjectionBulkLoad createProjectionIndexAtLoadStart(final IndexDef indexDef,
-      final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
+  public ProjectionBulkLoad createProjectionIndexAtLoadStart(final IndexDef indexDef, final JsonNodeTrx nodeWriteTrx,
+      final long expectedRows) {
     final ProjectionBulkLoad[] ownedLoads =
         armProjectionIndexesAtLoadStart(Set.of(indexDef), nodeWriteTrx, expectedRows);
     return ownedLoads[0];
   }
 
   /**
-   * Arm all requested definitions as one ownership transaction. Every successful {@code begin}
-   * result is captured before listener setup; a later begin/listener failure aborts only those exact
-   * owners. In particular, a failed {@code putIfAbsent} never resolves and aborts the winning owner.
+   * Arm all requested definitions as one ownership transaction. Every successful {@code begin} result
+   * is captured before listener setup; a later begin/listener failure aborts only those exact owners.
+   * In particular, a failed {@code putIfAbsent} never resolves and aborts the winning owner.
    */
   private ProjectionBulkLoad[] armProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
       final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
@@ -187,21 +187,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   /**
-   * Bulk-build a projection index over the transaction's revision: one
-   * columnar row per record under the definition's root path, streamed as
-   * compact leaves into the projection's HOT sub-tree (metadata at slot 0,
-   * leaves at 1..N — see {@link ProjectionIndexMetadata}). The writes ride
-   * the given transaction — the caller's commit persists them. Query-side
-   * consumption happens through the revision-scoped catalog + pages
-   * ({@link io.sirix.index.projection.ProjectionIndexCatalog}), exactly
-   * like the other index families — no process-global publication, so
-   * uncommitted or rolled-back builds are never visible to other sessions.
+   * Bulk-build a projection index over the transaction's revision: one columnar row per record under
+   * the definition's root path, streamed as compact leaves into the projection's HOT sub-tree
+   * (metadata at slot 0, leaves at 1..N — see {@link ProjectionIndexMetadata}). The writes ride the
+   * given transaction — the caller's commit persists them. Query-side consumption happens through the
+   * revision-scoped catalog + pages ({@link io.sirix.index.projection.ProjectionIndexCatalog}),
+   * exactly like the other index families — no process-global publication, so uncommitted or
+   * rolled-back builds are never visible to other sessions.
    */
   private void createProjectionIndex(final IndexDef indexDef, final JsonNodeTrx nodeWriteTrx) {
     if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-      throw new IllegalStateException(
-          "Projection indexes require a resource created with a path summary "
-              + "(buildPathSummary=true) — the builder resolves its paths through it.");
+      throw new IllegalStateException("Projection indexes require a resource created with a path summary "
+          + "(buildPathSummary=true) — the builder resolves its paths through it.");
     }
     nodeWriteTrx.awaitPendingAsyncCommit();
     // Creation fails loudly on a root path with no instances (caller error).
@@ -210,8 +207,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   @Override
-  protected ChangeListener createProjectionIndexListener(final JsonNodeTrx nodeWriteTrx,
-      final IndexDef indexDef) {
+  protected ChangeListener createProjectionIndexListener(final JsonNodeTrx nodeWriteTrx, final IndexDef indexDef) {
     if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
       // Fail-safe parity with the XML default: a catalogued PROJECTION def
       // on a summary-less resource must not brick every wtx open with an
@@ -222,8 +218,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // The write transaction doubles as the maintenance navigation handle:
     // at pre-commit the listener re-extracts dirty records from its current
     // state to patch the persisted leaves incrementally.
-    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
-        nodeWriteTrx.getPathSummary(), indexDef, nodeWriteTrx);
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(),
+        indexDef, nodeWriteTrx);
   }
 
   /**
@@ -240,10 +236,10 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       // Store the index definition so it can be serialized during commit
       indexes.add(indexDef);
       switch (indexDef.getType()) {
-        case PATH ->
-          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
-        case CAS -> indexBuilders.add(
-            createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+        case PATH -> indexBuilders.add(
+            createPathIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+        case CAS -> indexBuilders.add(createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(),
+            nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), indexDef));
         case VECTOR -> {
           // Vector indexes are populated explicitly, not by document traversal.
@@ -282,11 +278,13 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx,
-      final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+      final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+  private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter,
+      final IndexDef indexDef) {
     return (JsonNodeVisitor) nameIndex.createBuilder(storageEngineWriter, indexDef);
   }
 

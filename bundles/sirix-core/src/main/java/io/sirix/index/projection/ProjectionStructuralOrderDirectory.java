@@ -20,26 +20,25 @@ import java.util.function.LongFunction;
  * stored by the index itself, never read off the document's nodes, so a projection index works on a
  * DEFAULT resource created with {@code storeDeweyIDs} off.
  *
- * <h2>Granularity</h2>
- * The directory holds ONE slot per PROJECTED RECORD plus one per node on a record's root path (the
- * record set's container chain, which every record of a set shares). Fields inside a record — the
- * overwhelming majority of a document's nodes, roughly thirteen out of every fourteen on the
- * ClickBench corpus — never take a slot and never cost the ingestion hot path a read or a write.
+ * <h2>Granularity</h2> The directory holds ONE slot per PROJECTED RECORD plus one per node on a
+ * record's root path (the record set's container chain, which every record of a set shares). Fields
+ * inside a record — the overwhelming majority of a document's nodes, roughly thirteen out of every
+ * fourteen on the ClickBench corpus — never take a slot and never cost the ingestion hot path a
+ * read or a write.
  *
- * <h2>Laziness</h2>
- * Nothing is written when a node changes. A label is minted the first time
+ * <h2>Laziness</h2> Nothing is written when a node changes. A label is minted the first time
  * {@link Accessor#fullLabel} needs it, which is exactly once per record, at the point where that
  * record's row is emitted. Minting places the new label strictly between the nearest LABELLED left
  * and right siblings, which makes the result independent of the order records are minted in: an
  * unlabelled sibling is always filled in later, strictly inside its own (correct) bounds.
  *
- * <h2>Bounded labels</h2>
- * ORDPATH's {@link SirixDeweyID#newBetween} grows a label by one division every few
- * insert-as-first-child operations at the same position, without bound. Once a minted label passes
- * {@link #REBALANCE_DIVISIONS} divisions a BOUNDED rebalance re-spreads a fixed-size window of
- * sibling records — never the whole sibling list, never the whole index — over the gap between the
- * window's outer neighbours, restoring short labels and fresh slack. Relabelled records are reported
- * to the {@link RelabelSink} so their persisted row-group order labels are rewritten with them.
+ * <h2>Bounded labels</h2> ORDPATH's {@link SirixDeweyID#newBetween} grows a label by one division
+ * every few insert-as-first-child operations at the same position, without bound. Once a minted
+ * label passes {@link #REBALANCE_DIVISIONS} divisions a BOUNDED rebalance re-spreads a fixed-size
+ * window of sibling records — never the whole sibling list, never the whole index — over the gap
+ * between the window's outer neighbours, restoring short labels and fresh slack. Relabelled records
+ * are reported to the {@link RelabelSink} so their persisted row-group order labels are rewritten
+ * with them.
  */
 final class ProjectionStructuralOrderDirectory {
   static final long BASE = 1L << 50;
@@ -56,7 +55,7 @@ final class ProjectionStructuralOrderDirectory {
   /** Divisions a freshly minted local label may reach before the bounded rebalance takes over. */
   private static final int REBALANCE_DIVISIONS = 8;
   /** Sibling windows the rebalance may try, in order. Every entry is a hard bound on its work. */
-  private static final int[] REBALANCE_WINDOWS = { 32, 128, 512 };
+  private static final int[] REBALANCE_WINDOWS = {32, 128, 512};
   /** Odd-value slack a spread reserves per item when its interval is open-ended. */
   private static final int SPREAD_SLACK = 1 << 12;
   /** Hard bound on how many divisions one spread may descend through before it fits. */
@@ -66,8 +65,7 @@ final class ProjectionStructuralOrderDirectory {
   /** Division the very first label under a parent takes, leaving slack on BOTH sides. */
   private static final int FIRST_LOCAL_DIVISION = (SPREAD_SLACK << 1) + 1;
 
-  private ProjectionStructuralOrderDirectory() {
-  }
+  private ProjectionStructuralOrderDirectory() {}
 
   /**
    * Receives the records a bounded rebalance re-labelled, and decides which labelled siblings may
@@ -78,9 +76,9 @@ final class ProjectionStructuralOrderDirectory {
   interface RelabelSink {
     /**
      * For callers whose rows are not rewritable: a full build and a bulk load emit their rows in
-     * document order into storage they have already sealed, so no sibling of theirs may be
-     * re-spread. Those paths also cannot GROW a label — a run is spread over its interval in one
-     * pass and an append extends the previous label — so declining here costs them nothing.
+     * document order into storage they have already sealed, so no sibling of theirs may be re-spread.
+     * Those paths also cannot GROW a label — a run is spread over its interval in one pass and an
+     * append extends the previous label — so declining here costs them nothing.
      */
     RelabelSink SEALED = new RelabelSink() {
       @Override
@@ -96,9 +94,9 @@ final class ProjectionStructuralOrderDirectory {
 
     /**
      * Whether this labelled sibling is a projected record whose persisted order label the caller can
-     * rewrite. A labelled node that is NOT a record (a record-set container) must never be
-     * re-labelled: its label is a shared prefix of every record beneath it, so moving it would
-     * invalidate an unbounded number of rows.
+     * rewrite. A labelled node that is NOT a record (a record-set container) must never be re-labelled:
+     * its label is a shared prefix of every record beneath it, so moving it would invalidate an
+     * unbounded number of rows.
      */
     boolean canRelabel(long nodeKey);
 
@@ -198,7 +196,8 @@ final class ProjectionStructuralOrderDirectory {
 
   private static void validateNodeKey(final long nodeKey, final String role) {
     if (nodeKey < 0 || nodeKey >= NODE_KEY_LIMIT) {
-      throw new IllegalArgumentException(role + " key is outside the projection structural-order namespace: " + nodeKey);
+      throw new IllegalArgumentException(
+          role + " key is outside the projection structural-order namespace: " + nodeKey);
     }
   }
 
@@ -229,12 +228,11 @@ final class ProjectionStructuralOrderDirectory {
 
     /**
      * A node whose position changed (a subtree move) may now sit outside its own label's interval.
-     * Re-mint it in that case, and ONLY in that case. An unlabelled node is left alone: it is not on
-     * a record's root path yet, and {@link #fullLabel} mints it against its new neighbours when it
+     * Re-mint it in that case, and ONLY in that case. An unlabelled node is left alone: it is not on a
+     * record's root path yet, and {@link #fullLabel} mints it against its new neighbours when it
      * becomes one.
      */
-    void relabelDisplaced(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup,
-        final RelabelSink sink) {
+    void relabelDisplaced(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup, final RelabelSink sink) {
       validateNodeKey(nodeKey, "node");
       Objects.requireNonNull(nodeLookup);
       Objects.requireNonNull(sink);
@@ -252,12 +250,11 @@ final class ProjectionStructuralOrderDirectory {
 
     /**
      * The record's document-order label: its own local label prefixed by every ancestor's, minted on
-     * demand. {@code sink} governs the bounded rebalance for the node ITSELF only — a container's
-     * label is a shared prefix of every record beneath it, so it is always minted {@link
-     * RelabelSink#SEALED} and never re-spread.
+     * demand. {@code sink} governs the bounded rebalance for the node ITSELF only — a container's label
+     * is a shared prefix of every record beneath it, so it is always minted {@link RelabelSink#SEALED}
+     * and never re-spread.
      */
-    SirixDeweyID fullLabel(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup,
-        final RelabelSink sink) {
+    SirixDeweyID fullLabel(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup, final RelabelSink sink) {
       validateNodeKey(nodeKey, "node");
       Objects.requireNonNull(nodeLookup);
       Objects.requireNonNull(sink);
@@ -328,12 +325,12 @@ final class ProjectionStructuralOrderDirectory {
      * belongs to.
      *
      * <p>
-     * Minting one node at a time by probing outwards for a labelled bound is quadratic: every member
-     * of an N-long unlabelled run would walk the rest of the run to find its bound, so a build over
-     * an existing array — where no record is labelled yet — costs N²/2 document reads. The bounding
-     * pair is therefore resolved ONCE for the run and the whole run is assigned in a single pass:
-     * three sibling steps per record, whatever the run's length, and no cap that could refuse a long
-     * but perfectly valid array.
+     * Minting one node at a time by probing outwards for a labelled bound is quadratic: every member of
+     * an N-long unlabelled run would walk the rest of the run to find its bound, so a build over an
+     * existing array — where no record is labelled yet — costs N²/2 document reads. The bounding pair
+     * is therefore resolved ONCE for the run and the whole run is assigned in a single pass: three
+     * sibling steps per record, whatever the run's length, and no cap that could refuse a long but
+     * perfectly valid array.
      */
     private SirixDeweyID ensureLocalLabel(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup,
         final RelabelSink sink, final boolean container) {
@@ -348,15 +345,14 @@ final class ProjectionStructuralOrderDirectory {
         // rebalance-ineligible neighbours of a container, and a container's label is a shared prefix
         // of every record beneath it, so it can never be re-spread away from them: a repeatedly
         // moved container would then grow its label with nothing able to reclaim it.
-        return mint(nodeKey, neighbourLabel(nodeKey, true, nodeLookup),
-            neighbourLabel(nodeKey, false, nodeLookup), nodeLookup, sink);
+        return mint(nodeKey, neighbourLabel(nodeKey, true, nodeLookup), neighbourLabel(nodeKey, false, nodeLookup),
+            nodeLookup, sink);
       }
       mintRun(nodeKey, nodeLookup, sink);
       return requireLocalLabel(nodeKey, "freshly minted");
     }
 
-    private void mintRun(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup,
-        final RelabelSink sink) {
+    private void mintRun(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup, final RelabelSink sink) {
       final long headKey = runHead(nodeKey, nodeLookup);
       final long lowerKey = siblingKey(headKey, true, nodeLookup);
       final SirixDeweyID lower = lowerKey == NULL_NODE_KEY
@@ -422,16 +418,17 @@ final class ProjectionStructuralOrderDirectory {
     }
 
     /**
-     * The run is bounded above, so its members are spread evenly over the open interval. The spread
-     * is generated lazily — a run may be arbitrarily long, and materialising one label array per
-     * member would be a humongous allocation.
+     * The run is bounded above, so its members are spread evenly over the open interval. The spread is
+     * generated lazily — a run may be arbitrarily long, and materialising one label array per member
+     * would be a humongous allocation.
      *
      * @return the label {@code requestedKey} received
      */
     private SirixDeweyID spreadRun(final long headKey, final long count, final @Nullable SirixDeweyID lower,
         final SirixDeweyID upper, final long requestedKey, final LongFunction<ImmutableNode> nodeLookup) {
-      final Spread spread = Spread.between(lower == null ? null : lower.getDivisionValues(),
-          upper.getDivisionValues(), count);
+      final Spread spread = Spread.between(lower == null
+          ? null
+          : lower.getDivisionValues(), upper.getDivisionValues(), count);
       long cursor = headKey;
       SirixDeweyID assigned = null;
       for (long index = 0L; index < count; index++) {
@@ -473,9 +470,8 @@ final class ProjectionStructuralOrderDirectory {
       return sibling;
     }
 
-    private SirixDeweyID mint(final long nodeKey, final @Nullable SirixDeweyID left,
-        final @Nullable SirixDeweyID right, final LongFunction<ImmutableNode> nodeLookup,
-        final RelabelSink sink) {
+    private SirixDeweyID mint(final long nodeKey, final @Nullable SirixDeweyID left, final @Nullable SirixDeweyID right,
+        final LongFunction<ImmutableNode> nodeLookup, final RelabelSink sink) {
       if (left != null && right != null && left.compareTo(right) >= 0) {
         throw new IllegalStateException("structural sibling labels are not strictly ordered");
       }
@@ -485,20 +481,22 @@ final class ProjectionStructuralOrderDirectory {
       if (minted.getDivisionValues().length > REBALANCE_DIVISIONS) {
         putLocalLabel(nodeKey, minted);
         final SirixDeweyID rebalanced = rebalance(nodeKey, nodeLookup, sink);
-        return rebalanced != null ? rebalanced : minted;
+        return rebalanced != null
+            ? rebalanced
+            : minted;
       }
       putLocalLabel(nodeKey, minted);
       return minted;
     }
 
     /**
-     * Re-spread a BOUNDED window of sibling records over the gap between the window's outer
-     * neighbours. Work is capped by {@link #REBALANCE_WINDOWS}: at most that many sibling slots and
-     * that many persisted rows are touched, never the sibling list, the bitmaps, the trie or the
-     * projection as a whole.
+     * Re-spread a BOUNDED window of sibling records over the gap between the window's outer neighbours.
+     * Work is capped by {@link #REBALANCE_WINDOWS}: at most that many sibling slots and that many
+     * persisted rows are touched, never the sibling list, the bitmaps, the trie or the projection as a
+     * whole.
      *
-     * @return the label the node itself received, or {@code null} when no sibling could take part
-     *         and the caller must keep its own minted label
+     * @return the label the node itself received, or {@code null} when no sibling could take part and
+     *         the caller must keep its own minted label
      */
     private @Nullable SirixDeweyID rebalance(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup,
         final RelabelSink sink) {
@@ -557,8 +555,8 @@ final class ProjectionStructuralOrderDirectory {
      * @return the first labelled sibling BEYOND the window (its label bounds the spread), or
      *         {@link #NULL_NODE_KEY} when the labelled sibling run ends first
      */
-    private long collectWindow(final long from, final boolean leftward, final int window,
-        final RelabelSink sink, final LongFunction<ImmutableNode> nodeLookup, final LongArrayList collected) {
+    private long collectWindow(final long from, final boolean leftward, final int window, final RelabelSink sink,
+        final LongFunction<ImmutableNode> nodeLookup, final LongArrayList collected) {
       long cursor = from;
       for (int index = 0; index < window; index++) {
         final long sibling = labelledSibling(cursor, leftward, nodeLookup);
@@ -576,7 +574,9 @@ final class ProjectionStructuralOrderDirectory {
       final long sibling = labelledSibling(nodeKey, leftward, nodeLookup);
       return sibling == NULL_NODE_KEY
           ? null
-          : requireLocalLabel(sibling, leftward ? "left sibling" : "right sibling");
+          : requireLocalLabel(sibling, leftward
+              ? "left sibling"
+              : "right sibling");
     }
 
     /**
@@ -585,8 +585,8 @@ final class ProjectionStructuralOrderDirectory {
      * <p>
      * Callers that mint reach this only for the single-node case; a run is bounded once by
      * {@link #mintRun} instead. There is deliberately no step cap here: refusing to label a valid
-     * document because one of its arrays is long would abort an otherwise valid transaction. The
-     * only bound is the node-key space itself, which a sibling chain cannot exceed without a cycle.
+     * document because one of its arrays is long would abort an otherwise valid transaction. The only
+     * bound is the node-key space itself, which a sibling chain cannot exceed without a cycle.
      */
     private long labelledSibling(final long nodeKey, final boolean leftward,
         final LongFunction<ImmutableNode> nodeLookup) {
@@ -605,8 +605,7 @@ final class ProjectionStructuralOrderDirectory {
       }
     }
 
-    private long siblingKey(final long nodeKey, final boolean leftward,
-        final LongFunction<ImmutableNode> nodeLookup) {
+    private long siblingKey(final long nodeKey, final boolean leftward, final LongFunction<ImmutableNode> nodeLookup) {
       final ImmutableNode node = nodeLookup.apply(nodeKey);
       if (!(node instanceof final StructNode structural)) {
         return NULL_NODE_KEY;
@@ -676,8 +675,7 @@ final class ProjectionStructuralOrderDirectory {
       final byte[] canonical = localLabel.toBytes();
       if (divisions.length < 2 || divisions.length > MAX_FULL_LABEL_DIVISIONS || divisions[0] != 1
           || localLabel.getLevel() != 1 || containsInvalidLocalDivision(divisions)
-          || !Arrays.equals(canonical, 0, canonical.length,
-              encoded, FORMAT_HEADER_BYTES, encoded.length)) {
+          || !Arrays.equals(canonical, 0, canonical.length, encoded, FORMAT_HEADER_BYTES, encoded.length)) {
         throw new IllegalStateException("invalid projection structural-order label for node " + nodeKey);
       }
       return localLabel;
@@ -702,27 +700,27 @@ final class ProjectionStructuralOrderDirectory {
      *
      * <p>
      * {@link SirixDeweyID#newBetween(SirixDeweyID, SirixDeweyID)}'s open-ended branch advances the
-     * final division by an unchecked {@code int} addition, so a long enough append run under one
-     * parent wraps it negative — from {@link #FIRST_LOCAL_DIVISION} stepping by the sibling distance
-     * that is reachable in the hundreds of millions of records. The wrap then surfaces from
-     * {@code toBytes()} as an encoder complaint about a negative division, which names neither
-     * ordering nor the append that caused it.
+     * final division by an unchecked {@code int} addition, so a long enough append run under one parent
+     * wraps it negative — from {@link #FIRST_LOCAL_DIVISION} stepping by the sibling distance that is
+     * reachable in the hundreds of millions of records. The wrap then surfaces from {@code toBytes()}
+     * as an encoder complaint about a negative division, which names neither ordering nor the append
+     * that caused it.
      *
      * <p>
-     * The carry is applied HERE rather than inside {@code newBetween} because that method's contract
-     * is to return a SIBLING at the same level: it forces the operand's level onto the result, and
-     * for the document's own Dewey IDs an extra division is a descendant, not a sibling. Carrying
-     * there would relocate nodes in the document's Dewey space. A projection order label is only
-     * ever compared, never read as a tree position, so it may carry.
+     * The carry is applied HERE rather than inside {@code newBetween} because that method's contract is
+     * to return a SIBLING at the same level: it forces the operand's level onto the result, and for the
+     * document's own Dewey IDs an extra division is a descendant, not a sibling. Carrying there would
+     * relocate nodes in the document's Dewey space. A projection order label is only ever compared,
+     * never read as a tree position, so it may carry.
      *
      * <p>
      * The carry REPLACES the exhausted odd division with the next even one and appends a fresh odd
      * division. That is strictly greater (the replaced division alone decides the comparison) and it
-     * preserves the shape the rest of this class depends on: exactly one odd division after the
-     * leading 1, and it is the LAST. Keeping only the odd COUNT is not enough — {@code Spread}
-     * descends through interior divisions via {@link #requireSeparatorDivision}, which requires them
-     * even, and {@link #fullLabel} concatenates suffixes that are prefix-free only under odd-last.
-     * The fresh odd division also restores the full range for the next append run.
+     * preserves the shape the rest of this class depends on: exactly one odd division after the leading
+     * 1, and it is the LAST. Keeping only the odd COUNT is not enough — {@code Spread} descends through
+     * interior divisions via {@link #requireSeparatorDivision}, which requires them even, and
+     * {@link #fullLabel} concatenates suffixes that are prefix-free only under odd-last. The fresh odd
+     * division also restores the full range for the next append run.
      */
     static SirixDeweyID nextAppendLabel(final SirixDeweyID previous) {
       final int[] divisions = previous.getDivisionValues();
@@ -734,13 +732,13 @@ final class ProjectionStructuralOrderDirectory {
         return candidate;
       }
       if (divisions.length + 1 > MAX_FULL_LABEL_DIVISIONS) {
-        throw new IllegalStateException(
-            "projection structural-order append sequence exhausted its division budget");
+        throw new IllegalStateException("projection structural-order append sequence exhausted its division budget");
       }
-      final int separator = lastDivision + ((lastDivision & 1) == 0 ? 2 : 1);
+      final int separator = lastDivision + ((lastDivision & 1) == 0
+          ? 2
+          : 1);
       if (separator <= lastDivision) {
-        throw new IllegalStateException(
-            "projection structural-order append sequence exhausted its division range");
+        throw new IllegalStateException("projection structural-order append sequence exhausted its division range");
       }
       final int[] carried = Arrays.copyOf(divisions, divisions.length + 1);
       carried[divisions.length - 1] = separator;
@@ -763,9 +761,9 @@ final class ProjectionStructuralOrderDirectory {
   }
 
   /**
-   * {@code count} strictly increasing level-1 labels, evenly spread strictly between {@code left}
-   * and {@code right} (either may be {@code null} for an open end), with a reserved gap left at BOTH
-   * ends so the next few insertions at either edge stay short.
+   * {@code count} strictly increasing level-1 labels, evenly spread strictly between {@code left} and
+   * {@code right} (either may be {@code null} for an open end), with a reserved gap left at BOTH ends
+   * so the next few insertions at either edge stay short.
    *
    * <p>
    * The interval arithmetic is resolved ONCE, in {@link #between}, and each label is generated on
@@ -785,7 +783,7 @@ final class ProjectionStructuralOrderDirectory {
       if (count <= 0L) {
         throw new IllegalArgumentException("a structural-order spread needs at least one label");
       }
-      int[] prefix = { 1 };
+      int[] prefix = {1};
       int[] lower = left;
       int[] upper = right;
       int index = 1;
@@ -798,8 +796,12 @@ final class ProjectionStructuralOrderDirectory {
         if (upper != null && upper.length == index) {
           throw new IllegalStateException("projection structural-order bounds are not strictly ordered");
         }
-        final long low = lower != null && lower.length > index ? lower[index] : 1L;
-        final long high = upper != null && upper.length > index ? upper[index] : -1L;
+        final long low = lower != null && lower.length > index
+            ? lower[index]
+            : 1L;
+        final long high = upper != null && upper.length > index
+            ? upper[index]
+            : -1L;
         if (high >= 0L && high <= low) {
           throw new IllegalStateException("projection structural-order bounds are not strictly ordered");
         }
@@ -814,7 +816,9 @@ final class ProjectionStructuralOrderDirectory {
         if ((lastOdd & 1L) == 0L) {
           lastOdd--;
         }
-        final long available = lastOdd >= firstOdd ? (lastOdd - firstOdd) / 2L + 1L : 0L;
+        final long available = lastOdd >= firstOdd
+            ? (lastOdd - firstOdd) / 2L + 1L
+            : 0L;
         if (available >= count + 2L) {
           return new Spread(prefix, firstOdd, available, count);
         }
@@ -857,8 +861,7 @@ final class ProjectionStructuralOrderDirectory {
     }
   }
 
-  private static int[][] spreadLocalLabels(final int @Nullable [] left, final int @Nullable [] right,
-      final int count) {
+  private static int[][] spreadLocalLabels(final int @Nullable [] left, final int @Nullable [] right, final int count) {
     final Spread spread = Spread.between(left, right, count);
     final int[][] labels = new int[count][];
     for (int item = 0; item < count; item++) {

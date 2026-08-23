@@ -31,7 +31,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Storage, publication, compatibility, and fail-open coverage for {@link ProjectionBloomChunks}. */
+/**
+ * Storage, publication, compatibility, and fail-open coverage for {@link ProjectionBloomChunks}.
+ */
 final class ProjectionBloomChunksTest {
 
   private static final String RESOURCE_NAME = "testResource";
@@ -61,28 +63,27 @@ final class ProjectionBloomChunksTest {
     assertEquals(1, ProjectionBloomChunks.chunkCount(ProjectionBloomChunks.CHUNK_LEAVES));
     assertEquals(2, ProjectionBloomChunks.chunkCount(ProjectionBloomChunks.CHUNK_LEAVES + 1));
 
-    final long largestRowGroupSlot = ProjectionIndexHOTStorage.columnSegmentSlotKey(
-        ProjectionIndexHOTStorage.MAX_ROW_GROUPS, 0xFFFE);
+    final long largestRowGroupSlot =
+        ProjectionIndexHOTStorage.columnSegmentSlotKey(ProjectionIndexHOTStorage.MAX_ROW_GROUPS, 0xFFFE);
     final long firstChunk = ProjectionBloomChunks.chunkSlotKey(0, 0);
     final long lastChunk = ProjectionBloomChunks.chunkSlotKey(RowGroupDescriptor.MAX_COLUMNS - 1, 0xFFFF);
     final long firstSetSummary = ProjectionSetSummaryChunks.slotKey(0);
     final long lastSetSummary = ProjectionSetSummaryChunks.slotKey(RowGroupDescriptor.MAX_COLUMNS - 1);
     assertTrue(largestRowGroupSlot < ProjectionIndexFences.CHUNK_SLOT_BASE,
         "row-group namespace must end before fences");
-    assertTrue(ProjectionIndexFences.CHUNK_SLOT_BASE < firstChunk,
-        "Bloom chunks must start after fences");
-    assertTrue(ProjectionIndexFences.CHUNK_SLOT_BASE < ProjectionIndexFences.ORDER_HEADER_SLOT
-        && ProjectionIndexFences.ORDER_HEADER_SLOT < firstChunk,
+    assertTrue(ProjectionIndexFences.CHUNK_SLOT_BASE < firstChunk, "Bloom chunks must start after fences");
+    assertTrue(
+        ProjectionIndexFences.CHUNK_SLOT_BASE < ProjectionIndexFences.ORDER_HEADER_SLOT
+            && ProjectionIndexFences.ORDER_HEADER_SLOT < firstChunk,
         "row-group order header must stay between fence and Bloom namespaces");
     assertTrue(lastChunk < 1L << 44, "Bloom chunk namespace must stay below 2^44");
     assertTrue(lastChunk < firstSetSummary, "set-summary chunks must start after Bloom chunks");
     assertTrue(lastSetSummary < 1L << 45, "set-summary chunk namespace must stay below 2^45");
-    assertEquals(ProjectionBloomChunks.CHUNK_SLOT_BASE + 0xFFFF,
-        ProjectionBloomChunks.chunkSlotKey(0, 0xFFFF));
-    assertEquals(ProjectionBloomChunks.CHUNK_SLOT_BASE + 0x1_0000,
-        ProjectionBloomChunks.chunkSlotKey(1, 0));
-    assertTrue(ProjectionIndexHOTStorage.bloomBlockSlotKey(RowGroupDescriptor.MAX_COLUMNS - 1)
-        < ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(1),
+    assertEquals(ProjectionBloomChunks.CHUNK_SLOT_BASE + 0xFFFF, ProjectionBloomChunks.chunkSlotKey(0, 0xFFFF));
+    assertEquals(ProjectionBloomChunks.CHUNK_SLOT_BASE + 0x1_0000, ProjectionBloomChunks.chunkSlotKey(1, 0));
+    assertTrue(
+        ProjectionIndexHOTStorage.bloomBlockSlotKey(
+            RowGroupDescriptor.MAX_COLUMNS - 1) < ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(1),
         "metadata/manifests must end before the first composite row-group slot");
 
     final Set<Long> familyBoundaries = new HashSet<>();
@@ -109,9 +110,8 @@ final class ProjectionBloomChunksTest {
     assertThrows(IllegalArgumentException.class,
         () -> ProjectionIndexHOTStorage.rowGroupDescriptorSlotKey(ProjectionIndexHOTStorage.MAX_ROW_GROUPS + 1L));
 
-    assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0],
-            ProjectionIndexHOTStorage.MAX_ROW_GROUPS + 1, 0));
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionIndexMetadata("", new String[0], new String[0],
+        new byte[0], ProjectionIndexHOTStorage.MAX_ROW_GROUPS + 1, 0));
     final byte[] oversizedWire = new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0],
         ProjectionIndexHOTStorage.MAX_ROW_GROUPS, 0).serialize();
     ProjectionIndexRowGroupCodec.putIntLEAt(oversizedWire, Integer.BYTES + 2,
@@ -124,7 +124,7 @@ final class ProjectionBloomChunksTest {
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -163,9 +163,8 @@ final class ProjectionBloomChunksTest {
 
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS,
-            ProjectionBloomChunks.CHUNK_LEAVES + 1);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, COLUMN_KINDS, ProjectionBloomChunks.CHUNK_LEAVES + 1);
         assertNotNull(evidence, "manifest and both chunks must survive a cold read");
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
             ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
@@ -186,8 +185,8 @@ final class ProjectionBloomChunksTest {
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
     final int rowGroupCount = ProjectionBloomChunks.CHUNK_LEAVES * 8 + 17;
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       for (int rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
@@ -213,7 +212,7 @@ final class ProjectionBloomChunksTest {
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
     final int rowGroupCount = ProjectionBloomChunks.CHUNK_LEAVES + 1;
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -231,15 +230,14 @@ final class ProjectionBloomChunksTest {
 
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
         assertNotNull(evidence, "the valid first span remains useful");
         final long rejectedByFirst = hashRejectedBy(bloomSegment(encoded));
         final long[] keep = prune(evidence[0], rowGroupCount, rejectedByFirst,
             ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber()));
         assertDropped(keep, 0, "valid chunk still prunes");
-        assertKept(keep, ProjectionBloomChunks.CHUNK_LEAVES,
-            "malformed tail chunk must fail open");
+        assertKept(keep, ProjectionBloomChunks.CHUNK_LEAVES, "malformed tail chunk must fail open");
       }
 
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -250,8 +248,8 @@ final class ProjectionBloomChunksTest {
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
         assertNotNull(evidence);
         final long[] keep = prune(evidence[0], rowGroupCount, Long.MIN_VALUE,
             ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber()));
@@ -268,7 +266,7 @@ final class ProjectionBloomChunksTest {
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
     final int rowGroupCount = ProjectionBloomChunks.CHUNK_LEAVES * 5;
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -283,8 +281,8 @@ final class ProjectionBloomChunksTest {
 
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
         assertNotNull(evidence);
         assertTrue(ProjectionBloomChunks.retainedBytes(evidence) < 1024,
             "five referenced payloads must retain only primitive locators, not their pages");
@@ -332,7 +330,7 @@ final class ProjectionBloomChunksTest {
     final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(new byte[][] {bloom}, 1);
     assertNotNull(block);
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -341,8 +339,8 @@ final class ProjectionBloomChunksTest {
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, 1);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, 1);
         assertNotNull(evidence);
         final long[] keep = prune(evidence[0], 1,
             ProjectionIndexColumnSegmentCodec.bloomHash("legacy".getBytes(StandardCharsets.UTF_8)),
@@ -376,7 +374,7 @@ final class ProjectionBloomChunksTest {
     assertNotNull(block);
     assertTrue(block.length > 512, "legacy fixture must use a referenced PIXB payload");
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -387,16 +385,16 @@ final class ProjectionBloomChunksTest {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
             ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
-        final ProjectionBloomChunks.ColumnEvidence[] exact = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, perLeaf.length);
+        final ProjectionBloomChunks.ColumnEvidence[] exact =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, perLeaf.length);
         assertNotNull(exact);
         final long[] keep = prune(exact[0], perLeaf.length,
             ProjectionIndexColumnSegmentCodec.bloomHash("legacy".getBytes(StandardCharsets.UTF_8)), fetcher);
         assertKept(keep, 0);
         assertKept(keep, perLeaf.length - 1);
 
-        final ProjectionBloomChunks.ColumnEvidence[] stale = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, perLeaf.length - 1);
+        final ProjectionBloomChunks.ColumnEvidence[] stale =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, perLeaf.length - 1);
         assertNotNull(stale, "a referenced candidate is typed only after its deferred fetch");
         final long[] staleKeep = new long[(perLeaf.length - 1 + 63) >>> 6];
         Arrays.fill(staleKeep, -1L);
@@ -409,19 +407,14 @@ final class ProjectionBloomChunksTest {
 
   @Test
   void reorderedEvidencePrunesLogicalRatherThanPhysicalLeafPositions() {
-    final byte[][] perLeaf = {
-        bloomSegment(encodedRowGroup("first")),
-        bloomSegment(encodedRowGroup("second")),
-        bloomSegment(encodedRowGroup("inserted")),
-    };
+    final byte[][] perLeaf = {bloomSegment(encodedRowGroup("first")), bloomSegment(encodedRowGroup("second")),
+        bloomSegment(encodedRowGroup("inserted")),};
     final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(perLeaf, perLeaf.length);
     final ProjectionBloomChunks.ColumnEvidence[] physical =
         ProjectionBloomChunks.fromLegacyBlocks(new byte[][] {block}, perLeaf.length);
     assertNotNull(physical);
-    final ProjectionBloomChunks.ColumnEvidence[] logical =
-        ProjectionBloomChunks.reorder(physical, new int[] {1, 3, 2});
-    final long hash = ProjectionIndexColumnSegmentCodec.bloomHash(
-        "second".getBytes(StandardCharsets.UTF_8));
+    final ProjectionBloomChunks.ColumnEvidence[] logical = ProjectionBloomChunks.reorder(physical, new int[] {1, 3, 2});
+    final long hash = ProjectionIndexColumnSegmentCodec.bloomHash("second".getBytes(StandardCharsets.UTF_8));
     final long[] keep = prune(logical[0], perLeaf.length, hash, (offsets) -> new byte[offsets.length][]);
 
     assertDropped(keep, 0, "the physical first leaf is logical first");
@@ -434,7 +427,7 @@ final class ProjectionBloomChunksTest {
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -460,7 +453,7 @@ final class ProjectionBloomChunksTest {
     final ProjectionBloomChunks.Writer populated = new ProjectionBloomChunks.Writer();
     final ProjectionBloomChunks.Writer empty = new ProjectionBloomChunks.Writer();
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -483,8 +476,8 @@ final class ProjectionBloomChunksTest {
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, ProjectionBloomChunks.CHUNK_LEAVES);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(rtx.getStorageEngineReader(),
+            INDEX_NUMBER, COLUMN_KINDS, ProjectionBloomChunks.CHUNK_LEAVES);
         assertNotNull(evidence, "the manifest remains valid with an intentionally absent empty chunk");
         final long[] keep = prune(evidence[0], ProjectionBloomChunks.CHUNK_LEAVES, Long.MIN_VALUE,
             ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber()));
@@ -504,7 +497,7 @@ final class ProjectionBloomChunksTest {
     final int largeCount = ProjectionBloomChunks.CHUNK_LEAVES * 3;
     final int smallCount = ProjectionBloomChunks.CHUNK_LEAVES;
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -534,8 +527,8 @@ final class ProjectionBloomChunksTest {
       }
       Databases.getGlobalBufferManager().clearAllCaches();
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final ProjectionBloomChunks.ColumnEvidence[] evidence = ProjectionBloomChunks.read(
-            rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, smallCount);
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, smallCount);
         assertNotNull(evidence);
         final long[] keep = prune(evidence[0], smallCount,
             ProjectionIndexColumnSegmentCodec.bloomHash("present".getBytes(StandardCharsets.UTF_8)),
@@ -556,7 +549,7 @@ final class ProjectionBloomChunksTest {
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup after = encodedRowGroup("after");
     final ProjectionBloomChunks.Writer bloomWriter = new ProjectionBloomChunks.Writer();
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
@@ -576,8 +569,8 @@ final class ProjectionBloomChunksTest {
         storage.putRowGroupAsColumnSegmentSlots(1, after);
         final LongOpenHashSet changed = new LongOpenHashSet();
         changed.add(1L);
-        final ProjectionBloomChunks.RewriteStats stats = ProjectionBloomChunks.rewriteTouchedChunks(
-            storage, COLUMN_KINDS, rowGroupCount, changed);
+        final ProjectionBloomChunks.RewriteStats stats =
+            ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, rowGroupCount, changed);
         assertEquals(1, stats.rowGroupsRead());
         assertEquals(1, stats.chunksWritten());
         wtx.commit();
@@ -585,15 +578,15 @@ final class ProjectionBloomChunksTest {
 
       Databases.clearGlobalCaches();
       try (JsonNodeReadOnlyTrx revisionOne = session.beginNodeReadOnlyTrx(1);
-           JsonNodeReadOnlyTrx revisionTwo = session.beginNodeReadOnlyTrx(2)) {
-        final long changedBefore = ProjectionIndexHOTStorage.segmentPageOffset(
-            revisionOne.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 0), 0);
-        final long changedAfter = ProjectionIndexHOTStorage.segmentPageOffset(
-            revisionTwo.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 0), 0);
-        final long untouchedBefore = ProjectionIndexHOTStorage.segmentPageOffset(
-            revisionOne.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 1), 0);
-        final long untouchedAfter = ProjectionIndexHOTStorage.segmentPageOffset(
-            revisionTwo.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 1), 0);
+          JsonNodeReadOnlyTrx revisionTwo = session.beginNodeReadOnlyTrx(2)) {
+        final long changedBefore = ProjectionIndexHOTStorage.segmentPageOffset(revisionOne.getStorageEngineReader(),
+            INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 0), 0);
+        final long changedAfter = ProjectionIndexHOTStorage.segmentPageOffset(revisionTwo.getStorageEngineReader(),
+            INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 0), 0);
+        final long untouchedBefore = ProjectionIndexHOTStorage.segmentPageOffset(revisionOne.getStorageEngineReader(),
+            INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 1), 0);
+        final long untouchedAfter = ProjectionIndexHOTStorage.segmentPageOffset(revisionTwo.getStorageEngineReader(),
+            INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 1), 0);
         assertNotEquals(changedBefore, changedAfter);
         assertEquals(untouchedBefore, untouchedAfter);
       }
@@ -605,28 +598,28 @@ final class ProjectionBloomChunksTest {
   @Test
   void numericMaintenanceDoesNotReadBloomChunks() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
       final LongOpenHashSet changed = new LongOpenHashSet();
       changed.add(1L);
 
-      final ProjectionBloomChunks.RewriteStats stats = ProjectionBloomChunks.rewriteTouchedChunks(
-          storage, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1, changed);
+      final ProjectionBloomChunks.RewriteStats stats = ProjectionBloomChunks.rewriteTouchedChunks(storage,
+          new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1, changed);
 
       assertEquals(new ProjectionBloomChunks.RewriteStats(0, 0, 0L, 0L), stats);
 
       changed.add(2L);
-      assertThrows(IllegalArgumentException.class, () -> ProjectionBloomChunks.rewriteTouchedChunks(
-          storage, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1, changed));
+      assertThrows(IllegalArgumentException.class, () -> ProjectionBloomChunks.rewriteTouchedChunks(storage,
+          new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1, changed));
     }
   }
 
   private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup encodedRowGroup(final String value) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(COLUMN_KINDS.clone());
-    page.appendRow(1L, new long[] {0L}, new boolean[] {false}, new String[] {value},
-        new boolean[] {true}, new boolean[] {false}, new boolean[] {false}, new boolean[] {false});
+    page.appendRow(1L, new long[] {0L}, new boolean[] {false}, new String[] {value}, new boolean[] {true},
+        new boolean[] {false}, new boolean[] {false}, new boolean[] {false});
     return ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(page.serialize());
   }
 
@@ -654,8 +647,7 @@ final class ProjectionBloomChunksTest {
 
   private static long hashRejectedBy(final byte[] bloomSegment) {
     for (int i = 0; i < 100_000; i++) {
-      final long hash = ProjectionIndexColumnSegmentCodec.bloomHash(
-          ("absent-" + i).getBytes(StandardCharsets.UTF_8));
+      final long hash = ProjectionIndexColumnSegmentCodec.bloomHash(("absent-" + i).getBytes(StandardCharsets.UTF_8));
       if (!ProjectionIndexColumnSegmentCodec.bloomMayContainHash(bloomSegment, hash)) {
         return hash;
       }
@@ -663,8 +655,8 @@ final class ProjectionBloomChunksTest {
     throw new AssertionError("implausible Bloom filter: admitted every absent probe");
   }
 
-  private static long[] prune(final ProjectionBloomChunks.ColumnEvidence evidence, final int leafCount,
-      final long hash, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+  private static long[] prune(final ProjectionBloomChunks.ColumnEvidence evidence, final int leafCount, final long hash,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     final long[] keep = new long[(leafCount + 63) >>> 6];
     Arrays.fill(keep, -1L);
     assertTrue(evidence.prune(hash, keep, leafCount, fetcher) >= 0);

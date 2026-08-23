@@ -34,17 +34,18 @@ import static org.mockito.Mockito.when;
 /**
  * PathSummary correctness under default-on iter#30 + iter#32 fusion.
  *
- * <p>Verifies the design contracts captured in {@code PathSummaryWriter}:
+ * <p>
+ * Verifies the design contracts captured in {@code PathSummaryWriter}:
  * <ul>
- *   <li>Fused {@code OBJECT_NAMED_*} primitive leaves register exactly one path-summary entry
- *       under the canonical {@code OBJECT_NAMED_OBJECT} pathKind, reusing the slot that an
- *       unfused {@code OBJECT_KEY} would have populated.</li>
- *   <li>Fused {@code OBJECT_NAMED_ARRAY} structural records bump the path-summary entry for
- *       <em>both</em> the field-name level and the underlying array level (Phase 2 mirror).</li>
- *   <li>Reference counts increment on duplicate-field insert and decrement on remove; when the
- *       last reference goes away the entry is gone too.</li>
- *   <li>{@code setObjectKeyName} on a fused record correctly migrates references between the
- *       old and new path-summary entries.</li>
+ * <li>Fused {@code OBJECT_NAMED_*} primitive leaves register exactly one path-summary entry under
+ * the canonical {@code OBJECT_NAMED_OBJECT} pathKind, reusing the slot that an unfused
+ * {@code OBJECT_KEY} would have populated.</li>
+ * <li>Fused {@code OBJECT_NAMED_ARRAY} structural records bump the path-summary entry for
+ * <em>both</em> the field-name level and the underlying array level (Phase 2 mirror).</li>
+ * <li>Reference counts increment on duplicate-field insert and decrement on remove; when the last
+ * reference goes away the entry is gone too.</li>
+ * <li>{@code setObjectKeyName} on a fused record correctly migrates references between the old and
+ * new path-summary entries.</li>
  * </ul>
  */
 public final class PathSummaryFusionTest {
@@ -60,8 +61,8 @@ public final class PathSummaryFusionTest {
   }
 
   /**
-   * Walk the path summary and snapshot {@code (qname → references)} for level-1 entries.
-   * Asserts each is registered with the canonical fused pathKind {@link NodeKind#OBJECT_NAMED_OBJECT}.
+   * Walk the path summary and snapshot {@code (qname → references)} for level-1 entries. Asserts each
+   * is registered with the canonical fused pathKind {@link NodeKind#OBJECT_NAMED_OBJECT}.
    */
   private static Map<String, Integer> level1Refs(final PathSummaryReader summary) {
     final Map<String, Integer> out = new HashMap<>();
@@ -76,8 +77,7 @@ public final class PathSummaryFusionTest {
           "level-1 path-summary entries must use the canonical fused pathKind "
               + "OBJECT_NAMED_OBJECT (or ARRAY for array-typed children); got: " + pathKind);
       final QNm name = summary.getName();
-      assertNotNull(name, "level-1 path-summary entry has null name at nodeKey="
-          + summary.getNodeKey());
+      assertNotNull(name, "level-1 path-summary entry has null name at nodeKey=" + summary.getNodeKey());
       out.put(name.getLocalName(), summary.getReferences());
     }
     return out;
@@ -86,10 +86,9 @@ public final class PathSummaryFusionTest {
   @Test
   void fusedPrimitiveLeaves_registerCanonicalOBJECT_NAMED_OBJECT_pathKind() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("{\"s\":\"v\",\"n\":42,\"b\":true,\"z\":null}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"s\":\"v\",\"n\":42,\"b\":true,\"z\":null}"));
         wtx.commit();
       }
       try (final var summary = session.openPathSummary()) {
@@ -107,10 +106,9 @@ public final class PathSummaryFusionTest {
   @Test
   void duplicateFieldName_acrossSiblingObjects_increments_references() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("[{\"name\":\"a\"},{\"name\":\"b\"}]"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"name\":\"a\"},{\"name\":\"b\"}]"));
         wtx.commit();
       }
       try (final var summary = session.openPathSummary()) {
@@ -134,10 +132,9 @@ public final class PathSummaryFusionTest {
   @Test
   void removingFusedField_decrements_pathSummaryReferences() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("[{\"k\":1},{\"k\":2}]"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"k\":1},{\"k\":2}]"));
         wtx.commit();
         // doc(0) → array(1) → first object(2) → fused "k=1"(3).
         wtx.moveTo(2);
@@ -165,10 +162,9 @@ public final class PathSummaryFusionTest {
   @Test
   void removingLastFusedField_collapses_pathSummaryEntry() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("{\"only\":\"once\"}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"only\":\"once\"}"));
         wtx.commit();
         wtx.moveTo(2);
         assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
@@ -184,9 +180,8 @@ public final class PathSummaryFusionTest {
             // PathSummaryWriter contract: when references drops to 0 the entry should be
             // removed. If it ever resurfaces with refs=0, the path-summary garbage-collection
             // path is broken — fail loudly.
-            throw new AssertionError(
-                "path-summary entry for 'only' should have been removed when its last reference "
-                    + "went away; instead found refs=" + summary.getReferences());
+            throw new AssertionError("path-summary entry for 'only' should have been removed when its last reference "
+                + "went away; instead found refs=" + summary.getReferences());
           }
         }
       }
@@ -196,13 +191,12 @@ public final class PathSummaryFusionTest {
   @Test
   void fusedStructural_OBJECT_NAMED_ARRAY_registers_pathSummaryEntries_onBothLevels() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
         // Phase 2 structural fusion produces an OBJECT_NAMED_ARRAY for {"items": [...]}.
         // The path summary must mirror the entry at BOTH the field-name level (OBJECT_NAMED_OBJECT
         // pathKind under "items") AND the underlying array level (ARRAY pathKind for elements).
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("{\"items\":[1,2,3]}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[1,2,3]}"));
         wtx.commit();
       }
       try (final var summary = session.openPathSummary()) {
@@ -225,9 +219,8 @@ public final class PathSummaryFusionTest {
           }
         }
         assertTrue(sawItemsField, "path-summary lacks field-level entry for fused 'items'");
-        assertTrue(sawArrayLevel,
-            "path-summary lacks the array-level mirror entry that Phase 2 structural fusion must "
-                + "register under OBJECT_NAMED_ARRAY");
+        assertTrue(sawArrayLevel, "path-summary lacks the array-level mirror entry that Phase 2 structural fusion must "
+            + "register under OBJECT_NAMED_ARRAY");
       }
     }
   }
@@ -235,7 +228,7 @@ public final class PathSummaryFusionTest {
   @Test
   void namedSiblingAfterFusedArray_keepsTheObjectParentPath() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
         // OBJECT_NAMED_ARRAY stores the synthetic __array__/ARRAY PCR. The following field must
         // therefore climb two PCR levels to find the shared object parent, without moving the
@@ -269,8 +262,8 @@ public final class PathSummaryFusionTest {
   @Test
   void knownPathNamedSibling_emitsExactlyOneIndexNotification() throws ReflectiveOperationException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
       wtx.insertObjectAsFirstChild();
       wtx.insertObjectRecordAsFirstChild("first", new StringValue("one"));
 
@@ -284,10 +277,12 @@ public final class PathSummaryFusionTest {
         controllerField.set(wtx, indexController);
         wtx.insertObjectRecordAsRightSibling("second", new NumberValue(2));
 
-        final long notifications = mockingDetails(indexController).getInvocations()
-            .stream()
-            .filter(invocation -> invocation.getMethod().getName().equals("notifyChange"))
-            .count();
+        final long notifications =
+            mockingDetails(indexController).getInvocations()
+                                           .stream()
+                                           .filter(
+                                               invocation -> invocation.getMethod().getName().equals("notifyChange"))
+                                           .count();
         assertEquals(1L, notifications,
             "the known-path insertAsSibling overload owns the fused record's sole INSERT notification");
       } finally {
@@ -298,11 +293,10 @@ public final class PathSummaryFusionTest {
   }
 
   @Test
-  void unusableStructuralSiblingPcr_fallsBackToObjectParentAndRestoresCursor()
-      throws ReflectiveOperationException {
+  void unusableStructuralSiblingPcr_fallsBackToObjectParentAndRestoresCursor() throws ReflectiveOperationException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
       try {
         wtx.insertObjectAsFirstChild();
         wtx.insertObjectRecordAsFirstChild("namedObject", ObjectValue.INSTANCE);
@@ -310,23 +304,22 @@ public final class PathSummaryFusionTest {
         wtx.insertObjectRecordAsRightSibling("namedArray", ArrayValue.INSTANCE);
         final long namedArrayNodeKey = wtx.getNodeKey();
 
-        final Method helper = wtx.getClass().getDeclaredMethod("getPathNodeKeyForNamedSibling",
-            long.class, QNm.class, NodeKind.class, long.class, NodeKind.class);
+        final Method helper = wtx.getClass()
+                                 .getDeclaredMethod("getPathNodeKeyForNamedSibling", long.class, QNm.class,
+                                     NodeKind.class, long.class, NodeKind.class);
         helper.setAccessible(true);
 
         assertTrue(wtx.moveTo(namedObjectNodeKey));
-        final long objectSiblingPathNodeKey = (Long) helper.invoke(wtx, namedObjectNodeKey,
-            new QNm("afterNamedObject"), NodeKind.OBJECT_NAMED_OBJECT, -1L,
-            NodeKind.OBJECT_NAMED_OBJECT);
+        final long objectSiblingPathNodeKey = (Long) helper.invoke(wtx, namedObjectNodeKey, new QNm("afterNamedObject"),
+            NodeKind.OBJECT_NAMED_OBJECT, -1L, NodeKind.OBJECT_NAMED_OBJECT);
         assertEquals(namedObjectNodeKey, wtx.getNodeKey(), "fallback must restore the named-object cursor");
         assertTrue(wtx.getPathSummary().moveTo(objectSiblingPathNodeKey));
         assertEquals(1, wtx.getPathSummary().getLevel());
         assertEquals(0L, wtx.getPathSummary().getParentKey());
 
         assertTrue(wtx.moveTo(namedArrayNodeKey));
-        final long arraySiblingPathNodeKey = (Long) helper.invoke(wtx, namedArrayNodeKey,
-            new QNm("afterNamedArray"), NodeKind.OBJECT_NAMED_ARRAY, -1L,
-            NodeKind.OBJECT_NAMED_OBJECT);
+        final long arraySiblingPathNodeKey = (Long) helper.invoke(wtx, namedArrayNodeKey, new QNm("afterNamedArray"),
+            NodeKind.OBJECT_NAMED_ARRAY, -1L, NodeKind.OBJECT_NAMED_OBJECT);
         assertEquals(namedArrayNodeKey, wtx.getNodeKey(), "fallback must restore the named-array cursor");
         assertTrue(wtx.getPathSummary().moveTo(arraySiblingPathNodeKey));
         assertEquals(1, wtx.getPathSummary().getLevel());
@@ -340,10 +333,9 @@ public final class PathSummaryFusionTest {
   @Test
   void renamingFusedField_migrates_pathSummaryReferences() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final var wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("{\"oldName\":\"v\"}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"oldName\":\"v\"}"));
         wtx.commit();
         wtx.moveTo(2);
         assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind());
@@ -369,8 +361,7 @@ public final class PathSummaryFusionTest {
           }
         }
         assertNull(oldRefs,
-            "after setObjectKeyName, the old 'oldName' path entry must be gone, but found refs="
-                + oldRefs);
+            "after setObjectKeyName, the old 'oldName' path entry must be gone, but found refs=" + oldRefs);
         assertEquals(Integer.valueOf(1), newRefs,
             "after setObjectKeyName, the new 'newName' path entry must hold the migrated reference");
       }

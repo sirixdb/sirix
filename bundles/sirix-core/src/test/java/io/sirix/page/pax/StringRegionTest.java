@@ -15,9 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for the BtrBlocks/Umbra-style dictionary-encoded
- * {@link StringRegion}: encode → parse → decode round-trip, plus a
- * compression-ratio sanity check on the reference workload to prove the
+ * Tests for the BtrBlocks/Umbra-style dictionary-encoded {@link StringRegion}: encode → parse →
+ * decode round-trip, plus a compression-ratio sanity check on the reference workload to prove the
  * page-size motivation from the compression study.
  */
 @DisplayName("StringRegion")
@@ -134,14 +133,12 @@ final class StringRegionTest {
     // Expected ratio: raw ~850 B, StringRegion well under 250 B — 3× or better
     // on this small sample; the larger the page + lower the cardinality, the
     // better the ratio grows.
-    assertTrue(wire.length < rawBytes,
-        "StringRegion payload should be smaller than raw in-record strings: "
-            + "raw=" + rawBytes + " encoded=" + wire.length);
+    assertTrue(wire.length < rawBytes, "StringRegion payload should be smaller than raw in-record strings: " + "raw="
+        + rawBytes + " encoded=" + wire.length);
     final double ratio = (double) rawBytes / wire.length;
     // Guard against regressions — we expect well above 2× on this workload.
-    assertTrue(ratio > 2.0,
-        "Expected >2× ratio on reference workload, got " + ratio + "× (raw=" + rawBytes
-            + ", encoded=" + wire.length + ")");
+    assertTrue(ratio > 2.0, "Expected >2× ratio on reference workload, got " + ratio + "× (raw=" + rawBytes
+        + ", encoded=" + wire.length + ")");
   }
 
   @Test
@@ -149,13 +146,15 @@ final class StringRegionTest {
   void bitWidthScalesWithDictSize() {
     // 3 unique → 2 bits
     final StringRegion.Encoder e3 = new StringRegion.Encoder();
-    for (int i = 0; i < 10; i++) e3.addValue(1, bytes("A" + (i % 3)));
+    for (int i = 0; i < 10; i++)
+      e3.addValue(1, bytes("A" + (i % 3)));
     final byte[] w3 = e3.finish();
     assertEquals(2, new StringRegion.Header().parseInto(PaxTestSegments.of(w3)).valueBitWidthEff);
 
     // 9 unique → 4 bits
     final StringRegion.Encoder e9 = new StringRegion.Encoder();
-    for (int i = 0; i < 20; i++) e9.addValue(1, bytes("B" + (i % 9)));
+    for (int i = 0; i < 20; i++)
+      e9.addValue(1, bytes("B" + (i % 9)));
     final byte[] w9 = e9.finish();
     assertEquals(4, new StringRegion.Header().parseInto(PaxTestSegments.of(w9)).valueBitWidthEff);
   }
@@ -187,16 +186,14 @@ final class StringRegionTest {
         final int deptDictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, deptIdx);
         final int deptOff = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, deptTag, deptDictId);
         final int deptLen = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, deptTag, deptDictId);
-        assertArrayEquals(bytes(expectedDept[i]),
-            Arrays.copyOfRange(wire, deptOff, deptOff + deptLen),
+        assertArrayEquals(bytes(expectedDept[i]), Arrays.copyOfRange(wire, deptOff, deptOff + deptLen),
             "page " + page + " record " + i + " dept");
         // City
         final int cityIdx = h.tagStart[cityTag] + i;
         final int cityDictId = StringRegion.decodeDictIdAt(PaxTestSegments.of(wire), h, cityIdx);
         final int cityOff = StringRegion.decodeStringOffset(PaxTestSegments.of(wire), h, cityTag, cityDictId);
         final int cityLen = StringRegion.decodeStringLength(PaxTestSegments.of(wire), h, cityTag, cityDictId);
-        assertArrayEquals(bytes(expectedCity[i]),
-            Arrays.copyOfRange(wire, cityOff, cityOff + cityLen),
+        assertArrayEquals(bytes(expectedCity[i]), Arrays.copyOfRange(wire, cityOff, cityOff + cityLen),
             "page " + page + " record " + i + " city");
       }
     }
@@ -264,8 +261,7 @@ final class StringRegionTest {
     assertFalse(StringRegion.isEntryCompressed(PaxTestSegments.of(wire), header, tag, 0));
     assertTrue(StringRegion.isEntryCompressed(PaxTestSegments.of(wire), header, tag, 1));
     assertEquals(bytes("raw").length, StringRegion.decodeStringLength(PaxTestSegments.of(wire), header, tag, 0));
-    assertEquals(bytes("encoded").length,
-        StringRegion.decodeStringLength(PaxTestSegments.of(wire), header, tag, 1));
+    assertEquals(bytes("encoded").length, StringRegion.decodeStringLength(PaxTestSegments.of(wire), header, tag, 1));
     assertArrayEquals(wire, enc.finish(StringRegion.TAG_KIND_PATH_NODE, true));
   }
 
@@ -318,12 +314,9 @@ final class StringRegionTest {
     assertFalse(StringRegion.isEntryCompressed(PaxTestSegments.of(actual), header, 0, 0));
     assertTrue(StringRegion.isEntryCompressed(PaxTestSegments.of(actual), header, 0, 1));
 
-    assertThrows(IndexOutOfBoundsException.class,
-        () -> sliced.addValue(23, scratch, -1, 1, false));
-    assertThrows(IndexOutOfBoundsException.class,
-        () -> sliced.addValue(23, scratch, scratch.length - 1, 2, false));
-    assertThrows(NullPointerException.class,
-        () -> sliced.addValue(23, null, 0, 0, false));
+    assertThrows(IndexOutOfBoundsException.class, () -> sliced.addValue(23, scratch, -1, 1, false));
+    assertThrows(IndexOutOfBoundsException.class, () -> sliced.addValue(23, scratch, scratch.length - 1, 2, false));
+    assertThrows(NullPointerException.class, () -> sliced.addValue(23, null, 0, 0, false));
   }
 
   @Test
@@ -403,8 +396,8 @@ final class StringRegionTest {
     assertEquals(highWaterCapacity, name.valueStoreCapacity());
   }
 
-  private static void addScratchValue(final StringRegion.Encoder encoder, final byte[] scratch,
-      final String value, final boolean compressed) {
+  private static void addScratchValue(final StringRegion.Encoder encoder, final byte[] scratch, final String value,
+      final boolean compressed) {
     final byte[] source = bytes(value);
     final int offset = 7;
     System.arraycopy(source, 0, scratch, offset, source.length);

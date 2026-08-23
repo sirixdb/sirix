@@ -914,11 +914,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       // Generic: the parity oracle. It MUST run on a chain that cannot auto-wire an executor.
       // createWithJsonStore auto-wires one PER QUERY, so computing the oracle on `chain` gets the
       // oracle served by the very route under test, and that breaks this test twice over:
-      //   1. the equality below stops being a cross-check and compares served-to-served, so a
-      //      sliced kernel that is wrong in exactly the same way as itself still passes;
-      //   2. each oracle leg is a route arrival, so it spends this handle's promotion budget
-      //      (SLICED_PROMOTE_AFTER) before the measured pair runs — the handle promotes to the
-      //      whole-leaf byte kernel early and the sliced counter below reads 1 instead of 2.
+      // 1. the equality below stops being a cross-check and compares served-to-served, so a
+      // sliced kernel that is wrong in exactly the same way as itself still passes;
+      // 2. each oracle leg is a route arrival, so it spends this handle's promotion budget
+      // (SLICED_PROMOTE_AFTER) before the measured pair runs — the handle promotes to the
+      // whole-leaf byte kernel early and the sliced counter below reads 1 instead of 2.
       // (2) is silent and looks exactly like a product regression, which is what it was mistaken
       // for; do NOT "simplify" this back to `chain`. Deliberately NOT closed: SirixCompileChain
       // #close tears down the SHARED store's sessions, which the measured legs and the enclosing

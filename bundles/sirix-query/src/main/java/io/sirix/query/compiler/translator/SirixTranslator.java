@@ -136,48 +136,39 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
 
-  private static final Set<String> COMPUTED_AGG_FUNCS =
-      Set.of("sum", "avg", "min", "max", "count");
+  private static final Set<String> COMPUTED_AGG_FUNCS = Set.of("sum", "avg", "min", "max", "count");
 
   /**
-   * Gap item 2: {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose
-   * sole argument is a pipeline {@link ComputedAggregateDetectionStage} annotated as a
-   * servable computed-expression fold. Emits the projection-served expression with the
-   * GENERIC function call compiled alongside as the runtime fallback; every other call
-   * compiles exactly as before.
+   * Gap item 2: {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole
+   * argument is a pipeline {@link ComputedAggregateDetectionStage} annotated as a servable
+   * computed-expression fold. Emits the projection-served expression with the GENERIC function call
+   * compiled alongside as the runtime fallback; every other call compiles exactly as before.
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
-    if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn
-        && node.getChild(0).getType() == XQ.PipeExpr
-        && Boolean.TRUE.equals(
-            node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
+    if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
+        && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())
-        && SequentialPipelineStrategy.getVectorizedExecutor()
-            instanceof SirixExecutorProvider executor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider executor) {
       // Built-in aggregates only: unprefixed calls resolve to the JSONiq default function
       // namespace, fn:* to the XQuery one — both are the builtins. A user-defined
       // local:sum must never be served with fn:sum semantics.
       final String ns = fn.getNamespaceURI();
-      if (ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns)
-          || Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      if (ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
         final AST pipe = node.getChild(0);
         final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
         final SourceRef sourceRef = (SourceRef) pipe.getProperty("VECTORIZED_SOURCE_REF");
-        final String[] fields =
-            (String[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_FIELDS);
-        final int[] code =
-            (int[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CODE);
-        final long[] consts =
-            (long[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CONSTS);
+        final String[] fields = (String[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_FIELDS);
+        final int[] code = (int[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CODE);
+        final long[] consts = (long[]) pipe.getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG_CONSTS);
         if (sourcePath != null && fields != null && code != null && consts != null
             && SirixPipelineStrategy.acceptsOrRuntimeCheckable(executor, sourceRef)) {
           // Admit a VARIABLE (external-variable) source at compile time and re-verify its actual
           // binding per evaluation — the same runtime gate the four pipeline serving exprs use.
           final Expr generic = super.functionCall(node);
           return new SirixComputedAggregateExpr(executor, sourcePath,
-              (PredicateNode) pipe.getProperty("VECTORIZED_PREDICATE_TREE"), fn.getLocalName(),
-              fields, code, consts, sourceRef, generic);
+              (PredicateNode) pipe.getProperty("VECTORIZED_PREDICATE_TREE"), fn.getLocalName(), fields, code, consts,
+              sourceRef, generic);
         }
       }
     }
@@ -913,8 +904,7 @@ public class SirixTranslator extends TopDownTranslator {
     }
 
     // Get all names on the path up to level.
-    private static Deque<QNm> getNames(final int matchLevel, final int level,
-        final PathSummaryReader reader) {
+    private static Deque<QNm> getNames(final int matchLevel, final int level, final PathSummaryReader reader) {
       // Match at a level below this level which is not a direct child.
       final Deque<QNm> names = new ArrayDeque<>(matchLevel - level);
       for (int i = matchLevel; i > level; i--) {

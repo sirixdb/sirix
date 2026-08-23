@@ -88,8 +88,7 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(int referenceCount,
-        BytesIn<?> in) {
+    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(int referenceCount, BytesIn<?> in) {
       assert in != null;
 
       try {
@@ -291,8 +290,7 @@ public enum SerializationType {
    * @param offsets the offset indexes
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
-      ShortList offsets);
+  public abstract void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences, ShortList offsets);
 
   /**
    * Deserialize all page references.

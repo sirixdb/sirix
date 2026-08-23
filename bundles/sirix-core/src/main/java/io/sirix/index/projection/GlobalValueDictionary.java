@@ -31,7 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * strings. Worse, nothing about a per-leaf id is comparable across leaves, so group identity has to
  * be recovered by hashing the bytes back out of every leaf's dictionary.
  *
- * <p>A global dictionary fixes both at once: a value is stored exactly once for the whole resource,
+ * <p>
+ * A global dictionary fixes both at once: a value is stored exactly once for the whole resource,
  * and the id it is stored under <em>is</em> its identity. Grouping becomes an integer group-by,
  * distinct-counting becomes a fold over integers, and equality against a literal becomes an integer
  * compare after a single probe.
@@ -67,7 +68,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <h2>Persistent record packing</h2>
  *
  * Every dictionary append occupies the smallest possible persistent units: its record keys are a
- * dense, stride-one interval.  Large individual values already use the key-value page's overflow
+ * dense, stride-one interval. Large individual values already use the key-value page's overflow
  * mechanism; leaving 63 empty slots between ordinary dictionary records would instead multiply
  * indirect-page and leaf-page churn without providing an ownership or versioning guarantee.
  *
@@ -85,8 +86,7 @@ public final class GlobalValueDictionary {
 
   public static final int PERSISTENT_RECORD_STRIDE = 1;
 
-  public static final int PERSISTENT_RECORDS_PER_PAGE =
-      Constants.INP_REFERENCE_COUNT / PERSISTENT_RECORD_STRIDE;
+  public static final int PERSISTENT_RECORDS_PER_PAGE = Constants.INP_REFERENCE_COUNT / PERSISTENT_RECORD_STRIDE;
 
   /** Answer of {@link #probe} when the dictionary provably does not hold the value. */
   public static final int ID_ABSENT = 0;
@@ -102,7 +102,8 @@ public final class GlobalValueDictionary {
   }
 
   public static long maximumKeysToReserve(final int entryCount) {
-    if (entryCount < 0) throw new IllegalArgumentException("entryCount must not be negative");
+    if (entryCount < 0)
+      throw new IllegalArgumentException("entryCount must not be negative");
     final long reverseBuckets = (entryCount + 255L) >>> 8;
     final long maximumRecords = 13L * entryCount + 4L * reverseBuckets;
     return 1L + Math.multiplyExact(maximumRecords, PERSISTENT_RECORD_STRIDE);
@@ -146,8 +147,7 @@ public final class GlobalValueDictionary {
    * @return the header, or {@code null} when this revision holds no readable dictionary there
    * @throws IllegalStateException if the record at that key is not a header
    */
-  public static @Nullable ValueDictionaryHeaderNode header(final long headerNodeKey,
-      final StorageEngineReader reader) {
+  public static @Nullable ValueDictionaryHeaderNode header(final long headerNodeKey, final StorageEngineReader reader) {
     if (headerNodeKey <= 0) {
       return null;
     }
@@ -156,14 +156,13 @@ public final class GlobalValueDictionary {
     if (!namePage.hasProjectionValueDictionary(databaseType)) {
       return null;
     }
-    final DataRecord record =
-        namePage.getProjectionValueDictionaryRecord(headerNodeKey, databaseType, reader);
+    final DataRecord record = namePage.getProjectionValueDictionaryRecord(headerNodeKey, databaseType, reader);
     if (record == null) {
       return null;
     }
     if (!(record instanceof ValueDictionaryHeaderNode header)) {
-      throw new IllegalStateException("record at value dictionary header key " + headerNodeKey + " is a "
-          + record.getKind() + ", not a header");
+      throw new IllegalStateException(
+          "record at value dictionary header key " + headerNodeKey + " is a " + record.getKind() + ", not a header");
     }
     // An unknown layout is "no dictionary I can read", not a failure: a resource written by a newer
     // build must make an older one decline, never misparse.
@@ -180,8 +179,7 @@ public final class GlobalValueDictionary {
    * @param reader the reader positioned at the revision wanted
    * @return the value's UTF-8 bytes, or {@code null} when the id is not stored in this revision
    */
-  public static byte @Nullable [] valueBytes(final long headerNodeKey, final int id,
-      final StorageEngineReader reader) {
+  public static byte @Nullable [] valueBytes(final long headerNodeKey, final int id, final StorageEngineReader reader) {
     final ValueDictionaryHeaderNode header = header(headerNodeKey, reader);
     if (header == null) {
       return null;
@@ -197,8 +195,7 @@ public final class GlobalValueDictionary {
     if (id < 1 || id > header.getEntryCount()) {
       return null;
     }
-    return GlobalValueDictionaryRadix.value(header.getReverseRootKey(), id, namePage,
-        databaseType, reader);
+    return GlobalValueDictionaryRadix.value(header.getReverseRootKey(), id, namePage, databaseType, reader);
   }
 
   /**
@@ -209,8 +206,7 @@ public final class GlobalValueDictionary {
    * @param reader the reader positioned at the revision wanted
    * @return the value, or {@code null} when the id is not stored in this revision
    */
-  public static @Nullable String value(final long headerNodeKey, final int id,
-      final StorageEngineReader reader) {
+  public static @Nullable String value(final long headerNodeKey, final int id, final StorageEngineReader reader) {
     final byte[] bytes = valueBytes(headerNodeKey, id, reader);
     return bytes == null
         ? null
@@ -220,10 +216,11 @@ public final class GlobalValueDictionary {
   /**
    * Materialise several ids at once, resolving the header and page lookups a single time.
    *
-   * <p>The winner-materialisation path: a top-k group-by hands over the k ids it is about to return
-   * and gets their strings back. Ids are visited in ascending order so that ids sharing a record
-   * page are resolved consecutively, which is what turns k random reads into far fewer page
-   * touches; the caller's order is restored through the index carried alongside.
+   * <p>
+   * The winner-materialisation path: a top-k group-by hands over the k ids it is about to return and
+   * gets their strings back. Ids are visited in ascending order so that ids sharing a record page are
+   * resolved consecutively, which is what turns k random reads into far fewer page touches; the
+   * caller's order is restored through the index carried alongside.
    *
    * @param headerNodeKey the dictionary's header key
    * @param ids the ids to resolve; not modified
@@ -231,8 +228,7 @@ public final class GlobalValueDictionary {
    * @return the values, index-aligned to {@code ids}; an entry is {@code null} when its id is not
    *         stored in this revision
    */
-  public static @Nullable String[] values(final long headerNodeKey, final int[] ids,
-      final StorageEngineReader reader) {
+  public static @Nullable String[] values(final long headerNodeKey, final int[] ids, final StorageEngineReader reader) {
     final String[] out = new String[ids.length];
     if (ids.length == 0) {
       return out;
@@ -278,12 +274,13 @@ public final class GlobalValueDictionary {
   /**
    * Resolve a value to its id — the forward direction, a binary search over the directory.
    *
-   * <p>Answers {@link #ID_ABSENT} only when the directory is complete and provably does not hold
-   * the value; a directory that was never written, one that does not cover every id, and an
-   * unreadable header all answer {@link #ID_UNKNOWN}, because "I cannot see it" and "it is not
-   * there" lead to opposite query results and must never be confused. A hash match is confirmed by
-   * reading the candidate's value entry and comparing bytes, so a hash collision costs an extra
-   * read rather than a wrong id.
+   * <p>
+   * Answers {@link #ID_ABSENT} only when the directory is complete and provably does not hold the
+   * value; a directory that was never written, one that does not cover every id, and an unreadable
+   * header all answer {@link #ID_UNKNOWN}, because "I cannot see it" and "it is not there" lead to
+   * opposite query results and must never be confused. A hash match is confirmed by reading the
+   * candidate's value entry and comparing bytes, so a hash collision costs an extra read rather than
+   * a wrong id.
    *
    * @param headerNodeKey the dictionary's header key
    * @param utf8 the value's UTF-8 bytes
@@ -305,9 +302,9 @@ public final class GlobalValueDictionary {
     final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
     final long wanted = valueHash(utf8, offset, length);
     final long secondary = secondaryValueHash(utf8, offset, length);
-    final GlobalValueDictionaryRadix.ProbeResult result = GlobalValueDictionaryRadix.probe(
-        header.getForwardRootKey(), header.getReverseRootKey(), header.getEntryCount(), wanted,
-        secondary, utf8, offset, length, namePage, databaseType, reader);
+    final GlobalValueDictionaryRadix.ProbeResult result =
+        GlobalValueDictionaryRadix.probe(header.getForwardRootKey(), header.getReverseRootKey(), header.getEntryCount(),
+            wanted, secondary, utf8, offset, length, namePage, databaseType, reader);
     return recordProbeResult(result.id(), result.units());
   }
 

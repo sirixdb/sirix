@@ -104,8 +104,8 @@ public final class IndirectPage extends AbstractForwardingPage {
     }
 
     if (reference == null) {
-      throw new IllegalStateException(
-          "Failed to create page reference at offset " + offset + " (delegate type: " + delegate.getClass().getSimpleName() + ")");
+      throw new IllegalStateException("Failed to create page reference at offset " + offset + " (delegate type: "
+          + delegate.getClass().getSimpleName() + ")");
     }
 
     return reference;
@@ -117,19 +117,23 @@ public final class IndirectPage extends AbstractForwardingPage {
       case ReferencesPage4 references -> references.referenceAtOffset(offset);
       case BitmapReferencesPage references -> references.referenceAtOffset(offset);
       case FullReferencesPage references -> references.referenceAt(offset);
-      default -> throw new IllegalStateException(
-          "Unknown IndirectPage delegate type: " + delegate.getClass().getName());
+      default ->
+        throw new IllegalStateException("Unknown IndirectPage delegate type: " + delegate.getClass().getName());
     };
-    return reference == null || reference.isVirginStructuralPlaceholder() ? null : reference;
+    return reference == null || reference.isVirginStructuralPlaceholder()
+        ? null
+        : reference;
   }
 
   /**
    * Allocation-free bottom-up spill proof for every materialized child reference.
    *
-   * <p>The full delegate needs a special path: {@link FullReferencesPage#getReferences()} creates an
+   * <p>
+   * The full delegate needs a special path: {@link FullReferencesPage#getReferences()} creates an
    * {@code Arrays.asList} wrapper, and its copy constructor represents unused positions as virgin
    * {@link PageReference} objects rather than {@code null}. Sparse delegates already expose their
-   * retained list directly. Any non-virgin slot must resolve to a durable, unclaimed offset.</p>
+   * retained list directly. Any non-virgin slot must resolve to a durable, unclaimed offset.
+   * </p>
    *
    * @return {@code true} if this page can be serialized without recursing into a child
    */

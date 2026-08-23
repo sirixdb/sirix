@@ -74,8 +74,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Dense snapshots used by the per-node notification path. Index listeners change only at
-   * transaction/index lifecycle boundaries; iterating the backing {@link HashSet} for every JSON
-   * node would allocate one iterator per notification.
+   * transaction/index lifecycle boundaries; iterating the backing {@link HashSet} for every JSON node
+   * would allocate one iterator per notification.
    */
   private ChangeListener[] listenerSnapshot = NO_CHANGE_LISTENERS;
 
@@ -192,8 +192,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader,
-      final IndexDef indexDef, final float[] query, final int k) {
+  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
+      final float[] query, final int k) {
     if (vectorIndex == null) {
       throw new IllegalStateException("This document does not support vector indexes.");
     }
@@ -201,8 +201,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader,
-      final IndexDef indexDef, final float[] query, final int k, final int efSearch) {
+  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
+      final float[] query, final int k, final int efSearch) {
     if (vectorIndex == null) {
       throw new IllegalStateException("This document does not support vector indexes.");
     }
@@ -210,8 +210,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public void deleteVectorEntry(final StorageEngineWriter storageEngineWriter,
-      final IndexDef indexDef, final long hnswNodeKey) {
+  public void deleteVectorEntry(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef,
+      final long hnswNodeKey) {
     if (vectorIndex == null) {
       throw new IllegalStateException("This document does not support vector indexes.");
     }
@@ -268,10 +268,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       indexes.add(indexDef);
       updateIndexCapability(indexDef.getType());
       switch (indexDef.getType()) {
-        case PATH ->
-          addListener(createPathIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
-        case CAS ->
-          addListener(createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+        case PATH -> addListener(
+            createPathIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+        case CAS -> addListener(
+            createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
         case VECTOR -> addListener(new VectorIndexListener(indexDef));
         case VALIDTIME -> {
@@ -304,9 +304,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Create a projection index change listener (invalidation-on-update
-   * maintenance). Default returns {@code null} (no maintenance); concrete
-   * controllers that support projection indexes (JSON) override this.
+   * Create a projection index change listener (invalidation-on-update maintenance). Default returns
+   * {@code null} (no maintenance); concrete controllers that support projection indexes (JSON)
+   * override this.
    *
    * @param nodeWriteTrx the write transaction
    * @param indexDef the (PROJECTION) index definition
@@ -317,34 +317,29 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Per-transaction cache entry for a wtx-visible decoded projection handle:
-   * valid only for the SAME listener instance (listeners are rebound per
-   * transaction epoch) at the SAME maintenance epoch (any new dirty change,
-   * invalidation, or apply pass bumps it).
+   * Per-transaction cache entry for a wtx-visible decoded projection handle: valid only for the SAME
+   * listener instance (listeners are rebound per transaction epoch) at the SAME maintenance epoch
+   * (any new dirty change, invalidation, or apply pass bumps it).
    */
   private record UncommittedHandle(ProjectionIndexChangeListener listener, long epoch,
       ProjectionIndexRegistry.Handle handle) {
   }
 
   /** Decoded wtx handles per definition id; cleared with the listeners. */
-  private final Int2ObjectOpenHashMap<UncommittedHandle> uncommittedHandles =
-      new Int2ObjectOpenHashMap<>();
+  private final Int2ObjectOpenHashMap<UncommittedHandle> uncommittedHandles = new Int2ObjectOpenHashMap<>();
 
-  private ProjectionIndexRegistry.@Nullable Handle uncommittedHandleFor(
-      final StorageEngineReader reader, final IndexDef def) {
+  private ProjectionIndexRegistry.@Nullable Handle uncommittedHandleFor(final StorageEngineReader reader,
+      final IndexDef def) {
     final ProjectionIndexChangeListener listener = projectionListenerFor(def.getID());
     if (listener != null) {
       final UncommittedHandle cached = uncommittedHandles.get(def.getID());
-      if (cached != null && cached.listener() == listener
-          && cached.epoch() == listener.maintenanceEpoch()) {
+      if (cached != null && cached.listener() == listener && cached.epoch() == listener.maintenanceEpoch()) {
         return cached.handle();
       }
     }
-    final ProjectionIndexRegistry.Handle handle =
-        ProjectionIndexCatalog.loadUncommitted(reader, def);
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.loadUncommitted(reader, def);
     if (handle != null && listener != null) {
-      uncommittedHandles.put(def.getID(),
-          new UncommittedHandle(listener, listener.maintenanceEpoch(), handle));
+      uncommittedHandles.put(def.getID(), new UncommittedHandle(listener, listener.maintenanceEpoch(), handle));
     }
     return handle;
   }
@@ -363,10 +358,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   /** Remove any bound projection change listener for this definition id (from both listener sets). */
   private void removeProjectionListenerFor(final int indexDefId) {
-    listeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
-        && p.indexDefId() == indexDefId);
-    primitiveListeners.removeIf(listener -> listener instanceof final ProjectionIndexChangeListener p
-        && p.indexDefId() == indexDefId);
+    listeners.removeIf(
+        listener -> listener instanceof final ProjectionIndexChangeListener p && p.indexDefId() == indexDefId);
+    primitiveListeners.removeIf(
+        listener -> listener instanceof final ProjectionIndexChangeListener p && p.indexDefId() == indexDefId);
   }
 
   @Override
@@ -391,8 +386,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
 
     // 1. Remove from the catalogue (marks it dirty so the reduced catalogue is persisted on commit).
-    //    Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
-    //    remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
+    // Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
+    // remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
     for (final IndexDef indexDef : indexDefs) {
       indexes.removeIndex(indexDef);
     }
@@ -546,7 +541,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     return casIndex.createListener(storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+  private ChangeListener createNameIndexListener(final StorageEngineWriter storageEngineWriter,
+      final IndexDef indexDef) {
     return nameIndex.createListener(storageEngineWriter, indexDef);
   }
 
@@ -627,9 +623,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
-      final StorageEngineReader storageEngineReader, final String[] sourcePath,
-      final String[] requiredFields) {
+  public ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(final StorageEngineReader storageEngineReader,
+      final String[] sourcePath, final String[] requiredFields) {
     // Gate on the CATALOGUE, not the cached capability flag: read-only
     // controllers are populated via Indexes.init() after construction, which
     // never updates the flags — the flag is a write-transaction concept
@@ -651,8 +646,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       final IndexDef[] candidates =
           ProjectionIndexCatalog.selectUncommittedCandidateDefs(indexes, sourcePath, requiredFields);
       for (final IndexDef candidate : candidates) {
-        final ProjectionIndexRegistry.Handle handle =
-            uncommittedHandleFor(storageEngineReader, candidate);
+        final ProjectionIndexRegistry.Handle handle = uncommittedHandleFor(storageEngineReader, candidate);
         if (handle != null) {
           return handle;
         }
@@ -662,8 +656,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     // Committed reader — the cached catalog front-end (probe + decoded-leaf
     // tiers keyed by resource and revision).
     final ResourceSession<?, ?> session = storageEngineReader.getResourceSession();
-    return ProjectionIndexCatalog.lookupCovering(session,
-        session.getResourceConfig().getResource().toString(),
+    return ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
         storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
   }
 }

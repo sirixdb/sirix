@@ -42,29 +42,11 @@ final class ObjectNodeResizeEncoderTest {
   private static final long FAR_COUNT = 1L << 40;
   private static final int FAR_REVISION = 1_000_000;
 
-  private static final ObjectState INITIAL_STATE = new ObjectState(
-      999L,
-      1_001L,
-      Fixed.NULL_NODE_KEY.getStandardProperty(),
-      1_002L,
-      1_005L,
-      0,
-      1,
-      HASH,
-      4L,
-      42L);
+  private static final ObjectState INITIAL_STATE =
+      new ObjectState(999L, 1_001L, Fixed.NULL_NODE_KEY.getStandardProperty(), 1_002L, 1_005L, 0, 1, HASH, 4L, 42L);
 
-  private static final ObjectState FAR_STATE = new ObjectState(
-      FAR_KEY + 1,
-      FAR_KEY + 2,
-      FAR_KEY + 3,
-      FAR_KEY + 4,
-      FAR_KEY + 5,
-      FAR_REVISION,
-      FAR_REVISION + 1,
-      HASH,
-      FAR_COUNT,
-      FAR_COUNT + 1);
+  private static final ObjectState FAR_STATE = new ObjectState(FAR_KEY + 1, FAR_KEY + 2, FAR_KEY + 3, FAR_KEY + 4,
+      FAR_KEY + 5, FAR_REVISION, FAR_REVISION + 1, HASH, FAR_COUNT, FAR_COUNT + 1);
 
   private ResourceConfiguration config;
   private KeyValueLeafPage page;
@@ -93,8 +75,7 @@ final class ObjectNodeResizeEncoderTest {
   }
 
   static Stream<Arguments> resizableFields() {
-    return Stream.of(
-        Arguments.of(NodeFieldLayout.OBJECT_PARENT_KEY, FAR_KEY + 1, "parentKey"),
+    return Stream.of(Arguments.of(NodeFieldLayout.OBJECT_PARENT_KEY, FAR_KEY + 1, "parentKey"),
         Arguments.of(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, FAR_KEY + 2, "rightSiblingKey"),
         Arguments.of(NodeFieldLayout.OBJECT_LEFT_SIB_KEY, FAR_KEY + 3, "leftSiblingKey"),
         Arguments.of(NodeFieldLayout.OBJECT_FIRST_CHILD_KEY, FAR_KEY + 4, "firstChildKey"),
@@ -107,8 +88,7 @@ final class ObjectNodeResizeEncoderTest {
 
   @ParameterizedTest(name = "setter resize preserves every field: {2}")
   @MethodSource("resizableFields")
-  void everySetterUsesThePrimitiveEncoder(final int fieldIndex, final long value,
-      final String description) {
+  void everySetterUsesThePrimitiveEncoder(final int fieldIndex, final long value, final String description) {
     mutate(fieldIndex, value);
 
     final ObjectState expected = INITIAL_STATE.withField(fieldIndex, value);
@@ -143,10 +123,9 @@ final class ObjectNodeResizeEncoderTest {
     final RuntimeException injected = new RuntimeException("injected resize failure");
 
     final RuntimeException failure = assertThrows(RuntimeException.class,
-        () -> objectNode.exerciseFailingResizeForTest(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY,
-            FAR_KEY, () -> {
-              throw injected;
-            }));
+        () -> objectNode.exerciseFailingResizeForTest(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, FAR_KEY, () -> {
+          throw injected;
+        }));
 
     assertSame(injected, failure);
     assertState(INITIAL_STATE);
@@ -170,8 +149,8 @@ final class ObjectNodeResizeEncoderTest {
     final byte[] pageBefore = pageWire();
 
     final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> objectNode.exerciseFailingResizeForTest(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY,
-            FAR_KEY, () -> objectNode.setLastChildKey(FAR_KEY + 5)));
+        () -> objectNode.exerciseFailingResizeForTest(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, FAR_KEY,
+            () -> objectNode.setLastChildKey(FAR_KEY + 5)));
 
     assertTrue(failure.getMessage().contains("Reentrant ObjectNode field resize"));
     assertState(INITIAL_STATE);
@@ -180,9 +159,8 @@ final class ObjectNodeResizeEncoderTest {
 
     objectNode.setLastChildKey(FAR_KEY + 5);
     objectNode.setRightSiblingKey(FAR_KEY);
-    assertState(INITIAL_STATE
-        .withField(NodeFieldLayout.OBJECT_LAST_CHILD_KEY, FAR_KEY + 5)
-        .withField(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, FAR_KEY));
+    assertState(INITIAL_STATE.withField(NodeFieldLayout.OBJECT_LAST_CHILD_KEY, FAR_KEY + 5)
+                             .withField(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, FAR_KEY));
   }
 
   private void apply(final ObjectState state) {
@@ -219,8 +197,7 @@ final class ObjectNodeResizeEncoderTest {
     assertEquals(expected.firstChildKey(), objectNode.getFirstChildKey(), "firstChildKey");
     assertEquals(expected.lastChildKey(), objectNode.getLastChildKey(), "lastChildKey");
     assertEquals(expected.previousRevision(), objectNode.getPreviousRevisionNumber(), "previousRevision");
-    assertEquals(expected.lastModifiedRevision(), objectNode.getLastModifiedRevisionNumber(),
-        "lastModifiedRevision");
+    assertEquals(expected.lastModifiedRevision(), objectNode.getLastModifiedRevisionNumber(), "lastModifiedRevision");
     assertEquals(expected.hash(), objectNode.getHash(), "hash");
     assertEquals(expected.childCount(), objectNode.getChildCount(), "childCount");
     assertEquals(expected.descendantCount(), objectNode.getDescendantCount(), "descendantCount");
@@ -238,55 +215,35 @@ final class ObjectNodeResizeEncoderTest {
   }
 
   private static ObjectNode detachedNode(final ObjectState state) {
-    return new ObjectNode(NODE_KEY,
-        state.parentKey(),
-        state.previousRevision(),
-        state.lastModifiedRevision(),
-        state.rightSiblingKey(),
-        state.leftSiblingKey(),
-        state.firstChildKey(),
-        state.lastChildKey(),
-        state.childCount(),
-        state.descendantCount(),
-        state.hash(),
-        LongHashFunction.xx3(),
-        (byte[]) null);
+    return new ObjectNode(NODE_KEY, state.parentKey(), state.previousRevision(), state.lastModifiedRevision(),
+        state.rightSiblingKey(), state.leftSiblingKey(), state.firstChildKey(), state.lastChildKey(),
+        state.childCount(), state.descendantCount(), state.hash(), LongHashFunction.xx3(), (byte[]) null);
   }
 
-  private record ObjectState(long parentKey, long rightSiblingKey, long leftSiblingKey,
-                             long firstChildKey, long lastChildKey, int previousRevision,
-                             int lastModifiedRevision, long hash, long childCount,
-                             long descendantCount) {
+  private record ObjectState(long parentKey, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      long lastChildKey, int previousRevision, int lastModifiedRevision, long hash, long childCount,
+      long descendantCount) {
 
     private ObjectState withField(final int fieldIndex, final long value) {
       return switch (fieldIndex) {
-        case NodeFieldLayout.OBJECT_PARENT_KEY -> new ObjectState(value, rightSiblingKey,
-            leftSiblingKey, firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_RIGHT_SIB_KEY -> new ObjectState(parentKey, value,
-            leftSiblingKey, firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_LEFT_SIB_KEY -> new ObjectState(parentKey, rightSiblingKey,
-            value, firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_FIRST_CHILD_KEY -> new ObjectState(parentKey, rightSiblingKey,
-            leftSiblingKey, value, lastChildKey, previousRevision, lastModifiedRevision,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_LAST_CHILD_KEY -> new ObjectState(parentKey, rightSiblingKey,
-            leftSiblingKey, firstChildKey, value, previousRevision, lastModifiedRevision,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_PREV_REVISION -> new ObjectState(parentKey, rightSiblingKey,
-            leftSiblingKey, firstChildKey, lastChildKey, (int) value, lastModifiedRevision,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_LAST_MOD_REVISION -> new ObjectState(parentKey, rightSiblingKey,
-            leftSiblingKey, firstChildKey, lastChildKey, previousRevision, (int) value,
-            hash, childCount, descendantCount);
-        case NodeFieldLayout.OBJECT_CHILD_COUNT -> new ObjectState(parentKey, rightSiblingKey,
-            leftSiblingKey, firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
-            hash, value, descendantCount);
-        case NodeFieldLayout.OBJECT_DESCENDANT_COUNT -> new ObjectState(parentKey, rightSiblingKey,
-            leftSiblingKey, firstChildKey, lastChildKey, previousRevision, lastModifiedRevision,
-            hash, childCount, value);
+        case NodeFieldLayout.OBJECT_PARENT_KEY -> new ObjectState(value, rightSiblingKey, leftSiblingKey, firstChildKey,
+            lastChildKey, previousRevision, lastModifiedRevision, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_RIGHT_SIB_KEY -> new ObjectState(parentKey, value, leftSiblingKey, firstChildKey,
+            lastChildKey, previousRevision, lastModifiedRevision, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_LEFT_SIB_KEY -> new ObjectState(parentKey, rightSiblingKey, value, firstChildKey,
+            lastChildKey, previousRevision, lastModifiedRevision, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_FIRST_CHILD_KEY -> new ObjectState(parentKey, rightSiblingKey, leftSiblingKey,
+            value, lastChildKey, previousRevision, lastModifiedRevision, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_LAST_CHILD_KEY -> new ObjectState(parentKey, rightSiblingKey, leftSiblingKey,
+            firstChildKey, value, previousRevision, lastModifiedRevision, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_PREV_REVISION -> new ObjectState(parentKey, rightSiblingKey, leftSiblingKey,
+            firstChildKey, lastChildKey, (int) value, lastModifiedRevision, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_LAST_MOD_REVISION -> new ObjectState(parentKey, rightSiblingKey, leftSiblingKey,
+            firstChildKey, lastChildKey, previousRevision, (int) value, hash, childCount, descendantCount);
+        case NodeFieldLayout.OBJECT_CHILD_COUNT -> new ObjectState(parentKey, rightSiblingKey, leftSiblingKey,
+            firstChildKey, lastChildKey, previousRevision, lastModifiedRevision, hash, value, descendantCount);
+        case NodeFieldLayout.OBJECT_DESCENDANT_COUNT -> new ObjectState(parentKey, rightSiblingKey, leftSiblingKey,
+            firstChildKey, lastChildKey, previousRevision, lastModifiedRevision, hash, childCount, value);
         default -> throw new AssertionError("Unexpected test field " + fieldIndex);
       };
     }

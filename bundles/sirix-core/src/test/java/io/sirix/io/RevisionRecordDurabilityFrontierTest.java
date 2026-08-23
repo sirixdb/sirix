@@ -20,8 +20,7 @@ final class RevisionRecordDurabilityFrontierTest {
     final Path revisions = temporaryDirectory.resolve(IOStorage.REVISIONS_FILENAME);
     final RevisionRecordDurability durability = RevisionRecordDurability.forFile(revisions, 17L, 23L);
     durability.storeFrontiers(20_000L, 40_000L, 8_192L, 4, 19_000L, 91L);
-    assertArrayEquals(new long[] {20_000L, 40_000L, 8_192L, 4L, 19_000L, 91L},
-        durability.cachedFrontiers());
+    assertArrayEquals(new long[] {20_000L, 40_000L, 8_192L, 4L, 19_000L, 91L}, durability.cachedFrontiers());
 
     RevisionRecordDurability.invalidateFor(revisions);
 

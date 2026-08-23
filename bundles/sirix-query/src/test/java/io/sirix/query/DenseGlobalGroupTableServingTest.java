@@ -21,23 +21,23 @@ import java.io.PrintWriter;
 
 /**
  * The DENSE global-id group table: a group-by whose key is a resource-wide dictionary id addresses
- * its accumulator by the id instead of probing a per-worker hash table, which deletes the probe, the
- * table growth and the whole partition merge.
+ * its accumulator by the id instead of probing a per-worker hash table, which deletes the probe,
+ * the table growth and the whole partition merge.
  *
  * <p>
- * Both arms produce the same answer — the hash arm is the fallback and is correct — so a differential
- * alone proves nothing about which one ran. Every case here therefore asserts a delta on
- * {@link SirixVectorizedExecutor#groupDenseServedCount()} beside the generic pipeline's answer, and
- * the arms are compared against EACH OTHER in one JVM through the
+ * Both arms produce the same answer — the hash arm is the fallback and is correct — so a
+ * differential alone proves nothing about which one ran. Every case here therefore asserts a delta
+ * on {@link SirixVectorizedExecutor#groupDenseServedCount()} beside the generic pipeline's answer,
+ * and the arms are compared against EACH OTHER in one JVM through the
  * {@code sirix.projection.groupDense} switch.
  *
  * <p>
  * What is pinned beyond "it serves":
  * <ul>
- * <li>the {@code count} lane is folded only when something reads it — an atomic add per matching row
- * that a top-K by {@code min} does not need. Both shapes are here, because skipping it wrongly would
- * emit zeros and skipping it for group EXISTENCE would drop groups outright (existence is read off
- * the first-seen lane precisely so it cannot);</li>
+ * <li>the {@code count} lane is folded only when something reads it — an atomic add per matching
+ * row that a top-K by {@code min} does not need. Both shapes are here, because skipping it wrongly
+ * would emit zeros and skipping it for group EXISTENCE would drop groups outright (existence is
+ * read off the first-seen lane precisely so it cannot);</li>
  * <li>a group whose every matching row LACKS the aggregate operand must answer the empty sequence,
  * which only the per-column present-count lane can distinguish from a real extremum;</li>
  * <li>rows whose GROUP field is absent fold into the missing-key group, which has no id and stays a
@@ -52,16 +52,16 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
   private static final String DENSE_BUDGET = "sirix.projection.groupDense.maxBytes";
   /**
    * The speculative whole-leaf promotion fires after the second sliced serve and takes the column
-   * store away from every sliced arm, dense included — so a suite that runs four shapes in one session
-   * would see the last two decline for a reason that has nothing to do with what it tests. Declining
-   * the promotion is also what the 100M measurements run with.
+   * store away from every sliced arm, dense included — so a suite that runs four shapes in one
+   * session would see the last two decline for a reason that has nothing to do with what it tests.
+   * Declining the promotion is also what the 100M measurements run with.
    */
   private static final String PROMOTE_BUDGET = "sirix.projection.promoteMaxBytes";
 
   /**
-   * Enough rows and distinct {@code did}s that the AUTO heuristic mints a resource-wide dictionary for
-   * that column — the encoding this table exists for. Forcing the mode would test the route but not
-   * the decision that ships.
+   * Enough rows and distinct {@code did}s that the AUTO heuristic mints a resource-wide dictionary
+   * for that column — the encoding this table exists for. Forcing the mode would test the route but
+   * not the decision that ships.
    *
    * <p>
    * Three shapes are deliberate: every third row has no {@code n} at all (so one whole group's
@@ -76,11 +76,13 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"kind\":\"").append(i % 3 == 0
-          ? "commit"
-          : i % 3 == 1
-              ? "identity"
-              : "account").append('"');
+      sb.append("{\"kind\":\"")
+        .append(i % 3 == 0
+            ? "commit"
+            : i % 3 == 1
+                ? "identity"
+                : "account")
+        .append('"');
       if (i % 400 != 7) {
         sb.append(",\"did\":\"did:plc:").append(i).append('"');
       }
@@ -138,8 +140,8 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
    *
    * <p>
    * The disjunction is what makes this shape reachable at all: an ordered group-by without a cap
-   * resolves an order plan only when its predicate is a TREE (or it carries a distinct/transform), and
-   * without a plan the flat arms — dense and hash alike — are not entered. Ordering is by the
+   * resolves an order plan only when its predicate is a TREE (or it carries a distinct/transform),
+   * and without a plan the flat arms — dense and hash alike — are not entered. Ordering is by the
    * AGGREGATE, never by the key: a global column's ids are mint order, not value order, and a plan
    * over them is declined by design.
    */
@@ -202,8 +204,8 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
 
   /**
    * The dense arm and the hash arm must agree EXACTLY, including on the count lane the dense arm
-   * skips folding when nothing reads it: {@code MIN_TOP_K} skips it, {@code COUNT_TOP_K} does not, and
-   * a mix-up in either direction shows up here as a differing answer rather than as a slow one.
+   * skips folding when nothing reads it: {@code MIN_TOP_K} skips it, {@code COUNT_TOP_K} does not,
+   * and a mix-up in either direction shows up here as a differing answer rather than as a slow one.
    */
   @Test
   public void theDenseArmAgreesWithTheHashArmOnEveryShape() throws IOException {
@@ -221,9 +223,9 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
   }
 
   /**
-   * A group with rows but no aggregate operand answers the empty sequence, and a row without the group
-   * FIELD lands in the missing-key group. The dense table addresses blocks by id; both of these are
-   * groups it cannot address that way, and both used to be the hash table's side slots.
+   * A group with rows but no aggregate operand answers the empty sequence, and a row without the
+   * group FIELD lands in the missing-key group. The dense table addresses blocks by id; both of these
+   * are groups it cannot address that way, and both used to be the hash table's side slots.
    */
   @Test
   public void theAllMissingOperandAndMissingKeyGroupsSurviveTheDenseTable() throws IOException {
@@ -251,11 +253,9 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
           return {"did": $k, "rows": $rows}
         """;
     withExecutor(evaluator -> {
-      final String missingOperand =
-          assertDenseServes(evaluator, allMissing, "a group whose operand is all-missing");
+      final String missingOperand = assertDenseServes(evaluator, allMissing, "a group whose operand is all-missing");
       Assertions.assertTrue(missingOperand.contains("{\"did\":\"did:plc:3\",\"first\":null}"),
-          "a group whose every row lacks the aggregate operand must answer the empty sequence, got: "
-              + missingOperand);
+          "a group whose every row lacks the aggregate operand must answer the empty sequence, got: " + missingOperand);
       final String withMissingKey =
           assertDenseServes(evaluator, missingKey, "a corpus with rows lacking the group key");
       Assertions.assertTrue(withMissingKey.contains("\"did\":null"),
@@ -288,7 +288,9 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
     }
   }
 
-  /** Run {@code q} with an executor installed, asserting the dense arm took it; returns the answer. */
+  /**
+   * Run {@code q} with an executor installed, asserting the dense arm took it; returns the answer.
+   */
   private static String assertDenseServes(final Evaluator evaluator, final String q, final String what)
       throws IOException {
     final long before = SirixVectorizedExecutor.groupDenseServedCount();
@@ -332,8 +334,9 @@ public final class DenseGlobalGroupTableServingTest extends AbstractJsonTest {
   private void withExecutor(final WithEvaluator body) throws IOException {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");

@@ -85,13 +85,13 @@ public final class JsonResourceCopyTest {
     try (final var wtx = rtxDatabase.beginResourceSession(JsonTestHelper.RESOURCE).beginNodeTrx()) {
       // iter#32 P2 fusion node-key remap of the standard test fixture (verified via
       // DescendantAxis dump):
-      //   {"foo":"bar"} OBJECT  legacy 17 -> fused 11
-      //   "foo":"bar" inside    legacy 18 (OBJECT_KEY+STRING) -> fused 12 (OBJECT_NAMED_STRING)
-      //   {"baz":false} OBJECT  legacy 20 -> fused 13
-      //   "baz":false inside    legacy 21 (OBJECT_KEY+BOOLEAN) -> fused 14 (OBJECT_NAMED_BOOLEAN)
-      //   "boo" STRING_VALUE    legacy 23 -> fused 15
-      //   {} empty OBJECT       legacy 24 -> fused 16
-      //   [] empty ARRAY        legacy 25 -> fused 17
+      // {"foo":"bar"} OBJECT legacy 17 -> fused 11
+      // "foo":"bar" inside legacy 18 (OBJECT_KEY+STRING) -> fused 12 (OBJECT_NAMED_STRING)
+      // {"baz":false} OBJECT legacy 20 -> fused 13
+      // "baz":false inside legacy 21 (OBJECT_KEY+BOOLEAN) -> fused 14 (OBJECT_NAMED_BOOLEAN)
+      // "boo" STRING_VALUE legacy 23 -> fused 15
+      // {} empty OBJECT legacy 24 -> fused 16
+      // [] empty ARRAY legacy 25 -> fused 17
       wtx.moveTo(11); // {"foo":"bar"} OBJECT — first element of tada array
       wtx.remove();
       wtx.commit();
@@ -157,11 +157,8 @@ public final class JsonResourceCopyTest {
         final var sourceRtx = sourceSession.beginNodeReadOnlyTrx(1);
         final var destinationSession = destinationDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
         final var destinationWtx = destinationSession.beginNodeTrx()) {
-      new JsonResourceCopy.Builder(destinationWtx, sourceRtx, InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards()
-          .copyAllRevisionsUpToMostRecent()
-          .build()
-          .call();
+      new JsonResourceCopy.Builder(destinationWtx, sourceRtx,
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().copyAllRevisionsUpToMostRecent().build().call();
 
       assertEquals(3, sourceSession.getMostRecentRevisionNumber());
       assertEquals(sourceSession.getMostRecentRevisionNumber(), destinationSession.getMostRecentRevisionNumber());

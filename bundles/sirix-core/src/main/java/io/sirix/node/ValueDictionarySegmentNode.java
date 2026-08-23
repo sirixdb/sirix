@@ -19,19 +19,17 @@ public final class ValueDictionarySegmentNode implements DataRecord {
   private final long directoryBase;
   private final int directoryBlockCount;
 
-  public ValueDictionarySegmentNode(final long nodeKey, final long previousSegmentKey,
-      final int firstId, final int entryCount, final long entryBase, final long directoryBase,
-      final int directoryBlockCount) {
-    if (nodeKey <= 0 || previousSegmentKey < 0 || firstId <= 0 || entryCount <= 0
-        || entryBase <= 0 || directoryBase <= 0 || directoryBlockCount <= 0) {
+  public ValueDictionarySegmentNode(final long nodeKey, final long previousSegmentKey, final int firstId,
+      final int entryCount, final long entryBase, final long directoryBase, final int directoryBlockCount) {
+    if (nodeKey <= 0 || previousSegmentKey < 0 || firstId <= 0 || entryCount <= 0 || entryBase <= 0
+        || directoryBase <= 0 || directoryBlockCount <= 0) {
       throw new IllegalArgumentException("invalid value dictionary segment layout");
     }
     final long lastId = (long) firstId + entryCount - 1L;
     if (lastId > Integer.MAX_VALUE) {
       throw new IllegalArgumentException("value dictionary segment id range overflows int");
     }
-    final int expectedDirectoryBlocks = (int) (((long) entryCount
-        + ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK - 1L)
+    final int expectedDirectoryBlocks = (int) (((long) entryCount + ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK - 1L)
         / ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK);
     if (directoryBlockCount != expectedDirectoryBlocks) {
       throw new IllegalArgumentException("value dictionary segment directory does not cover every entry");
@@ -105,13 +103,9 @@ public final class ValueDictionarySegmentNode implements DataRecord {
 
   @Override
   public boolean equals(final Object object) {
-    return object instanceof ValueDictionarySegmentNode other
-        && nodeKey == other.nodeKey
-        && previousSegmentKey == other.previousSegmentKey
-        && firstId == other.firstId
-        && entryCount == other.entryCount
-        && entryBase == other.entryBase
-        && directoryBase == other.directoryBase
+    return object instanceof ValueDictionarySegmentNode other && nodeKey == other.nodeKey
+        && previousSegmentKey == other.previousSegmentKey && firstId == other.firstId && entryCount == other.entryCount
+        && entryBase == other.entryBase && directoryBase == other.directoryBase
         && directoryBlockCount == other.directoryBlockCount;
   }
 

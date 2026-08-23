@@ -176,11 +176,13 @@ public final class UnreadSumLaneOverflowServingTest extends AbstractJsonTest {
       Assertions.assertEquals("{\"user_id\":\"u:b\",\"first\":1000} {\"user_id\":\"u:c\",\"first\":7000}"
           + " {\"user_id\":\"u:a\",\"first\":4000000000000000000}", genericMin);
       // u:a's sum is 1.2e19 — the very number the fold used to raise on — yet its span is 2.
-      Assertions.assertEquals("{\"user_id\":\"u:b\",\"span\":1000} {\"user_id\":\"u:a\",\"span\":2}"
-          + " {\"user_id\":\"u:c\",\"span\":0}", genericSpan);
-      Assertions.assertEquals("{\"user_id\":\"u:b\",\"first\":1000,\"total\":9}"
-          + " {\"user_id\":\"u:c\",\"first\":7000,\"total\":6}"
-          + " {\"user_id\":\"u:a\",\"first\":4000000000000000000,\"total\":6}", genericMixed);
+      Assertions.assertEquals(
+          "{\"user_id\":\"u:b\",\"span\":1000} {\"user_id\":\"u:a\",\"span\":2}" + " {\"user_id\":\"u:c\",\"span\":0}",
+          genericSpan);
+      Assertions.assertEquals(
+          "{\"user_id\":\"u:b\",\"first\":1000,\"total\":9}" + " {\"user_id\":\"u:c\",\"first\":7000,\"total\":6}"
+              + " {\"user_id\":\"u:a\",\"first\":4000000000000000000,\"total\":6}",
+          genericMixed);
     }
   }
 

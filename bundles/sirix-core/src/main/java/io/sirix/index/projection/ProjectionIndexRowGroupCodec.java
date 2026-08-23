@@ -167,7 +167,8 @@ public final class ProjectionIndexRowGroupCodec {
         switch (page.columnKind(c)) {
           // STRING_GLOBAL cells are dictionary ids: dense small integers, which is precisely
           // what frame-of-reference bit packing is best at. Same encoder, no special case.
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
             encodeForBitPacked(out, page.numericColumn(c), rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
             encodeForBitPackedDouble(out, page.numericColumn(c), rowCount);
@@ -375,8 +376,7 @@ public final class ProjectionIndexRowGroupCodec {
   }
 
   /** Id-stream encoder when the caller already has the representation-independent live size. */
-  static void encodeDictIds(final ByteArrayOutputStream out, final int dictSize, final int[] ids,
-      final int rowCount) {
+  static void encodeDictIds(final ByteArrayOutputStream out, final int dictSize, final int[] ids, final int rowCount) {
     final int width = dictSize <= 1
         ? 0
         : widthOf(dictSize - 1L);
@@ -470,7 +470,8 @@ public final class ProjectionIndexRowGroupCodec {
         columnMax[c] = in.readLong();
         switch (kinds[c]) {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+              ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
             numericCols[c] = decodeForBitPackedColumn(in, rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> booleanCols[c] = decodeBooleanWords(in, presWords);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -505,9 +506,8 @@ public final class ProjectionIndexRowGroupCodec {
     }
     final ProjectionIndexRowGroupPage page =
         ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
-            orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), orderLabels.bytes().length,
-            columnMin, columnMax, numericCols, booleanCols, dictIdCols, dicts,
-            setCountCols, setElemCols, presence, columnFlags);
+            orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), orderLabels.bytes().length, columnMin,
+            columnMax, numericCols, booleanCols, dictIdCols, dicts, setCountCols, setElemCols, presence, columnFlags);
     return page.serialize();
   }
 

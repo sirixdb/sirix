@@ -55,12 +55,13 @@ public interface Cache<K, V> {
    * loader (read a page, rebuild a name dictionary), so invoking it on a hit turns a cache into a
    * recompute-and-overwrite that keeps the value alive but never saves the work it exists to save.
    *
-   * <p>Implementations backed by a {@link ConcurrentMap} override this to compute under the key's
-   * bin lock, so concurrent misses on one key load once. This default cannot: it deliberately does
-   * NOT go through {@link #asMap()}, whose own default throws, which used to make this method
-   * unusable on every implementation that keeps its entries somewhere other than a concurrent map
-   * ({@code LRUCache}, {@code RedBlackTreeNodeCache}, {@code EmptyCache}). Two threads racing a
-   * miss here may both load; for a cache that is waste, not incorrectness.
+   * <p>
+   * Implementations backed by a {@link ConcurrentMap} override this to compute under the key's bin
+   * lock, so concurrent misses on one key load once. This default cannot: it deliberately does NOT go
+   * through {@link #asMap()}, whose own default throws, which used to make this method unusable on
+   * every implementation that keeps its entries somewhere other than a concurrent map
+   * ({@code LRUCache}, {@code RedBlackTreeNodeCache}, {@code EmptyCache}). Two threads racing a miss
+   * here may both load; for a cache that is waste, not incorrectness.
    */
   default V get(K key, BiFunction<? super K, ? super V, ? extends V> mappingFunction) {
     final V hit = get(key);
@@ -127,10 +128,11 @@ public interface Cache<K, V> {
   /**
    * Return a concurrent observational view when this implementation has one.
    *
-   * <p>Mutation support is implementation-specific: lifecycle-owning caches may return an
-   * unmodifiable view so callers cannot bypass retirement, accounting, or synchronization. Callers
-   * must use the cache's mutation methods rather than assume this map supports optional mutating
-   * operations.</p>
+   * <p>
+   * Mutation support is implementation-specific: lifecycle-owning caches may return an unmodifiable
+   * view so callers cannot bypass retirement, accounting, or synchronization. Callers must use the
+   * cache's mutation methods rather than assume this map supports optional mutating operations.
+   * </p>
    *
    * @return the implementation's live concurrent view
    * @throws UnsupportedOperationException if this cache has no map view
@@ -142,12 +144,14 @@ public interface Cache<K, V> {
   /**
    * Test whether the given value instance is currently held by this cache.
    *
-   * <p>Membership is by reference identity for value types that do not override {@code equals}
-   * (e.g. {@link io.sirix.page.HOTLeafPage}). Used by transaction-teardown code to avoid
-   * releasing off-heap memory of a page that is still owned (and shared) by a buffer cache.</p>
+   * <p>
+   * Membership is by reference identity for value types that do not override {@code equals} (e.g.
+   * {@link io.sirix.page.HOTLeafPage}). Used by transaction-teardown code to avoid releasing off-heap
+   * memory of a page that is still owned (and shared) by a buffer cache.
+   * </p>
    *
-   * @param value the value instance to look for (may be {@code null}, in which case {@code false}
-   *              is returned)
+   * @param value the value instance to look for (may be {@code null}, in which case {@code false} is
+   *        returned)
    * @return {@code true} if the cache currently holds this exact instance
    */
   default boolean containsPage(V value) {
@@ -161,11 +165,13 @@ public interface Cache<K, V> {
    * Remove the given value instance from this cache by reference identity, without releasing its
    * resources — the caller retains ownership.
    *
-   * <p>Used to take a transaction-private page out of the shared cache so that background
-   * ({@code ClockSweeper}) and pressure-driven eviction cannot reclaim its off-heap memory while
-   * the page is still needed (e.g. a dirty {@link io.sirix.page.HOTLeafPage} owned by the
+   * <p>
+   * Used to take a transaction-private page out of the shared cache so that background
+   * ({@code ClockSweeper}) and pressure-driven eviction cannot reclaim its off-heap memory while the
+   * page is still needed (e.g. a dirty {@link io.sirix.page.HOTLeafPage} owned by the
    * transaction-intent log until commit). The default implementation is a no-op; caches that hold
-   * evictable, instance-identified pages override it.</p>
+   * evictable, instance-identified pages override it.
+   * </p>
    *
    * @param value the value instance to remove (no-op if {@code null} or not present)
    */
@@ -191,10 +197,12 @@ public interface Cache<K, V> {
   /**
    * Remove {@code key} and return whatever mapping was actually removed.
    *
-   * <p>Atomic where the implementation can be: a separate {@code get} then {@code remove} is a race,
-   * and for page caches a lost race is a leak — the caller closes the page it saw while a different
-   * page, inserted in between, is evicted with no owner and no close. The default is the racy
-   * two-step for caches that hold no off-heap frames.</p>
+   * <p>
+   * Atomic where the implementation can be: a separate {@code get} then {@code remove} is a race, and
+   * for page caches a lost race is a leak — the caller closes the page it saw while a different page,
+   * inserted in between, is evicted with no owner and no close. The default is the racy two-step for
+   * caches that hold no off-heap frames.
+   * </p>
    *
    * @param key the key to remove
    * @return the removed value, or {@code null} if there was no mapping

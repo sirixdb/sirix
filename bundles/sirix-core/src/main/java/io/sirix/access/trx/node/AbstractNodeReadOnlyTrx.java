@@ -575,8 +575,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public final boolean tryMoveToLastAllocatedDocumentNode(final StorageEngineWriter writer,
-      final long nodeKey) {
+  public final boolean tryMoveToLastAllocatedDocumentNode(final StorageEngineWriter writer, final long nodeKey) {
     if (cachedWriter != writer || writer.getAllocNodeKey() != nodeKey) {
       return false;
     }
@@ -981,8 +980,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * Write-transaction singleton moveTo. Uses the writer for current-revision page resolution.
-   * Falls back to moveToLegacy when the page is unchanged from the committed base revision.
+   * Write-transaction singleton moveTo. Uses the writer for current-revision page resolution. Falls
+   * back to moveToLegacy when the page is unchanged from the committed base revision.
    *
    * @param nodeKey the node key to move to
    * @param writer the storage engine writer (for TIL page resolution)
@@ -1098,13 +1097,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Bind this cursor's own singleton to a record on an already-resolved write page.
    *
-   * <p>The node factory owns a separate set of reusable creation singletons. Never installing one
-   * of those objects as the cursor node is essential: the next same-kind creation rebinds the
-   * factory singleton in place. This method instead selects and binds the read cursor's private
-   * singleton, exactly like the ordinary TIL-aware write move.</p>
+   * <p>
+   * The node factory owns a separate set of reusable creation singletons. Never installing one of
+   * those objects as the cursor node is essential: the next same-kind creation rebinds the factory
+   * singleton in place. This method instead selects and binds the read cursor's private singleton,
+   * exactly like the ordinary TIL-aware write move.
+   * </p>
    */
-  private boolean bindWritePageSlot(final long nodeKey, final KeyValueLeafPage page,
-      final int slotOffset, final boolean fallbackToLegacy, final StorageEngineWriter writer) {
+  private boolean bindWritePageSlot(final long nodeKey, final KeyValueLeafPage page, final int slotOffset,
+      final boolean fallbackToLegacy, final StorageEngineWriter writer) {
     final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
 
     // Check records[] first: authoritative for writes (prepareRecordForModification stores here)

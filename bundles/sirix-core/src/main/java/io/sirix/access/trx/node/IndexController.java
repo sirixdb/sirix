@@ -142,8 +142,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * snapshot operations when no indexes are defined.
    */
   default boolean hasAnyPrimitiveIndex() {
-    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex()
-        || hasProjectionIndex();
+    return hasPathIndex() || hasNameIndex() || hasCASIndex() || hasValidTimeIndex() || hasProjectionIndex();
   }
 
   /**
@@ -228,9 +227,11 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Notify primitive change details, including the changed node's already-known parent key.
    *
-   * <p>The default forwards to the original primitive contract so third-party controllers remain
+   * <p>
+   * The default forwards to the original primitive contract so third-party controllers remain
    * compatible. Controllers with parent-aware listeners should override this overload and preserve
-   * the parent key through dispatch.</p>
+   * the parent key through dispatch.
+   * </p>
    *
    * @param type type of change
    * @param nodeKey node key of the changed node
@@ -240,8 +241,8 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param name optional name (only relevant for name-indexed kinds)
    * @param value optional value (only relevant for value-indexed kinds)
    */
-  default void notifyChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind,
-      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
+  default void notifyChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind, final long parentKey,
+      final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
     notifyChange(type, nodeKey, nodeKind, pathNodeKey, name, value);
   }
 
@@ -258,12 +259,14 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Drop (remove) indexes from the catalog.
    *
-   * <p>Removes each given {@link IndexDef} from the in-memory index catalogue (marking it dirty so
-   * the reduced catalogue is persisted on the next commit), then re-derives the change listeners and
+   * <p>
+   * Removes each given {@link IndexDef} from the in-memory index catalogue (marking it dirty so the
+   * reduced catalogue is persisted on the next commit), then re-derives the change listeners and
    * fast-path capability flags from the REMAINING definitions — so the dropped index is no longer
    * maintained on writes within this transaction, and {@code has*Index()} reflects the removal. The
    * dropped index's on-disk pages stay referenced by older revisions (time-travel is preserved); the
-   * copy-on-write page chain reclaims them when no revision references them.</p>
+   * copy-on-write page chain reclaims them when no revision references them.
+   * </p>
    *
    * @param indexDefs the {@link IndexDef}s to remove
    * @param nodeWriteTrx the {@link NodeTrx} used (to rebind the remaining listeners)
@@ -284,17 +287,16 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Remove all registered change listeners. A write-side controller may be cached and reused across
    * write transactions; its listeners capture a specific transaction's storage engine and path
-   * summary, so a new transaction must clear the previous (now-closed) transaction's listeners
-   * before rebinding its own — otherwise {@link #notifyChange} could fire a listener against a
-   * closed transaction ("Transaction is already closed!").
+   * summary, so a new transaction must clear the previous (now-closed) transaction's listeners before
+   * rebinding its own — otherwise {@link #notifyChange} could fire a listener against a closed
+   * transaction ("Transaction is already closed!").
    */
   void clearChangeListeners();
 
   /**
-   * Apply any change-listener maintenance deferred to commit time (currently
-   * the incremental projection-index updates). Called by the write
-   * transaction's commit paths AFTER pre-commit hooks and BEFORE page
-   * serialization, so index writes still ride the committing transaction.
+   * Apply any change-listener maintenance deferred to commit time (currently the incremental
+   * projection-index updates). Called by the write transaction's commit paths AFTER pre-commit hooks
+   * and BEFORE page serialization, so index writes still ride the committing transaction.
    */
   default void applyPendingIndexMaintenance() {
     applyPendingIndexMaintenance(false);
@@ -302,12 +304,11 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
 
   /**
    * Same hook, told whether this is the transaction's FINAL commit rather than an intermediate
-   * auto-commit — see {@link io.sirix.index.ChangeListener#beforeCommit(boolean)}. The read-your-writes
-   * serving path also calls the no-argument form, which is never final: serving a query must not end a
-   * load-time index build.
+   * auto-commit — see {@link io.sirix.index.ChangeListener#beforeCommit(boolean)}. The
+   * read-your-writes serving path also calls the no-argument form, which is never final: serving a
+   * query must not end a load-time index build.
    */
-  default void applyPendingIndexMaintenance(final boolean finalCommit) {
-  }
+  default void applyPendingIndexMaintenance(final boolean finalCommit) {}
 
   /**
    * The transaction is about to flush its written pages out without committing
@@ -316,8 +317,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * flush those records are neither in the transaction's log nor in any committed revision, so they
    * cannot be read back at all until the transaction commits.
    */
-  default void notifyBeforePageFlush() {
-  }
+  default void notifyBeforePageFlush() {}
 
   /**
    * Abort listener-owned maintenance state whose validity depends on the current write-transaction
@@ -325,27 +325,23 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * the transaction. It is deliberately not part of {@link #clearChangeListeners()}: successful
    * intermediate commits rebind listeners while a load-time projection build remains valid.
    */
-  default void notifyTransactionAbort() {
-  }
+  default void notifyTransactionAbort() {}
 
   /**
-   * Notify all change listeners of structural subtree surgery (currently a
-   * MOVE) that per-node change notifications cannot express completely.
-   * Listeners that need complete change attribution may reject before mutation; eagerly-maintained
-   * listeners ignore it. Called by the transaction's move operations.
+   * Notify all change listeners of structural subtree surgery (currently a MOVE) that per-node change
+   * notifications cannot express completely. Listeners that need complete change attribution may
+   * reject before mutation; eagerly-maintained listeners ignore it. Called by the transaction's move
+   * operations.
    */
-  default void notifyStructuralChange() {
-  }
+  default void notifyStructuralChange() {}
 
   default void notifyBeforeStructuralChange(final long movedNodeKey) {
     notifyStructuralChange();
   }
 
-  default void notifyAfterStructuralChange(final long movedNodeKey) {
-  }
+  default void notifyAfterStructuralChange(final long movedNodeKey) {}
 
-  default void notifyStructuralChangeAborted(final long movedNodeKey) {
-  }
+  default void notifyStructuralChangeAborted(final long movedNodeKey) {}
 
   NameFilter createNameFilter(Set<String> names);
 
@@ -364,29 +360,27 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter);
 
   /**
-   * Open the projection index covering {@code requiredFields} for the record
-   * set at {@code sourcePath} — the projection sibling of
-   * {@link #openPathIndex}/{@link #openCASIndex}/{@link #openNameIndex}:
-   * access is controller-mediated and revision-scoped through the passed
-   * reader, with candidate selection (exact root match, field coverage,
-   * narrowest first) over this controller's own catalogue.
+   * Open the projection index covering {@code requiredFields} for the record set at
+   * {@code sourcePath} — the projection sibling of
+   * {@link #openPathIndex}/{@link #openCASIndex}/{@link #openNameIndex}: access is
+   * controller-mediated and revision-scoped through the passed reader, with candidate selection
+   * (exact root match, field coverage, narrowest first) over this controller's own catalogue.
    *
-   * <p>When {@code storageEngineReader} is a {@link StorageEngineWriter} —
-   * an open write transaction's reader — the lookup is WTX-VISIBLE: pending
-   * incremental maintenance is applied first (read-your-writes; the same
-   * work the commit would do, an O(1) no-op when nothing is dirty) and the
-   * leaves are read through the transaction log with no shared caching
-   * (uncommitted state is mutable). Committed readers go through the decode
-   * caches.
+   * <p>
+   * When {@code storageEngineReader} is a {@link StorageEngineWriter} — an open write transaction's
+   * reader — the lookup is WTX-VISIBLE: pending incremental maintenance is applied first
+   * (read-your-writes; the same work the commit would do, an O(1) no-op when nothing is dirty) and
+   * the leaves are read through the transaction log with no shared caching (uncommitted state is
+   * mutable). Committed readers go through the decode caches.
    *
-   * @return decoded columnar leaves of the covering projection, or
-   *         {@code null} when none can serve (callers fall back to the
-   *         generic pipeline)
+   * @return decoded columnar leaves of the covering projection, or {@code null} when none can serve
+   *         (callers fall back to the generic pipeline)
    */
-  ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(
-      StorageEngineReader storageEngineReader, String[] sourcePath, String[] requiredFields);
+  ProjectionIndexRegistry.@Nullable Handle openProjectionIndex(StorageEngineReader storageEngineReader,
+      String[] sourcePath, String[] requiredFields);
 
-  Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter);
+  Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
+      CASFilterRange filter);
 
   /**
    * Searches the vector index for the k nearest neighbors to the query vector.
@@ -427,8 +421,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param hnswNodeKey the HNSW-internal node key to delete
    * @throws IllegalStateException if no vector index support is available
    */
-  default void deleteVectorEntry(StorageEngineWriter storageEngineWriter, IndexDef indexDef,
-      long hnswNodeKey) {
+  default void deleteVectorEntry(StorageEngineWriter storageEngineWriter, IndexDef indexDef, long hnswNodeKey) {
     throw new IllegalStateException("This document does not support vector indexes.");
   }
 

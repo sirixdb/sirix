@@ -120,8 +120,7 @@ public final class ProjectionIndexMetadataTest {
         () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, globalKinds, 1, 1));
 
     final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(
-        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, globalKinds, 1, 1, null,
-            new long[] {0L, 0L, 17L}).serialize());
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, globalKinds, 1, 1, null, new long[] {0L, 0L, 17L}).serialize());
     assertNotNull(parsed);
     assertEquals(17L, parsed.valueDictionaryHeaderKey(2));
   }

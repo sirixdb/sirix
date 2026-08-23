@@ -75,8 +75,8 @@ public abstract class AbstractReader implements Reader {
     final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
     if (!PageHasher.verifyLong(compressedData, expectedHash, hashAlgorithm)) {
       final long actualHash = PageHasher.computeLong(compressedData, hashAlgorithm);
-      throw new SirixCorruptionException(reference.getKey(), "compressed",
-          HashAlgorithm.longToBytes(expectedHash), HashAlgorithm.longToBytes(actualHash));
+      throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expectedHash),
+          HashAlgorithm.longToBytes(actualHash));
     }
 
     if (LOGGER.isTraceEnabled()) {
@@ -107,8 +107,8 @@ public abstract class AbstractReader implements Reader {
     final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
     if (!PageHasher.verifyLong(compressedSegment, expectedHash, hashAlgorithm)) {
       final long actualHash = PageHasher.computeLong(compressedSegment, hashAlgorithm);
-      throw new SirixCorruptionException(reference.getKey(), "compressed",
-          HashAlgorithm.longToBytes(expectedHash), HashAlgorithm.longToBytes(actualHash));
+      throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expectedHash),
+          HashAlgorithm.longToBytes(actualHash));
     }
 
     if (LOGGER.isTraceEnabled()) {
@@ -119,8 +119,8 @@ public abstract class AbstractReader implements Reader {
   /**
    * Build the synthetic {@link PageReference} used to integrity-check a RevisionRootPage body on the
    * {@code readRevisionRootPage} path (which has no real parent reference). The stored page hash is a
-   * {@code long} read from the revisions record; it is stored directly in the synthetic reference
-   * so {@link #verifyChecksumIfNeeded} can compare primitives without allocating a byte array.
+   * {@code long} read from the revisions record; it is stored directly in the synthetic reference so
+   * {@link #verifyChecksumIfNeeded} can compare primitives without allocating a byte array.
    *
    * <p>
    * This is the single place both readers (FileChannel + MemoryMapped) build the reference, so the

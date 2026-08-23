@@ -42,7 +42,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
 
     final long nodeKey = nodeTrx.getNodeKey();
 
-    final StructNode root = nodeTrx.getStorageEngineWriter().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final StructNode root =
+        nodeTrx.getStorageEngineWriter().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
     persistUpdatedRecord(root);
 
@@ -96,7 +97,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
           }
         }
 
-        final Node node = storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node node =
+            storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
         persistUpdatedRecord(node);
 
@@ -122,7 +124,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
         nodeTrx.moveToParent();
         nodeTrx.moveToAttribute(i);
 
-        final Node node = storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node node =
+            storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
         persistUpdatedRecord(node);
 
@@ -140,7 +143,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
         }
         nodeTrx.moveToNamespace(i);
 
-        final Node node = storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node node =
+            storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
         persistUpdatedRecord(node);
 

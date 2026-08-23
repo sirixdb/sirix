@@ -26,18 +26,15 @@ final class AsyncFlushEpochThresholdTest {
   }
 
   @ParameterizedTest
-  @EnumSource(value = AfterCommitState.class, mode = EnumSource.Mode.EXCLUDE,
-      names = "KEEP_OPEN_ASYNC_FLUSH")
+  @EnumSource(value = AfterCommitState.class, mode = EnumSource.Mode.EXCLUDE, names = "KEEP_OPEN_ASYNC_FLUSH")
   void preservesConfiguredThresholdForEveryOtherCommitMode(final AfterCommitState afterCommitState) {
     assertEquals(Integer.MAX_VALUE, threshold(Integer.MAX_VALUE, afterCommitState));
   }
 
   @Test
   void rejectsInvalidInputs() {
-    assertThrows(IllegalArgumentException.class,
-        () -> threshold(-1, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
-    assertThrows(NullPointerException.class,
-        () -> threshold(1, null));
+    assertThrows(IllegalArgumentException.class, () -> threshold(-1, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
+    assertThrows(NullPointerException.class, () -> threshold(1, null));
   }
 
   private static int threshold(final int maxNodeCount, final AfterCommitState afterCommitState) {

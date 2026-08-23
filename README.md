@@ -438,12 +438,12 @@ A fourth, columnar index type accelerates analytical queries — aggregates, fil
 group-bys, count-distinct — over homogeneous record sets. A **projection index** extracts
 declared fields into column-oriented leaves (frame-of-reference numerics, string dictionaries,
 presence bitmaps) that the vectorized executor scans with SIMD kernels instead of walking the
-document tree. Projections are fully versioned copy-on-write pages like everything else,
-maintained incrementally on update (with automatic in-commit rebuild as the fallback), and
+document tree. Projections are fully versioned copy-on-write pages like everything else and
 served automatically — eligible plain JSONiq queries route through them with no scan function,
-both embedded and over REST (behind a fail-closed allowlist gate). Anything a projection
-cannot serve exactly falls back to the regular pipeline, so results are always identical with
-or without the index.
+both embedded and over REST (behind a fail-closed allowlist gate). Inserts, updates and deletes
+are maintained incrementally in the writing commit: only the touched units are rewritten, never
+the whole index. Anything a projection cannot serve exactly falls back to the regular pipeline,
+so results are always identical with or without the index.
 
 ```xquery
 (: project (age, active, dept, city) over a record set, then plain JSONiq uses it :)

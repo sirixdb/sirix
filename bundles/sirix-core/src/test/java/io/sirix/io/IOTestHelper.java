@@ -78,8 +78,8 @@ public final class IOTestHelper {
    * first uber beacon. Besides the data frame, {@link Writer#write} creates the checksummed revision
    * locator that the preallocated frontier handoff validates before publication.
    */
-  public static void writeRevisionZeroRoot(final Writer writer,
-      final ResourceConfiguration resourceConfiguration, final BytesOut<?> bufferedBytes) {
+  public static void writeRevisionZeroRoot(final Writer writer, final ResourceConfiguration resourceConfiguration,
+      final BytesOut<?> bufferedBytes) {
     writer.write(resourceConfiguration, new PageReference(), new RevisionRootPage(), bufferedBytes);
   }
 

@@ -27,7 +27,8 @@ final class SnapshotAppendBackpressureTest {
         await(releaseWorker);
       }));
       assertTrue(workerStarted.await(5, TimeUnit.SECONDS));
-      submit(executor, task(() -> { }));
+      submit(executor, task(() -> {
+      }));
 
       final CountDownLatch submissionReturned = new CountDownLatch(1);
       final CountDownLatch taskRan = new CountDownLatch(1);
@@ -152,7 +153,8 @@ final class SnapshotAppendBackpressureTest {
       await(release);
     }));
     assertTrue(running.await(5, TimeUnit.SECONDS));
-    submit(executor, new TestTask(() -> { }) {
+    submit(executor, new TestTask(() -> {
+    }) {
       @Override
       void cancelledByShutdown() {
         drainedCancelled.set(true);
@@ -181,14 +183,16 @@ final class SnapshotAppendBackpressureTest {
       await(release);
     }));
     assertTrue(running.await(5, TimeUnit.SECONDS));
-    submit(executor, new TestTask(() -> { }) {
+    submit(executor, new TestTask(() -> {
+    }) {
       @Override
       void cancelledByShutdown() {
         firstCancelled.set(true);
         throw new IllegalStateException("first cancellation callback failed");
       }
     });
-    submit(executor, new TestTask(() -> { }) {
+    submit(executor, new TestTask(() -> {
+    }) {
       @Override
       void cancelledByShutdown() {
         secondCancelled.set(true);
@@ -264,8 +268,8 @@ final class SnapshotAppendBackpressureTest {
     }
   }
 
-  private static void submit(final NodeStorageEngineWriter.SnapshotAppendExecutor executor,
-      final TestTask task) throws InterruptedException {
+  private static void submit(final NodeStorageEngineWriter.SnapshotAppendExecutor executor, final TestTask task)
+      throws InterruptedException {
     assertTrue(executor.acquireAdmissionUntilProgressStalls(TimeUnit.SECONDS.toNanos(5)));
     task.armAdmission();
     executor.execute(task);

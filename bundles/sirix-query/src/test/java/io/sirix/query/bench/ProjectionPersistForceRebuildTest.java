@@ -33,31 +33,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * End-to-end regression for the projection force-rebuild persist failure
- * ({@code SirixIOException: Projection HOT chunk insert failed after split}):
- * mirrors {@code ScaleBenchProjectionSetup.installWildcard} with
- * {@code -Dsirix.projection.forceRebuild=true} over a database that already
- * carries SMALLER persisted leaves.
+ * ({@code SirixIOException: Projection HOT chunk insert failed after split}): mirrors
+ * {@code ScaleBenchProjectionSetup.installWildcard} with
+ * {@code -Dsirix.projection.forceRebuild=true} over a database that already carries SMALLER
+ * persisted leaves.
  *
  * <ol>
- *   <li>Shred a records array with the bench's six fields.</li>
- *   <li>Build a 3-column projection ({@code age, active, dept}) via the real
- *       {@link ProjectionIndexBuilder} and persist its leaves through
- *       {@link ProjectionIndexHOTStorage} — the historical on-disk state.</li>
- *   <li>Force-rebuild with all SIX columns over the same revision and persist
- *       the (strictly larger) leaves at the SAME slot ids — the failing
- *       scenario.</li>
- *   <li>Hydrate via {@link ProjectionIndexHOTStorage#readAllRowGroupsFromColumnSegmentSlots}
- *       and assert every leaf comes back byte-identical to the freshly built
- *       6-column leaves; then drive the actual {@code installWildcard} fast
- *       path on top.</li>
+ * <li>Shred a records array with the bench's six fields.</li>
+ * <li>Build a 3-column projection ({@code age, active, dept}) via the real
+ * {@link ProjectionIndexBuilder} and persist its leaves through {@link ProjectionIndexHOTStorage} —
+ * the historical on-disk state.</li>
+ * <li>Force-rebuild with all SIX columns over the same revision and persist the (strictly larger)
+ * leaves at the SAME slot ids — the failing scenario.</li>
+ * <li>Hydrate via {@link ProjectionIndexHOTStorage#readAllRowGroupsFromColumnSegmentSlots} and
+ * assert every leaf comes back byte-identical to the freshly built 6-column leaves; then drive the
+ * actual {@code installWildcard} fast path on top.</li>
  * </ol>
  *
- * <p>The fixture persists through the production builder, including locators, dictionaries,
- * summaries, Bloom/fence chunks and live slot-0 metadata strictly last. That is load-bearing rather
- * than cosmetic: {@code installWildcard} decides fast-path-vs-rebuild by parsing slot 0, so a
- * leaves-only store sends phase 4 down the SLOW path and can make the test pass while exercising the
- * opposite path. Phase 4 pins the distinction on the revision number, the one thing the two paths
- * do not share (the rebuild commits, the hydrate does not).
+ * <p>
+ * The fixture persists through the production builder, including locators, dictionaries, summaries,
+ * Bloom/fence chunks and live slot-0 metadata strictly last. That is load-bearing rather than
+ * cosmetic: {@code installWildcard} decides fast-path-vs-rebuild by parsing slot 0, so a
+ * leaves-only store sends phase 4 down the SLOW path and can make the test pass while exercising
+ * the opposite path. Phase 4 pins the distinction on the revision number, the one thing the two
+ * paths do not share (the rebuild commits, the hydrate does not).
  */
 public final class ProjectionPersistForceRebuildTest {
 
@@ -72,26 +71,34 @@ public final class ProjectionPersistForceRebuildTest {
   void setUp() throws Exception {
     dbDir = Files.createTempDirectory("sirix-proj-rebuild-");
     final Random rng = new Random(42);
-    final String[] depts = { "Engineering", "Sales", "Marketing", "Operations" };
-    final String[] cities = { "New York City", "Los Angeles", "San Francisco", "Boston" };
+    final String[] depts = {"Engineering", "Sales", "Marketing", "Operations"};
+    final String[] cities = {"New York City", "Los Angeles", "San Francisco", "Boston"};
     final StringBuilder sb = new StringBuilder(N * 110);
     sb.append('[');
     for (int i = 0; i < N; i++) {
-      if (i > 0) sb.append(',');
-      sb.append("{\"id\":").append(i)
-        .append(",\"age\":").append(18 + rng.nextInt(50))
-        .append(",\"active\":").append(rng.nextBoolean())
-        .append(",\"dept\":\"").append(depts[rng.nextInt(depts.length)])
-        .append("\",\"city\":\"").append(cities[rng.nextInt(cities.length)])
-        .append("\",\"amount\":").append(rng.nextInt(100_000))
-        .append(",\"score\":").append(rng.nextInt(1_000))
+      if (i > 0)
+        sb.append(',');
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"age\":")
+        .append(18 + rng.nextInt(50))
+        .append(",\"active\":")
+        .append(rng.nextBoolean())
+        .append(",\"dept\":\"")
+        .append(depts[rng.nextInt(depts.length)])
+        .append("\",\"city\":\"")
+        .append(cities[rng.nextInt(cities.length)])
+        .append("\",\"amount\":")
+        .append(rng.nextInt(100_000))
+        .append(",\"score\":")
+        .append(rng.nextInt(1_000))
         .append('}');
     }
     sb.append(']');
 
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
     }
   }
@@ -107,10 +114,10 @@ public final class ProjectionPersistForceRebuildTest {
   @Test
   void forceRebuildWithMoreColumns_persistsAndHydratesByteIdentical() {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       try (final var database = Databases.openJsonDatabase(dbDir.resolve(DB));
-           final JsonResourceSession session = database.beginResourceSession(RES)) {
+          final JsonResourceSession session = database.beginResourceSession(RES)) {
 
         // ---- Phase 1: historical state — 3-column projection persisted. ----
         final Built threeCol = buildLeaves(session, threeColumnDef());
@@ -122,8 +129,7 @@ public final class ProjectionPersistForceRebuildTest {
         // ---- Phase 2: force-rebuild with all six columns (larger leaves). ----
         final Built sixCol = buildLeaves(session, sixColumnDef());
         final List<byte[]> sixColLeaves = sixCol.leaves();
-        assertEquals(threeColLeaves.size(), sixColLeaves.size(),
-            "same rows, same rows-per-leaf → same leaf count");
+        assertEquals(threeColLeaves.size(), sixColLeaves.size(), "same rows, same rows-per-leaf → same leaf count");
         long grownLeaves = 0;
         for (int i = 0; i < sixColLeaves.size(); i++) {
           if (sixColLeaves.get(i).length > threeColLeaves.get(i).length) {
@@ -131,8 +137,8 @@ public final class ProjectionPersistForceRebuildTest {
           }
         }
         assertTrue(grownLeaves > sixColLeaves.size() / 2,
-            "6-column leaves must be larger than their 3-column predecessors (grown="
-                + grownLeaves + "/" + sixColLeaves.size() + ")");
+            "6-column leaves must be larger than their 3-column predecessors (grown=" + grownLeaves + "/"
+                + sixColLeaves.size() + ")");
         persist(session, sixColumnDef());
 
         // ---- Phase 3: hydrate — every leaf byte-identical to the rebuild. ----
@@ -150,8 +156,7 @@ public final class ProjectionPersistForceRebuildTest {
         // ---- Phase 4: the real bench entry point takes the fast (hydrate) path. ----
         final int revisionBefore = session.getMostRecentRevisionNumber();
         final int installed = ScaleBenchProjectionSetup.installWildcard(session);
-        assertEquals(sixColLeaves.size(), installed,
-            "installWildcard must hydrate the persisted (rebuilt) projection");
+        assertEquals(sixColLeaves.size(), installed, "installWildcard must hydrate the persisted (rebuilt) projection");
         assertEquals(revisionBefore, session.getMostRecentRevisionNumber(),
             "the hydrate path reads only — a bumped revision means installWildcard silently "
                 + "REBUILT instead, which would make the leaf-count assertion above vacuous");
@@ -167,7 +172,7 @@ public final class ProjectionPersistForceRebuildTest {
     final int revision = session.getMostRecentRevisionNumber();
     final List<byte[]> leaves = new ArrayList<>();
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
-         PathSummaryReader pathSummary = session.openPathSummary(revision)) {
+        PathSummaryReader pathSummary = session.openPathSummary(revision)) {
       final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
       builder.build(rtx);
       return new Built(leaves);
@@ -177,29 +182,21 @@ public final class ProjectionPersistForceRebuildTest {
   /** Exercise the same canonical persistence boundary used by the benchmark and controllers. */
   private static void persist(final JsonResourceSession session, final IndexDef def) {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      ProjectionIndexBuilder.buildAndPersist(def, wtx.getPathSummary(), wtx,
-          wtx.getStorageEngineWriter(), false);
+      ProjectionIndexBuilder.buildAndPersist(def, wtx.getPathSummary(), wtx, wtx.getStorageEngineWriter(), false);
       wtx.commit();
     }
   }
 
   private static IndexDef threeColumnDef() {
-    return IndexDefs.createProjectionIdxDef(
-        path("/[]"),
-        List.of(path("/[]/age"), path("/[]/active"), path("/[]/dept")),
-        List.of(Type.LON, Type.BOOL, Type.STR),
-        INDEX_NUMBER,
-        IndexDef.DbType.JSON);
+    return IndexDefs.createProjectionIdxDef(path("/[]"), List.of(path("/[]/age"), path("/[]/active"), path("/[]/dept")),
+        List.of(Type.LON, Type.BOOL, Type.STR), INDEX_NUMBER, IndexDef.DbType.JSON);
   }
 
   private static IndexDef sixColumnDef() {
-    return IndexDefs.createProjectionIdxDef(
-        path("/[]"),
-        List.of(path("/[]/age"), path("/[]/active"), path("/[]/dept"),
-            path("/[]/city"), path("/[]/amount"), path("/[]/score")),
-        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON),
-        INDEX_NUMBER,
-        IndexDef.DbType.JSON);
+    return IndexDefs.createProjectionIdxDef(path("/[]"),
+        List.of(path("/[]/age"), path("/[]/active"), path("/[]/dept"), path("/[]/city"), path("/[]/amount"),
+            path("/[]/score")),
+        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);
   }
 
   private static Path<QNm> path(final String p) {

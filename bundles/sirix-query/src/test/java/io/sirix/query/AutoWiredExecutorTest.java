@@ -40,14 +40,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * query's own {@code jn:doc}, so the analytical fast paths are on without the caller naming a
  * resource up front.
  *
- * <p>What makes that safe is that the resolution is only a <em>hint</em> about which executor to
+ * <p>
+ * What makes that safe is that the resolution is only a <em>hint</em> about which executor to
  * build; whether it may serve a scan stays the decision of
  * {@link SirixVectorizedExecutor#acceptsSource}, which runs later against the analyzed AST. Every
  * test here therefore asserts on an ANSWER, not on whether a fast path was taken — an executor
  * wired to the wrong resource would surface as a wrong number, which is the only failure mode worth
  * writing a test for.
  *
- * <p>The two resources hold deliberately different sums, in two databases because {@code jn:store}
+ * <p>
+ * The two resources hold deliberately different sums, in two databases because {@code jn:store}
  * recreates the database it targets. An answer served from the wrong one cannot agree by accident.
  *
  * @see StoreBoundExecutorCache
@@ -91,15 +93,15 @@ public final class AutoWiredExecutorTest {
   @Test
   public void storeOnlyChainAnswersAggregatesCorrectly() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       assertNotNull(chain.storeBoundExecutors(), "a store-only chain must auto-wire");
 
       assertEquals("4", evaluate(chain, ctx, "count(jn:doc('" + DB_A + "','" + RES_A + "')[])"));
       assertEquals(SUM_A, evaluate(chain, ctx, sum(DB_A, RES_A)));
       assertEquals(COUNT_ABOVE_A, evaluate(chain, ctx, countAbove(DB_A, RES_A)));
       assertTrue(chain.storeBoundExecutors().cachedExecutorCount() >= 1,
-                 "the resolved executor should have been cached");
+          "the resolved executor should have been cached");
     }
   }
 
@@ -111,8 +113,8 @@ public final class AutoWiredExecutorTest {
   @Test
   public void sameChainServesEachResourceFromItsOwnData() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       assertEquals(SUM_A, evaluate(chain, ctx, sum(DB_A, RES_A)));
       assertEquals(SUM_B, evaluate(chain, ctx, sum(DB_B, RES_B)));
       // ... and back, so a cached executor for A cannot have been left bound to B.
@@ -120,29 +122,28 @@ public final class AutoWiredExecutorTest {
       assertEquals(COUNT_ABOVE_B, evaluate(chain, ctx, countAbove(DB_B, RES_B)));
 
       assertEquals(2, chain.storeBoundExecutors().cachedExecutorCount(),
-                   "one executor per resource, reused across queries");
+          "one executor per resource, reused across queries");
     }
   }
 
   /**
    * A query naming two resources is accelerated on BOTH. The chain binds to the first document, and
-   * every further scan resolves its own executor through the per-source hook — so the answer must
-   * be right (each half read from its own resource) AND an executor must exist for each.
+   * every further scan resolves its own executor through the per-source hook — so the answer must be
+   * right (each half read from its own resource) AND an executor must exist for each.
    */
   @Test
   public void multiResourceQueryIsServedOnEveryResource() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       assertEquals("106", evaluate(chain, ctx, "(" + sum(DB_A, RES_A) + ") + (" + sum(DB_B, RES_B) + ")"));
       assertEquals(2, chain.storeBoundExecutors().cachedExecutorCount(),
-                   "each scanned document must have resolved its own executor");
+          "each scanned document must have resolved its own executor");
       // The two resources hold different sums, so a scan served from the wrong one is a wrong
       // number rather than a slow query. Order reversed to catch a binding that only ever works
       // for whichever document comes first.
       assertEquals("106", evaluate(chain, ctx, "(" + sum(DB_B, RES_B) + ") + (" + sum(DB_A, RES_A) + ")"));
-      assertEquals("3", evaluate(chain, ctx,
-          "(" + countAbove(DB_B, RES_B) + ") + (" + countAbove(DB_A, RES_A) + ")"));
+      assertEquals("3", evaluate(chain, ctx, "(" + countAbove(DB_B, RES_B) + ") + (" + countAbove(DB_A, RES_A) + ")"));
     }
   }
 
@@ -154,38 +155,38 @@ public final class AutoWiredExecutorTest {
   @Test
   public void aCommitOnTheSameChainIsVisibleToTheNextQuery() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       assertEquals(SUM_A, evaluate(chain, ctx, sum(DB_A, RES_A)));
 
-      new Query(chain, "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":50} into $doc")
-          .evaluate(ctx);
+      new Query(chain,
+          "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":50} into $doc").evaluate(ctx);
 
       assertEquals("150", evaluate(chain, ctx, sum(DB_A, RES_A)),
-                   "the inserted record must be visible — a stale executor would still answer " + SUM_A);
+          "the inserted record must be visible — a stale executor would still answer " + SUM_A);
       assertEquals("4", evaluate(chain, ctx, countAbove(DB_A, RES_A)));
     }
   }
 
   /**
-   * A read that follows an UNCOMMITTED write. The auto-wired executor is pinned to the last
-   * committed revision and memoises answers for it, which is the shape of the staleness bug this
-   * design has to keep avoiding — so the fast path and the generic pipeline are made to answer the
-   * same update-then-read sequence and compared.
+   * A read that follows an UNCOMMITTED write. The auto-wired executor is pinned to the last committed
+   * revision and memoises answers for it, which is the shape of the staleness bug this design has to
+   * keep avoiding — so the fast path and the generic pipeline are made to answer the same
+   * update-then-read sequence and compared.
    *
-   * <p>(Read-your-own-writes <em>within</em> one query is not expressible: XQuery Update rejects a
-   * query that both updates and returns a value, {@code err:XUST0001}.)
+   * <p>
+   * (Read-your-own-writes <em>within</em> one query is not expressible: XQuery Update rejects a query
+   * that both updates and returns a value, {@code err:XUST0001}.)
    */
   @Test
   public void anUncommittedWriteIsReadTheSameWayWithAndWithoutAutoWiring() throws IOException {
-    final String write =
-        "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":50} into $doc";
+    final String write = "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":50} into $doc";
 
     final String generic;
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
-             store, SirixQueryContext.CommitStrategy.EXPLICIT);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        final SirixQueryContext ctx =
+            SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, SirixQueryContext.CommitStrategy.EXPLICIT);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       new Query(chain, write).evaluate(ctx);
       generic = evaluate(chain, ctx, sum(DB_A, RES_A));
     }
@@ -194,12 +195,12 @@ public final class AutoWiredExecutorTest {
     query("jn:store('" + DB_A + "','" + RES_A + "','[{\"age\":10},{\"age\":20},{\"age\":30},{\"age\":40}]')");
 
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
-             store, SirixQueryContext.CommitStrategy.EXPLICIT);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx =
+            SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, SirixQueryContext.CommitStrategy.EXPLICIT);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, write).evaluate(ctx);
       assertEquals(generic, evaluate(chain, ctx, sum(DB_A, RES_A)),
-                   "the auto-wired chain must read an uncommitted write exactly as the generic one does");
+          "the auto-wired chain must read an uncommitted write exactly as the generic one does");
     }
   }
 
@@ -208,25 +209,26 @@ public final class AutoWiredExecutorTest {
    * using a prepared query would expect, and what the generic pipeline does, because its
    * {@code jn:doc} opens the most recent revision at EXECUTE time.
    *
-   * <p>This is the second half of the staleness bug. Re-resolving the revision per COMPILE fixed a
-   * chain that compiles every query; it does nothing for an already-compiled query, because the
-   * translator captured the executor object and an executor is pinned to one revision. The
-   * compiled expression therefore captures a revision-tracking indirection instead.
+   * <p>
+   * This is the second half of the staleness bug. Re-resolving the revision per COMPILE fixed a chain
+   * that compiles every query; it does nothing for an already-compiled query, because the translator
+   * captured the executor object and an executor is pinned to one revision. The compiled expression
+   * therefore captures a revision-tracking indirection instead.
    */
   @Test
   public void aQueryCompiledOnceSeesCommitsMadeAfterItWasCompiled() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final Query compiledOnce = new Query(chain, sum(DB_A, RES_A));
       assertEquals(SUM_A, serialize(compiledOnce, ctx));
 
-      new Query(chain, "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":50} into $doc")
-          .evaluate(ctx);
+      new Query(chain,
+          "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":50} into $doc").evaluate(ctx);
 
       assertEquals("150", serialize(compiledOnce, ctx),
-                   "the SAME compiled query must see the insert — pinning it to its compile-time revision "
-                       + "would answer " + SUM_A);
+          "the SAME compiled query must see the insert — pinning it to its compile-time revision " + "would answer "
+              + SUM_A);
     }
   }
 
@@ -234,14 +236,13 @@ public final class AutoWiredExecutorTest {
    * Most vectorized entry points are substituted at TRANSLATE time and brackit turns a {@code null}
    * result into a failed query rather than a fallback, so any shape the kernels decline at run time
    * would surface as an error rather than a slow answer. Field-free predicates are the family that
-   * reaches those declines, so they are checked against the generic pipeline — equal answers, and
-   * in particular no exception on one side only.
+   * reaches those declines, so they are checked against the generic pipeline — equal answers, and in
+   * particular no exception on one side only.
    */
   @Test
   public void constantPredicateShapesAnswerAsTheGenericPipelineDoes() throws IOException {
     final String source = "jn:doc('" + DB_A + "','" + RES_A + "')[]";
-    final String[] queries = {
-        "count(for $u in " + source + " where true() return $u)",
+    final String[] queries = {"count(for $u in " + source + " where true() return $u)",
         "count(for $u in " + source + " where 1 eq 1 return $u)",
         "count(for $u in " + source + " where false() return $u)",
         "sum(for $u in " + source + " where true() return $u.age)",
@@ -249,12 +250,11 @@ public final class AutoWiredExecutorTest {
         "min(for $u in " + source + " where 1 eq 1 return $u.age)",
         "sum(for $u in " + source + " where not(false()) return $u.age)",
         "count(for $u in " + source + " where $u.age gt 0 and true() return $u)",
-        "sum(for $u in " + source + " where $u.age gt 0 or true() return $u.age)",
-    };
+        "sum(for $u in " + source + " where $u.age gt 0 or true() return $u.age)",};
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
       for (final String query : queries) {
         assertEquals(evaluate(generic, ctx, query), evaluate(autoWired, ctx, query), query);
       }
@@ -263,15 +263,15 @@ public final class AutoWiredExecutorTest {
 
   /**
    * An executor a caller registered explicitly stays in charge. It is bound to A, so a query over B
-   * must be declined by its own source gate and answered generically — the auto-wiring must not
-   * step in behind the caller's back, because a caller who registers an executor is usually
-   * A/B-testing that exact one.
+   * must be declined by its own source gate and answered generically — the auto-wiring must not step
+   * in behind the caller's back, because a caller who registers an executor is usually A/B-testing
+   * that exact one.
    */
   @Test
   public void explicitRegistrationWinsOverAutoWiring() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonResourceSession sessionA = openResource(store, DB_A, RES_A);
       final SirixVectorizedExecutor explicit =
           new SirixVectorizedExecutor(sessionA, sessionA.getMostRecentRevisionNumber());
@@ -280,7 +280,7 @@ public final class AutoWiredExecutorTest {
         assertEquals(SUM_A, evaluate(chain, ctx, sum(DB_A, RES_A)));
         assertEquals(SUM_B, evaluate(chain, ctx, sum(DB_B, RES_B)));
         assertEquals(0, chain.storeBoundExecutors().cachedExecutorCount(),
-                     "auto-wiring must not build an executor while one is registered");
+            "auto-wiring must not build an executor while one is registered");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         explicit.close();
@@ -297,8 +297,8 @@ public final class AutoWiredExecutorTest {
   @Test
   public void anEvictedExecutorStillAnswersTheQueryThatHoldsIt() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final Query first = new Query(chain, sum(DB_A, RES_A));
       final SirixVectorizedExecutor firstExecutor = chain.storeBoundExecutors().anyCachedExecutor();
       assertNotNull(firstExecutor, "the first compile must have cached an executor");
@@ -308,15 +308,15 @@ public final class AutoWiredExecutorTest {
       final List<Query> pinned = new ArrayList<>();
       for (int i = 0; i < 12; i++) {
         new Query(chain,
-                  "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":0} into $doc")
-            .evaluate(ctx);
+            "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":0} into $doc").evaluate(
+                ctx);
         pinned.add(new Query(chain, sum(DB_A, RES_A)));
       }
       assertTrue(chain.storeBoundExecutors().cachedExecutorCount() <= 8, "the cache must stay bounded");
       assertTrue(firstExecutor.isClosed(), "the first executor should have been evicted and closed");
 
       assertEquals(SUM_A, serialize(first, ctx),
-                   "a query holding an evicted executor must still answer from its own revision");
+          "a query holding an evicted executor must still answer from its own revision");
       assertEquals(SUM_A, serialize(pinned.get(pinned.size() - 1), ctx));
     }
   }
@@ -326,7 +326,7 @@ public final class AutoWiredExecutorTest {
   public void closingTheChainClosesTheExecutorsItBuilt() throws IOException {
     final SirixVectorizedExecutor executor;
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
       try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
         evaluate(chain, ctx, sum(DB_A, RES_A));
         executor = chain.storeBoundExecutors().anyCachedExecutor();
@@ -340,7 +340,7 @@ public final class AutoWiredExecutorTest {
   @Test
   public void sessionBoundChainDoesNotAutoWireFromTheStore() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
       final JsonResourceSession sessionA = openResource(store, DB_A, RES_A);
       try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store, sessionA)) {
         assertNull(chain.storeBoundExecutors(), "an explicitly-bound chain must not auto-resolve");
@@ -355,15 +355,15 @@ public final class AutoWiredExecutorTest {
   @Test
   public void aQueryWithoutALiteralDocumentResolvesNoExecutor() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       assertEquals("3", evaluate(chain, ctx, "1 + 2"));
       assertEquals(0, chain.storeBoundExecutors().cachedExecutorCount());
 
       // A computed resource name is not a literal, so there is nothing to bind at compile time —
       // and the query still has to produce the right answer through the generic pipeline.
-      assertEquals(SUM_A, evaluate(chain, ctx,
-          "sum(for $r in jn:doc('" + DB_A + "', concat('a', '.jn'))[] return $r.age)"));
+      assertEquals(SUM_A,
+          evaluate(chain, ctx, "sum(for $r in jn:doc('" + DB_A + "', concat('a', '.jn'))[] return $r.age)"));
       assertEquals(0, chain.storeBoundExecutors().cachedExecutorCount());
     }
   }
@@ -372,7 +372,7 @@ public final class AutoWiredExecutorTest {
   @Test
   public void anUnresolvableDocumentDeclinesInsteadOfThrowing() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final StoreBoundExecutorCache cache = chain.storeBoundExecutors();
       assertNull(cache.resolve(parse("count(jn:doc('no-such-db','no-such-resource')[])")));
       assertNull(cache.resolve(parse("count(jn:doc('" + DB_A + "','no-such-resource')[])")));
@@ -386,15 +386,14 @@ public final class AutoWiredExecutorTest {
   /**
    * The cache is keyed by the RESOLVED revision, so two queries agree on an executor exactly when
    * they read the same snapshot — including a bare {@code jn:doc} and one that names the latest
-   * revision explicitly, which are the same read. An older revision is a different snapshot and
-   * gets its own executor, because a memoised aggregate is only valid for the one it was computed
-   * from.
+   * revision explicitly, which are the same read. An older revision is a different snapshot and gets
+   * its own executor, because a memoised aggregate is only valid for the one it was computed from.
    */
   @Test
   public void resolutionIsMemoisedPerResourceAndRevision() throws IOException {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final StoreBoundExecutorCache cache = chain.storeBoundExecutors();
       final SirixVectorizedExecutor first = cache.resolve(parse(countAbove(DB_A, RES_A)));
       final SirixVectorizedExecutor second = cache.resolve(parse(sum(DB_A, RES_A)));
@@ -404,13 +403,13 @@ public final class AutoWiredExecutorTest {
 
       final int latest = openResource(store, DB_A, RES_A).getMostRecentRevisionNumber();
       assertSame(first, cache.resolve(parse(count(DB_A, RES_A, latest))),
-                 "naming the latest revision explicitly is the same read as a bare jn:doc");
+          "naming the latest revision explicitly is the same read as a bare jn:doc");
       assertEquals(1, cache.cachedExecutorCount());
 
       // A commit makes the previous revision an older snapshot, which cannot share an executor
       // with the current one.
-      new Query(chain, "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":0} into $doc")
-          .evaluate(ctx);
+      new Query(chain,
+          "let $doc := jn:doc('" + DB_A + "','" + RES_A + "') return insert json {\"age\":0} into $doc").evaluate(ctx);
       final SirixVectorizedExecutor pinnedToOlder = cache.resolve(parse(count(DB_A, RES_A, latest)));
       assertNotNull(pinnedToOlder);
       assertSame(first, pinnedToOlder, "the older revision keeps the executor already built for it");
@@ -422,14 +421,15 @@ public final class AutoWiredExecutorTest {
   }
 
   /**
-   * The point of the whole change: the auto-wired executor must actually run the vectorized scan,
-   * not merely be constructed. A feature that is on by default and inert would satisfy every other
-   * test here, because a correct answer is exactly what the generic pipeline also produces.
+   * The point of the whole change: the auto-wired executor must actually run the vectorized scan, not
+   * merely be constructed. A feature that is on by default and inert would satisfy every other test
+   * here, because a correct answer is exactly what the generic pipeline also produces.
    *
-   * <p>The observable is the page-skip registry: a completed vectorized predicate scan publishes a
+   * <p>
+   * The observable is the page-skip registry: a completed vectorized predicate scan publishes a
    * per-resource bitmap for the anchor field, and nothing else in the system does. The resource is
-   * built without a path summary so the PathSummary-persisted bitmap cannot be the one that shows
-   * up, and it holds enough records to span several pages.
+   * built without a path summary so the PathSummary-persisted bitmap cannot be the one that shows up,
+   * and it holds enough records to span several pages.
    */
   @Test
   public void theAutoWiredExecutorActuallyRunsTheVectorizedScan() throws Exception {
@@ -443,20 +443,19 @@ public final class AutoWiredExecutorTest {
 
       PageSkipRegistry.clear();
       try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(scanDir).build();
-           final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-           final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+          final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+          final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
         final String interpreted = evaluate(generic, ctx, query);
-        assertNull(PageSkipRegistry.lookup(resourceKey),
-                   "the generic pipeline must not publish a page-skip bitmap");
+        assertNull(PageSkipRegistry.lookup(resourceKey), "the generic pipeline must not publish a page-skip bitmap");
 
         try (final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
           assertEquals(interpreted, evaluate(autoWired, ctx, query),
-                       "the auto-wired answer must equal the interpreted one");
+              "the auto-wired answer must equal the interpreted one");
         }
         final PageSkipRegistry.Handle handle = PageSkipRegistry.lookup(resourceKey);
         assertNotNull(handle, "the auto-wired chain must have run a vectorized scan");
         assertNotNull(handle.pagesForOrNull("amount".hashCode()),
-                      "a completed vectorized scan publishes the anchor field's page bitmap");
+            "a completed vectorized scan publishes the anchor field's page bitmap");
       } finally {
         PageSkipRegistry.clear();
       }
@@ -468,9 +467,9 @@ public final class AutoWiredExecutorTest {
   @Test
   public void autoWiringServesSirixSpecificPredicateAndConstantGroupRoutes() throws IOException {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-        .storeDeweyIds(true)
-        .build()) {
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                        .storeDeweyIds(true)
+                                                        .build()) {
       store.create(DB_A, RES_A, "[{\"age\":10},{\"age\":20},{\"age\":30},{\"age\":40}]");
     }
     query("""
@@ -480,8 +479,7 @@ public final class AutoWiredExecutorTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String predicate =
-        "for $r in jn:doc('json-path1','a.jn')[] where $r.age gt 15 return $r";
+    final String predicate = "for $r in jn:doc('json-path1','a.jn')[] where $r.age gt 15 return $r";
     final String constantGroup = """
         for $r in jn:doc('json-path1','a.jn')[]
         let $g := 1
@@ -490,9 +488,9 @@ public final class AutoWiredExecutorTest {
         """;
 
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
       final String expectedPredicate = evaluate(generic, ctx, predicate);
       final String expectedConstantGroup = evaluate(generic, ctx, constantGroup);
       final long predicateBefore = SirixVectorizedExecutor.predicateScanServedCount();
@@ -510,16 +508,16 @@ public final class AutoWiredExecutorTest {
   }
 
   /**
-   * A resource of {@link #SCAN_RECORDS} records built through the core API without a path summary,
-   * so the page-skip registry is the only skip index in play. Returns its registry key.
+   * A resource of {@link #SCAN_RECORDS} records built through the core API without a path summary, so
+   * the page-skip registry is the only skip index in play. Returns its registry key.
    */
-  private static String buildUnsummarizedResource(final Path location, final String database,
-      final String resource) {
+  private static String buildUnsummarizedResource(final Path location, final String database, final String resource) {
     final Random rng = new Random(13);
     final StringBuilder sb = new StringBuilder(SCAN_RECORDS * 32);
     sb.append('[');
     for (int i = 0; i < SCAN_RECORDS; i++) {
-      if (i > 0) sb.append(',');
+      if (i > 0)
+        sb.append(',');
       sb.append("{\"amount\":").append(rng.nextInt(1000)).append('}');
     }
     sb.append(']');
@@ -527,8 +525,7 @@ public final class AutoWiredExecutorTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(location.resolve(database)));
     try (final var db = Databases.openJsonDatabase(location.resolve(database))) {
       db.createResource(ResourceConfiguration.newBuilder(resource).buildPathSummary(false).build());
-      try (final var session = db.beginResourceSession(resource);
-           final var wtx = session.beginNodeTrx()) {
+      try (final var session = db.beginResourceSession(resource); final var wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(sb.toString()));
         wtx.commit();
         return session.getResourceConfig().getResource().toString();
@@ -595,8 +592,8 @@ public final class AutoWiredExecutorTest {
 
   private static void query(final String query) {
     try (final BasicJsonDBStore store = newStore();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, query).evaluate(ctx);
     }
   }
@@ -608,7 +605,7 @@ public final class AutoWiredExecutorTest {
 
   private static String serialize(final Query query, final SirixQueryContext ctx) throws IOException {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-         final PrintWriter printWriter = new PrintWriter(out)) {
+        final PrintWriter printWriter = new PrintWriter(out)) {
       query.serialize(ctx, printWriter);
       printWriter.flush();
       return out.toString();

@@ -14,27 +14,26 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>
  * Global dictionary ids are dense by construction ({@link GlobalValueDictionary} reserves node keys
- * per value precisely so the id space stays gap-free), so the set of ids seen by a group is exactly a
- * bitmap over {@code [1, entryCount]}. That changes the memory from "8 bytes per distinct value, per
- * worker that saw it" to "one bit per id in the dictionary, once" — at 40M dictionary entries a group
- * costs 5 MB no matter how many rows or workers feed it, and the whole query costs
- * {@code groups × 5 MB} rather than {@code Σ_worker Σ_group |distinct|}. That is what lets the exact
- * route answer a cardinality the hash-set budget has to decline.
+ * per value precisely so the id space stays gap-free), so the set of ids seen by a group is exactly
+ * a bitmap over {@code [1, entryCount]}. That changes the memory from "8 bytes per distinct value,
+ * per worker that saw it" to "one bit per id in the dictionary, once" — at 40M dictionary entries a
+ * group costs 5 MB no matter how many rows or workers feed it, and the whole query costs
+ * {@code groups × 5 MB} rather than {@code Σ_worker Σ_group |distinct|}. That is what lets the
+ * exact route answer a cardinality the hash-set budget has to decline.
  *
- * <h2>Concurrency</h2> The word arrays are SHARED across the scan's workers and bits are set with an
- * atomic OR, because a plain read-modify-write loses concurrent updates in the same word and would
- * silently undercount. Setting a bit is idempotent, so no worker needs to see another's progress —
- * only the final {@link #cardinality} does, which runs after the scan joins.
+ * <h2>Concurrency</h2> The word arrays are SHARED across the scan's workers and bits are set with
+ * an atomic OR, because a plain read-modify-write loses concurrent updates in the same word and
+ * would silently undercount. Setting a bit is idempotent, so no worker needs to see another's
+ * progress — only the final {@link #cardinality} does, which runs after the scan joins.
  *
  * <p>
  * Workers keep a thread-confined {@code Long2ObjectOpenHashMap<long[]>} of the arrays they have
- * already resolved, so the per-row path is a fastutil lookup on a primitive key and never boxes; this
- * class is consulted once per (worker, group).
+ * already resolved, so the per-row path is a fastutil lookup on a primitive key and never boxes;
+ * this class is consulted once per (worker, group).
  */
 public final class GroupDistinctBitmaps {
 
-  private static final VarHandle WORDS =
-      MethodHandles.arrayElementVarHandle(long[].class).withInvokeExactBehavior();
+  private static final VarHandle WORDS = MethodHandles.arrayElementVarHandle(long[].class).withInvokeExactBehavior();
 
   /** Group key to its bitmap. Touched once per (worker, group), never per row. */
   private final ConcurrentHashMap<Long, long[]> byGroup = new ConcurrentHashMap<>();
@@ -65,8 +64,8 @@ public final class GroupDistinctBitmaps {
     }
     final long words = (maxId >>> 6) + 1;
     if (words > Integer.MAX_VALUE - 8) {
-      throw new IllegalArgumentException("dictionary of " + maxId + " ids needs " + words
-          + " words, which exceeds one array");
+      throw new IllegalArgumentException(
+          "dictionary of " + maxId + " ids needs " + words + " words, which exceeds one array");
     }
     this.maxId = maxId;
     this.wordsPerGroup = (int) words;

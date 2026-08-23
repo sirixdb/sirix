@@ -43,8 +43,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ShardedPageCache.class);
 
-  static final boolean DEBUG_MEMORY_LEAKS =
-      Boolean.getBoolean("sirix.debug.memoryLeaks");
+  static final boolean DEBUG_MEMORY_LEAKS = Boolean.getBoolean("sirix.debug.memoryLeaks");
 
   private final ConcurrentHashMap<PageReference, V> map = new ConcurrentHashMap<>();
   private final ConcurrentMap<PageReference, V> readOnlyMap = new ReadOnlyConcurrentMap<>(map);
@@ -61,14 +60,16 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
 
   /**
-   * Weight actually CHARGED per cached entry. Removal/eviction must subtract exactly what
-   * insertion added: a page's native size can become 0 once it is closed, and a HOT leaf's
-   * composite weight can change before publication, so symmetric weightOf-based accounting drifted
-   * upward until the cache was permanently pinned in the severe-eviction branch.
+   * Weight actually CHARGED per cached entry. Removal/eviction must subtract exactly what insertion
+   * added: a page's native size can become 0 once it is closed, and a HOT leaf's composite weight can
+   * change before publication, so symmetric weightOf-based accounting drifted upward until the cache
+   * was permanently pinned in the severe-eviction branch.
    */
   private final ConcurrentHashMap<PageReference, CacheCharge> insertedWeights = new ConcurrentHashMap<>();
 
-  /** Identity-stamped charge so a failed admission can never roll back a racing successor's weight. */
+  /**
+   * Identity-stamped charge so a failed admission can never roll back a racing successor's weight.
+   */
   private static final class CacheCharge {
     final long weight;
 
@@ -80,15 +81,16 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Live observational view of the ownership map.
    *
-   * <p>Publishing the raw {@link ConcurrentHashMap} would let callers bypass page retirement,
-   * swizzle cleanup, exact weight accounting, and the lifecycle lock used by {@link #clear()}.
+   * <p>
+   * Publishing the raw {@link ConcurrentHashMap} would let callers bypass page retirement, swizzle
+   * cleanup, exact weight accounting, and the lifecycle lock used by {@link #clear()}.
    * {@link ConcurrentMap} permits implementations to reject optional mutation operations. This
    * wrapper does so for every direct and default-method mutation route, while preserving lock-free
    * reads and weakly consistent iteration. Its collection views are unmodifiable as well, including
-   * iterator removal and {@link Map.Entry#setValue(Object)}.</p>
+   * iterator removal and {@link Map.Entry#setValue(Object)}.
+   * </p>
    */
-  private static final class ReadOnlyConcurrentMap<K, T> extends AbstractMap<K, T>
-      implements ConcurrentMap<K, T> {
+  private static final class ReadOnlyConcurrentMap<K, T> extends AbstractMap<K, T> implements ConcurrentMap<K, T> {
 
     private final ConcurrentMap<K, T> delegate;
     private final Map<K, T> unmodifiable;
@@ -199,8 +201,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     @Override
-    public T computeIfPresent(final K key,
-        final BiFunction<? super K, ? super T, ? extends T> remappingFunction) {
+    public T computeIfPresent(final K key, final BiFunction<? super K, ? super T, ? extends T> remappingFunction) {
       throw readOnly();
     }
 
@@ -210,8 +211,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     @Override
-    public T merge(final K key, final T value,
-        final BiFunction<? super T, ? super T, ? extends T> remappingFunction) {
+    public T merge(final K key, final T value, final BiFunction<? super T, ? super T, ? extends T> remappingFunction) {
       throw readOnly();
     }
 
@@ -245,7 +245,9 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
   /** Publish an already-validated weight without re-reading mutable page state. */
   private void chargeWeight(PageReference key, long weight) {
-    final CacheCharge charge = weight > 0 ? new CacheCharge(weight) : null;
+    final CacheCharge charge = weight > 0
+        ? new CacheCharge(weight)
+        : null;
     final CacheCharge previous = replaceCharge(key, charge);
     final long delta = weight - chargedWeight(previous);
     if (delta != 0) {
@@ -255,16 +257,22 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
   /** Install one pre-created charge token, returning the exact token it replaced. */
   private CacheCharge replaceCharge(PageReference key, CacheCharge charge) {
-    return charge != null ? insertedWeights.put(key, charge) : insertedWeights.remove(key);
+    return charge != null
+        ? insertedWeights.put(key, charge)
+        : insertedWeights.remove(key);
   }
 
   private static long chargedWeight(CacheCharge charge) {
-    return charge != null ? charge.weight : 0L;
+    return charge != null
+        ? charge.weight
+        : 0L;
   }
 
   /** Stage an identity-addressable charge so a failed CHM publication can restore its predecessor. */
   private void chargeGuardedCandidate(PageReference key, long weight, GuardedLoadState<?> state) {
-    state.appliedCharge = weight > 0 ? new CacheCharge(weight) : null;
+    state.appliedCharge = weight > 0
+        ? new CacheCharge(weight)
+        : null;
     state.previousCharge = insertedWeights.get(key);
     state.chargeAttempted = true;
     final CacheCharge actualPrevious = replaceCharge(key, state.appliedCharge);
@@ -315,8 +323,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   /** Clear only this page's swizzle; never erase a replacement installed on the same reference. */
-  private static void clearSwizzleIfSame(PageReference reference, CacheablePage page,
-      RetirementFailures failures) {
+  private static void clearSwizzleIfSame(PageReference reference, CacheablePage page, RetirementFailures failures) {
     try {
       if (page instanceof Page swizzledPage) {
         reference.clearPageIfSame(swizzledPage);
@@ -344,12 +351,13 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
    * Remove the cache's ownership and recorded charge after an eviction selected {@code page} under
    * {@code reference}'s map-compute lock.
    *
-   * <p>A guard can arrive after the caller's guard-count check. {@link CacheablePage#retire()} then
+   * <p>
+   * A guard can arrive after the caller's guard-count check. {@link CacheablePage#retire()} then
    * marks the page orphaned and defers its physical close to that holder; the mapping and charge must
-   * still disappear now. The page-local version is bumped only when no holder deferred the close.</p>
+   * still disappear now. The page-local version is bumped only when no holder deferred the close.
+   * </p>
    */
-  private void retireAndUnchargeEvictedPage(PageReference reference, CacheablePage page,
-      RetirementFailures failures) {
+  private void retireAndUnchargeEvictedPage(PageReference reference, CacheablePage page, RetirementFailures failures) {
     try {
       retireDetachedPage(page, failures);
       if (page.isClosed()) {
@@ -370,8 +378,8 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
 
   /**
    * Remove and uncharge {@code expected} only if it is still the exact mapping at {@code key}.
-   * Closed-page cleanup is rare and takes the eviction lock; the common removePage path already
-   * owns it and calls {@link #removeMappingIfSameWhileLocked(PageReference, CacheablePage)} directly.
+   * Closed-page cleanup is rare and takes the eviction lock; the common removePage path already owns
+   * it and calls {@link #removeMappingIfSameWhileLocked(PageReference, CacheablePage)} directly.
    */
   private boolean removeMappingIfSame(PageReference key, CacheablePage expected) {
     evictionLock.lock();
@@ -383,8 +391,8 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   /**
-   * Exact conditional removal without a per-call holder or capturing lambda allocation.
-   * The callback and its mutable success state are cache-owned and serialized by evictionLock.
+   * Exact conditional removal without a per-call holder or capturing lambda allocation. The callback
+   * and its mutable success state are cache-owned and serialized by evictionLock.
    */
   private boolean removeMappingIfSameWhileLocked(PageReference key, CacheablePage expected) {
     if (!evictionLock.isHeldByCurrentThread()) {
@@ -404,8 +412,8 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
    * Preallocated-callback removal used by both instance transfer and clear. The eviction lock owns
    * the callback's mutable state; clear additionally owns the lifecycle write lock.
    */
-  private boolean removeMappingIfSameWhileLocked(PageReference key, CacheablePage expected,
-      boolean retire, RetirementFailures failures) {
+  private boolean removeMappingIfSameWhileLocked(PageReference key, CacheablePage expected, boolean retire,
+      RetirementFailures failures) {
     conditionalRemovalExpected = expected;
     conditionalRemovalSucceeded = false;
     conditionalRemovalRetires = retire;
@@ -524,8 +532,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Compute the weight (bytes) of a cached page.
    *
-   * <p>HOT leaves add their allocation-free retained-heap estimate to the separately reported native
-   * frame. Re-putting a page samples its current estimate and replaces the recorded charge.</p>
+   * <p>
+   * HOT leaves add their allocation-free retained-heap estimate to the separately reported native
+   * frame. Re-putting a page samples its current estimate and replaces the recorded charge.
+   * </p>
    */
   long weightOf(CacheablePage page) {
     if (page == null) {
@@ -608,8 +618,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   @Override
-  public V get(PageReference key,
-      BiFunction<? super PageReference, ? super V, ? extends V> mappingFunction) {
+  public V get(PageReference key, BiFunction<? super PageReference, ? super V, ? extends V> mappingFunction) {
     V existing = map.get(key);
     if (existing != null && !existing.isClosed()) {
       existing.markAccessed();
@@ -634,7 +643,8 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
           newPage.setLastCacheKey(k);
           if (DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
             LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
-                newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage), newPage.getGuardCount());
+                newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage),
+                newPage.getGuardCount());
           }
           // Replace the recorded charge before lifecycle mutation. After validation succeeds, the
           // remaining detach operations are fail-closed and cannot make compute retain a dead value.
@@ -822,7 +832,9 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
-  /** Preserve the exact publication failure while restoring charge and private candidate ownership. */
+  /**
+   * Preserve the exact publication failure while restoring charge and private candidate ownership.
+   */
   private void cleanupFailedGuardedLoad(PageReference key, GuardedLoadState<V> state, Throwable primaryFailure) {
     final V candidate = state.candidate;
     if (candidate == null) {
@@ -1006,11 +1018,13 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Remove a page from the cache by reference identity, without closing it.
    *
-   * <p>Unlike {@link #remove(PageReference)} this matches on instance identity (HOT leaf and
-   * record pages do not override {@code equals}) and does <em>not</em> release the page's off-heap
-   * memory — the caller keeps ownership. Used so the transaction-intent log can take a dirty,
-   * transaction-private page out of the shared cache, preventing the sweeper and pressure
-   * eviction from reclaiming its slot before commit serializes it.</p>
+   * <p>
+   * Unlike {@link #remove(PageReference)} this matches on instance identity (HOT leaf and record
+   * pages do not override {@code equals}) and does <em>not</em> release the page's off-heap memory —
+   * the caller keeps ownership. Used so the transaction-intent log can take a dirty,
+   * transaction-private page out of the shared cache, preventing the sweeper and pressure eviction
+   * from reclaiming its slot before commit serializes it.
+   * </p>
    */
   @Override
   public void removePage(V page) {
@@ -1038,16 +1052,18 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Whether this cache currently holds the given page INSTANCE.
    *
-   * <p>The inherited default is {@code asMap().containsValue(page)} — a linear scan of the whole
-   * cache. That runs per orphaned page when a write transaction tears down its page containers, so
-   * a large cache turned teardown into O(entries x containers).
+   * <p>
+   * The inherited default is {@code asMap().containsValue(page)} — a linear scan of the whole cache.
+   * That runs per orphaned page when a write transaction tears down its page containers, so a large
+   * cache turned teardown into O(entries x containers).
    *
-   * <p>A page remembers the reference it was last cached under, which answers the question in O(1)
-   * whenever it is still cached there — the overwhelmingly common case, since a container's HOT
-   * leaf usually IS the cache's instance. Only a positive identity match is conclusive: a page
-   * re-cached under a NEW reference (copy-on-write moves the root reference's key) remembers just
-   * the latest one, so a mismatch has to fall back to the exact scan. Getting that backwards would
-   * free a page the cache is still handing to readers.
+   * <p>
+   * A page remembers the reference it was last cached under, which answers the question in O(1)
+   * whenever it is still cached there — the overwhelmingly common case, since a container's HOT leaf
+   * usually IS the cache's instance. Only a positive identity match is conclusive: a page re-cached
+   * under a NEW reference (copy-on-write moves the root reference's key) remembers just the latest
+   * one, so a mismatch has to fall back to the exact scan. Getting that backwards would free a page
+   * the cache is still handing to readers.
    */
   @Override
   public boolean containsPage(V page) {
@@ -1088,9 +1104,11 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Return the cache's live, weakly consistent observational view.
    *
-   * <p>All mutation operations, including mutations through collection views and
-   * {@link ConcurrentMap} default methods, throw {@link UnsupportedOperationException}. Callers
-   * must use this cache's mutation methods so lifecycle and weight ownership remain exact.</p>
+   * <p>
+   * All mutation operations, including mutations through collection views and {@link ConcurrentMap}
+   * default methods, throw {@link UnsupportedOperationException}. Callers must use this cache's
+   * mutation methods so lifecycle and weight ownership remain exact.
+   * </p>
    */
   @Override
   public ConcurrentMap<PageReference, V> asMap() {
@@ -1127,20 +1145,20 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
    * <h2>Two modes of pressure</h2>
    *
    * <ul>
-   *   <li><b>Normal over-budget (&lt; 110% of limit):</b> non-blocking {@code tryLock},
-   *       two-pass HOT-bit algorithm. Lets concurrent writers through and delegates
-   *       to the background {@link ClockSweeper}.</li>
-   *   <li><b>Severe over-budget (&ge; 110% of limit):</b> blocking {@code lock},
-   *       single-pass eviction — HOT bit is ignored since at high concurrency the
-   *       two-pass approach never catches up (bit gets re-set between sweeps).</li>
+   * <li><b>Normal over-budget (&lt; 110% of limit):</b> non-blocking {@code tryLock}, two-pass
+   * HOT-bit algorithm. Lets concurrent writers through and delegates to the background
+   * {@link ClockSweeper}.</li>
+   * <li><b>Severe over-budget (&ge; 110% of limit):</b> blocking {@code lock}, single-pass eviction —
+   * HOT bit is ignored since at high concurrency the two-pass approach never catches up (bit gets
+   * re-set between sweeps).</li>
    * </ul>
    *
-   * <p>Why the split: at 20 parallel readers, tryLock succeeds only intermittently
-   * and the two-pass HOT logic leaves every page permanently hot during a scan.
-   * That starves the allocator budget and surfaces as {@code OutOfMemoryError} in
-   * {@code MemorySegmentAllocator.allocate} 10+ seconds later. Forcing a blocking
-   * one-pass eviction when we're significantly over budget makes eviction keep up
-   * with allocation pressure.
+   * <p>
+   * Why the split: at 20 parallel readers, tryLock succeeds only intermittently and the two-pass HOT
+   * logic leaves every page permanently hot during a scan. That starves the allocator budget and
+   * surfaces as {@code OutOfMemoryError} in {@code MemorySegmentAllocator.allocate} 10+ seconds
+   * later. Forcing a blocking one-pass eviction when we're significantly over budget makes eviction
+   * keep up with allocation pressure.
    */
   private void evictIfOverBudget() {
     if (maxWeightBytes <= 0) {
@@ -1217,10 +1235,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   /**
-   * Force eviction under global allocator pressure. Evicts unguarded pages even if
-   * this cache is within its own budget — the global allocator budget is shared across
-   * all caches and the TIL, so this cache must shed pages when the allocator cannot
-   * satisfy an allocation regardless of local budget state.
+   * Force eviction under global allocator pressure. Evicts unguarded pages even if this cache is
+   * within its own budget — the global allocator budget is shared across all caches and the TIL, so
+   * this cache must shed pages when the allocator cannot satisfy an allocation regardless of local
+   * budget state.
    */
   public void evictUnderPressure() {
     if (maxWeightBytes <= 0 || map.isEmpty()) {

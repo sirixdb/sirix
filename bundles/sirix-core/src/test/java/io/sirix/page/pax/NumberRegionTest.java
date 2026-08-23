@@ -14,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for the tag-sorted {@link NumberRegion} codec. Covers encode/decode
- * round-trips across PLAIN_LONG and BIT_PACKED paths, per-tag range lookup, and
- * a randomized stress that validates every value round-trips to its sorted index.
+ * Unit tests for the tag-sorted {@link NumberRegion} codec. Covers encode/decode round-trips across
+ * PLAIN_LONG and BIT_PACKED paths, per-tag range lookup, and a randomized stress that validates
+ * every value round-trips to its sorted index.
  */
 @DisplayName("NumberRegion")
 final class NumberRegionTest {
@@ -24,10 +24,10 @@ final class NumberRegionTest {
   private static final Base64.Decoder BASE64 = Base64.getDecoder();
   private static final byte[] GOLDEN_PLAIN = BASE64.decode(
       "AgAEAAAA////////////////////fwAAAAAAAAAAQAEAAAADAAAAAAAAAAQAAAD///////////////////9/AAAAAAAAAAD/////////f///////////KgAAAAAAAAA=");
-  private static final byte[] GOLDEN_PACKED = BASE64.decode(
-      "AwAGAAAAEgAAAAAAAABCAAAAAAAAABIAAAAAAAAABgEAAAAHAAAAAAAAAAYAAAASAAAAAAAAAEIAAAAAAAAAAAYzpQA=");
-  private static final byte[] GOLDEN_COMPACT = BASE64.decode(
-      "BAAGAAAAEgAAAAAAAABCAAAAAAAAAAEAAAAHAAAAAAAAAAYAAAASAAAAAAAAAEIAAAAAAAAAAQYGEgAAAAAAAAAABjOlAA==");
+  private static final byte[] GOLDEN_PACKED =
+      BASE64.decode("AwAGAAAAEgAAAAAAAABCAAAAAAAAABIAAAAAAAAABgEAAAAHAAAAAAAAAAYAAAASAAAAAAAAAEIAAAAAAAAAAAYzpQA=");
+  private static final byte[] GOLDEN_COMPACT =
+      BASE64.decode("BAAGAAAAEgAAAAAAAABCAAAAAAAAAAEAAAAHAAAAAAAAAAYAAAASAAAAAAAAAEIAAAAAAAAAAQYGEgAAAAAAAAAABjOlAA==");
   private static final byte[] GOLDEN_DELTA = BASE64.decode(
       "BQEgAAAAQEIPAAAAAAB2Qw8AAAAAAAEAAAAJAAAAAAAAACAAAABAQg8AAAAAAHZDDwAAAAAAAQAgQEIPAAAAAAAKAAAAAAAAAA==");
 
@@ -43,8 +43,8 @@ final class NumberRegionTest {
   @Test
   @DisplayName("single-tag values pick BIT_PACKED and occupy full range")
   void singleTagBitPacked() {
-    final long[] values = { 18, 42, 66, 30, 55, 20 };
-    final int[] tags = { 7, 7, 7, 7, 7, 7 };
+    final long[] values = {18, 42, 66, 30, 55, 20};
+    final int[] tags = {7, 7, 7, 7, 7, 7};
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
     final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(NumberRegion.ENC_BIT_PACKED_ZM, h.encodingKind);
@@ -64,8 +64,8 @@ final class NumberRegionTest {
   @Test
   @DisplayName("multiple tags are grouped contiguously")
   void multipleTagsGrouped() {
-    final long[] values = { 18, 100, 30, 200, 42 };
-    final int[] tags = { 11, 22, 11, 22, 11 };
+    final long[] values = {18, 100, 30, 200, 42};
+    final int[] tags = {11, 22, 11, 22, 11};
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
     final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(2, h.dictSize);
@@ -106,8 +106,8 @@ final class NumberRegionTest {
   void perTagZoneMaps() {
     // Deliberately mix small and huge values across tags so the global range
     // overlaps but the per-tag ranges are tight.
-    final long[] values = { 10, 1_000_000, 20, 2_000_000, 15, 1_500_000 };
-    final int[] tags = { 1, 2, 1, 2, 1, 2 };
+    final long[] values = {10, 1_000_000, 20, 2_000_000, 15, 1_500_000};
+    final int[] tags = {1, 2, 1, 2, 1, 2};
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
     final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
 
@@ -129,8 +129,8 @@ final class NumberRegionTest {
   @Test
   @DisplayName("wide-range longs fall back to PLAIN_LONG")
   void wideRangeUsesPlainLong() {
-    final long[] values = { 0L, Long.MAX_VALUE, -1L, 42L };
-    final int[] tags = { 3, 3, 3, 3 };
+    final long[] values = {0L, Long.MAX_VALUE, -1L, 42L};
+    final int[] tags = {3, 3, 3, 3};
     final byte[] wire = NumberRegion.encode(values, tags, values.length);
     final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(NumberRegion.ENC_PLAIN_LONG_ZM, h.encodingKind);
@@ -145,7 +145,7 @@ final class NumberRegionTest {
   @Test
   @DisplayName("missing nameKey returns -1")
   void missingTagReturnsMinusOne() {
-    final byte[] wire = NumberRegion.encode(new long[] { 42 }, new int[] { 7 }, 1);
+    final byte[] wire = NumberRegion.encode(new long[] {42}, new int[] {7}, 1);
     final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     assertEquals(-1, NumberRegion.lookupTag(h, 99));
   }
@@ -166,7 +166,9 @@ final class NumberRegionTest {
       final long[] values = new long[n];
       final int[] tags = new int[n];
       for (int i = 0; i < n; i++) {
-        values[i] = base + (spread == 0 ? 0 : rng.nextLong(0, spread));
+        values[i] = base + (spread == 0
+            ? 0
+            : rng.nextLong(0, spread));
         tags[i] = nameKeys[rng.nextInt(dictSize)];
       }
       final byte[] wire = NumberRegion.encode(values, tags, n);
@@ -176,7 +178,8 @@ final class NumberRegionTest {
       // and compare against the tag's range in the region.
       for (int nk : nameKeys) {
         final int tagId = NumberRegion.lookupTag(h, nk);
-        if (tagId < 0) continue;
+        if (tagId < 0)
+          continue;
         final long[] expected = collectByTag(values, tags, nk);
         final long[] actual = new long[h.tagCount[tagId]];
         for (int i = 0; i < actual.length; i++) {
@@ -185,19 +188,21 @@ final class NumberRegionTest {
         assertEquals(expected.length, actual.length, "trial " + trial + " tag " + nk + " count");
         Arrays.sort(expected);
         Arrays.sort(actual);
-        assertTrue(Arrays.equals(expected, actual),
-            "trial " + trial + " tag " + nk + " mismatch");
+        assertTrue(Arrays.equals(expected, actual), "trial " + trial + " tag " + nk + " mismatch");
       }
     }
   }
 
   private static long[] collectByTag(final long[] values, final int[] tags, final int target) {
     int count = 0;
-    for (int t : tags) if (t == target) count++;
+    for (int t : tags)
+      if (t == target)
+        count++;
     final long[] out = new long[count];
     int i = 0;
     for (int k = 0; k < values.length; k++) {
-      if (tags[k] == target) out[i++] = values[k];
+      if (tags[k] == target)
+        out[i++] = values[k];
     }
     return out;
   }
@@ -209,8 +214,8 @@ final class NumberRegionTest {
   void compactZmSingleTagBitPacked() {
     NumberRegion.setCompactWriteEnabled(true);
     try {
-      final long[] values = { 18, 42, 66, 30, 55, 20 };
-      final int[] tags = { 7, 7, 7, 7, 7, 7 };
+      final long[] values = {18, 42, 66, 30, 55, 20};
+      final int[] tags = {7, 7, 7, 7, 7, 7};
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
       final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertEquals(NumberRegion.ENC_COMPACT_ZM, h.encodingKind);
@@ -235,8 +240,8 @@ final class NumberRegionTest {
   void compactZmConstantRun() {
     NumberRegion.setCompactWriteEnabled(true);
     try {
-      final long[] values = { 42L, 42L, 42L, 42L, 42L };
-      final int[] tags = { 7, 7, 7, 7, 7 };
+      final long[] values = {42L, 42L, 42L, 42L, 42L};
+      final int[] tags = {7, 7, 7, 7, 7};
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
       final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertEquals(NumberRegion.ENC_COMPACT_ZM, h.encodingKind);
@@ -262,8 +267,8 @@ final class NumberRegionTest {
   void compactZmMultiTagGrouping() {
     NumberRegion.setCompactWriteEnabled(true);
     try {
-      final long[] values = { 18, 100, 30, 200, 42 };
-      final int[] tags = { 11, 22, 11, 22, 11 };
+      final long[] values = {18, 100, 30, 200, 42};
+      final int[] tags = {11, 22, 11, 22, 11};
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
       final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       assertEquals(NumberRegion.ENC_COMPACT_ZM, h.encodingKind);
@@ -298,8 +303,8 @@ final class NumberRegionTest {
   void compactZmWideRangeFallsBackToPlain() {
     NumberRegion.setCompactWriteEnabled(true);
     try {
-      final long[] values = { 0L, Long.MAX_VALUE, -1L, 42L };
-      final int[] tags = { 3, 3, 3, 3 };
+      final long[] values = {0L, Long.MAX_VALUE, -1L, 42L};
+      final int[] tags = {3, 3, 3, 3};
       final byte[] wire = NumberRegion.encode(values, tags, values.length);
       final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
       // Plain-long fallback: wide spread, compact kind not applied.
@@ -340,7 +345,8 @@ final class NumberRegionTest {
         // Every value must round-trip within its tag range.
         for (int nk : nameKeys) {
           final int tagId = NumberRegion.lookupTag(h, nk);
-          if (tagId < 0) continue;
+          if (tagId < 0)
+            continue;
           final long[] expected = collectByTag(values, tags, nk);
           final long[] actual = new long[h.tagCount[tagId]];
           for (int i = 0; i < actual.length; i++) {
@@ -348,8 +354,7 @@ final class NumberRegionTest {
           }
           Arrays.sort(expected);
           Arrays.sort(actual);
-          assertTrue(Arrays.equals(expected, actual),
-              "trial=" + trial + " tag=" + nk + " mismatch");
+          assertTrue(Arrays.equals(expected, actual), "trial=" + trial + " tag=" + nk + " mismatch");
         }
       }
     } finally {
@@ -376,9 +381,8 @@ final class NumberRegionTest {
     } finally {
       NumberRegion.clearCompactWriteOverride();
     }
-    System.out.printf("[compactZmSizeProbe] n=%d bitPackedZM=%d compactZM=%d delta=%d%n",
-        values.length, bitPackedWire.length, compactWire.length,
-        compactWire.length - bitPackedWire.length);
+    System.out.printf("[compactZmSizeProbe] n=%d bitPackedZM=%d compactZM=%d delta=%d%n", values.length,
+        bitPackedWire.length, compactWire.length, compactWire.length - bitPackedWire.length);
   }
 
   @Test
@@ -403,8 +407,8 @@ final class NumberRegionTest {
     } finally {
       NumberRegion.clearCompactWriteOverride();
     }
-    System.out.printf("[compactZmSizeConstant] n=%d bitPackedZM=%d compactZM=%d delta=%d%n",
-        n, bp.length, cm.length, cm.length - bp.length);
+    System.out.printf("[compactZmSizeConstant] n=%d bitPackedZM=%d compactZM=%d delta=%d%n", n, bp.length, cm.length,
+        cm.length - bp.length);
   }
 
   @Test
@@ -428,8 +432,8 @@ final class NumberRegionTest {
     } finally {
       NumberRegion.clearCompactWriteOverride();
     }
-    System.out.printf("[compactZmSizeWide] n=%d plainZM=%d override=%d delta=%d%n",
-        n, plain.length, cm.length, cm.length - plain.length);
+    System.out.printf("[compactZmSizeWide] n=%d plainZM=%d override=%d delta=%d%n", n, plain.length, cm.length,
+        cm.length - plain.length);
   }
 
   @Test
@@ -441,7 +445,9 @@ final class NumberRegionTest {
     final long[] wideValues = new long[n];
     for (int i = 0; i < n; i++) {
       distinctTags[i] = i;
-      wideValues[i] = (i & 1) == 0 ? Long.MIN_VALUE + i : Long.MAX_VALUE - i;
+      wideValues[i] = (i & 1) == 0
+          ? Long.MIN_VALUE + i
+          : Long.MAX_VALUE - i;
     }
     final long[] packedValues = {18L, 42L, 66L, 30L, 55L, 20L};
     final int[] packedTags = {7, 7, 7, 7, 7, 7};
@@ -455,7 +461,9 @@ final class NumberRegionTest {
     final int[] wideDeltaTags = new int[wideDeltaValues.length];
     Arrays.fill(wideDeltaTags, 17);
     for (int i = 1; i < wideDeltaValues.length; i++) {
-      wideDeltaValues[i] = wideDeltaValues[i - 1] + ((i & 1) == 0 ? 1L << 55 : 0L);
+      wideDeltaValues[i] = wideDeltaValues[i - 1] + ((i & 1) == 0
+          ? 1L << 55
+          : 0L);
     }
 
     NumberRegion.setDeltaWriteEnabled(false);
@@ -489,8 +497,8 @@ final class NumberRegionTest {
           encoder.encodeInto(wideDeltaValues, wideDeltaTags, wideDeltaValues.length, NumberRegion.TAG_KIND_NAME);
       final byte[] wideDeltaWire = Arrays.copyOf(encoder.output(), wideDeltaLength);
       final NumberRegion.Encoder freshEncoder = new NumberRegion.Encoder(wideDeltaValues.length);
-      final int freshLength = freshEncoder.encodeInto(
-          wideDeltaValues, wideDeltaTags, wideDeltaValues.length, NumberRegion.TAG_KIND_NAME);
+      final int freshLength =
+          freshEncoder.encodeInto(wideDeltaValues, wideDeltaTags, wideDeltaValues.length, NumberRegion.TAG_KIND_NAME);
       assertEquals(freshLength, wideDeltaLength);
       assertArrayEquals(Arrays.copyOf(freshEncoder.output(), freshLength), wideDeltaWire);
       final NumberRegion.Header wideDeltaHeader =
@@ -512,8 +520,7 @@ final class NumberRegionTest {
   void reusableEncoderValidatesInput() {
     final NumberRegion.Encoder encoder = new NumberRegion.Encoder(1);
     assertTrue(encoder.encodeInto(new long[] {1L}, new int[] {1}, 1, NumberRegion.TAG_KIND_NAME) > 0);
-    assertThrows(NullPointerException.class,
-        () -> encoder.encodeInto(null, new int[0], 0, NumberRegion.TAG_KIND_NAME));
+    assertThrows(NullPointerException.class, () -> encoder.encodeInto(null, new int[0], 0, NumberRegion.TAG_KIND_NAME));
     assertEquals(0, encoder.encodedLength());
     assertThrows(NullPointerException.class,
         () -> encoder.encodeInto(new long[0], null, 0, NumberRegion.TAG_KIND_NAME));
@@ -521,14 +528,13 @@ final class NumberRegionTest {
         () -> encoder.encodeInto(new long[1], new int[1], -1, NumberRegion.TAG_KIND_NAME));
     assertThrows(IllegalArgumentException.class,
         () -> encoder.encodeInto(new long[1], new int[1], 2, NumberRegion.TAG_KIND_NAME));
-    assertThrows(IllegalArgumentException.class,
-        () -> encoder.encodeInto(new long[1], new int[1], 1, (byte) 2));
+    assertThrows(IllegalArgumentException.class, () -> encoder.encodeInto(new long[1], new int[1], 1, (byte) 2));
     assertThrows(IllegalArgumentException.class, () -> new NumberRegion.Encoder(-1));
     assertEquals(0, encoder.encodedLength());
   }
 
-  private static void assertReusableEqualsCompatibilityApi(final NumberRegion.Encoder encoder,
-      final long[] values, final int[] tags, final byte tagKind) {
+  private static void assertReusableEqualsCompatibilityApi(final NumberRegion.Encoder encoder, final long[] values,
+      final int[] tags, final byte tagKind) {
     final byte[] expected = NumberRegion.encode(values, tags, values.length, tagKind);
     Arrays.fill(encoder.output(), (byte) 0xA5);
     final int encodedLength = encoder.encodeInto(values, tags, values.length, tagKind);

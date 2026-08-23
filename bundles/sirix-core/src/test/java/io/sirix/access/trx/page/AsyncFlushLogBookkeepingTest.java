@@ -37,9 +37,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression gate for the transaction intent log's bookkeeping COST across an async-flush import.
  *
- * <p>The official 100M-row ClickBench load died with an {@code OutOfMemoryError} inside
- * {@code Long2LongOpenHashMap.rehash}, called from the log's forwarding map. The mechanism was not a
- * leak in the ordinary sense: only {@link io.sirix.page.KeyValueLeafPage}s can be written by a
+ * <p>
+ * The official 100M-row ClickBench load died with an {@code OutOfMemoryError} inside
+ * {@code Long2LongOpenHashMap.rehash}, called from the log's forwarding map. The mechanism was not
+ * a leak in the ordinary sense: only {@link io.sirix.page.KeyValueLeafPage}s can be written by a
  * background snapshot flush, so every other page — the whole trie spine of an uncommitted
  * transaction — was frozen by {@code snapshot()} and handed straight back by
  * {@code cleanupSnapshot()} under a NEW identity, one permanent forwarding link per page per flush.
@@ -48,22 +49,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * million entries after 4M rows and an extrapolated 160 million by 12M rows — where the 16 GB heap
  * died, inside a rehash, exactly as observed.
  *
- * <p>The fix gives those pages a pinned slot whose identity never changes again. These tests pin
- * the three properties that keeps true, in a form that does not depend on corpus size:
+ * <p>
+ * The fix gives those pages a pinned slot whose identity never changes again. These tests pin the
+ * three properties that keeps true, in a form that does not depend on corpus size:
  *
  * <ul>
- * <li>the generation-scoped region does NOT accumulate across epochs (it held the re-promoted
- * spine before, which is the quadratic term's source);</li>
+ * <li>the generation-scoped region does NOT accumulate across epochs (it held the re-promoted spine
+ * before, which is the quadratic term's source);</li>
  * <li>forwarding links accrue at a rate that does not grow with the flush count;</li>
  * <li>and the records are all still there afterwards — pinning must not lose a page, which is the
  * failure mode any change to this machinery risks (#1076, #1077).</li>
  * </ul>
  *
- * <p>Verified non-vacuous by restoring the pre-fix behaviour with
+ * <p>
+ * Verified non-vacuous by restoring the pre-fix behaviour with
  * {@code -Dsirix.til.disablePinning=true}: the promotion assertion then fails with 384 containers
  * promoted over 194 flushes (and forwarding links accruing at 10.9 per flush rather than 3.0).
  *
- * <p>Note what this workload can and cannot show. Its resident structural set is small and roughly
+ * <p>
+ * Note what this workload can and cannot show. Its resident structural set is small and roughly
  * CONSTANT — a flat array does not grow a trie spine — so the pre-fix bookkeeping here is merely
  * linear with a bad constant, not quadratic. The promotion count is therefore the assertion that
  * carries the guard: it names the mechanism directly and holds at any size, whereas an assertion on
@@ -118,8 +122,7 @@ final class AsyncFlushLogBookkeepingTest {
       flushes.incrementAndGet();
       final TransactionIntentLog log = engineWriter.getLog();
       samples.add(new FlushSample(log.liveEntryCount(), log.pinnedSize(), log.forwardedEntryCount(),
-                                  log.completedDiskOffsetCount(), log.completedDiskHashCount(),
-                                  log.structuralPromotionCount()));
+          log.completedDiskOffsetCount(), log.completedDiskHashCount(), log.structuralPromotionCount()));
     };
 
     final long readBack = runAsyncFlushImport();
@@ -128,13 +131,12 @@ final class AsyncFlushLogBookkeepingTest {
         "every inserted record must survive the import — a page dropped by the pinning pass would "
             + "show up here and nowhere else");
 
-    assertTrue(samples.size() >= 20,
-        "the import rotated the log only " + samples.size() + " times — too few to say anything "
-            + "about per-flush growth; raise INSERTED_RECORDS");
+    assertTrue(samples.size() >= 20, "the import rotated the log only " + samples.size()
+        + " times — too few to say anything " + "about per-flush growth; raise INSERTED_RECORDS");
 
     final FlushSample last = samples.get(samples.size() - 1);
-    System.out.printf("[bookkeeping] flushes=%d first=%s quarter=%s last=%s%n", samples.size(),
-        samples.get(0), samples.get(samples.size() / 4), last);
+    System.out.printf("[bookkeeping] flushes=%d first=%s quarter=%s last=%s%n", samples.size(), samples.get(0),
+        samples.get(samples.size() / 4), last);
 
     // 1. THE mechanism. A promotion mints a fresh identity for a page that did not change and
     // leaves a permanent forwarding link; the whole resident structural set used to be promoted on
@@ -152,8 +154,7 @@ final class AsyncFlushLogBookkeepingTest {
     final FlushSample early = samples.get(samples.size() / 4);
     assertTrue(last.liveEntries() <= early.liveEntries() * 2,
         "the live log region grew from " + early.liveEntries() + " to " + last.liveEntries()
-            + " entries across the import — pages that no flush can write are accumulating in it "
-            + "again");
+            + " entries across the import — pages that no flush can write are accumulating in it " + "again");
 
     // 3. Forwarding links must accrue at a rate that does not grow. Quadratic growth raises the
     // per-flush increment as the run proceeds; a bounded rate keeps it flat.
@@ -161,19 +162,17 @@ final class AsyncFlushLogBookkeepingTest {
     final int firstHalf = samples.get(mid).forwardedLinks() - samples.get(0).forwardedLinks();
     final int secondHalf = last.forwardedLinks() - samples.get(mid).forwardedLinks();
     assertTrue(secondHalf <= Math.max(64, firstHalf * 2),
-        "forwarding links accrued " + firstHalf + " over the first half of the import and "
-            + secondHalf + " over the second — the rate is growing with the flush count");
+        "forwarding links accrued " + firstHalf + " over the first half of the import and " + secondHalf
+            + " over the second — the rate is growing with the flush count");
 
     // 4. A 100M-row load is one transaction. Retaining one durable resolution per flushed page
     // therefore grows until the final commit, even though almost every reference that could use it
     // is already unreachable. Current PageReference copies carry a reachability-scoped resolution
     // handle; these maps are compatibility fallbacks only and must remain empty.
-    assertEquals(0, last.completedOffsets(),
-        "retained " + last.completedOffsets() + " historical disk offsets after " + samples.size()
-            + " flushes — bookkeeping is accumulating with every page written");
-    assertEquals(0, last.completedHashes(),
-        "retained " + last.completedHashes() + " historical page hashes after " + samples.size()
-            + " flushes — compatibility metadata is accumulating in a corpus-sized import");
+    assertEquals(0, last.completedOffsets(), "retained " + last.completedOffsets() + " historical disk offsets after "
+        + samples.size() + " flushes — bookkeeping is accumulating with every page written");
+    assertEquals(0, last.completedHashes(), "retained " + last.completedHashes() + " historical page hashes after "
+        + samples.size() + " flushes — compatibility metadata is accumulating in a corpus-sized import");
 
     // 5. Non-vacuity, checked LAST on purpose: a build where pinning never ran should be caught
     // failing the properties above, not tripping here first.
@@ -203,8 +202,7 @@ final class AsyncFlushLogBookkeepingTest {
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long valueNodeKey = wtx.insertStringValueAsFirstChild("value-0").getNodeKey();
         for (int update = 1; update <= updates; update++) {
           assertTrue(wtx.moveTo(valueNodeKey));
@@ -222,8 +220,8 @@ final class AsyncFlushLogBookkeepingTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveToFirstChild());
       assertEquals("value-" + updates, rtx.getValue());
       assertEquals(1, session.getMostRecentRevisionNumber());
@@ -252,8 +250,7 @@ final class AsyncFlushLogBookkeepingTest {
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long valueNodeKey = wtx.insertStringValueAsFirstChild("first-a").getNodeKey();
         final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final TransactionIntentLog log = writer.getLog();
@@ -262,7 +259,9 @@ final class AsyncFlushLogBookkeepingTest {
         // checked only at the next compound-operation-safe mutation boundary.
         for (int mutation = 1; mutation < nodeCount; mutation++) {
           assertTrue(wtx.moveTo(valueNodeKey));
-          wtx.setStringValue((mutation & 1) == 0 ? "first-a" : "first-b");
+          wtx.setStringValue((mutation & 1) == 0
+              ? "first-a"
+              : "first-b");
         }
         assertEquals(0, flushes.get());
         assertEquals(0, log.getCurrentGeneration());
@@ -279,7 +278,9 @@ final class AsyncFlushLogBookkeepingTest {
         // threshold, then prove that only the following mutation rotates it.
         for (int mutation = 1; mutation < nodeCount; mutation++) {
           assertTrue(wtx.moveTo(valueNodeKey));
-          wtx.setStringValue((mutation & 1) == 0 ? "second-a" : "second-b");
+          wtx.setStringValue((mutation & 1) == 0
+              ? "second-a"
+              : "second-b");
         }
         assertEquals(1, flushes.get());
         assertEquals(1, log.getCurrentGeneration());
@@ -296,8 +297,8 @@ final class AsyncFlushLogBookkeepingTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveToFirstChild());
       assertEquals("final-value", rtx.getValue());
       assertEquals(1, session.getMostRecentRevisionNumber());
@@ -338,19 +339,16 @@ final class AsyncFlushLogBookkeepingTest {
       }
     };
 
-    assertThrows(Throwable.class, this::runAsyncFlushImport,
-        "a flush whose worker died must fail the import");
+    assertThrows(Throwable.class, this::runAsyncFlushImport, "a flush whose worker died must fail the import");
 
     // Non-vacuity: if nothing had been pinned before the fault, an empty region afterwards would
     // say nothing at all.
-    assertTrue(pinnedHighWater.get() > 0,
-        "no entry was pinned before the injected failure — the test proved nothing");
+    assertTrue(pinnedHighWater.get() > 0, "no entry was pinned before the injected failure — the test proved nothing");
 
     final TransactionIntentLog log = capturedLog.get();
     assertNotNull(log, "the hook must have captured the transaction log it fired on");
-    assertEquals(0, log.pinnedSize(),
-        "teardown left " + log.pinnedSize() + " pinned entries behind — a failed "
-            + "load must release everything the log owns, pinned pages included");
+    assertEquals(0, log.pinnedSize(), "teardown left " + log.pinnedSize() + " pinned entries behind — a failed "
+        + "load must release everything the log owns, pinned pages included");
   }
 
   /**
@@ -371,8 +369,8 @@ final class AsyncFlushLogBookkeepingTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(MAX_NODES_BEFORE_FLUSH,
-                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx =
+              session.beginNodeTrx(MAX_NODES_BEFORE_FLUSH, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int i = 0; i < INSERTED_RECORDS; i++) {
           wtx.moveTo(arrayNodeKey);
@@ -384,7 +382,7 @@ final class AsyncFlushLogBookkeepingTest {
       // Read back through a NEW session, so the answer comes from what was durably committed
       // rather than from any state the writing transaction still held.
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         rtx.moveToFirstChild();
         return rtx.getChildCount();
       }

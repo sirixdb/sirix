@@ -53,6 +53,26 @@ over the *elements* of an array-valued field (a dictionary-encoded string set pe
 membership predicates — `some $g in $r.genres[] satisfies $g eq "Drama"`, alone or inside a
 larger filter — are answered from the projection instead of the tree.
 
+### Building during the load (one pass)
+
+`jn:create-projection-index` walks a *finished* resource, so it costs a second pass over the
+corpus. Embedded callers can instead declare the projection up front and let the shred itself
+produce the rows — the definition is catalogued on the still-empty resource and the load's own
+change notifications feed the builder, so the index is complete when the load commits:
+
+```java
+final var projection = new ProjectionSpec("/[]",
+    List.of("/[]/age", "/[]/active", "/[]/dept", "/[]/city"),
+    List.of("long", "boolean", "string", "string"),
+    expectedRows);   // -1 when unknown; only sizes the value-dictionary election
+store.create("mydb", "sales.jn", jsonReader, projection);
+```
+
+The spec uses exactly the vocabulary of the query form (same root path, field paths, and type
+names), so the two cannot drift apart. Until the load's final commit the projection's metadata
+slot holds the stale tombstone, so an interrupted load leaves queries on the generic pipeline
+rather than serving them from a half-filled index.
+
 ## Querying
 
 There is no separate scan function — eligible queries route through the projection
@@ -146,9 +166,14 @@ query.
 
 Column types are `long`, `boolean`, `string`, `double`/`float`/`decimal` (stored exactly in
 an order-preserving encoding; value-exact consumers decline columns tainted by lossy decimal
-conversions), and array-element string sets; columns are resolved by trailing field name (for
-a set column, the field step before the array layer), which must be unique
-and unambiguous under the record set; queries that the projection cannot serve exactly
+conversions), and array-element string sets. Columns are resolved by their **declared path
+relative to the record set**, so a projection may declare fields nested at different depths and
+on different branches below the root, and a trailing name that also occurs at some other path
+under the record set is not ambiguous. The column *name* — the trailing object-key step, or for
+a set column the field step before the array layer — is part of the projection's identity and
+must be unique within one projection; a declared path that does not sit strictly under the
+declared root falls back to name-only lookup and is rejected when that name also occurs
+elsewhere under the record set. Queries that the projection cannot serve exactly
 (unrepresentable values, non-covered predicates, ambiguous projection selection) fall back
 to the regular pipeline automatically, so results are always identical with or without the
 index.

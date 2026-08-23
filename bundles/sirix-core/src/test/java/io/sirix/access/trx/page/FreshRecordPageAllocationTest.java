@@ -57,9 +57,8 @@ final class FreshRecordPageAllocationTest {
     final int frameClass = FrameSlotAllocator.indexForSize(PageLayout.INITIAL_PAGE_SIZE);
 
     for (final boolean storeDeweyIds : new boolean[] {false, true}) {
-      final ResourceConfiguration config = new ResourceConfiguration.Builder("fresh-allocation-" + storeDeweyIds)
-          .useDeweyIDs(storeDeweyIds)
-          .build();
+      final ResourceConfiguration config =
+          new ResourceConfiguration.Builder("fresh-allocation-" + storeDeweyIds).useDeweyIDs(storeDeweyIds).build();
       final long allocationsBefore = allocator.allocateCount(frameClass);
       final long releasesBefore = allocator.releaseCount(frameClass);
 
@@ -124,10 +123,12 @@ final class FreshRecordPageAllocationTest {
   @DisplayName("Fresh writer pages retain exact slot and Dewey bytes after a cold file reopen")
   void freshPageWireRoundTripIsExactWithAndWithoutDeweyIds(@TempDir final Path tempDir) {
     for (final boolean storeDeweyIds : new boolean[] {false, true}) {
-      final ResourceConfiguration config = new ResourceConfiguration.Builder("fresh-cold-" + storeDeweyIds)
-          .byteHandlerPipeline(new ByteHandlerPipeline())
-          .useDeweyIDs(storeDeweyIds)
-          .build();
+      final ResourceConfiguration config =
+          new ResourceConfiguration.Builder("fresh-cold-" + storeDeweyIds)
+                                                                          .byteHandlerPipeline(
+                                                                              new ByteHandlerPipeline())
+                                                                          .useDeweyIDs(storeDeweyIds)
+                                                                          .build();
       config.resourcePath = tempDir.resolve("resource-" + storeDeweyIds);
 
       final byte[] record = new byte[513];
@@ -151,7 +152,7 @@ final class FreshRecordPageAllocationTest {
 
         final PageReference writtenReference = new PageReference();
         try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
-             Writer writer = storage.createWriter()) {
+            Writer writer = storage.createWriter()) {
           writer.write(config, writtenReference, modified, appendBuffer);
           writer.flushBufferedWrites(appendBuffer);
           IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);

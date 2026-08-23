@@ -101,8 +101,10 @@ Three properties distinguish it from a Parquet file or a DuckDB table:
    parts are shared structurally between revisions. Time-travel analytics
    ("group-by over the state as of revision 42") run on the same kernels.
 2. **It is always maintained.** A change listener patches the persisted
-   columns at every commit — updates rebuild the touched 1024-row leaf,
-   appends extend the tail, deletes drop rows. No manual refresh.
+   columns at every commit — updates re-encode the touched ≤1024-row row
+   group, inserts and moves splice at their document predecessor/successor
+   anchors (only a proven document-tail insert extends the tail), deletes
+   drop rows. No manual refresh, and no whole-index rebuild (§8).
 3. **It is fail-closed.** Every serving path is gated: if the projection
    cannot *prove* it can answer a query exactly (type provenance, presence,
    staleness), the query silently falls back to the generic document-scan
@@ -527,8 +529,11 @@ The `PIXM` metadata payload is the projection's **shape and bounds
 authority**: root path, per-column field paths/names/kinds (hydration reads
 the shape from *here*, never trusting a caller's argument list — a
 same-arity re-create with different fields must not silently mislabel
-columns), the live `rowGroupCount`, `buildRevision`, and the **stale flag** — the update-time invalidation
-valve. VERSION 0 carries explicit **set-summary capability columns**. Each
+columns), the live `rowGroupCount`, `buildRevision`, and the **stale flag** — the
+corruption/drop valve. Ordinary maintenance never sets it (an unattributable or
+corrupt touched unit fails the owning transaction instead, §8); a dropped
+definition and an unfinished load-time build do. VERSION 0 carries explicit
+**set-summary capability columns**. Each
 capable column's counts live in an independent chunk at `1 << 44 | column`,
 including an explicit empty chunk, so empty-to-nonempty maintenance remains
 servable and one touched column never copies every other summary.
@@ -549,7 +554,7 @@ Slot-0 states are deliberately distinct:
 | State | Representation | Meaning |
 |---|---|---|
 | Valid metadata | `PIXB` → current-version `PIXM`, stale bit clear | projection serves |
-| Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE` | invalidated; rebuild on next use |
+| Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE` | dropped definition, unfinished load-time build, or corruption valve; rebuild on the next same-shape create |
 | Truthful empty store | valid metadata, `leafCount = 0` | zero-record root; still valid |
 | Unsupported/corrupt layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ 0 | decline; maintenance fails closed |
 

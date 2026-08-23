@@ -107,8 +107,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   ELEMENT((byte) 1) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long nodeKey = recordID;
       final var config = resourceConfiguration;
 
@@ -210,8 +210,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   ATTRIBUTE((byte) 2) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long nodeKey = recordID;
 
       final long parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
@@ -257,8 +257,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   NAMESPACE((byte) 13) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long nodeKey = recordID;
       final long parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
       final long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
@@ -294,8 +294,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   TEXT((byte) 3) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long nodeKey = recordID;
 
       final long parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
@@ -341,8 +341,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   PROCESSING_INSTRUCTION((byte) 7) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long nodeKey = recordID;
       var config = resourceConfiguration;
 
@@ -418,8 +418,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   COMMENT((byte) 8) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long nodeKey = recordID;
 
       final long parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
@@ -466,8 +466,8 @@ public enum NodeKind implements DeweyIdSerializer {
   // Virtualize document root node?
   XML_DOCUMENT((byte) 9) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
       final long nodeKey = recordID;
       final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
@@ -509,8 +509,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   WHITESPACE((byte) 4) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       throw new UnsupportedOperationException();
     }
 
@@ -526,8 +526,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   DELETE((byte) 5) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
       final NodeDelegate delegate = new NodeDelegate(recordID, 0, hashFunction, 0, 0, (SirixDeweyID) null);
       return new DeletedNode(delegate);
@@ -543,8 +543,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   NULL((byte) 6) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       throw new UnsupportedOperationException();
     }
 
@@ -560,8 +560,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   DUMB((byte) 20) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       return new DumbNode(recordID);
     }
 
@@ -588,8 +588,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   ATOMIC((byte) 15) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       throw new UnsupportedOperationException();
     }
 
@@ -616,8 +616,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   PATH((byte) 16) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // Inlined NodeDelegate fields (delegate-less PathNode owns its structural state directly).
       final long parentKey = recordID - getVarLong(source);
       final int previousRevision = source.readInt();
@@ -629,9 +629,12 @@ public enum NodeKind implements DeweyIdSerializer {
       final long leftSibling = source.readLong();
       final long firstChild = source.readLong();
       final long lastChild = source.readLong();
-      final long childCount = resourceConfiguration.storeChildCount() ? source.readLong() : 0L;
-      final long descendantCount =
-          resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0L;
+      final long childCount = resourceConfiguration.storeChildCount()
+          ? source.readLong()
+          : 0L;
+      final long descendantCount = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0L;
 
       // Inlined NameNodeDelegate fields.
       final int uriKey = source.readInt();
@@ -643,10 +646,9 @@ public enum NodeKind implements DeweyIdSerializer {
       final int references = source.readInt();
       final int level = source.readInt();
 
-      final PathNode pathNode = new PathNode(null, kind, references, level,
-          recordID, parentKey, previousRevision, lastModifiedRevision, (SirixDeweyID) null,
-          firstChild, lastChild, rightSibling, leftSibling, childCount, descendantCount,
-          uriKey, prefixKey, localNameKey, pathNodeKey);
+      final PathNode pathNode = new PathNode(null, kind, references, level, recordID, parentKey, previousRevision,
+          lastModifiedRevision, (SirixDeweyID) null, firstChild, lastChild, rightSibling, leftSibling, childCount,
+          descendantCount, uriKey, prefixKey, localNameKey, pathNodeKey);
 
       // Optional per-path statistics trailer — present iff the resource was configured
       // with withPathStatistics=true. Older resources / disabled configs pay zero bytes.
@@ -714,8 +716,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   CASRB((byte) 17) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int valueSize = source.readInt();
       final byte[] value = new byte[valueSize];
       source.read(value, 0, valueSize);
@@ -790,8 +792,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   PATHRB((byte) 18) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long key = getVarLong(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, resourceConfiguration);
@@ -835,8 +837,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   NAMERB((byte) 19) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final byte[] nspBytes = new byte[source.readInt()];
       source.read(nspBytes);
       final byte[] prefixBytes = new byte[source.readInt()];
@@ -895,8 +897,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   RB_NODE_VALUE((byte) 55) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final var nodeKeys = deserializeNodeReferences(source);
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, resourceConfiguration);
@@ -930,8 +932,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   DEWEYIDMAPPING((byte) 23) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       throw new UnsupportedOperationException();
     }
 
@@ -958,8 +960,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   OBJECT((byte) 24) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1022,8 +1024,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   ARRAY((byte) 25) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1085,18 +1087,17 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   // (Phase 4: legacy OBJECT_KEY (byte 26) and OBJECT_KEY_PAX (byte 126) enum constants
-  //  deleted — fully replaced by the 6 fused OBJECT_NAMED_* kinds 48-53.)
+  // deleted — fully replaced by the 6 fused OBJECT_NAMED_* kinds 48-53.)
 
   /**
-   * JSON fused object-key + boolean value (single record per {@code {"name": true|false}}).
-   * On-wire layout mirrors {@link ObjectNamedBooleanNode}'s flyweight serialization:
-   * structural fields first (parent, siblings), then nameKey + pathNodeKey, then
-   * revisions + hash + value.
+   * JSON fused object-key + boolean value (single record per {@code {"name": true|false}}). On-wire
+   * layout mirrors {@link ObjectNamedBooleanNode}'s flyweight serialization: structural fields first
+   * (parent, siblings), then nameKey + pathNodeKey, then revisions + hash + value.
    */
   OBJECT_NAMED_BOOLEAN((byte) 48) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1109,9 +1110,8 @@ public enum NodeKind implements DeweyIdSerializer {
         hash = source.readLong();
       }
       boolean value = source.readBoolean();
-      return new ObjectNamedBooleanNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
-          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
-          resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNamedBooleanNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+          prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1149,8 +1149,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   OBJECT_NAMED_NUMBER((byte) 49) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1163,9 +1163,8 @@ public enum NodeKind implements DeweyIdSerializer {
         hash = source.readLong();
       }
       Number value = deserializeNumber(source);
-      return new ObjectNamedNumberNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
-          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
-          resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNamedNumberNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+          prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1203,8 +1202,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   OBJECT_NAMED_STRING((byte) 50) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1220,9 +1219,8 @@ public enum NodeKind implements DeweyIdSerializer {
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
-      return new ObjectNamedStringNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
-          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
-          resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
+      return new ObjectNamedStringNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+          prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
@@ -1240,9 +1238,13 @@ public enum NodeKind implements DeweyIdSerializer {
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
       }
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isCompressed()
+          ? (byte) 1
+          : (byte) 0);
       final byte[] value = node.getRawValueWithoutDecompression();
-      final byte[] actual = value != null ? value : new byte[0];
+      final byte[] actual = value != null
+          ? value
+          : new byte[0];
       DeltaVarIntCodec.encodeSigned(sink, actual.length);
       sink.write(actual);
     }
@@ -1264,8 +1266,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   OBJECT_NAMED_NULL((byte) 51) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1277,9 +1279,8 @@ public enum NodeKind implements DeweyIdSerializer {
       if (resourceConfiguration.hashType != HashType.NONE) {
         hash = source.readLong();
       }
-      return new ObjectNamedNullNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
-          nameKey, pathNodeKey, prevRev, lastModRev, hash,
-          resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNamedNullNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+          prevRev, lastModRev, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1312,13 +1313,15 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * JSON fused object-key + nested object value (single record per
-   * {@code {"name": { ... }}}). Internal node carrying first/last child + child/desc count.
+   * JSON fused object-key + nested object value (single record per {@code {"name": { ... }}}).
+   * Internal node carrying first/last child + child/desc count.
    *
-   * <p><b>Phase 1 stub</b>: kindId reserved and class plumbing exists, but no factory/shredder
-   * path emits this kind yet. Wire serialize/deserialize throw — if reached, treat as a bug.
+   * <p>
+   * <b>Phase 1 stub</b>: kindId reserved and class plumbing exists, but no factory/shredder path
+   * emits this kind yet. Wire serialize/deserialize throw — if reached, treat as a bug.
    *
    * <h2>Wire layout</h2>
+   * 
    * <pre>
    * Field order (offset-table indices for the slotted-page heap encoding):
    *   0 parentKey         (delta-varint)
@@ -1337,8 +1340,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   OBJECT_NAMED_OBJECT((byte) 52) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       final long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       final long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1354,9 +1357,9 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       final long childCount = DeltaVarIntCodec.decodeSignedLong(source);
       final long descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
-      return new ObjectNamedObjectNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
-          firstChildKey, lastChildKey, nameKey, pathNodeKey, prevRev, lastModRev, hash,
-          childCount, descendantCount, resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNamedObjectNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, firstChildKey,
+          lastChildKey, nameKey, pathNodeKey, prevRev, lastModRev, hash, childCount, descendantCount,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1393,18 +1396,20 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * JSON fused object-key + nested array value (single record per
-   * {@code {"name": [ ... ]}}). Internal node carrying first/last child + child/desc count.
+   * JSON fused object-key + nested array value (single record per {@code {"name": [ ... ]}}).
+   * Internal node carrying first/last child + child/desc count.
    *
-   * <p><b>Phase 1 stub</b>: kindId reserved and class plumbing exists, but no factory/shredder
-   * path emits this kind yet. Wire serialize/deserialize throw — if reached, treat as a bug.
+   * <p>
+   * <b>Phase 1 stub</b>: kindId reserved and class plumbing exists, but no factory/shredder path
+   * emits this kind yet. Wire serialize/deserialize throw — if reached, treat as a bug.
    *
-   * <p>Field layout identical to {@link #OBJECT_NAMED_OBJECT}.
+   * <p>
+   * Field layout identical to {@link #OBJECT_NAMED_OBJECT}.
    */
   OBJECT_NAMED_ARRAY((byte) 53) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       final long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       final long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1420,9 +1425,9 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       final long childCount = DeltaVarIntCodec.decodeSignedLong(source);
       final long descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
-      return new ObjectNamedArrayNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
-          firstChildKey, lastChildKey, nameKey, pathNodeKey, prevRev, lastModRev, hash,
-          childCount, descendantCount, resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNamedArrayNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, childCount, descendantCount,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1463,8 +1468,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   STRING_VALUE((byte) 30) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1521,8 +1526,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   BOOLEAN_VALUE((byte) 27) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1567,8 +1572,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   NUMBER_VALUE((byte) 28) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1612,8 +1617,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   NULL_VALUE((byte) 29) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
@@ -1656,8 +1661,8 @@ public enum NodeKind implements DeweyIdSerializer {
   // Virtualize document root node?
   JSON_DOCUMENT((byte) 31) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
       final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       final long childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
@@ -1685,8 +1690,8 @@ public enum NodeKind implements DeweyIdSerializer {
 
   HASH_ENTRY((byte) 32) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       return new HashEntryNode(recordID, source.readInt(), source.readUtf8());
     }
 
@@ -1701,13 +1706,13 @@ public enum NodeKind implements DeweyIdSerializer {
 
   HASH_NAME_COUNT_TO_NAME_ENTRY((byte) 33) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       return new HashCountEntryNode(recordID, source.readInt());
     }
 
-    public DataRecord deserialize(final MemorySegment segment, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final MemorySegment segment, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // HashCountEntryNode doesn't have MemorySegment constructor support yet
       throw new UnsupportedOperationException(
           "HASH_NAME_COUNT_TO_NAME_ENTRY MemorySegment deserialization not implemented");
@@ -1723,13 +1728,13 @@ public enum NodeKind implements DeweyIdSerializer {
 
   DEWEY_ID_NODE((byte) 34) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       return new DeweyIDNode(recordID, new SirixDeweyID(deweyID));
     }
 
-    public DataRecord deserialize(final MemorySegment segment, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final MemorySegment segment, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // DeweyIDNode uses simple constructor with recordID and deweyID
       return new DeweyIDNode(recordID, new SirixDeweyID(deweyID));
     }
@@ -1741,8 +1746,8 @@ public enum NodeKind implements DeweyIdSerializer {
 
   REVISION_REFERENCES_NODE((byte) 35) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final boolean isCompressed = source.readBoolean();
       // Use int for length to support nodes with many revision references (> 255)
       final var length = source.readInt();
@@ -1782,26 +1787,24 @@ public enum NodeKind implements DeweyIdSerializer {
 
   /**
    * Projection-index leaf chunk. Wraps the serialised
-   * {@link io.sirix.index.projection.ProjectionIndexRowGroupPage} byte[] so the
-   * projection index can live as a HOT sub-tree rooted at
-   * {@code RevisionRootPage#getProjectionPageReference}. The {@code nodeKey}
-   * is the sequential leaf index; payload length is varint-free (plain int
-   * prefix) — leaves are typically in the 4–20 KB range.
+   * {@link io.sirix.index.projection.ProjectionIndexRowGroupPage} byte[] so the projection index can
+   * live as a HOT sub-tree rooted at {@code RevisionRootPage#getProjectionPageReference}. The
+   * {@code nodeKey} is the sequential leaf index; payload length is varint-free (plain int prefix) —
+   * leaves are typically in the 4–20 KB range.
    */
   /**
-   * One FSST symbol table, held in the name dictionary's trie so that it is copy-on-write
-   * versioned alongside everything else. See {@link FsstSymbolTableNode} for why a symbol table
-   * cannot live on the pages that use it.
+   * One FSST symbol table, held in the name dictionary's trie so that it is copy-on-write versioned
+   * alongside everything else. See {@link FsstSymbolTableNode} for why a symbol table cannot live on
+   * the pages that use it.
    */
   FSST_SYMBOL_TABLE((byte) 36) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int length = source.readInt();
       if (length <= 0) {
-        throw new IllegalStateException(
-            "FSST symbol table record " + recordID + " declares a length of " + length
-                + "; an absent table is encoded by omitting the record, not by an empty one");
+        throw new IllegalStateException("FSST symbol table record " + recordID + " declares a length of " + length
+            + "; an absent table is encoded by omitting the record, not by an empty one");
       }
       final byte[] table = new byte[length];
       source.read(table);
@@ -1819,26 +1822,24 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * One immutable value of a global projection dictionary.  Its reverse radix bucket maps the
-   * stable dictionary id to this record's densely reserved persistence key.
+   * One immutable value of a global projection dictionary. Its reverse radix bucket maps the stable
+   * dictionary id to this record's densely reserved persistence key.
    */
   VALUE_DICTIONARY_ENTRY((byte) 37) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int length = source.readInt();
       if (length < 0) {
         throw new IllegalStateException(
             "Value dictionary entry " + recordID + " declares a negative length of " + length);
       }
       if (length > ValueDictionaryEntryNode.MAX_VALUE_LENGTH) {
-        throw new IllegalStateException("Value dictionary entry " + recordID
-            + " exceeds the safe V0 payload limit of "
+        throw new IllegalStateException("Value dictionary entry " + recordID + " exceeds the safe V0 payload limit of "
             + ValueDictionaryEntryNode.MAX_VALUE_LENGTH + " bytes");
       }
       if ((long) length > source.remaining()) {
-        throw new IllegalStateException(
-            "Value dictionary entry " + recordID + " exceeds its remaining wire payload");
+        throw new IllegalStateException("Value dictionary entry " + recordID + " exceeds its remaining wire payload");
       }
       final byte[] value = new byte[length];
       source.read(value);
@@ -1861,8 +1862,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   VALUE_DICTIONARY_DIRECTORY((byte) 38) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int count = source.readInt();
       if (count <= 0 || count > ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK
           || (long) count * (Long.BYTES + Integer.BYTES) > source.remaining()) {
@@ -1902,12 +1903,12 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   VALUE_DICTIONARY_HEADER((byte) 39) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int version = source.readInt();
       final int entryCount = source.readInt();
-      return new ValueDictionaryHeaderNode(recordID, version, entryCount, source.readLong(),
-          source.readLong(), source.readInt());
+      return new ValueDictionaryHeaderNode(recordID, version, entryCount, source.readLong(), source.readLong(),
+          source.readInt());
     }
 
     @Override
@@ -1924,10 +1925,10 @@ public enum NodeKind implements DeweyIdSerializer {
 
   VALUE_DICTIONARY_SEGMENT((byte) 40) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      return new ValueDictionarySegmentNode(recordID, source.readLong(), source.readInt(),
-          source.readInt(), source.readLong(), source.readLong(), source.readInt());
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
+      return new ValueDictionarySegmentNode(recordID, source.readLong(), source.readInt(), source.readInt(),
+          source.readLong(), source.readLong(), source.readInt());
     }
 
     @Override
@@ -1945,13 +1946,12 @@ public enum NodeKind implements DeweyIdSerializer {
 
   VALUE_DICTIONARY_RADIX((byte) 41) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final byte indexKind = source.readByte();
       final byte depth = source.readByte();
       final int count = Short.toUnsignedInt(source.readShort());
-      if (count > ValueDictionaryRadixNode.FANOUT
-          || (long) count * (Byte.BYTES + Long.BYTES) > source.remaining()) {
+      if (count > ValueDictionaryRadixNode.FANOUT || (long) count * (Byte.BYTES + Long.BYTES) > source.remaining()) {
         throw new IllegalStateException("invalid value dictionary radix child count " + count);
       }
       final byte[] childSlots = new byte[count];
@@ -1981,23 +1981,24 @@ public enum NodeKind implements DeweyIdSerializer {
 
   VALUE_DICTIONARY_HASH_BUCKET((byte) 42) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int bucket = source.readInt();
       final byte secondaryDepth = source.readByte();
       final long secondaryPrefix = source.readLong();
       final long nextBucketKey = source.readLong();
       final int count = source.readInt();
-      if (count <= 0 || count > 128
-          || (long) count * (Long.BYTES + Integer.BYTES) > source.remaining()) {
+      if (count <= 0 || count > 128 || (long) count * (Long.BYTES + Integer.BYTES) > source.remaining()) {
         throw new IllegalStateException("invalid value dictionary hash bucket size");
       }
       final long[] hashes = new long[count];
       final int[] ids = new int[count];
-      for (int i = 0; i < count; i++) hashes[i] = source.readLong();
-      for (int i = 0; i < count; i++) ids[i] = source.readInt();
-      return new ValueDictionaryHashBucketNode(recordID, bucket, secondaryDepth, secondaryPrefix,
-          nextBucketKey, hashes, ids);
+      for (int i = 0; i < count; i++)
+        hashes[i] = source.readLong();
+      for (int i = 0; i < count; i++)
+        ids[i] = source.readInt();
+      return new ValueDictionaryHashBucketNode(recordID, bucket, secondaryDepth, secondaryPrefix, nextBucketKey, hashes,
+          ids);
     }
 
     @Override
@@ -2011,24 +2012,26 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeLong(node.getSecondaryPrefix());
       sink.writeLong(node.getNextBucketKey());
       sink.writeInt(hashes.length);
-      for (final long hash : hashes) sink.writeLong(hash);
-      for (final int id : ids) sink.writeInt(id);
+      for (final long hash : hashes)
+        sink.writeLong(hash);
+      for (final int id : ids)
+        sink.writeInt(id);
     }
   },
 
   VALUE_DICTIONARY_VALUE_BUCKET((byte) 43) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int firstId = source.readInt();
       final int count = source.readInt();
       if (firstId <= 0 || count <= 0 || count > ValueDictionaryValueBucketNode.VALUES_PER_BUCKET
-          || (long) firstId + count - 1L > Integer.MAX_VALUE
-          || (long) count * Long.BYTES > source.remaining()) {
+          || (long) firstId + count - 1L > Integer.MAX_VALUE || (long) count * Long.BYTES > source.remaining()) {
         throw new IllegalStateException("invalid value dictionary value bucket size");
       }
       final long[] entryKeys = new long[count];
-      for (int i = 0; i < count; i++) entryKeys[i] = source.readLong();
+      for (int i = 0; i < count; i++)
+        entryKeys[i] = source.readLong();
       return new ValueDictionaryValueBucketNode(recordID, firstId, entryKeys);
     }
 
@@ -2038,20 +2041,22 @@ public enum NodeKind implements DeweyIdSerializer {
       final ValueDictionaryValueBucketNode node = (ValueDictionaryValueBucketNode) record;
       sink.writeInt(node.getFirstId());
       sink.writeInt(node.size());
-      for (final long entryKey : node.getEntryKeys()) sink.writeLong(entryKey);
+      for (final long entryKey : node.getEntryKeys())
+        sink.writeLong(entryKey);
     }
   },
 
   PROJECTION_INDEX_LEAF((byte) 44) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       final int length = source.readInt();
       if (length < 0 || (long) length > source.remaining()) {
         throw new IllegalStateException("Negative PROJECTION_INDEX_LEAF payload length: " + length);
       }
       final byte[] payload = new byte[length];
-      if (length > 0) source.read(payload);
+      if (length > 0)
+        source.read(payload);
       return new ProjectionIndexRowGroupRecord(recordID, payload);
     }
 
@@ -2061,7 +2066,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final ProjectionIndexRowGroupRecord leaf = (ProjectionIndexRowGroupRecord) record;
       final byte[] payload = leaf.getPayload();
       sink.writeInt(payload.length);
-      if (payload.length > 0) sink.write(payload);
+      if (payload.length > 0)
+        sink.write(payload);
     }
 
     @Override
@@ -2078,13 +2084,13 @@ public enum NodeKind implements DeweyIdSerializer {
 
   VALUE_DICTIONARY_COLLISION((byte) 45) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       if (source.remaining() < 2L * Integer.BYTES + 2L * Long.BYTES) {
         throw new IllegalStateException("truncated value dictionary collision node");
       }
-      return new ValueDictionaryCollisionNode(recordID, source.readInt(), source.readInt(),
-          source.readLong(), source.readLong());
+      return new ValueDictionaryCollisionNode(recordID, source.readInt(), source.readInt(), source.readLong(),
+          source.readLong());
     }
 
     @Override
@@ -2106,8 +2112,8 @@ public enum NodeKind implements DeweyIdSerializer {
     private static final byte CURRENT_VERSION = 1;
 
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // Version byte (added in version 1).
       final byte version = source.readByte();
       if (version != 1) {
@@ -2124,8 +2130,7 @@ public enum NodeKind implements DeweyIdSerializer {
       // HNSW layer.
       final int maxLayer = source.readByte() & 0xFF;
       if (maxLayer > 30) {
-        throw new IllegalStateException(
-            "Invalid maxLayer value: " + maxLayer + " (max allowed: 30)");
+        throw new IllegalStateException("Invalid maxLayer value: " + maxLayer + " (max allowed: 30)");
       }
       // Per-layer neighbor lists (delta-encoded, sorted).
       final long[][] neighbors = new long[maxLayer + 1][];
@@ -2147,8 +2152,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final int previousRevision = (int) getVarLong(source);
       // Deleted flag (version 1).
       final boolean deleted = source.readByte() != 0;
-      return new VectorNode(recordID, documentNodeKey, vector, maxLayer,
-          neighbors, neighborCounts, previousRevision, deleted);
+      return new VectorNode(recordID, documentNodeKey, vector, maxLayer, neighbors, neighborCounts, previousRevision,
+          deleted);
     }
 
     @Override
@@ -2189,12 +2194,13 @@ public enum NodeKind implements DeweyIdSerializer {
       // Revision number.
       putVarLong(sink, node.getPreviousRevisionNumber());
       // Deleted flag.
-      sink.writeByte(node.isDeleted() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isDeleted()
+          ? (byte) 1
+          : (byte) 0);
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -2206,16 +2212,16 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * HNSW vector index metadata node (always at nodeKey 0).
-   * Stores graph-level metadata: entry point, max level, dimension, distance type, node count.
+   * HNSW vector index metadata node (always at nodeKey 0). Stores graph-level metadata: entry point,
+   * max level, dimension, distance type, node count.
    */
   VECTOR_INDEX_METADATA((byte) 58) {
     /** Current serialization format version. */
     private static final byte CURRENT_VERSION = 1;
 
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       // Version byte.
       final byte version = source.readByte();
       if (version != 1) {
@@ -2231,8 +2237,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final String distanceType = new String(dtBytes, StandardCharsets.UTF_8);
       final long nodeCount = source.readLong();
       final int previousRevision = (int) getVarLong(source);
-      return new VectorIndexMetadataNode(recordID, entryPointKey, maxLevel, dimension,
-          distanceType, nodeCount, previousRevision);
+      return new VectorIndexMetadataNode(recordID, entryPointKey, maxLevel, dimension, distanceType, nodeCount,
+          previousRevision);
     }
 
     @Override
@@ -2253,8 +2259,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-        ResourceConfiguration resourceConfig) {
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
     }
 
@@ -2270,8 +2275,8 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   UNKNOWN((byte) 22) {
     @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
       throw new UnsupportedOperationException();
     }
 
@@ -2318,15 +2323,15 @@ public enum NodeKind implements DeweyIdSerializer {
 
   /**
    * Mapping of keys -> nodes. Sized to cover the full unsigned-byte id space so the lookup in
-   * {@link #getKind(byte)} needs no range check — unmapped slots stay {@code null} and are
-   * rejected there.
+   * {@link #getKind(byte)} needs no range check — unmapped slots stay {@code null} and are rejected
+   * there.
    */
   private static final NodeKind[] INSTANCEFORID = new NodeKind[256];
 
   /**
-   * Shared empty-name placeholder; the real name is resolved from the name page via the name
-   * keys. {@link QNm} is immutable, so sharing one instance is safe and avoids an allocation
-   * per deserialized/created name node.
+   * Shared empty-name placeholder; the real name is resolved from the name page via the name keys.
+   * {@link QNm} is immutable, so sharing one instance is safe and avoids an allocation per
+   * deserialized/created name node.
    */
   public static final QNm EMPTY_QNM = new QNm("");
 
@@ -2375,50 +2380,48 @@ public enum NodeKind implements DeweyIdSerializer {
         + " — record written by a newer version of the storage format, or corrupt data");
   }
 
-  /** True for all fused {@code OBJECT_NAMED_*} kinds — records that carry a field nameKey
-   *  + pathNodeKey and play the "object field" role in diff/index/scan code.
+  /**
+   * True for all fused {@code OBJECT_NAMED_*} kinds — records that carry a field nameKey +
+   * pathNodeKey and play the "object field" role in diff/index/scan code.
    *
-   *  <p>Phase 4 — the legacy {@code OBJECT_KEY} branch was removed; the predicate now covers
-   *  exclusively the 6 fused kinds (48-53). Naming retained for source-compatibility with
-   *  call sites; semantics now mean "is a fused named record". Predicate remains a
-   *  {@code ||} chain of identity comparisons (zero-alloc, no autoboxing). */
+   * <p>
+   * Phase 4 — the legacy {@code OBJECT_KEY} branch was removed; the predicate now covers exclusively
+   * the 6 fused kinds (48-53). Naming retained for source-compatibility with call sites; semantics
+   * now mean "is a fused named record". Predicate remains a {@code ||} chain of identity comparisons
+   * (zero-alloc, no autoboxing).
+   */
   public boolean playsObjectKeyRole() {
-    return this == OBJECT_NAMED_BOOLEAN
-        || this == OBJECT_NAMED_NUMBER
-        || this == OBJECT_NAMED_STRING
-        || this == OBJECT_NAMED_NULL
-        || this == OBJECT_NAMED_OBJECT
-        || this == OBJECT_NAMED_ARRAY;
+    return this == OBJECT_NAMED_BOOLEAN || this == OBJECT_NAMED_NUMBER || this == OBJECT_NAMED_STRING
+        || this == OBJECT_NAMED_NULL || this == OBJECT_NAMED_OBJECT || this == OBJECT_NAMED_ARRAY;
   }
 
-  /** True for the iter#30 fused leaf kinds (primitive payload only). Excludes the Phase 1
-   *  structural-fused kinds, since callers of this predicate dispatch into per-leaf-type
-   *  switches (e.g. removeName) that would need new cases for OBJECT/ARRAY structural shape. */
+  /**
+   * True for the iter#30 fused leaf kinds (primitive payload only). Excludes the Phase 1
+   * structural-fused kinds, since callers of this predicate dispatch into per-leaf-type switches
+   * (e.g. removeName) that would need new cases for OBJECT/ARRAY structural shape.
+   */
   public boolean isFusedObjectNamed() {
-    return this == OBJECT_NAMED_BOOLEAN
-        || this == OBJECT_NAMED_NUMBER
-        || this == OBJECT_NAMED_STRING
+    return this == OBJECT_NAMED_BOOLEAN || this == OBJECT_NAMED_NUMBER || this == OBJECT_NAMED_STRING
         || this == OBJECT_NAMED_NULL;
   }
 
-  /** True for the Phase 1 fused structural kinds (OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY).
-   *  Phase 1 reserves the kindIds 52/53 and the recognizer; no runtime code path emits them
-   *  yet, so this predicate returns true only when fed an explicit constant. */
+  /**
+   * True for the Phase 1 fused structural kinds (OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY). Phase 1
+   * reserves the kindIds 52/53 and the recognizer; no runtime code path emits them yet, so this
+   * predicate returns true only when fed an explicit constant.
+   */
   public boolean isFusedStructural() {
-    return this == OBJECT_NAMED_OBJECT
-        || this == OBJECT_NAMED_ARRAY;
+    return this == OBJECT_NAMED_OBJECT || this == OBJECT_NAMED_ARRAY;
   }
 
-  /** True for any fused named record (primitive leaves 48-51 OR structural 52-53). Useful
-   *  for predicates that classify "any record carrying both a fieldname and an inline payload
-   *  or sub-tree" without caring about the payload shape. */
+  /**
+   * True for any fused named record (primitive leaves 48-51 OR structural 52-53). Useful for
+   * predicates that classify "any record carrying both a fieldname and an inline payload or sub-tree"
+   * without caring about the payload shape.
+   */
   public boolean isFusedAnyNamed() {
-    return this == OBJECT_NAMED_BOOLEAN
-        || this == OBJECT_NAMED_NUMBER
-        || this == OBJECT_NAMED_STRING
-        || this == OBJECT_NAMED_NULL
-        || this == OBJECT_NAMED_OBJECT
-        || this == OBJECT_NAMED_ARRAY;
+    return this == OBJECT_NAMED_BOOLEAN || this == OBJECT_NAMED_NUMBER || this == OBJECT_NAMED_STRING
+        || this == OBJECT_NAMED_NULL || this == OBJECT_NAMED_OBJECT || this == OBJECT_NAMED_ARRAY;
   }
 
   @Override
@@ -2481,8 +2484,8 @@ public enum NodeKind implements DeweyIdSerializer {
     }
   }
 
-  private static NodeDelegate deserializeNodeDelegateWithoutIDs(final BytesIn<?> source,
-      final long recordID, final ResourceConfiguration resourceConfiguration) {
+  private static NodeDelegate deserializeNodeDelegateWithoutIDs(final BytesIn<?> source, final long recordID,
+      final ResourceConfiguration resourceConfiguration) {
     // Read variable-length encoded offset value
     final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
@@ -2492,8 +2495,8 @@ public enum NodeKind implements DeweyIdSerializer {
         (SirixDeweyID) null);
   }
 
-  private static NodeDelegate deserializeNodeDelegate(final BytesIn<?> source, final long recordID,
-      final byte[] id, final ResourceConfiguration resourceConfiguration) {
+  private static NodeDelegate deserializeNodeDelegate(final BytesIn<?> source, final long recordID, final byte[] id,
+      final ResourceConfiguration resourceConfiguration) {
     // Read fixed-size long instead of variable-length encoded value
     final long parentKey = source.readLong();
     final int previousRevision = source.readInt();

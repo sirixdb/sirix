@@ -54,10 +54,11 @@ public interface Writer extends Reader {
   /**
    * Write beacon for the first reference.
    *
-   * <p>DURABILITY CONTRACT: when this method returns, the new revision is fully durable and
-   * acknowledged — the data tail, the revision record, and both uber-page beacons have reached
-   * stable storage in write-ahead order. Callers add NO further barrier; the commit may be
-   * acknowledged to the client immediately.
+   * <p>
+   * DURABILITY CONTRACT: when this method returns, the new revision is fully durable and acknowledged
+   * — the data tail, the revision record, and both uber-page beacons have reached stable storage in
+   * write-ahead order. Callers add NO further barrier; the commit may be acknowledged to the client
+   * immediately.
    *
    * @param resourceConfiguration the resource configuration
    * @param pageReference that points to the beacon
@@ -72,9 +73,11 @@ public interface Writer extends Reader {
   /**
    * Truncate to a specific revision.
    *
-   * <p>Callers must run this BEFORE opening anything that reads the file: it is a crash-recovery /
+   * <p>
+   * Callers must run this BEFORE opening anything that reads the file: it is a crash-recovery /
    * rollback operation, and any page already loaded from the discarded range stays reachable through
-   * swizzled {@code PageReference}s and page guards that cache invalidation cannot follow.</p>
+   * swizzled {@code PageReference}s and page guards that cache invalidation cannot follow.
+   * </p>
    *
    * @param revision the revision to truncate to.
    * @return this writer instance
@@ -84,14 +87,15 @@ public interface Writer extends Reader {
   /**
    * Whether {@link #truncateTo(int)} can actually roll this storage back.
    *
-   * <p>Ask BEFORE starting a rollback, not after. {@code truncateTo} is the last step of a
-   * sequence that has already downgraded the uber-page beacons and the session's last-committed
-   * uber page — a backend that discovers only there that it cannot truncate leaves the caller
-   * half-rolled-back, advertising a revision whose pages were never discarded. An unsupported
-   * backend must be refused while nothing has been mutated yet.
+   * <p>
+   * Ask BEFORE starting a rollback, not after. {@code truncateTo} is the last step of a sequence that
+   * has already downgraded the uber-page beacons and the session's last-committed uber page — a
+   * backend that discovers only there that it cannot truncate leaves the caller half-rolled-back,
+   * advertising a revision whose pages were never discarded. An unsupported backend must be refused
+   * while nothing has been mutated yet.
    *
-   * @return {@code true} unless the backend cannot identify the pages to discard or the uber page
-   *         to restore (in-memory storage)
+   * @return {@code true} unless the backend cannot identify the pages to discard or the uber page to
+   *         restore (in-memory storage)
    */
   default boolean supportsTruncateTo() {
     return true;
@@ -103,8 +107,8 @@ public interface Writer extends Reader {
   Writer truncate();
 
   /**
-   * Flush buffered writes from the given buffer to storage without forcing to durable storage.
-   * Used by background async commit threads to batch-flush their writes.
+   * Flush buffered writes from the given buffer to storage without forcing to durable storage. Used
+   * by background async commit threads to batch-flush their writes.
    *
    * @param bufferedBytes the buffer containing accumulated writes
    */
@@ -114,11 +118,13 @@ public interface Writer extends Reader {
    * Whether bytes written before the owning revision is published can be safely reused after a
    * rollback.
    *
-   * <p>The immutable side-page staging path writes payloads ahead of the final root. It is only
-   * enabled when the backend derives each new writer's logical append frontier from the last
-   * durable revision, so an aborted transaction's tail is overwritten rather than becoming an
-   * unbounded physical leak. Backends with append-at-physical-size semantics and in-memory maps
-   * must retain the default {@code false} and write such pages during the final commit instead.</p>
+   * <p>
+   * The immutable side-page staging path writes payloads ahead of the final root. It is only enabled
+   * when the backend derives each new writer's logical append frontier from the last durable
+   * revision, so an aborted transaction's tail is overwritten rather than becoming an unbounded
+   * physical leak. Backends with append-at-physical-size semantics and in-memory maps must retain the
+   * default {@code false} and write such pages during the final commit instead.
+   * </p>
    */
   default boolean supportsReclaimableUncommittedWrites() {
     return false;

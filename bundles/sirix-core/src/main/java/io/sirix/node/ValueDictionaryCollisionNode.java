@@ -13,8 +13,8 @@ public final class ValueDictionaryCollisionNode implements DataRecord {
   private final long leftKey;
   private final long rightKey;
 
-  public ValueDictionaryCollisionNode(final long nodeKey, final int id, final int height,
-      final long leftKey, final long rightKey) {
+  public ValueDictionaryCollisionNode(final long nodeKey, final int id, final int height, final long leftKey,
+      final long rightKey) {
     if (nodeKey <= 0 || id <= 0 || height <= 0 || leftKey < 0 || rightKey < 0) {
       throw new IllegalArgumentException("invalid value dictionary collision node");
     }
@@ -73,9 +73,8 @@ public final class ValueDictionaryCollisionNode implements DataRecord {
 
   @Override
   public boolean equals(final Object object) {
-    return object instanceof ValueDictionaryCollisionNode other
-        && nodeKey == other.nodeKey && id == other.id && height == other.height
-        && leftKey == other.leftKey && rightKey == other.rightKey;
+    return object instanceof ValueDictionaryCollisionNode other && nodeKey == other.nodeKey && id == other.id
+        && height == other.height && leftKey == other.leftKey && rightKey == other.rightKey;
   }
 
   @Override

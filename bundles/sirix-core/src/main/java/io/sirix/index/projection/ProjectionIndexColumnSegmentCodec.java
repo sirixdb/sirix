@@ -41,10 +41,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <h2>Segment id scheme</h2>
  *
- * {@code 0 = KEYS}, {@code 4c+1 = BODY(c)}, {@code 4c+2 = DICT(c)},
- * {@code 4c+3 = SET_COUNTS(c)}, {@code 4c+4 = STRING_BLOOM(c)} — capped at
- * {@link RowGroupDescriptor#MAX_COLUMNS} columns by the 16-bit id space of the HOT side-map
- * composite key.
+ * {@code 0 = KEYS}, {@code 4c+1 = BODY(c)}, {@code 4c+2 = DICT(c)}, {@code 4c+3 = SET_COUNTS(c)},
+ * {@code 4c+4 = STRING_BLOOM(c)} — capped at {@link RowGroupDescriptor#MAX_COLUMNS} columns by the
+ * 16-bit id space of the HOT side-map composite key.
  *
  * <h2>Per-segment wire form</h2>
  *
@@ -306,7 +305,7 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   /**
-   * One independently encoded column.  Segment ids are already remapped to the owning projection's
+   * One independently encoded column. Segment ids are already remapped to the owning projection's
    * real column ordinal and sorted ascending; no KEYS segment is present.
    */
   record EncodedColumn(int column, int rowCount, byte columnKind, int[] columnSegmentIds, byte[][] segments,
@@ -328,10 +327,11 @@ public final class ProjectionIndexColumnSegmentCodec {
     /**
      * One grow-only staging stream for every segment emitted by this workspace.
      *
-     * <p>The stream is reset between segments, but its backing array is retained at the high-water
-     * mark. Every published segment is detached through {@link ByteArrayOutputStream#toByteArray()}
-     * before the next reset, so neither later segment writes nor later row-group encodes can mutate
-     * an {@link EncodedRowGroup} that has already escaped this workspace.
+     * <p>
+     * The stream is reset between segments, but its backing array is retained at the high-water mark.
+     * Every published segment is detached through {@link ByteArrayOutputStream#toByteArray()} before
+     * the next reset, so neither later segment writes nor later row-group encodes can mutate an
+     * {@link EncodedRowGroup} that has already escaped this workspace.
      */
     private final ByteArrayOutputStream segmentOutput = new ByteArrayOutputStream(256);
     private FSSTCompressor.Workspace fsstWorkspace;
@@ -445,13 +445,13 @@ public final class ProjectionIndexColumnSegmentCodec {
   /**
    * Owner-confined SEGMENT-SLOT form for a live builder-owned leaf.
    *
-   * <p>The page is borrowed for this synchronous call only. The returned descriptor, id array and
-   * every segment are newly allocated encoder outputs and do not alias the page or the workspace.
-   * This is the load path's allocation boundary: it avoids serialising the whole row group merely
-   * to deserialize it again before producing the independently owned column segments.
+   * <p>
+   * The page is borrowed for this synchronous call only. The returned descriptor, id array and every
+   * segment are newly allocated encoder outputs and do not alias the page or the workspace. This is
+   * the load path's allocation boundary: it avoids serialising the whole row group merely to
+   * deserialize it again before producing the independently owned column segments.
    */
-  static EncodedRowGroup encodeReferencedOnly(final ProjectionIndexRowGroupPage page,
-      final EncodeWorkspace workspace) {
+  static EncodedRowGroup encodeReferencedOnly(final ProjectionIndexRowGroupPage page, final EncodeWorkspace workspace) {
     if (page == null) {
       throw new NullPointerException("page must not be null");
     }
@@ -469,12 +469,14 @@ public final class ProjectionIndexColumnSegmentCodec {
   /**
    * Encode a one-column maintenance page and remap its segment ids to {@code owningColumn}.
    *
-   * <p>The ordinary leaf encoder is reused so BODY/DICT/SET_COUNTS/BLOOM/DICT_HASH bytes stay defined
-   * by one implementation.  KEYS is discarded: the update-only path preserves the existing key
-   * segment and publishes only this record's returned column segments.</p>
+   * <p>
+   * The ordinary leaf encoder is reused so BODY/DICT/SET_COUNTS/BLOOM/DICT_HASH bytes stay defined by
+   * one implementation. KEYS is discarded: the update-only path preserves the existing key segment
+   * and publishes only this record's returned column segments.
+   * </p>
    */
-  static EncodedColumn encodeColumnReferencedOnly(final ProjectionIndexRowGroupPage page,
-      final int owningColumn, final EncodeWorkspace workspace) {
+  static EncodedColumn encodeColumnReferencedOnly(final ProjectionIndexRowGroupPage page, final int owningColumn,
+      final EncodeWorkspace workspace) {
     checkColumn(owningColumn);
     if (page == null || page.getColumnCount() != 1) {
       throw new IllegalArgumentException("column maintenance encoding requires a one-column page");
@@ -503,17 +505,22 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   private static int remapSingleColumnSegmentId(final int sourceId, final int owningColumn) {
-    if (sourceId == bodyColumnSegmentId(0)) return bodyColumnSegmentId(owningColumn);
-    if (sourceId == dictColumnSegmentId(0)) return dictColumnSegmentId(owningColumn);
-    if (sourceId == setCountsColumnSegmentId(0)) return setCountsColumnSegmentId(owningColumn);
-    if (sourceId == bloomColumnSegmentId(0)) return bloomColumnSegmentId(owningColumn);
-    if (sourceId == dictHashColumnSegmentId(0)) return dictHashColumnSegmentId(owningColumn);
+    if (sourceId == bodyColumnSegmentId(0))
+      return bodyColumnSegmentId(owningColumn);
+    if (sourceId == dictColumnSegmentId(0))
+      return dictColumnSegmentId(owningColumn);
+    if (sourceId == setCountsColumnSegmentId(0))
+      return setCountsColumnSegmentId(owningColumn);
+    if (sourceId == bloomColumnSegmentId(0))
+      return bloomColumnSegmentId(owningColumn);
+    if (sourceId == dictHashColumnSegmentId(0))
+      return dictHashColumnSegmentId(owningColumn);
     throw new IllegalStateException("unexpected segment " + sourceId + " in one-column encoding");
   }
 
   /**
-   * Replace one column's descriptor entries while carrying every other entry forward by metadata.
-   * The result is zone-map-only and therefore suitable for the segment-slot store; unchanged segment
+   * Replace one column's descriptor entries while carrying every other entry forward by metadata. The
+   * result is zone-map-only and therefore suitable for the segment-slot store; unchanged segment
    * bytes are neither fetched nor supplied.
    */
   static byte[] spliceReferencedColumn(final byte[] priorDescriptor, final EncodedColumn replacement) {
@@ -616,7 +623,8 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   static byte expectedSegmentKind(final int columnSegmentId) {
-    if (columnSegmentId == keysColumnSegmentId()) return SEG_KIND_KEYS;
+    if (columnSegmentId == keysColumnSegmentId())
+      return SEG_KIND_KEYS;
     if (columnSegmentId >= DICT_HASH_SEGMENT_BASE
         && columnSegmentId < DICT_HASH_SEGMENT_BASE + RowGroupDescriptor.MAX_COLUMNS) {
       return SEG_KIND_DICT_HASHES;
@@ -781,12 +789,10 @@ public final class ProjectionIndexColumnSegmentCodec {
       if ((kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
           || kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) && rowCount > 0) {
         final ByteArrayOutputStream dict = newColumnSegmentStream(SEG_KIND_DICT, workspace);
-        encodeDictColumnSegmentPayload(dict, page, c,
-            kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
-                ? valueRowCounts(page.stringDictionarySize(c), page.stringSetCountColumn(c), page.stringSetIdColumn(c),
-                    rowCount)
-                : null,
-            workspace);
+        encodeDictColumnSegmentPayload(dict, page, c, kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            ? valueRowCounts(page.stringDictionarySize(c), page.stringSetCountColumn(c), page.stringSetIdColumn(c),
+                rowCount)
+            : null, workspace);
         columnSegmentIds[columnSegmentCount] = dictColumnSegmentId(c);
         segments[columnSegmentCount] = dict.toByteArray();
         columnSegmentCount++;
@@ -794,9 +800,8 @@ public final class ProjectionIndexColumnSegmentCodec {
         // SET_COUNTS segment: the values with their per-value ROW counts, small enough to ride
         // inline in the descriptor so a membership count reads no page at all.
         if (kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-          final byte[] counts =
-              encodeSetCountsPayload(page, c, valueRowCounts(page.stringDictionarySize(c),
-                  page.stringSetCountColumn(c), page.stringSetIdColumn(c), rowCount), workspace);
+          final byte[] counts = encodeSetCountsPayload(page, c, valueRowCounts(page.stringDictionarySize(c),
+              page.stringSetCountColumn(c), page.stringSetIdColumn(c), rowCount), workspace);
           if (counts != null) {
             columnSegmentIds[columnSegmentCount] = setCountsColumnSegmentId(c);
             segments[columnSegmentCount] = counts;
@@ -945,8 +950,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     final long[] words = new long[mBits >>> 6];
     final int mask = mBits - 1;
     for (int i = 0; i < count; i++) {
-      final long h = fnv64(page.stringDictionaryEntryBacking(column, i),
-          page.stringDictionaryEntryOffset(column, i), page.stringDictionaryEntryLength(column, i));
+      final long h = fnv64(page.stringDictionaryEntryBacking(column, i), page.stringDictionaryEntryOffset(column, i),
+          page.stringDictionaryEntryLength(column, i));
       words[(int) ((h & mask) >>> 6)] |= 1L << (h & 63);
       final long h2 = h >>> 21;
       words[(int) ((h2 & mask) >>> 6)] |= 1L << (h2 & 63);
@@ -1065,8 +1070,7 @@ public final class ProjectionIndexColumnSegmentCodec {
   /** Structural validation shared by direct and block probes; malformed evidence always keeps. */
   private static boolean bloomSegmentIsWellFormedAt(final byte[] a, final int off, final int len) {
     if (off < 0 || len < SEGMENT_HEADER_BYTES + Integer.BYTES || off + (long) len > a.length
-        || ProjectionIndexRowGroupCodec.getIntLE(a, off) != SEGMENT_MAGIC
-        || a[off + Integer.BYTES] != SEGMENT_VERSION
+        || ProjectionIndexRowGroupCodec.getIntLE(a, off) != SEGMENT_MAGIC || a[off + Integer.BYTES] != SEGMENT_VERSION
         || a[off + Integer.BYTES + 1] != SEG_KIND_STRING_BLOOM) {
       return false;
     }
@@ -1097,18 +1101,19 @@ public final class ProjectionIndexColumnSegmentCodec {
   /**
    * Largest structurally valid contiguous fingerprint block for {@code leafCount} leaves.
    *
-   * <p>Deferred Bloom-chunk readers use this before fetching a referenced PIXB payload. The PIXB
-   * marker is untrusted; without this independent format bound a corrupt length could make an
-   * optional pruning acceleration retain an arbitrarily large overflow page. Every non-empty leaf
-   * can contribute at most one maximum-sized {@code STRING_BLOOM} segment.</p>
+   * <p>
+   * Deferred Bloom-chunk readers use this before fetching a referenced PIXB payload. The PIXB marker
+   * is untrusted; without this independent format bound a corrupt length could make an optional
+   * pruning acceleration retain an arbitrarily large overflow page. Every non-empty leaf can
+   * contribute at most one maximum-sized {@code STRING_BLOOM} segment.
+   * </p>
    */
   static int maxBloomBlockBytes(final int leafCount) {
     if (leafCount < 0 || leafCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
       throw new IllegalArgumentException("leafCount out of range: " + leafCount);
     }
     final long maxSegmentBytes = SEGMENT_HEADER_BYTES + Integer.BYTES + (BLOOM_MAX_BITS >>> 3);
-    final long bytes = BLOOM_BLOCK_HEADER_BYTES + (leafCount + 1L) * Integer.BYTES
-        + leafCount * maxSegmentBytes;
+    final long bytes = BLOOM_BLOCK_HEADER_BYTES + (leafCount + 1L) * Integer.BYTES + leafCount * maxSegmentBytes;
     if (bytes > Integer.MAX_VALUE) {
       return Integer.MAX_VALUE;
     }
@@ -1176,10 +1181,10 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   /**
-   * Exact structural validation for a contiguous fingerprint block. Empty slices are valid (they
-   * mean "no evidence, keep"); every non-empty slice must be one exact STRING_BLOOM segment. This
-   * gate is used before a persisted block is trusted, so an offset table corrupted into unrelated
-   * payload bytes can never manufacture negative evidence.
+   * Exact structural validation for a contiguous fingerprint block. Empty slices are valid (they mean
+   * "no evidence, keep"); every non-empty slice must be one exact STRING_BLOOM segment. This gate is
+   * used before a persisted block is trusted, so an offset table corrupted into unrelated payload
+   * bytes can never manufacture negative evidence.
    */
   public static boolean bloomBlockIsWellFormed(final byte @Nullable [] block, final int expectedLeafCount) {
     if (expectedLeafCount < 0 || bloomBlockLeafCount(block) != expectedLeafCount) {
@@ -1218,10 +1223,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int tableBase = BLOOM_BLOCK_HEADER_BYTES;
     final int payloadBase = tableBase + (expectedLeafCount + 1) * Integer.BYTES;
     for (int i = 0; i < expectedLeafCount; i++) {
-      final int start = ProjectionIndexRowGroupCodec.getIntLE(block,
-          tableBase + i * Integer.BYTES);
-      final int end = ProjectionIndexRowGroupCodec.getIntLE(block,
-          tableBase + (i + 1) * Integer.BYTES);
+      final int start = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + i * Integer.BYTES);
+      final int end = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + (i + 1) * Integer.BYTES);
       if (end > start) {
         slices[i] = Arrays.copyOfRange(block, payloadBase + start, payloadBase + end);
       }
@@ -1252,12 +1255,14 @@ public final class ProjectionIndexColumnSegmentCodec {
   /**
    * Allocation-free probe after one successful {@link #bloomBlockIsWellFormed} gate.
    *
-   * <p>The chunk pruner validates the whole block once, then probes up to 256 leaves. Re-running the
+   * <p>
+   * The chunk pruner validates the whole block once, then probes up to 256 leaves. Re-running the
    * magic, offset, and segment-shape checks for every leaf doubled the hot work without increasing
-   * safety: the payload is immutable for the duration of the call and was just hash-verified.</p>
+   * safety: the payload is immutable for the duration of the call and was just hash-verified.
+   * </p>
    */
-  static boolean bloomBlockMayContainHashValidated(final byte[] block, final int leafIndex,
-      final int leafCount, final long hash) {
+  static boolean bloomBlockMayContainHashValidated(final byte[] block, final int leafIndex, final int leafCount,
+      final long hash) {
     final int tableBase = BLOOM_BLOCK_HEADER_BYTES;
     final int off = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + leafIndex * Integer.BYTES);
     final int end = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + (leafIndex + 1) * Integer.BYTES);
@@ -1268,8 +1273,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int mBits = ProjectionIndexRowGroupCodec.getIntLE(block, segmentOffset + SEGMENT_HEADER_BYTES);
     final int wordsOffset = segmentOffset + SEGMENT_HEADER_BYTES + Integer.BYTES;
     final int mask = mBits - 1;
-    return bloomBit(block, wordsOffset, hash & mask)
-        && bloomBit(block, wordsOffset, (hash >>> 21) & mask)
+    return bloomBit(block, wordsOffset, hash & mask) && bloomBit(block, wordsOffset, (hash >>> 21) & mask)
         && bloomBit(block, wordsOffset, (hash >>> 42) & mask);
   }
 
@@ -1287,8 +1291,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     return h;
   }
 
-  private static ByteArrayOutputStream newColumnSegmentStream(final byte segKind,
-      final EncodeWorkspace workspace) {
+  private static ByteArrayOutputStream newColumnSegmentStream(final byte segKind, final EncodeWorkspace workspace) {
     return workspace.beginSegment(segKind);
   }
 
@@ -1336,8 +1339,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     }
     final ProjectionIndexRowGroupCodec.OrderLabels orderLabels =
         ProjectionIndexRowGroupCodec.decodeOrderLabels(keys, rowCount);
-    ProjectionIndexRowGroupPage.validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey,
-        recordKeys, orderExceptionBits);
+    ProjectionIndexRowGroupPage.validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        orderExceptionBits);
 
     final long[] columnMin = new long[columnCount];
     final long[] columnMax = new long[columnCount];
@@ -1397,17 +1400,14 @@ public final class ProjectionIndexColumnSegmentCodec {
       }
     }
 
-    final byte[] direct =
-        writeRawDirect(rowCount, columnCount, kinds, firstRecordKey, lastRecordKey, recordKeys, orderExceptionBits,
-            orderLabels.bytes(), orderLabels.offsets(),
-            columnMin, columnMax, numericCols, booleanCols, dictIdCols, dicts, setCountCols, setElemCols,
-            columnFlags, presence, presWords);
+    final byte[] direct = writeRawDirect(rowCount, columnCount, kinds, firstRecordKey, lastRecordKey, recordKeys,
+        orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), columnMin, columnMax, numericCols, booleanCols,
+        dictIdCols, dicts, setCountCols, setElemCols, columnFlags, presence, presWords);
     if (verifyDirectAssembly) {
       final ProjectionIndexRowGroupPage page =
           ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
-              orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), orderLabels.bytes().length,
-              columnMin, columnMax, numericCols, booleanCols, dictIdCols, dicts,
-              setCountCols, setElemCols, presence, columnFlags);
+              orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), orderLabels.bytes().length, columnMin,
+              columnMax, numericCols, booleanCols, dictIdCols, dicts, setCountCols, setElemCols, presence, columnFlags);
       final byte[] viaPage = page.serialize();
       if (!Arrays.equals(direct, viaPage)) {
         throw new IllegalStateException("Direct raw assembly diverged from the page-based path (" + direct.length
@@ -1439,8 +1439,8 @@ public final class ProjectionIndexColumnSegmentCodec {
    * written so the payload can be built into one right-sized array with no growth or copy.
    */
   private static int rawDirectByteSize(final int rowCount, final int columnCount, final byte[] kinds,
-      final byte[][][] dicts, final int[][] setElemCols, final int presWords,
-      final boolean hasOrderExceptions, final int orderLabelBytes) {
+      final byte[][][] dicts, final int[][] setElemCols, final int presWords, final boolean hasOrderExceptions,
+      final int orderLabelBytes) {
     int size = 8 + 16 + columnCount + 1; // header + order-exception kind
     size += Integer.BYTES + (rowCount + 1) * Integer.BYTES + orderLabelBytes;
     if (rowCount > 0) {
@@ -1500,12 +1500,11 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   private static byte[] writeRawDirect(final int rowCount, final int columnCount, final byte[] kinds,
-      final long firstRecordKey, final long lastRecordKey, final long[] recordKeys,
-      final long[] orderExceptionBits, final byte[] orderLabelBytes, final int[] orderLabelOffsets,
-      final long[] columnMin, final long[] columnMax,
+      final long firstRecordKey, final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits,
+      final byte[] orderLabelBytes, final int[] orderLabelOffsets, final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols, final int[][] dictIdCols, final byte[][][] dicts,
-      final int[][] setCountCols, final int[][] setElemCols, final byte[] columnFlags,
-      final long[][] presence, final int presWords) {
+      final int[][] setCountCols, final int[][] setElemCols, final byte[] columnFlags, final long[][] presence,
+      final int presWords) {
     final int size = rawDirectByteSize(rowCount, columnCount, kinds, dicts, setElemCols, presWords,
         orderExceptionBits != null, orderLabelBytes.length);
     final byte[] out = new byte[size];
@@ -1793,7 +1792,9 @@ public final class ProjectionIndexColumnSegmentCodec {
     }
     final byte[] segment = in.buffer();
     final int orderBitsOffset = in.position();
-    final int orderBitsBytes = dense ? ((rowCount + 63) >>> 6) * Long.BYTES : 0;
+    final int orderBitsBytes = dense
+        ? ((rowCount + 63) >>> 6) * Long.BYTES
+        : 0;
     in.skip(orderBitsBytes);
     final int orderLabelLength = in.readInt();
     if (orderLabelLength < 0 || orderLabelLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
@@ -1810,8 +1811,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     }
     validateKeysView(rowCount, firstRecordKey, lastRecordKey, recordKeys, segment, orderBitsOffset, dense);
     validateOrderLabelView(rowCount, segment, orderLabelsOffset, orderLabelOffsets, orderLabelLength);
-    return new KeysView(firstRecordKey, lastRecordKey, recordKeys, segment, orderBitsOffset, dense,
-        orderLabelsOffset, orderLabelOffsets, orderLabelLength);
+    return new KeysView(firstRecordKey, lastRecordKey, recordKeys, segment, orderBitsOffset, dense, orderLabelsOffset,
+        orderLabelOffsets, orderLabelLength);
   }
 
   /** Decode KEYS together with a materialised bitmap for membership/order rewrites only. */
@@ -1824,8 +1825,8 @@ public final class ProjectionIndexColumnSegmentCodec {
       final int words = (view.recordKeys().length + 63) >>> 6;
       orderExceptionBits = new long[words];
       for (int word = 0; word < words; word++) {
-        orderExceptionBits[word] = ProjectionIndexRowGroupCodec.getLongLE(view.segment(),
-            view.orderBitsOffset() + word * Long.BYTES);
+        orderExceptionBits[word] =
+            ProjectionIndexRowGroupCodec.getLongLE(view.segment(), view.orderBitsOffset() + word * Long.BYTES);
       }
     }
     final byte[] orderLabels = Arrays.copyOfRange(view.segment(), view.orderLabelsOffset(),
@@ -1834,11 +1835,11 @@ public final class ProjectionIndexColumnSegmentCodec {
         orderLabels, view.orderLabelOffsets());
   }
 
-  private static void validateOrderLabelView(final int rowCount, final byte[] segment,
-      final int bytesOffset, final int[] offsets, final int byteLength) {
+  private static void validateOrderLabelView(final int rowCount, final byte[] segment, final int bytesOffset,
+      final int[] offsets, final int byteLength) {
     if (bytesOffset < 0 || byteLength < 0 || byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES
-        || bytesOffset + byteLength > segment.length || offsets.length != rowCount + 1
-        || offsets[0] != 0 || offsets[rowCount] != byteLength) {
+        || bytesOffset + byteLength > segment.length || offsets.length != rowCount + 1 || offsets[0] != 0
+        || offsets[rowCount] != byteLength) {
       throw new IllegalStateException("invalid projection Dewey order-label lane");
     }
     for (int row = 0; row < rowCount; row++) {
@@ -1847,17 +1848,15 @@ public final class ProjectionIndexColumnSegmentCodec {
       if (start < 0 || end <= start || end > byteLength) {
         throw new IllegalStateException("invalid projection Dewey order-label offset at row " + row);
       }
-      if (row > 0 && ProjectionIndexRowGroupPage.compareOrderLabels(segment,
-          bytesOffset + offsets[row - 1], bytesOffset + start, segment,
-          bytesOffset + start, bytesOffset + end) >= 0) {
+      if (row > 0 && ProjectionIndexRowGroupPage.compareOrderLabels(segment, bytesOffset + offsets[row - 1],
+          bytesOffset + start, segment, bytesOffset + start, bytesOffset + end) >= 0) {
         throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
       }
     }
   }
 
-  private static void validateKeysView(final int rowCount, final long firstRecordKey,
-      final long lastRecordKey, final long[] recordKeys, final byte[] segment,
-      final int orderBitsOffset, final boolean dense) {
+  private static void validateKeysView(final int rowCount, final long firstRecordKey, final long lastRecordKey,
+      final long[] recordKeys, final byte[] segment, final int orderBitsOffset, final boolean dense) {
     long expectedFirst = Long.MAX_VALUE;
     long expectedLast = Long.MIN_VALUE;
     long previousNormal = Long.MIN_VALUE;
@@ -1869,8 +1868,7 @@ public final class ProjectionIndexColumnSegmentCodec {
         throw new IllegalStateException("projection KEYS contains a negative document node key");
       }
       if (dense && (row & 63) == 0) {
-        exceptionWord = ProjectionIndexRowGroupCodec.getLongLE(segment,
-            orderBitsOffset + (row >>> 6) * Long.BYTES);
+        exceptionWord = ProjectionIndexRowGroupCodec.getLongLE(segment, orderBitsOffset + (row >>> 6) * Long.BYTES);
       }
       final boolean exception = dense && (exceptionWord & (1L << (row & 63))) != 0L;
       if (exception) {
@@ -1890,8 +1888,7 @@ public final class ProjectionIndexColumnSegmentCodec {
       final int tailBits = rowCount & 63;
       if (tailBits != 0) {
         final int lastWord = (rowCount - 1) >>> 6;
-        final long bits = ProjectionIndexRowGroupCodec.getLongLE(segment,
-            orderBitsOffset + lastWord * Long.BYTES);
+        final long bits = ProjectionIndexRowGroupCodec.getLongLE(segment, orderBitsOffset + lastWord * Long.BYTES);
         if ((bits & (-1L << tailBits)) != 0L) {
           throw new IllegalStateException("projection order-exception bitmap sets bits beyond rowCount");
         }
@@ -1907,35 +1904,32 @@ public final class ProjectionIndexColumnSegmentCodec {
 
   private static final long[] EMPTY_KEYS = new long[0];
 
-  record KeysSlice(long firstRecordKey, long lastRecordKey, long[] recordKeys,
-                   long[] orderExceptionBits, byte[] orderLabelBytes, int[] orderLabelOffsets) {
+  record KeysSlice(long firstRecordKey, long lastRecordKey, long[] recordKeys, long[] orderExceptionBits,
+      byte[] orderLabelBytes, int[] orderLabelOffsets) {
     boolean orderExceptionAt(final int row) {
       if (row < 0 || row >= recordKeys.length) {
         throw new IndexOutOfBoundsException("projection row out of range: " + row);
       }
-      return orderExceptionBits != null
-          && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0;
+      return orderExceptionBits != null && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0;
     }
   }
 
-  record KeysView(long firstRecordKey, long lastRecordKey, long[] recordKeys,
-                  byte[] segment, int orderBitsOffset, boolean dense, int orderLabelsOffset,
-                  int[] orderLabelOffsets, int orderLabelLength) {
+  record KeysView(long firstRecordKey, long lastRecordKey, long[] recordKeys, byte[] segment, int orderBitsOffset,
+      boolean dense, int orderLabelsOffset, int[] orderLabelOffsets, int orderLabelLength) {
     boolean orderExceptionAt(final int row) {
       if (row < 0 || row >= recordKeys.length) {
         throw new IndexOutOfBoundsException("projection row out of range: " + row);
       }
-      return dense && (ProjectionIndexRowGroupCodec.getLongLE(segment,
-          orderBitsOffset + (row >>> 6) * Long.BYTES) & (1L << (row & 63))) != 0L;
+      return dense && (ProjectionIndexRowGroupCodec.getLongLE(segment, orderBitsOffset + (row >>> 6) * Long.BYTES)
+          & (1L << (row & 63))) != 0L;
     }
 
     int compareOrderLabelAt(final int row, final byte[] label) {
       if (row < 0 || row >= recordKeys.length || label == null) {
         throw new IndexOutOfBoundsException("projection row out of range: " + row);
       }
-      return ProjectionIndexRowGroupPage.compareOrderLabels(segment,
-          orderLabelsOffset + orderLabelOffsets[row], orderLabelsOffset + orderLabelOffsets[row + 1],
-          label, 0, label.length);
+      return ProjectionIndexRowGroupPage.compareOrderLabels(segment, orderLabelsOffset + orderLabelOffsets[row],
+          orderLabelsOffset + orderLabelOffsets[row + 1], label, 0, label.length);
     }
 
     byte[] copyOrderLabelAt(final int row) {
@@ -2106,7 +2100,9 @@ public final class ProjectionIndexColumnSegmentCodec {
     if (dictSize >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE && totalBytes >= FSSTCompressor.MIN_TOTAL_BYTES_FOR_TABLE) {
       final FSSTCompressor.Workspace fsstWorkspace = encodeWorkspace.fsstWorkspace();
       final boolean flat = page.stringDictionaryIsSlabBacked(column);
-      final List<byte[]> legacyEntries = flat ? List.of() : new DictionaryRangeList(page, column, dictSize);
+      final List<byte[]> legacyEntries = flat
+          ? List.of()
+          : new DictionaryRangeList(page, column, dictSize);
       final byte[] table = flat
           ? FSSTCompressor.buildSymbolTable(page.stringDictionaryFlatBacking(column),
               page.stringDictionaryFlatOffsets(column), page.stringDictionaryFlatLengths(column), dictSize,
@@ -2131,8 +2127,8 @@ public final class ProjectionIndexColumnSegmentCodec {
           ProjectionIndexRowGroupCodec.putIntLE(out, dictSize);
           for (int i = 0; i < dictSize; i++) {
             final byte[] encoded = FSSTCompressor.encode(page.stringDictionaryEntryBacking(column, i),
-                page.stringDictionaryEntryOffset(column, i), page.stringDictionaryEntryLength(column, i),
-                parsedSymbols, fsstWorkspace);
+                page.stringDictionaryEntryOffset(column, i), page.stringDictionaryEntryLength(column, i), parsedSymbols,
+                fsstWorkspace);
             ProjectionIndexRowGroupCodec.putIntLE(out, encoded.length);
             out.write(encoded, 0, encoded.length);
           }

@@ -25,9 +25,10 @@ import jdk.incubator.vector.VectorOperators;
  * settled from the region alone, and that the bounds it reports are the same ones the number
  * region's own header would have given.
  *
- * <p>The property that matters is not that the region round-trips — it is that it never disagrees
- * with the column it summarises. A zone map that is merely stale prunes a page that contains
- * matches, and the query returns a wrong count with nothing failing.
+ * <p>
+ * The property that matters is not that the region round-trips — it is that it never disagrees with
+ * the column it summarises. A zone map that is merely stale prunes a page that contains matches,
+ * and the query returns a wrong count with nothing failing.
  */
 @DisplayName("NumberZoneMapRegion")
 final class NumberZoneMapRegionTest {
@@ -54,10 +55,9 @@ final class NumberZoneMapRegionTest {
       final byte[] encoded = NumberZoneMapRegion.encode(source);
       assertNotNull(encoded, "a zone-mapped number region must produce a zone map");
       assertEquals(NumberZoneMapRegion.encodedSize(source.dictSize), encoded.length,
-                   "encodedSize must match what encode actually writes");
+          "encodedSize must match what encode actually writes");
 
-      final NumberZoneMapRegion.Header z =
-          new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(encoded));
+      final NumberZoneMapRegion.Header z = new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(encoded));
       assertNotNull(z);
       assertEquals(source.tagKind, z.tagKind);
       assertEquals(source.valueMin, z.valueMin);
@@ -74,14 +74,14 @@ final class NumberZoneMapRegionTest {
 
       // Every value must lie inside the bounds its tag advertises.
       final long[] all = new long[source.count];
-      NumberRegion.decodeAllValues(PaxTestSegments.of(NumberRegion.encode(values,
-                                                           tagsFor(values.length, tagCount),
-                                                           values.length)), source, all);
+      NumberRegion.decodeAllValues(
+          PaxTestSegments.of(NumberRegion.encode(values, tagsFor(values.length, tagCount), values.length)), source,
+          all);
       for (int tag = 0; tag < source.dictSize; tag++) {
         final int start = source.tagStart[tag];
         for (int i = start; i < start + source.tagCount[tag]; i++) {
           assertTrue(all[i] >= z.tagMin[tag] && all[i] <= z.tagMax[tag],
-                     "value " + all[i] + " outside advertised bounds of tag " + tag);
+              "value " + all[i] + " outside advertised bounds of tag " + tag);
         }
       }
     }
@@ -104,8 +104,8 @@ final class NumberZoneMapRegionTest {
       values[i] = 1_000 + rng.nextInt(500);
     }
     final NumberRegion.Header source = numberHeader(values, 2);
-    final MemorySegment payload = PaxTestSegments.of(NumberRegion.encode(values, tagsFor(values.length, 2),
-                                                          values.length));
+    final MemorySegment payload =
+        PaxTestSegments.of(NumberRegion.encode(values, tagsFor(values.length, 2), values.length));
     final NumberZoneMapRegion.Header z =
         new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(NumberZoneMapRegion.encode(source)));
 
@@ -115,23 +115,18 @@ final class NumberZoneMapRegionTest {
       final long lo = z.tagMin[tag];
       final long hi = z.tagMax[tag];
       // Bounds chosen to hit all three outcomes: entirely below, entirely inside, and straddling.
-      for (final long[] range : new long[][] {
-          {Long.MIN_VALUE, lo - 1},          // nothing can match
-          {lo, hi},                          // everything must match
-          {hi + 1, Long.MAX_VALUE},          // nothing can match
-          {lo + (hi - lo) / 2, hi},          // straddles: must decline
+      for (final long[] range : new long[][] {{Long.MIN_VALUE, lo - 1}, // nothing can match
+          {lo, hi}, // everything must match
+          {hi + 1, Long.MAX_VALUE}, // nothing can match
+          {lo + (hi - lo) / 2, hi}, // straddles: must decline
       }) {
         final long pruned =
-            NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], range[0], range[1],
-                                        z.tagCount[tag]);
-        final long scanned = NumberRegionSimd.countMatchingRange(
-            payload, source, start, end,
-            VectorOperators.GE, range[0],
-            VectorOperators.LE, range[1]);
+            NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], range[0], range[1], z.tagCount[tag]);
+        final long scanned = NumberRegionSimd.countMatchingRange(payload, source, start, end, VectorOperators.GE,
+            range[0], VectorOperators.LE, range[1]);
         if (pruned != NumberRegionSimd.PRUNE_UNKNOWN) {
           assertEquals(scanned, pruned,
-                       "prune disagreed with the scan for tag " + tag + " over ["
-                           + range[0] + ", " + range[1] + "]");
+              "prune disagreed with the scan for tag " + tag + " over [" + range[0] + ", " + range[1] + "]");
         }
       }
     }
@@ -162,12 +157,11 @@ final class NumberZoneMapRegionTest {
   @DisplayName("a legacy number region with no per-tag bounds produces no zone map")
   void noZoneMapWithoutPerTagBounds() {
     final NumberRegion.Header legacy = new NumberRegion.Header();
-    legacy.encodingKind = NumberRegion.ENC_PLAIN_LONG;   // pre-zone-map encoding
+    legacy.encodingKind = NumberRegion.ENC_PLAIN_LONG; // pre-zone-map encoding
     legacy.dictSize = 2;
     legacy.tagMin = null;
     legacy.tagMax = null;
-    assertNull(NumberZoneMapRegion.encode(legacy),
-               "without per-tag bounds there is nothing to summarise");
+    assertNull(NumberZoneMapRegion.encode(legacy), "without per-tag bounds there is nothing to summarise");
     assertNull(NumberZoneMapRegion.encode(null));
   }
 
@@ -187,8 +181,7 @@ final class NumberZoneMapRegionTest {
       final int length = NumberZoneMapRegion.encodeInto(source, reusable);
 
       assertEquals(expected.length, length);
-      assertArrayEquals(expected, Arrays.copyOf(reusable, length),
-          "dictSize=" + dictSize + " after scratch reuse");
+      assertArrayEquals(expected, Arrays.copyOf(reusable, length), "dictSize=" + dictSize + " after scratch reuse");
       final NumberZoneMapRegion.Header decoded =
           new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(Arrays.copyOf(reusable, length)));
       assertNotNull(decoded);
@@ -208,17 +201,10 @@ final class NumberZoneMapRegionTest {
     source.tagCount = new int[] {0x01020304};
     source.tagMin = new long[] {Long.MIN_VALUE};
     source.tagMax = new long[] {0x0A0B0C0D0E0F1011L};
-    final byte[] expected = {
-        1, 1,
-        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
-        (byte) 0xFE, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-        (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-        0x01, 0x00, 0x00, 0x00,
-        0x44, 0x33, 0x22, 0x11,
-        0x04, 0x03, 0x02, 0x01,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte) 0x80,
-        0x11, 0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A
-    };
+    final byte[] expected = {1, 1, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, (byte) 0xFE, (byte) 0xFF,
+        (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x01, 0x00, 0x00, 0x00, 0x44,
+        0x33, 0x22, 0x11, 0x04, 0x03, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte) 0x80, 0x11, 0x10,
+        0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A};
     final byte[] reusable = new byte[expected.length];
 
     final int length = NumberZoneMapRegion.encodeInto(source, reusable);
@@ -244,8 +230,7 @@ final class NumberZoneMapRegionTest {
 
     final NumberRegion.Header source = numberHeader(new long[] {1, 2, 3, 4}, 2);
     assertThrows(IllegalArgumentException.class,
-        () -> NumberZoneMapRegion.encodeInto(source,
-            new byte[NumberZoneMapRegion.encodedSize(source.dictSize) - 1]));
+        () -> NumberZoneMapRegion.encodeInto(source, new byte[NumberZoneMapRegion.encodedSize(source.dictSize) - 1]));
   }
 
   // ───────────────────────────────────────────────── region table integration
@@ -256,14 +241,13 @@ final class NumberZoneMapRegionTest {
     final NumberRegion.Header source = numberHeader(bigValues(), 8);
     final byte[] zoneMap = NumberZoneMapRegion.encode(source);
     assertNotNull(zoneMap);
-    assertTrue(zoneMap.length > 64,
-               "this fixture must exceed the compression threshold, else it proves nothing");
+    assertTrue(zoneMap.length > 64, "this fixture must exceed the compression threshold, else it proves nothing");
 
     final RegionTable table = new RegionTable();
     table.set(RegionTable.KIND_NUMBER_ZONEMAP, zoneMap);
 
     final BytesOut<MemorySegment> out = Bytes.elasticHeapByteBuffer();
-    table.write(out, true);   // compression enabled — the zone map must opt out anyway
+    table.write(out, true); // compression enabled — the zone map must opt out anyway
     final RegionTable back = RegionTable.read(out.bytesForRead());
 
     final NumberZoneMapRegion.Header z =
@@ -280,8 +264,7 @@ final class NumberZoneMapRegionTest {
   @DisplayName("a reader that skips the zone map still reads every other region correctly")
   void skippingTheZoneMapLeavesTheRestIntact() {
     final NumberRegion.Header source = numberHeader(bigValues(), 4);
-    final byte[] numbers = NumberRegion.encode(bigValues(), tagsFor(bigValues().length, 4),
-                                               bigValues().length);
+    final byte[] numbers = NumberRegion.encode(bigValues(), tagsFor(bigValues().length, 4), bigValues().length);
     final RegionTable table = new RegionTable();
     table.set(RegionTable.KIND_NUMBER, numbers);
     table.set(RegionTable.KIND_NUMBER_ZONEMAP, NumberZoneMapRegion.encode(source));
@@ -291,11 +274,9 @@ final class NumberZoneMapRegionTest {
 
     // Ask for only the number column — the zone map is stepped over by its length prefix. This is
     // the same path a reader that predates the region takes, so it stands in for one.
-    final RegionTable back = RegionTable.read(out.bytesForRead(),
-                                              RegionTable.maskOf(RegionTable.KIND_NUMBER));
+    final RegionTable back = RegionTable.read(out.bytesForRead(), RegionTable.maskOf(RegionTable.KIND_NUMBER));
     assertNull(back.payload(RegionTable.KIND_NUMBER_ZONEMAP), "not requested, must be absent");
-    final NumberRegion.Header h =
-        new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER));
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER));
     assertNotNull(h);
     assertEquals(source.count, h.count, "skipping the zone map must not disturb the number region");
     assertEquals(source.dictSize, h.dictSize);
@@ -307,16 +288,14 @@ final class NumberZoneMapRegionTest {
     final long[] values = bigValues();
     final NumberRegion.Header source = numberHeader(values, 4);
     final RegionTable table = new RegionTable();
-    table.set(RegionTable.KIND_NUMBER,
-              NumberRegion.encode(values, tagsFor(values.length, 4), values.length));
+    table.set(RegionTable.KIND_NUMBER, NumberRegion.encode(values, tagsFor(values.length, 4), values.length));
     table.set(RegionTable.KIND_NUMBER_ZONEMAP, NumberZoneMapRegion.encode(source));
 
     final BytesOut<MemorySegment> out = Bytes.elasticHeapByteBuffer();
     table.write(out, true);
 
     // Number column deferred, zone map materialized — the shape the count path reads in.
-    final RegionTable back = RegionTable.read(
-        out.bytesForRead(),
+    final RegionTable back = RegionTable.read(out.bytesForRead(),
         RegionTable.maskOf(RegionTable.KIND_NUMBER) | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP),
         RegionTable.maskOf(RegionTable.KIND_NUMBER));
 
@@ -327,8 +306,7 @@ final class NumberZoneMapRegionTest {
     assertEquals(source.dictSize, z.dictSize);
 
     // And the column is still correct once someone does ask for it.
-    final NumberRegion.Header h =
-        new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER));
+    final NumberRegion.Header h = new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER));
     assertEquals(source.count, h.count);
   }
 

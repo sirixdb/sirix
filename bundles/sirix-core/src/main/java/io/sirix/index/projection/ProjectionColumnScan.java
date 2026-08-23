@@ -484,9 +484,9 @@ public final class ProjectionColumnScan {
    * <p>
    * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} cells are dictionary ids minted in
    * first-seen order, so sorting on them sorts by when a value was first interned. The kernels here
-   * decide "numeric key" by asking whether a column is NOT a per-leaf dictionary, which was exhaustive
-   * until a second string kind existed and would now call an id a number. Ordering is the one thing a
-   * global column cannot do without its dictionary, so it declines outright.
+   * decide "numeric key" by asking whether a column is NOT a per-leaf dictionary, which was
+   * exhaustive until a second string kind existed and would now call an id a number. Ordering is the
+   * one thing a global column cannot do without its dictionary, so it declines outright.
    *
    * @return {@code true} when every sort column can be ordered by its stored lane
    */
@@ -968,8 +968,7 @@ public final class ProjectionColumnScan {
       // long and the caller reverse-maps the whole run in ONE batch, which is the only shape in
       // which the reverse direction is affordable. A sink that does not expect that must not have
       // been given a global column: the executor gates the kind before it gets here.
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
-        sink.acceptLong(slice.numericValues()[rowIdx]);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> sink.acceptLong(slice.numericValues()[rowIdx]);
       default -> throw new IllegalStateException("value column kind " + kind + " is not emittable");
     }
   }
@@ -1973,10 +1972,10 @@ public final class ProjectionColumnScan {
    *
    * <p>
    * Both numeric columns and {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} present
-   * the same slice shape — {@code numericValues != null} — and the evaluators dispatch on that
-   * shape, so nothing downstream can tell a quantity from a dictionary id. A predicate over a global
-   * string column is therefore resolved to an id at plan time and arrives NUMERIC; one that still
-   * carries its literal bytes has escaped that translation, and running it would compare an unset
+   * the same slice shape — {@code numericValues != null} — and the evaluators dispatch on that shape,
+   * so nothing downstream can tell a quantity from a dictionary id. A predicate over a global string
+   * column is therefore resolved to an id at plan time and arrives NUMERIC; one that still carries
+   * its literal bytes has escaped that translation, and running it would compare an unset
    * {@code longLit} against ids and answer a different question with a plausible number. Loud, and
    * caught by every caller as a decline.
    */

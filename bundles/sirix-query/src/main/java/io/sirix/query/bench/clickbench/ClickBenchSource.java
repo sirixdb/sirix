@@ -37,8 +37,8 @@ import java.util.zip.GZIPInputStream;
 public final class ClickBenchSource {
 
   /**
-   * Read buffer for file sources. Keep both the byte-stream buffer and the legacy reader's
-   * two-byte {@code char[]} representation below G1's smallest humongous-object threshold.
+   * Read buffer for file sources. Keep both the byte-stream buffer and the legacy reader's two-byte
+   * {@code char[]} representation below G1's smallest humongous-object threshold.
    */
   private static final int BUFFER_BYTES = 128 * 1024;
 
@@ -110,8 +110,8 @@ public final class ClickBenchSource {
     final InputStream decoded = spec.toLowerCase(Locale.ROOT).endsWith(".gz")
         ? new GZIPInputStream(in, BUFFER_BYTES)
         : in;
-    final PushbackReader reader = new PushbackReader(
-        new BufferedReader(new InputStreamReader(decoded, StandardCharsets.UTF_8), BUFFER_BYTES), 1);
+    final PushbackReader reader =
+        new PushbackReader(new BufferedReader(new InputStreamReader(decoded, StandardCharsets.UTF_8), BUFFER_BYTES), 1);
     return isJsonArray(reader)
         ? reader
         : new JsonLinesAsArrayReader(reader);

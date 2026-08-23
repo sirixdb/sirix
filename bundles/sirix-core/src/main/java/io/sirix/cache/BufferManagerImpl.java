@@ -295,12 +295,13 @@ public final class BufferManagerImpl implements BufferManager {
       // Held-vs-budget for every cache backed by the exhausted arena. Without it, an arena OOM is
       // uninterpretable: the caches can be nowhere near their own budgets and still be pinning every
       // frame, and nothing else reports the two numbers side by side.
-      LOGGER.debug("Allocator pressure: recordPage {}/{} B ({} entries), fragment {}/{} B, hotLeaf {}/{} B, "
-          + "hotFragment {}/{} B", recordPageCache.getCurrentWeightBytes(), recordPageCache.getMaxWeightBytes(),
-          recordPageCache.size(), recordPageFragmentCache.getCurrentWeightBytes(),
-          recordPageFragmentCache.getMaxWeightBytes(), hotLeafPageCache.getCurrentWeightBytes(),
-          hotLeafPageCache.getMaxWeightBytes(), hotLeafFragmentCache.getCurrentWeightBytes(),
-          hotLeafFragmentCache.getMaxWeightBytes());
+      LOGGER.debug(
+          "Allocator pressure: recordPage {}/{} B ({} entries), fragment {}/{} B, hotLeaf {}/{} B, "
+              + "hotFragment {}/{} B",
+          recordPageCache.getCurrentWeightBytes(), recordPageCache.getMaxWeightBytes(), recordPageCache.size(),
+          recordPageFragmentCache.getCurrentWeightBytes(), recordPageFragmentCache.getMaxWeightBytes(),
+          hotLeafPageCache.getCurrentWeightBytes(), hotLeafPageCache.getMaxWeightBytes(),
+          hotLeafFragmentCache.getCurrentWeightBytes(), hotLeafFragmentCache.getMaxWeightBytes());
       recordPageCache.evictUnderPressure();
       recordPageFragmentCache.evictUnderPressure();
       hotLeafPageCache.evictUnderPressure();

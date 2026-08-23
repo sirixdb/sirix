@@ -539,18 +539,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
       final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
-    this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory,
-        externallyAllocatedMemory, null, null);
+    this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, externallyAllocatedMemory,
+        null, null);
   }
 
   /**
    * Constructor-stage injection seam for verifying ownership when eager frame initialization fails.
    * Both additional arguments are {@code null} on every production path.
    */
-  KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory,
-      final @Nullable MemorySegmentAllocator allocatorForTesting,
+  KeyValueLeafPage(final long recordPageKey, final IndexType indexType, final ResourceConfiguration resourceConfig,
+      final int revisionNumber, final MemorySegment slotMemory, final MemorySegment deweyIdMemory,
+      final boolean externallyAllocatedMemory, final @Nullable MemorySegmentAllocator allocatorForTesting,
       final @Nullable Runnable afterFrameAcquireForTesting) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
     // internal flow.
@@ -725,15 +724,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * </p>
    *
    * <p>
-   * <b>What this copy does NOT give you:</b> {@code records[]} is copied with
-   * {@link Arrays#copyOf}, so the copy and the original share every {@link DataRecord} INSTANCE.
-   * The page structure is independent; the records inside it are not. A record whose fields are
-   * mutated after this call — or whose serializer mutates them, as
-   * {@link io.sirix.index.path.summary.PathStats#writeTo} does when it calls
-   * {@code RoaringBitmap.runOptimize()} — is therefore shared mutable state across the async flush
-   * boundary, and the record itself must make that safe. {@code PathStats} does, by guarding its
-   * page-key bitmap with its own monitor. Any new mutable record kind flushed through this path
-   * owes the same guarantee; this method cannot supply it.
+   * <b>What this copy does NOT give you:</b> {@code records[]} is copied with {@link Arrays#copyOf},
+   * so the copy and the original share every {@link DataRecord} INSTANCE. The page structure is
+   * independent; the records inside it are not. A record whose fields are mutated after this call —
+   * or whose serializer mutates them, as {@link io.sirix.index.path.summary.PathStats#writeTo} does
+   * when it calls {@code RoaringBitmap.runOptimize()} — is therefore shared mutable state across the
+   * async flush boundary, and the record itself must make that safe. {@code PathStats} does, by
+   * guarding its page-key bitmap with its own monitor. Any new mutable record kind flushed through
+   * this path owes the same guarantee; this method cannot supply it.
    * </p>
    *
    * @return a fully independent deep copy of this page
@@ -802,8 +800,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
 
     for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
-      if (!PageLayout.isSlotPreserved(copy.slottedPage, slot)
-          || copy.records != null && copy.records[slot] != null
+      if (!PageLayout.isSlotPreserved(copy.slottedPage, slot) || copy.records != null && copy.records[slot] != null
           || PageLayout.isSlotPopulated(copy.slottedPage, slot)) {
         continue;
       }
@@ -1672,8 +1669,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * {@code slotMemory}. Normally the compressed form is already cached via
    * {@code setCompressedSegment()} or {@code setBytes()}; the async disposable-copy path instead
    * keeps the serialized sink alive until it copies that exact prefix into the page's frame after
-   * this method returns. After this call, individual records can still be reconstructed on demand from
-   * {@code slotMemory} via {@code getSlot(offset)} in
+   * this method returns. After this call, individual records can still be reconstructed on demand
+   * from {@code slotMemory} via {@code getSlot(offset)} in
    * {@link io.sirix.access.trx.page.NodeStorageEngineReader#getValue}.
    */
   public void clearRecordsForGC() {
@@ -2179,10 +2176,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * A zero-length payload answers the shared empty array, not {@code null}: the empty string is a
    * value like any other, and the caller drops from the string column every slot this method
    * declines. Dropping the empty ones left the column holding fewer values than the field has
-   * occurrences on the page — which is exactly what the column consumers' completeness oracle
-   * refuses to serve, so those pages fell back to the records, and what the dictionary sketch
-   * (consulted BEFORE that oracle) turned into a confident {@code count(f eq "") = 0}. Only an
-   * unpopulated slot or a negative length — neither of which is a value — answers {@code null}.
+   * occurrences on the page — which is exactly what the column consumers' completeness oracle refuses
+   * to serve, so those pages fell back to the records, and what the dictionary sketch (consulted
+   * BEFORE that oracle) turned into a confident {@code count(f eq "") = 0}. Only an unpopulated slot
+   * or a negative length — neither of which is a value — answers {@code null}.
    *
    * @return the stored bytes, or {@code null} when the slot holds no payload at all
    */
@@ -2209,13 +2206,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Copy a fused {@code OBJECT_NAMED_STRING} slot's stored payload into caller-owned scratch.
    *
-   * <p>The stored representation is copied verbatim: raw UTF-8 stays raw and FSST bytes stay
-   * encoded. A non-negative return value is always the exact payload length. If it exceeds
+   * <p>
+   * The stored representation is copied verbatim: raw UTF-8 stays raw and FSST bytes stay encoded. A
+   * non-negative return value is always the exact payload length. If it exceeds
    * {@code destination.length}, the destination is left untouched so a grow-only caller can resize
    * and retry without preserving a partial value. Zero is the valid empty-string length; {@code -1}
    * means that the slot has no payload. No view of the page's native memory escapes this method.
    *
-   * <p>The caller must already have established that {@code slotNumber} contains a fused
+   * <p>
+   * The caller must already have established that {@code slotNumber} contains a fused
    * {@code OBJECT_NAMED_STRING}; this is the allocation-free companion to
    * {@link #readFusedObjectNamedStringStoredBytes(int)} for the page-seal path.
    *

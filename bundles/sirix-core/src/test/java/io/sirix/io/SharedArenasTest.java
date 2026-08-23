@@ -55,8 +55,7 @@ public final class SharedArenasTest {
       assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.strategy());
       assertTrue(SharedArenas.supportsDeterministicClose());
     } else {
-      assertEquals(SharedArenas.strategy() == SharedArenas.Strategy.SHARED,
-          SharedArenas.supportsDeterministicClose());
+      assertEquals(SharedArenas.strategy() == SharedArenas.Strategy.SHARED, SharedArenas.supportsDeterministicClose());
     }
   }
 

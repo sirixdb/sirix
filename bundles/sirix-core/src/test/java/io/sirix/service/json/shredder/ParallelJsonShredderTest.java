@@ -41,8 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Corner-case coverage for {@link ParallelJsonShredder}: ordering, the all-or-nothing rollback
- * contract, fail-fast collision detection, reader lifecycle, and argument validation. The happy-path
- * test also exercises real concurrency (many partitions, default pool).
+ * contract, fail-fast collision detection, reader lifecycle, and argument validation. The
+ * happy-path test also exercises real concurrency (many partitions, default pool).
  */
 final class ParallelJsonShredderTest {
 
@@ -111,10 +111,16 @@ final class ParallelJsonShredderTest {
   void concurrencyOverridesAreClamped() {
     // maxConcurrency far above the partition count, and the <=0 "use all cores" path, must both work.
     // Distinct base names keep the two runs on the same database without interfering.
-    assertEquals(3, ParallelJsonShredder.shredPartitioned(database,
-        List.of(readerOf("[1]"), readerOf("[2]"), readerOf("[3]")), "hi", CONFIG, 0, 9999).size());
-    assertEquals(3, ParallelJsonShredder.shredPartitioned(database,
-        List.of(readerOf("[1]"), readerOf("[2]"), readerOf("[3]")), "lo", CONFIG, 0, -5).size());
+    assertEquals(
+        3, ParallelJsonShredder
+                               .shredPartitioned(database, List.of(readerOf("[1]"), readerOf("[2]"), readerOf("[3]")),
+                                   "hi", CONFIG, 0, 9999)
+                               .size());
+    assertEquals(
+        3, ParallelJsonShredder
+                               .shredPartitioned(database, List.of(readerOf("[1]"), readerOf("[2]"), readerOf("[3]")),
+                                   "lo", CONFIG, 0, -5)
+                               .size());
     assertEquals(6, database.listResources().size());
   }
 
@@ -124,9 +130,9 @@ final class ParallelJsonShredderTest {
 
   @Test
   void anyPartitionFailureRollsBackEveryCreatedResource() {
-    final List<Callable<JsonReader>> parts = Arrays.asList(
-        readerOf("[{\"shard\":0}]"),
-        () -> { throw new IOException("boom in partition 1"); }, // worker-time failure
+    final List<Callable<JsonReader>> parts = Arrays.asList(readerOf("[{\"shard\":0}]"), () -> {
+      throw new IOException("boom in partition 1");
+    }, // worker-time failure
         readerOf("[{\"shard\":2}]"));
 
     final SirixException ex = assertThrows(SirixException.class,
@@ -178,8 +184,8 @@ final class ParallelJsonShredderTest {
 
     final Thread caller = new Thread(() -> {
       try {
-        ParallelJsonShredder.shredPartitioned(interruptObservingDatabase,
-            List.of(interruptionIgnoringPartition), BASE, CONFIG, 0, 1);
+        ParallelJsonShredder.shredPartitioned(interruptObservingDatabase, List.of(interruptionIgnoringPartition), BASE,
+            CONFIG, 0, 1);
       } catch (final Throwable failure) {
         callerFailure.set(failure);
       } finally {
@@ -251,8 +257,7 @@ final class ParallelJsonShredderTest {
   @Test
   void nullArgumentsRejected() {
     final List<Callable<JsonReader>> ok = List.of(readerOf("[1]"));
-    assertThrows(NullPointerException.class,
-        () -> ParallelJsonShredder.shredPartitioned(null, ok, BASE, CONFIG, 0, 1));
+    assertThrows(NullPointerException.class, () -> ParallelJsonShredder.shredPartitioned(null, ok, BASE, CONFIG, 0, 1));
     assertThrows(NullPointerException.class,
         () -> ParallelJsonShredder.shredPartitioned(database, null, BASE, CONFIG, 0, 1));
     assertThrows(NullPointerException.class,

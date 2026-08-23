@@ -80,14 +80,12 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx addPostCommitHook(PostCommitHook hook);
 
   /**
-   * Run {@code work} while holding this transaction's internal lock — the
-   * lock that serializes mutators and commits against a delay-scheduled
-   * auto-commit. Read-side coordination that touches transaction-owned
-   * state (e.g. wtx-visible index serving, which flushes pending index
-   * maintenance and navigates the transaction) must run under it, or it
-   * races the auto-commit thread. Transactions configured without a lock
-   * (no auto-commit timer) are single-threaded by contract; the default
-   * simply runs {@code work}.
+   * Run {@code work} while holding this transaction's internal lock — the lock that serializes
+   * mutators and commits against a delay-scheduled auto-commit. Read-side coordination that touches
+   * transaction-owned state (e.g. wtx-visible index serving, which flushes pending index maintenance
+   * and navigates the transaction) must run under it, or it races the auto-commit thread.
+   * Transactions configured without a lock (no auto-commit timer) are single-threaded by contract;
+   * the default simply runs {@code work}.
    *
    * @param work the work to run under the transaction's lock
    */

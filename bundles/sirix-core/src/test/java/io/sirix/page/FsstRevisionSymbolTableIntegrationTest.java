@@ -34,20 +34,21 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * FSST end to end, with the symbol table built once per revision and stored in the dictionary
- * trie.
+ * FSST end to end, with the symbol table built once per revision and stored in the dictionary trie.
  *
- * <p>The write path builds one table per commit from strings pooled across every page (the
- * per-page build it replaces made ingest 18× slower and rarely gathered enough samples to build a
- * table at all), stores it as a versioned record, and pages carry only its id. The property that
- * proves the whole chain — sampling, pooled build, dictionary store, page reference, lazy
- * resolution — is simply that every string reads back <em>equal</em> after the caches are dropped,
- * because a break anywhere in that chain does not throw: it decodes against the wrong symbols and
- * returns plausible garbage.
+ * <p>
+ * The write path builds one table per commit from strings pooled across every page (the per-page
+ * build it replaces made ingest 18× slower and rarely gathered enough samples to build a table at
+ * all), stores it as a versioned record, and pages carry only its id. The property that proves the
+ * whole chain — sampling, pooled build, dictionary store, page reference, lazy resolution — is
+ * simply that every string reads back <em>equal</em> after the caches are dropped, because a break
+ * anywhere in that chain does not throw: it decodes against the wrong symbols and returns plausible
+ * garbage.
  *
- * <p>Two revisions with differently-shaped vocabularies pin the versioning half: each revision's
- * pages must decode against the table that existed when they were written, not against whatever
- * the latest rebuild produced.
+ * <p>
+ * Two revisions with differently-shaped vocabularies pin the versioning half: each revision's pages
+ * must decode against the table that existed when they were written, not against whatever the
+ * latest rebuild produced.
  */
 @DisplayName("FSST with a per-revision symbol table")
 public final class FsstRevisionSymbolTableIntegrationTest {
@@ -57,8 +58,8 @@ public final class FsstRevisionSymbolTableIntegrationTest {
 
   /**
    * Enough strings for a table to build and pay: the sampler ignores strings under 32 bytes, the
-   * builder wants 64 of them and 4 KB in total, and the benefit check wants a 15% saving — URLs
-   * with a long shared prefix clear all three easily.
+   * builder wants 64 of them and 4 KB in total, and the benefit check wants a 15% saving — URLs with
+   * a long shared prefix clear all three easily.
    */
   private static final int STRINGS_PER_REVISION = 120;
 
@@ -67,9 +68,8 @@ public final class FsstRevisionSymbolTableIntegrationTest {
     JsonTestHelper.deleteEverything();
     Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
-      db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-          .stringCompressionType(StringCompressionType.FSST)
-          .build());
+      db.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE_NAME).stringCompressionType(StringCompressionType.FSST).build());
     }
   }
 
@@ -87,7 +87,7 @@ public final class FsstRevisionSymbolTableIntegrationTest {
 
     // Revision 1: one vocabulary.
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(asJsonArray(revisionOneValues)),
             JsonNodeTrx.Commit.NO);
@@ -110,7 +110,7 @@ public final class FsstRevisionSymbolTableIntegrationTest {
     Databases.getGlobalBufferManager().clearAllCaches();
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       // The mechanism engaged: revision 1 stored a symbol table in the dictionary. Without this,
       // the value assertions below would also pass for plain raw strings and prove nothing.
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
@@ -122,15 +122,13 @@ public final class FsstRevisionSymbolTableIntegrationTest {
       }
 
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
-        assertEquals(revisionOneValues, readStringArray(rtx),
-            "revision 1's strings did not survive the round trip");
+        assertEquals(revisionOneValues, readStringArray(rtx), "revision 1's strings did not survive the round trip");
       }
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
         assertTrue(rtx.moveToDocumentRoot());
         assertTrue(rtx.moveToFirstChild(), "the outer array is missing");
         assertTrue(rtx.moveToFirstChild(), "revision 2's nested array is missing");
-        assertEquals(revisionTwoValues, readArrayAtCursor(rtx),
-            "revision 2's strings did not survive the round trip");
+        assertEquals(revisionTwoValues, readArrayAtCursor(rtx), "revision 2's strings did not survive the round trip");
         // The cursor is back on the nested array; its right siblings are revision 1's strings,
         // now being read at revision 2 — the cross-revision case that would corrupt if these
         // pages resolved the latest table instead of the one they name.
@@ -146,11 +144,11 @@ public final class FsstRevisionSymbolTableIntegrationTest {
   }
 
   /**
-   * Object-field (fused kind-50) values through the whole pipeline: sampled for the revision
-   * table, FSST-rewritten in the heap, mirrored verbatim into the string region, elided, cold
-   * reopen, re-injected, decoded on read. These are the strings that hold nearly all bytes on
-   * real JSON — the array-string test above cannot stand in for them, since fused records take
-   * entirely different write and read paths.
+   * Object-field (fused kind-50) values through the whole pipeline: sampled for the revision table,
+   * FSST-rewritten in the heap, mirrored verbatim into the string region, elided, cold reopen,
+   * re-injected, decoded on read. These are the strings that hold nearly all bytes on real JSON — the
+   * array-string test above cannot stand in for them, since fused records take entirely different
+   * write and read paths.
    */
   @Test
   @DisplayName("fused object-field strings survive the full FSST pipeline")
@@ -166,10 +164,9 @@ public final class FsstRevisionSymbolTableIntegrationTest {
     json.append('}');
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
     }
@@ -177,7 +174,7 @@ public final class FsstRevisionSymbolTableIntegrationTest {
     Databases.getGlobalBufferManager().clearAllCaches();
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveToDocumentRoot());
         assertTrue(rtx.moveToFirstChild(), "the object is missing");
@@ -190,8 +187,7 @@ public final class FsstRevisionSymbolTableIntegrationTest {
           read.add(rtx.getValue());
           valueIndex++;
         } while (rtx.moveToRightSibling());
-        assertEquals(values, read,
-            "fused field values did not survive the FSST pipeline round trip");
+        assertEquals(values, read, "fused field values did not survive the FSST pipeline round trip");
       }
     }
   }

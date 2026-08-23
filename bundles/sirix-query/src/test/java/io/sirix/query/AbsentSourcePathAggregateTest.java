@@ -120,14 +120,15 @@ public final class AbsentSourcePathAggregateTest extends AbstractJsonTest {
   }
 
   private static String serialize(final String query, final boolean autoWired) throws IOException {
-    try (final BasicJsonDBStore store =
-             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = autoWired
-             ? SirixCompileChain.createWithJsonStore(store)
-             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final var out = new ByteArrayOutputStream();
-         final var printWriter = new PrintWriter(out)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = autoWired
+            ? SirixCompileChain.createWithJsonStore(store)
+            : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final var out = new ByteArrayOutputStream();
+        final var printWriter = new PrintWriter(out)) {
       new Query(chain, query).serialize(ctx, printWriter);
       printWriter.flush();
       return out.toString();

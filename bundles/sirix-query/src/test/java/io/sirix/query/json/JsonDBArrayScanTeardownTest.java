@@ -24,16 +24,18 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * Pins how a SEQUENTIAL scan of {@code AbstractJsonDBArray} ends.
  *
- * <p>Two properties, both invisible to a test that only checks the elements. The read-ahead
+ * <p>
+ * Two properties, both invisible to a test that only checks the elements. The read-ahead
  * ({@link RecordPagePrefetcher}) opens a read-only transaction per worker thread, and nothing in
  * the JDM hands the array item a teardown hook: it is not {@code AutoCloseable} and brackit's
  * iterator {@code close()} is a no-op. Its unbox bounds the loop by {@code len()}, so a completed
  * scan never asks for the element past the end either — which means the last element is the only
  * point at which a finished walk is observable, and the only place those transactions can be
- * released. Left open they accumulate per scanned array, and each one pins its revision against
- * the page cache's watermark eviction.
+ * released. Left open they accumulate per scanned array, and each one pins its revision against the
+ * page cache's watermark eviction.
  *
- * <p>The second property is what the overrun probe costs: a consumer that walks until {@code null}
+ * <p>
+ * The second property is what the overrun probe costs: a consumer that walks until {@code null}
  * instead of bounding by {@code len()} must not trigger a full materialization of the element list
  * — the very thing the sibling walk exists to avoid, and a list that is then retained for the rest
  * of the query.
@@ -132,14 +134,14 @@ final class JsonDBArrayScanTeardownTest {
     assertNotNull(array.at(0));
     assertNotNull(array.at(1), "the second step is what starts the read-ahead");
     assertTrue(awaitTransactionsAbove(session, baseline),
-               "precondition: the read-ahead must have opened worker transactions, else this proves nothing");
+        "precondition: the read-ahead must have opened worker transactions, else this proves nothing");
 
     for (int i = 2; i < len; i++) {
       assertNotNull(array.at(i), "element " + i + " must be served by the sibling walk");
     }
 
     assertTrue(awaitTransactionsDownTo(session, baseline),
-               "a completed scan must release every transaction the read-ahead opened");
+        "a completed scan must release every transaction the read-ahead opened");
   }
 
   /** Waits, bounded, for the read-ahead workers to have opened their transactions. */
@@ -150,22 +152,24 @@ final class JsonDBArrayScanTeardownTest {
   /**
    * Waits, bounded, for the read-ahead's transactions to be gone again.
    *
-   * <p>Bounded rather than immediate ON PURPOSE. Teardown hands the release to whichever thread
-   * observes the last speculative decode finish — the query thread when the window is already
-   * empty, the last worker otherwise — precisely so that closing at the last element cannot block
-   * the query on work nothing will read. The guarantee is that a finished walk retains no
-   * transaction, not that the release happens on the caller's stack.
+   * <p>
+   * Bounded rather than immediate ON PURPOSE. Teardown hands the release to whichever thread observes
+   * the last speculative decode finish — the query thread when the window is already empty, the last
+   * worker otherwise — precisely so that closing at the last element cannot block the query on work
+   * nothing will read. The guarantee is that a finished walk retains no transaction, not that the
+   * release happens on the caller's stack.
    */
   private static boolean awaitTransactionsDownTo(final JsonResourceSession session, final int baseline) {
     return awaitTransactions(session, baseline, false);
   }
 
-  private static boolean awaitTransactions(final JsonResourceSession session, final int baseline,
-      final boolean above) {
+  private static boolean awaitTransactions(final JsonResourceSession session, final int baseline, final boolean above) {
     final long deadline = System.nanoTime() + 10_000_000_000L;
     while (System.nanoTime() < deadline) {
       final int active = session.activeTrxCount();
-      if (above ? active > baseline : active <= baseline) {
+      if (above
+          ? active > baseline
+          : active <= baseline) {
         return true;
       }
       Thread.onSpinWait();
@@ -188,10 +192,9 @@ final class JsonDBArrayScanTeardownTest {
     final Sequence overrun = array.at(len);
     assertNull(overrun, "the element after the last one does not exist");
     assertNull(valuesFieldOf(array),
-               "an out-of-range probe must be answered from the child count, not by materializing "
-                   + ELEMENTS + " elements");
+        "an out-of-range probe must be answered from the child count, not by materializing " + ELEMENTS + " elements");
     assertTrue(awaitTransactionsDownTo(session, baseline),
-               "the probe that ends the walk must not leave a read-ahead transaction open");
+        "the probe that ends the walk must not leave a read-ahead transaction open");
   }
 
   @Test
@@ -218,7 +221,7 @@ final class JsonDBArrayScanTeardownTest {
     assertNotNull(array.at(1), "the second step is what restarts the read-ahead");
     assertNotNull(prefetcherFieldOf(array), "a second sequential walk must get read-ahead again");
     assertTrue(awaitTransactionsAbove(session, baseline),
-               "the restarted read-ahead must actually open worker transactions again");
+        "the restarted read-ahead must actually open worker transactions again");
 
     for (int i = 2; i < len; i++) {
       assertNotNull(array.at(i));
@@ -250,7 +253,7 @@ final class JsonDBArrayScanTeardownTest {
     assertNotNull(inner.at(0));
     assertNotNull(inner.at(1));
     assertNull(prefetcherFieldOf(inner),
-               "a three-element walk must never start a read-ahead window it would have to dispose of");
+        "a three-element walk must never start a read-ahead window it would have to dispose of");
     assertNotNull(inner.at(2));
     assertNull(prefetcherFieldOf(inner));
 
@@ -284,8 +287,7 @@ final class JsonDBArrayScanTeardownTest {
 
     inFlight.release();
     assertTrue(elapsedMillis < 1_000L,
-               "close() must cancel the outstanding window rather than wait for it, but took "
-                   + elapsedMillis + " ms");
+        "close() must cancel the outstanding window rather than wait for it, but took " + elapsedMillis + " ms");
   }
 
   @Test

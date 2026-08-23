@@ -25,8 +25,7 @@ final class DocumentRecordLocationCacheTest {
 
     cache.put(19 + NodeStorageEngineWriter.DocumentRecordLocationCache.CAPACITY, collidingIdentity);
     assertEquals(PageContainer.NULL_TRANSACTION_LOG_IDENTITY, cache.get(19));
-    assertEquals(collidingIdentity,
-        cache.get(19 + NodeStorageEngineWriter.DocumentRecordLocationCache.CAPACITY));
+    assertEquals(collidingIdentity, cache.get(19 + NodeStorageEngineWriter.DocumentRecordLocationCache.CAPACITY));
   }
 
   @Test

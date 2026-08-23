@@ -31,9 +31,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Labelling a long run of consecutive UNLABELLED siblings is the shape every projection build takes:
- * {@code ProjectionIndexBuilder.buildAndPersist} resolves one order label per record, in document
- * order, over an array whose records all already exist and none of which owns a slot yet.
+ * Labelling a long run of consecutive UNLABELLED siblings is the shape every projection build
+ * takes: {@code ProjectionIndexBuilder.buildAndPersist} resolves one order label per record, in
+ * document order, over an array whose records all already exist and none of which owns a slot yet.
  *
  * <p>
  * Discovering each label's bounds by walking outwards makes that quadratic — the first record's
@@ -54,9 +54,9 @@ final class ProjectionStructuralOrderRunMintTest {
   private static final int RECORDS = 2000;
 
   /**
-   * Sibling steps allowed per labelled record. Resolving a run once costs a small constant per
-   * member (walk to the run's head, scan it for its upper bound, assign it); re-probing per record
-   * costs order-of-{@code RECORDS} steps each, which for this array is about 500 per record.
+   * Sibling steps allowed per labelled record. Resolving a run once costs a small constant per member
+   * (walk to the run's head, scan it for its upper bound, assign it); re-probing per record costs
+   * order-of-{@code RECORDS} steps each, which for this array is about 500 per record.
    */
   private static final int MAX_LOOKUPS_PER_RECORD = 12;
 
@@ -79,17 +79,17 @@ final class ProjectionStructuralOrderRunMintTest {
   void labellingALongUnlabelledSiblingRunStaysBoundedPerRecordAndCommits() throws Exception {
     final StringBuilder json = new StringBuilder("[");
     for (int record = 0; record < RECORDS; record++) {
-      json.append(record == 0 ? "" : ",").append("{\"score\":").append(record).append('}');
+      json.append(record == 0
+          ? ""
+          : ",").append("{\"score\":").append(record).append('}');
     }
     json.append(']');
 
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx();
-           var parser = JacksonJsonShredder.createStringParser(json.toString())) {
-        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                   .build()
-                                                                                   .call();
+          var parser = JacksonJsonShredder.createStringParser(json.toString())) {
+        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
 
       final List<Long> recordKeys = new ArrayList<>(RECORDS);
@@ -112,14 +112,13 @@ final class ProjectionStructuralOrderRunMintTest {
 
         // Document order, exactly as ProjectionIndexBuilder resolves labels while it emits rows.
         for (final long recordKey : recordKeys) {
-          labels.add(directory.fullLabel(recordKey, countingLookup,
-              ProjectionStructuralOrderDirectory.RelabelSink.SEALED));
+          labels.add(
+              directory.fullLabel(recordKey, countingLookup, ProjectionStructuralOrderDirectory.RelabelSink.SEALED));
         }
 
         final long budget = (long) RECORDS * MAX_LOOKUPS_PER_RECORD;
-        assertTrue(lookups.get() <= budget,
-            "labelling " + RECORDS + " consecutive unlabelled siblings took " + lookups.get()
-                + " document lookups; bounded per-record work allows at most " + budget);
+        assertTrue(lookups.get() <= budget, "labelling " + RECORDS + " consecutive unlabelled siblings took "
+            + lookups.get() + " document lookups; bounded per-record work allows at most " + budget);
         // The transaction must survive it: a long sibling run is not a reason to refuse a document.
         wtx.commit();
       }

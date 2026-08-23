@@ -38,14 +38,15 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
   /**
    * Ownership contract for an empty byte-handler pipeline's identity result.
    *
-   * <p>The default requires the page serializer to retain an owned copy, because this writer's
-   * pooled segment is reused as soon as serialization returns. The alternate policy is deliberately
-   * explicit and narrow: its caller must copy the exact written prefix into owned storage before
-   * returning this writer to the pool.</p>
+   * <p>
+   * The default requires the page serializer to retain an owned copy, because this writer's pooled
+   * segment is reused as soon as serialization returns. The alternate policy is deliberately explicit
+   * and narrow: its caller must copy the exact written prefix into owned storage before returning
+   * this writer to the pool.
+   * </p>
    */
   public enum IdentityCachePolicy {
-    RETAIN_OWNED_COPY,
-    CALLER_COPIES_BEFORE_RELEASE
+    RETAIN_OWNED_COPY, CALLER_COPIES_BEFORE_RELEASE
   }
 
   private final PooledGrowingSegment segment;

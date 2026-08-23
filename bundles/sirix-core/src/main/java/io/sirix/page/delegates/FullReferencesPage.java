@@ -70,8 +70,7 @@ public final class FullReferencesPage implements Page {
     // BitmapReferencesPage stores references densely: bitmap offsets identify the destination
     // slots, while the source list is indexed by the rank of each set bit. Using the sparse
     // offset as a list index both misplaced references and failed for any offset >= list size.
-    for (int offset = bitSet.nextSetBit(0); offset >= 0;
-        offset = bitSet.nextSetBit(offset + 1)) {
+    for (int offset = bitSet.nextSetBit(0); offset >= 0; offset = bitSet.nextSetBit(offset + 1)) {
       references[offset] = new PageReference(compactReferences.get(compactRank++));
     }
   }
@@ -88,8 +87,9 @@ public final class FullReferencesPage implements Page {
       final PageReference pageReferenceToClone = pageToClone.referenceAt(index);
       // Route through the PageReference copy constructor (copies hashInBytes + fragments, nulls a
       // resolvable swizzle) — a manual copy dropped the hash, disabling checksum verification.
-      references[index] =
-          pageReferenceToClone != null ? new PageReference(pageReferenceToClone) : new PageReference();
+      references[index] = pageReferenceToClone != null
+          ? new PageReference(pageReferenceToClone)
+          : new PageReference();
     }
   }
 

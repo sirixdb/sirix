@@ -171,21 +171,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /**
    * Chain-wide lifetime shared by every revision-specific executor a compile chain creates.
    *
-   * <p>The admission word's sign bit is the terminal-close flag and its remaining bits count
-   * accepted top-level executor calls. Retirement never closes this lifetime: an expression compiled
-   * against a retired executor is still allowed to run inline. Terminal chain close flips the bit,
-   * rejects later calls, and waits until every call accepted before the flip has left.
+   * <p>
+   * The admission word's sign bit is the terminal-close flag and its remaining bits count accepted
+   * top-level executor calls. Retirement never closes this lifetime: an expression compiled against a
+   * retired executor is still allowed to run inline. Terminal chain close flips the bit, rejects
+   * later calls, and waits until every call accepted before the flip has left.
    *
-   * <p>The same lifetime owns detached lazy-result cursors. There is at most one registered cursor
-   * per consuming thread, irrespective of how many revisions that thread visits. A revision switch
-   * closes the previous cursor before opening the requested one, so old lazy objects remain valid
-   * without growing the session's transaction maps by {@code revisions * materialization lanes}.
-   * Escaped lazy items remain readable across executor retirement and revision eviction while this
-   * lifecycle and its resource sessions are open. They are not themselves execution leases: callers
-   * must quiesce external lazy-item consumers before terminally closing the chain/store. Supporting a
-   * cursor operation concurrent with terminal close would require a lease on every forwarded node
-   * operation, adding synchronization to the record/navigation hot path. A lookup that observes
-   * terminal publication is rejected, and cold cursor registration is serialized with cursor close.
+   * <p>
+   * The same lifetime owns detached lazy-result cursors. There is at most one registered cursor per
+   * consuming thread, irrespective of how many revisions that thread visits. A revision switch closes
+   * the previous cursor before opening the requested one, so old lazy objects remain valid without
+   * growing the session's transaction maps by {@code revisions * materialization lanes}. Escaped lazy
+   * items remain readable across executor retirement and revision eviction while this lifecycle and
+   * its resource sessions are open. They are not themselves execution leases: callers must quiesce
+   * external lazy-item consumers before terminally closing the chain/store. Supporting a cursor
+   * operation concurrent with terminal close would require a lease on every forwarded node operation,
+   * adding synchronization to the record/navigation hot path. A lookup that observes terminal
+   * publication is rejected, and cold cursor registration is serialized with cursor close.
    */
   public static final class ExecutionLifecycle implements ThreadSafeJsonReadOnlyTrx.DetachedCursorProvider {
     private static final long TERMINAL_BIT = Long.MIN_VALUE;
@@ -195,14 +197,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private final Object terminalMonitor = new Object();
     /** Executors whose pools/warm-up lanes have not completed retirement yet. */
     private final ConcurrentHashMap<SirixVectorizedExecutor, Boolean> liveExecutors = new ConcurrentHashMap<>();
-    /** Cold registry used for retirement/terminal enumeration; hot lookup is exclusively ThreadLocal. */
+    /**
+     * Cold registry used for retirement/terminal enumeration; hot lookup is exclusively ThreadLocal.
+     */
     private final ConcurrentHashMap<Long, RecordCursorSlot> recordCursors = new ConcurrentHashMap<>();
     private final ReferenceQueue<Thread> retiredConsumerThreads = new ReferenceQueue<>();
     private final ThreadLocal<ThreadState> threadState = ThreadLocal.withInitial(ThreadState::new);
     private volatile boolean recordCursorsClosed;
 
-    public ExecutionLifecycle() {
-    }
+    public ExecutionLifecycle() {}
 
     /** Lock-free admission on the scan hot path. */
     private boolean tryEnter() {
@@ -234,8 +237,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
     /**
      * Admit work before it can touch a chain-owned executor resolver, resource session, or cursor.
-     * Reentrant admission on the same thread is a depth increment only; the outermost admission is
-     * the sole global counter update.
+     * Reentrant admission on the same thread is a depth increment only; the outermost admission is the
+     * sole global counter update.
      */
     public void enter() {
       if (!tryEnter()) {
@@ -290,9 +293,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     /**
-     * Permanently reject new work, drain work admitted before the fence, and release detached
-     * consumer cursors after external lazy-item consumers have been quiesced. Idempotent and
-     * uninterruptible; an observed interrupt is restored.
+     * Permanently reject new work, drain work admitted before the fence, and release detached consumer
+     * cursors after external lazy-item consumers have been quiesced. Idempotent and uninterruptible; an
+     * observed interrupt is restored.
      */
     public void closeAndAwait() {
       if (isEnteredByCurrentThread()) {
@@ -397,8 +400,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // consistent map is sufficient: terminal publication prevents a constructor from registering
       // after this point, and a constructor racing publication removes itself on its second check.
       while (!liveExecutors.isEmpty()) {
-        final SirixVectorizedExecutor[] snapshot =
-            liveExecutors.keySet().toArray(SirixVectorizedExecutor[]::new);
+        final SirixVectorizedExecutor[] snapshot = liveExecutors.keySet().toArray(SirixVectorizedExecutor[]::new);
         for (final SirixVectorizedExecutor executor : snapshot) {
           executor.retire();
         }
@@ -744,8 +746,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * drain the QUEUE without interrupting the RUNNING task. Its tasks read through a
    * {@code FileChannel} that the storage shares with every other reader of the resource, and a
    * {@code FileChannel} is an {@code InterruptibleChannel}: interrupting a thread blocked in one of
-   * its operations CLOSES the channel for everyone. {@code shutdownNow()} here therefore used to
-   * take a concurrent parallel scan down with a bare {@code ClosedChannelException}.
+   * its operations CLOSES the channel for everyone. {@code shutdownNow()} here therefore used to take
+   * a concurrent parallel scan down with a bare {@code ClosedChannelException}.
    * </p>
    */
   private final ThreadPoolExecutor projectionWarmupPool;
@@ -1011,8 +1013,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
-    this.projectionWarmupPool = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
-        new LinkedBlockingQueue<>(), r -> {
+    this.projectionWarmupPool =
+        new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), r -> {
           final Thread thread = new Thread(r, "sirix-projection-warmup");
           thread.setDaemon(true);
           return thread;
@@ -1037,8 +1039,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /**
    * Retire this revision-specific executor without invalidating expressions compiled against it.
    *
-   * <p>Accepted pool work and warm-ups are drained, then later scans degrade to inline execution.
-   * The chain-wide execution lifetime and lazy-result cursor pool remain open.
+   * <p>
+   * Accepted pool work and warm-ups are drained, then later scans degrade to inline execution. The
+   * chain-wide execution lifetime and lazy-result cursor pool remain open.
    */
   public void retire() {
     try {
@@ -1628,8 +1631,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     // A GLOBAL string column reaches this shim too: its cells are dense dictionary ids in the same
     // long lane, so the same kernel groups them and only the emitted KEY differs (below).
-    final boolean globalKey =
-        handle.columnKindOf(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    final boolean globalKey = handle.columnKindOf(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
     final long globalDictionary = globalKey
         ? handle.valueDictionaryHeaderKey(groupColumn)
         : 0L;
@@ -2659,16 +2661,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Whether aggregate block {@code a} is the COUNT(DISTINCT) operand in the ONE position that needs no
-   * dictionary bytes — so its column can be filled in distinct-identity mode (per-row ids beside the
-   * precomputed {@code SEG_KIND_DICT_HASHES} table) instead of paying for the dictionary chain.
+   * Whether aggregate block {@code a} is the COUNT(DISTINCT) operand in the ONE position that needs
+   * no dictionary bytes — so its column can be filled in distinct-identity mode (per-row ids beside
+   * the precomputed {@code SEG_KIND_DICT_HASHES} table) instead of paying for the dictionary chain.
    *
    * <p>
-   * The mode is chosen by the CONSUMER's need, never globally: the group key, a string-length operand,
-   * and every winner materialization read the entries themselves, and only this position does not. A
-   * column another consumer has already filled keeps the full slices — the store answers from that
-   * cache rather than fetching a second chain (hashing decoded entries is what the fold falls back to
-   * anyway).
+   * The mode is chosen by the CONSUMER's need, never globally: the group key, a string-length
+   * operand, and every winner materialization read the entries themselves, and only this position
+   * does not. A column another consumer has already filled keeps the full slices — the store answers
+   * from that cache rather than fetching a second chain (hashing decoded entries is what the fold
+   * falls back to anyway).
    */
   private static boolean distinctIdentityOperand(final boolean cdStringDict, final int a, final int cdBlock,
       final int column, final ProjectionColumnStore store) {
@@ -5345,14 +5347,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Whether the NAMED steps of {@code sourcePath} resolve to a path node in this revision's summary
-   * — the gate every serving entry point below opens with.
+   * Whether the NAMED steps of {@code sourcePath} resolve to a path node in this revision's summary —
+   * the gate every serving entry point below opens with.
    *
    * <p>
    * <b>Why serving must decline when they do not.</b> {@link #resolveTargetPathNodeKey} answers
-   * {@code -1} for two very different situations: a path the summary cannot SCOPE (no summary at
-   * all, an ambiguous name, an array-valued field whose slots carry the anonymous layer's key) and a
-   * path that is provably ABSENT. Every kernel here reads {@code -1} as "unscoped" and falls back to
+   * {@code -1} for two very different situations: a path the summary cannot SCOPE (no summary at all,
+   * an ambiguous name, an array-valued field whose slots carry the anonymous layer's key) and a path
+   * that is provably ABSENT. Every kernel here reads {@code -1} as "unscoped" and falls back to
    * matching the field by NAME across the whole resource, which is the right degradation for the
    * first group and a wrong ANSWER for the second: after {@code delete json $doc.a}, a query over
    * {@code $doc.a[]} would fold every {@code age} still living under {@code $doc.b} into a sum the
@@ -5388,10 +5390,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Resolve {@code named} — the source path's named steps, outermost first — against the path
-   * summary. Uses the same exact-position match {@link #computeTargetPathNodeKey} applies to a
-   * field, so "present" here means the query path really exists rather than merely sharing a local
-   * name with something deeper. An ambiguous name is present (several nodes sit at that path); only
-   * "no node sits there at all" is absence.
+   * summary. Uses the same exact-position match {@link #computeTargetPathNodeKey} applies to a field,
+   * so "present" here means the query path really exists rather than merely sharing a local name with
+   * something deeper. An ambiguous name is present (several nodes sit at that path); only "no node
+   * sits there at all" is absence.
    */
   private boolean computeSourcePathIsPresent(final String[] named) {
     final String leaf = named[named.length - 1];
@@ -7659,9 +7661,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * <li><b>A real id</b> — an ordinary {@code EQ}/{@code NE} over ids. Zone maps prune on it exactly,
    * since the column's min/max ARE id bounds.</li>
    * <li><b>{@code ID_ABSENT}</b> — the dictionary is complete and provably lacks the value, so no row
-   * can hold it. {@code EQ} becomes constant-false (expressed as {@code > Long.MAX_VALUE}, which every
-   * zone map prunes outright, so the columns are never read); {@code NE} becomes constant-true over
-   * PRESENT rows (expressed as {@code >= Long.MIN_VALUE}, so the presence bitmap still excludes
+   * can hold it. {@code EQ} becomes constant-false (expressed as {@code > Long.MAX_VALUE}, which
+   * every zone map prunes outright, so the columns are never read); {@code NE} becomes constant-true
+   * over PRESENT rows (expressed as {@code >= Long.MIN_VALUE}, so the presence bitmap still excludes
    * missing cells — {@code () != "x"} is the empty sequence and must not match).</li>
    * <li><b>{@code ID_UNKNOWN}</b> — the dictionary could not be read. Decline; the generic pipeline
    * answers correctly, and reading "cannot say" as "not there" would silently drop every matching
@@ -11534,8 +11536,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * gate that refused a query instead of leaving "served nothing" indistinguishable from "no fast
    * path exists". This is the EXECUTION-side twin of {@code GroupAggregateDetectionStage}'s
    * {@code [groupagg-decline]} line: that one reports compile-time shape, this one reports the
-   * runtime evidence gates (column kinds, sparse cleanliness, budgets, arm coverage) — which is
-   * where a query that serves at one corpus size and declines at another parts ways.
+   * runtime evidence gates (column kinds, sparse cleanliness, budgets, arm coverage) — which is where
+   * a query that serves at one corpus size and declines at another parts ways.
    *
    * @param reason names the gate; keep it stable and cheap (a constant, or one concatenation)
    * @return {@code null}, always — the caller's decline value
@@ -11579,8 +11581,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * EXEMPTS {@code len:} operands whose magnitudes it cannot bound — a string-length operand read by
    * a sum is a real accumulation and its lane must stay exact.
    */
-  private static long summedLanes(final String[] funcs, final String[] aggFields,
-      final List<String> distinctFields) {
+  private static long summedLanes(final String[] funcs, final String[] aggFields, final List<String> distinctFields) {
     long mask = 0L;
     for (int i = 0; i < funcs.length; i++) {
       final String func = baseFunc(funcs[i]);
@@ -11678,7 +11679,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         for (int g = 0; g < keyCount; g++) {
           if (keyStringify[g]) {
             if (keySubstLit[g] != null) {
-              return declineGroupAgg("key is both conditional and stringified"); // a conditional AND stringified key is not one this arm can express
+              return declineGroupAgg("key is both conditional and stringified"); // a conditional AND stringified key is
+                                                                                 // not one this arm can express
             }
             keySubstLit[g] = "";
           }
@@ -11701,7 +11703,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final boolean keyDivided = keyDivMod != null && (keyDivMod[2 * g] != 0L || keyDivMod[2 * g + 1] != 0L);
         final boolean keyStringified = keyStringify != null && keyStringify[g];
         if (keyShifted && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          return declineGroupAgg("shifted key needs a NUMERIC_LONG column"); // an arithmetic shift needs a numeric component
+          return declineGroupAgg("shifted key needs a NUMERIC_LONG column"); // an arithmetic shift needs a numeric
+                                                                             // component
         }
         if (keyDivided) {
           // `(f idiv D) mod M` is integer arithmetic over the column's longs, and the transforms
@@ -11720,7 +11723,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
         if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-          return declineGroupAgg("substring key needs a STRING_DICT column"); // a substring transform needs a dict component
+          return declineGroupAgg("substring key needs a STRING_DICT column"); // a substring transform needs a dict
+                                                                              // component
         }
         if (keyCondCols != null) {
           keyCondCols[2 * g] = -1;
@@ -11749,11 +11753,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             keyCondCols[2 * g + j] = cc;
           }
           if (keyCondCols[2 * g] < 0) {
-            return declineGroupAgg("conditional key without a condition column"); // a conditional key with no condition column is not this shape
+            return declineGroupAgg("conditional key without a condition column"); // a conditional key with no condition
+                                                                                  // column is not this shape
           }
         }
         if (keySubstr != null && keySubstr[2 * g] < 0 && keyCount > 1) {
-          return declineGroupAgg("packed substring key is single-key only"); // the STRING substring variant serves single keys via the packed arm only
+          return declineGroupAgg("packed substring key is single-key only"); // the STRING substring variant serves
+                                                                             // single keys via the packed arm only
         }
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             && handle.numericColumnIsIntegral(col, fetcher)) {
@@ -12000,7 +12006,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // digit pack (validated ISO-minute windows), so ORD_KEY is servable for it.
       final boolean packedStringKey = keyCount == 1 && keySubstr != null && keySubstr[0] < 0;
       if (packedStringKey && (keySubstr[1] != 16 || cdBlock >= 0)) {
-        return declineGroupAgg("packed substring key outside the 16-char window, or with count(distinct)"); // the pack validator covers the 16-char ISO-minute window; CD stays out (v1)
+        return declineGroupAgg("packed substring key outside the 16-char window, or with count(distinct)"); // the pack
+                                                                                                            // validator
+                                                                                                            // covers
+                                                                                                            // the
+                                                                                                            // 16-char
+                                                                                                            // ISO-minute
+                                                                                                            // window;
+                                                                                                            // CD stays
+                                                                                                            // out (v1)
       }
       // A STRING_DICT distinct operand serves on the two SINGLE-key flat arms only (both kernel
       // families). The composite arm asserts NUMERIC_LONG over every aggregate column, so it would
@@ -12048,7 +12062,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       final GroupOrderPlan orderPlan = resolvedPlan;
       if (anyKeyTransform && orderPlan == null) {
-        return declineGroupAgg("transformed key without an order plan"); // transformed keys serve only through the flat composite route
+        return declineGroupAgg("transformed key without an order plan"); // transformed keys serve only through the flat
+                                                                         // composite route
       }
       // HAVING filters candidate groups BEFORE selection — only the plan-driven flat routes
       // carry the filter at their offer sites; the legacy emission arms would drop it.
@@ -12056,7 +12071,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return declineGroupAgg("having without an order plan");
       }
       if (keyRegex != null && orderPlan == null) {
-        return declineGroupAgg("regex key without an order plan"); // the legacy string emission path has no transform lane
+        return declineGroupAgg("regex key without an order plan"); // the legacy string emission path has no transform
+                                                                   // lane
       }
       // strlen operands fold in the numeric and string single-key flat kernels (v1) — the
       // composite/packed arms would read the dict column's id lanes as values.
@@ -12072,7 +12088,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return declineGroupAgg("deferred string extremum outside the single-string-key flat arm");
       }
       if (tree != null && orderPlan == null) {
-        return declineGroupAgg("predicate tree without an order plan"); // the legacy emission arms take conjunctions only
+        return declineGroupAgg("predicate tree without an order plan"); // the legacy emission arms take conjunctions
+                                                                        // only
       }
       // The distinct machinery exists only on the flat (ordered + capped) routes; the legacy
       // emission paths decline rather than half-serving.
@@ -12275,7 +12292,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (cdBudgets != null) {
             for (final long[] b : cdBudgets) {
               if (b != null && b[1] != 0) {
-                return declineGroupAgg("count(distinct) exact-set budget exceeded (composite arm)"); // exact-set budget exceeded — decline, never sketch
+                return declineGroupAgg("count(distinct) exact-set budget exceeded (composite arm)"); // exact-set budget
+                                                                                                     // exceeded —
+                                                                                                     // decline, never
+                                                                                                     // sketch
               }
             }
           }
@@ -12293,8 +12313,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final long perPartitionEstimate = Math.max(16, scanned / partitions);
           final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
           parallel(partitions, part -> {
-            final NumericGroupAggTable into =
-                new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+            final NumericGroupAggTable into = new NumericGroupAggTable(aggColsFlat.length,
+                (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
             NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
             if (cdMaps != null) {
               mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
@@ -12594,7 +12614,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (cdBudgets != null) {
           for (final long[] b : cdBudgets) {
             if (b != null && b[1] != 0) {
-              return declineGroupAgg("count(distinct) exact-set budget exceeded (string arm)"); // exact-set budget exceeded — decline, never sketch
+              return declineGroupAgg("count(distinct) exact-set budget exceeded (string arm)"); // exact-set budget
+                                                                                                // exceeded — decline,
+                                                                                                // never sketch
             }
           }
         }
@@ -12630,8 +12652,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long perPartitionEstimate = Math.max(16, scanned / partitions);
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         parallel(partitions, part -> {
-          final NumericGroupAggTable into =
-              new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+          final NumericGroupAggTable into = new NumericGroupAggTable(aggColsFlat.length,
+              (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
           NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
           if (cdBitmaps != null) {
             mergeDistinctBitmapSizesIntoPartition(cdBitmaps, part, shift, into, cdBase);
@@ -13085,9 +13107,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // conditions (and in the very order) it always did, while the route itself is latched before
       // the kick so "keep serving sliced until it lands" is enforced by the code and not only
       // promised by a comment. Hardening; the suspected intra-query demotion did not reproduce.
-      final boolean constPromoteNow =
-          GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
-              && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      final boolean constPromoteNow = GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
+          && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
       final boolean constSliced =
           GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
               && predsSliceable(constStore, preds) && allColumnsSliceable(constStore, aggCols);
@@ -13556,8 +13577,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long perPartitionEstimate = Math.max(16, scanned / partitions);
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       parallel(partitions, part -> {
-        final NumericGroupAggTable into =
-            new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), false, sumExactMask);
+        final NumericGroupAggTable into = new NumericGroupAggTable(aggCols.length,
+            (int) Math.min(1 << 20, perPartitionEstimate), false, sumExactMask);
         NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
         if (cdMaps != null) {
           // Partition-wise union of the per-thread distinct sets, then the EXACT size lands in
@@ -13712,16 +13733,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * 27 — and would decline every query it should serve.
    */
   /**
-   * Whether anything in this query reads a group's {@code count} lane, and therefore whether the dense
-   * arm has to pay an atomic add per matching row for it. THE three readers, each verified at its
-   * site: an {@code fn:count} entry in the emission ({@code fillAggEntries} reads {@code acc[0]}), an
-   * {@code ORD_COUNT} order spec ({@link GroupOrderPlan#readsCountLane}), and a HAVING filter
-   * ({@code havingPasses} compares {@code acc[base]}). {@code avg} is not one of them — it divides the
-   * aggregate column's sum by its own PRESENT count — and neither is group existence, which the dense
-   * table reads off the first-seen lane.
+   * Whether anything in this query reads a group's {@code count} lane, and therefore whether the
+   * dense arm has to pay an atomic add per matching row for it. THE three readers, each verified at
+   * its site: an {@code fn:count} entry in the emission ({@code fillAggEntries} reads
+   * {@code acc[0]}), an {@code ORD_COUNT} order spec ({@link GroupOrderPlan#readsCountLane}), and a
+   * HAVING filter ({@code havingPasses} compares {@code acc[base]}). {@code avg} is not one of them —
+   * it divides the aggregate column's sum by its own PRESENT count — and neither is group existence,
+   * which the dense table reads off the first-seen lane.
    */
-  private static boolean denseCountLaneRead(final String[] funcs, final GroupOrderPlan orderPlan,
-      final long[] having) {
+  private static boolean denseCountLaneRead(final String[] funcs, final GroupOrderPlan orderPlan, final long[] having) {
     if (having != null || orderPlan.readsCountLane()) {
       return true;
     }
@@ -13883,9 +13903,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         partSelectors[eff] = zeroSel;
       }
     }
-    final ServedGroups served =
-        emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth, having, keyNames, funcs,
-            aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false);
+    final ServedGroups served = emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth,
+        having, keyNames, funcs, aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false);
     if (served != null) {
       GROUP_DENSE_SERVED.increment();
     }
@@ -13914,8 +13933,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * the hash tables, so both arms can be measured in ONE build rather than across two.
    *
    * <p>
-   * Read per group-by rather than latched into a constant — once per query is free, and it lets a test
-   * exercise BOTH arms against one another in one JVM, which is the only way to prove they agree.
+   * Read per group-by rather than latched into a constant — once per query is free, and it lets a
+   * test exercise BOTH arms against one another in one JVM, which is the only way to prove they
+   * agree.
    */
   private static boolean groupDenseEnabled() {
     return !"false".equals(System.getProperty("sirix.projection.groupDense"));
@@ -14100,8 +14120,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *         and emitting nothing would drop a group
    */
   private @Nullable String[] resolveGlobalGroupKeys(final long headerKey, final int[] ids, final KeyPresence hasKey) {
-    final String[] resolved =
-        GlobalValueDictionary.values(headerKey, ids, workerTrx().getStorageEngineReader());
+    final String[] resolved = GlobalValueDictionary.values(headerKey, ids, workerTrx().getStorageEngineReader());
     for (int i = 0; i < ids.length; i++) {
       if (hasKey.at(i) && resolved[i] == null) {
         if (PROJ_DIAG) {
@@ -14211,19 +14230,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *
    * <p>
    * For every other kind the value IS the cell: emission is a decode, and the cap exists only to
-   * bound the heap-resident buffer. A global column's cell is an id, so each emitted row also costs
-   * a dictionary lookup. Those lookups batch well — resolved in ascending id order, the ids sharing a
-   * reverse-id bucket resolve together, and
-   * repeats land on the page just read — but the batching wins on LOCALITY, not on count, so past
-   * some size the route is paying roughly one dictionary read per emitted row.
+   * bound the heap-resident buffer. A global column's cell is an id, so each emitted row also costs a
+   * dictionary lookup. Those lookups batch well — resolved in ascending id order, the ids sharing a
+   * reverse-id bucket resolve together, and repeats land on the page just read — but the batching
+   * wins on LOCALITY, not on count, so past some size the route is paying roughly one dictionary read
+   * per emitted row.
    *
    * <p>
-   * That is precisely the work the row path it replaces would do, except the row path streams
-   * instead of buffering the whole answer. So the route is worth taking exactly where a projection
-   * scan beats record navigation outright — the point-lookup shape this whole family serves, tens to
-   * thousands of rows — and not for a broad scan, where it would trade a streaming answer for an
-   * eager one and win nothing. 10k is the order of magnitude where those cross; nothing turns on the
-   * exact value, which is why it is a property.
+   * That is precisely the work the row path it replaces would do, except the row path streams instead
+   * of buffering the whole answer. So the route is worth taking exactly where a projection scan beats
+   * record navigation outright — the point-lookup shape this whole family serves, tens to thousands
+   * of rows — and not for a broad scan, where it would trade a streaming answer for an eager one and
+   * win nothing. 10k is the order of magnitude where those cross; nothing turns on the exact value,
+   * which is why it is a property.
    */
   private static final int GLOBAL_VALUE_EMIT_MAX_MATCHES =
       Integer.getInteger("sirix.predScan.globalValueEmitMaxMatches", 10_000);
@@ -14352,9 +14371,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return null;
       }
       if (globalValues) {
-        final String[] values =
-            GlobalValueDictionary.values(handle.valueDictionaryHeaderKey(col), globalIds.toIntArray(),
-                workerTrx().getStorageEngineReader());
+        final String[] values = GlobalValueDictionary.values(handle.valueDictionaryHeaderKey(col),
+            globalIds.toIntArray(), workerTrx().getStorageEngineReader());
         for (final String value : values) {
           if (value == null) {
             return null; // an id this revision cannot resolve — the record path knows the value
@@ -15157,8 +15175,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return GROUP_AGG_FAILED.sum();
   }
 
-  private static void mergeGroupAgg(final long[] into, final long[] from, final int aggCols,
-      final long sumExactMask) {
+  private static void mergeGroupAgg(final long[] into, final long[] from, final int aggCols, final long sumExactMask) {
     into[0] += from[0];
     if (from[1] < into[1]) {
       into[1] = from[1];
@@ -15258,9 +15275,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /** Ceiling on one query's grouped-distinct bitmaps; past it the route declines, never sketches. */
-  private static final long GROUP_DISTINCT_BITMAP_MAX_BYTES =
-      Long.getLong("sirix.projection.groupDistinct.maxBitmapBytes",
-          Math.min(1L << 30, Runtime.getRuntime().maxMemory() / 8));
+  private static final long GROUP_DISTINCT_BITMAP_MAX_BYTES = Long.getLong(
+      "sirix.projection.groupDistinct.maxBitmapBytes", Math.min(1L << 30, Runtime.getRuntime().maxMemory() / 8));
 
   /**
    * Bitmap twin of {@link #mergeDistinctSizesIntoPartition}: the per-group bitmaps are already the
@@ -15441,8 +15457,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     /**
-     * Whether any order spec reads the block's {@code count} lane. {@code avg} does NOT: it divides
-     * the aggregate column's own sum by its PRESENT count, and only {@link #ORD_COUNT} addresses
+     * Whether any order spec reads the block's {@code count} lane. {@code avg} does NOT: it divides the
+     * aggregate column's own sum by its PRESENT count, and only {@link #ORD_COUNT} addresses
      * {@code block[0]} — which is what lets a plan-ordered group-by skip folding that lane.
      */
     boolean readsCountLane() {

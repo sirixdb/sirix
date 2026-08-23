@@ -66,21 +66,21 @@ public final class PageUtils {
    * @param reference reference from revision root
    * @param indexType the index type
    */
-  public static void createTree(final DatabaseType databaseType, PageReference reference,
-      final IndexType indexType, final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
+  public static void createTree(final DatabaseType databaseType, PageReference reference, final IndexType indexType,
+      final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     // Create new record page.
     final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
 
     // Direct allocation (no pool)
     final MemorySegmentAllocator allocator = Allocators.getInstance();
 
-    final KeyValueLeafPage recordPage =
-        new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, resourceConfiguration,
-            storageEngineReader.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB), resourceConfiguration.areDeweyIDsStored
-                ? allocator.allocate(SIXTYFOUR_KB)
-                : null,
-            false // Memory from allocator - release on close()
-        );
+    final KeyValueLeafPage recordPage = new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType,
+        resourceConfiguration, storageEngineReader.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB),
+        resourceConfiguration.areDeweyIDsStored
+            ? allocator.allocate(SIXTYFOUR_KB)
+            : null,
+        false // Memory from allocator - release on close()
+    );
 
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored
         ? SirixDeweyID.newRootID()

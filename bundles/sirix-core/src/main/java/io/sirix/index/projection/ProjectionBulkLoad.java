@@ -32,9 +32,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.LongFunction;
 
 /**
- * One-pass (load-time) construction of a projection index: the index is declared on an EMPTY resource
- * and then maintained by the shred itself, instead of being derived afterwards by a second full walk
- * of the finished resource.
+ * One-pass (load-time) construction of a projection index: the index is declared on an EMPTY
+ * resource and then maintained by the shred itself, instead of being derived afterwards by a second
+ * full walk of the finished resource.
  *
  * <h2>Why this is not just the incremental maintenance path</h2>
  *
@@ -43,26 +43,26 @@ import java.util.function.LongFunction;
  * persistent units. Running it over a bulk load would still repeat touched-unit work at every
  * auto-commit window. This class instead keeps the REAL build machinery
  * ({@link ProjectionIndexBuilder} in its record-fed mode) alive for the whole load, so the leaves,
- * the global-dictionary decision, the fingerprint blocks, the fences and the metadata are produced by
- * exactly the code the post-pass build uses.
+ * the global-dictionary decision, the fingerprint blocks, the fences and the metadata are produced
+ * by exactly the code the post-pass build uses.
  *
  * <h2>Surviving the auto-commit</h2>
  *
  * A bulk load commits every {@code -Dsirix.autoCommit.nodes} nodes, and every one of those commits
- * destroys and rebinds the index listeners and installs a NEW storage-engine writer and path summary
- * ({@code AbstractNodeTrxImpl#reInstantiate}). Build state therefore cannot live in the listener. It
- * lives here, keyed by resource and definition, and the listener hands its CURRENT writer and summary
- * in on each use — nothing epoch-scoped is ever cached across a commit.
+ * destroys and rebinds the index listeners and installs a NEW storage-engine writer and path
+ * summary ({@code AbstractNodeTrxImpl#reInstantiate}). Build state therefore cannot live in the
+ * listener. It lives here, keyed by resource and definition, and the listener hands its CURRENT
+ * writer and summary in on each use — nothing epoch-scoped is ever cached across a commit.
  *
  * <h2>What is written when</h2>
  *
  * Full leaves stream into the definition's HOT sub-tree as they fill and ride the auto-commit that
  * follows. Retained derived state is explicit and bounded: one 32-leaf fence tail, one 256-leaf
  * Bloom-reference window per local-string column, and only those set-summary values that still fit
- * their one optional summary chunk. Complete fence and Bloom windows stream to storage eagerly;
- * the partial tails, Bloom manifests, set summaries and live metadata publish at {@link #finish}.
- * Slot 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole
- * load, so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic
+ * their one optional summary chunk. Complete fence and Bloom windows stream to storage eagerly; the
+ * partial tails, Bloom manifests, set summaries and live metadata publish at {@link #finish}. Slot
+ * 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole load,
+ * so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic
  * pipeline. Writing a truthful-looking {@code rowGroupCount=0} metadata instead would make every
  * query answer from an empty index — zero rows, silently, which is the one outcome worse than being
  * slow.
@@ -82,8 +82,8 @@ public final class ProjectionBulkLoad {
   /**
    * Active bulk loads by {@code resourceKey#defId}. Process-global by the same reasoning as
    * {@link ProjectionIndexRegistry}'s registry: the state has to outlive the objects that reach it
-   * (listeners are rebuilt per commit epoch, index controllers per revision), and the resource path is
-   * the only durable identity all of them agree on. Each value additionally carries the owning
+   * (listeners are rebuilt per commit epoch, index controllers per revision), and the resource path
+   * is the only durable identity all of them agree on. Each value additionally carries the owning
    * write-transaction object identity, so a different transaction using the same path cannot attach
    * to the load.
    */
@@ -91,7 +91,9 @@ public final class ProjectionBulkLoad {
 
   private final IndexDef indexDef;
   private final String key;
-  /** Identity of the one write transaction whose successful intermediate epochs may feed this load. */
+  /**
+   * Identity of the one write transaction whose successful intermediate epochs may feed this load.
+   */
   private final Object ownerToken;
 
   /** Owner-confined FSST scratch reused by every row group in this bulk-load stream. */
@@ -115,8 +117,8 @@ public final class ProjectionBulkLoad {
 
   /**
    * Whether the declared root path selects ARRAY ELEMENTS. Then a record root is by construction an
-   * array element, and a fused {@code OBJECT_NAMED_*} node — which is an object FIELD and nothing else
-   * — can never be one. That is what lets the listener skip the ancestor read for every field
+   * array element, and a fused {@code OBJECT_NAMED_*} node — which is an object FIELD and nothing
+   * else — can never be one. That is what lets the listener skip the ancestor read for every field
    * notification instead of paying one per node.
    */
   private final boolean arrayElementRoot;
@@ -151,9 +153,9 @@ public final class ProjectionBulkLoad {
 
   /**
    * {@code -Dsirix.projection.bulkDiag=true} prints how every change notification was classified when
-   * the load finishes. A load-time build attributes records from notifications alone, so when it comes
-   * out short the only question that matters is WHICH notifications it discarded — and without these
-   * counters that question needs a debugger.
+   * the load finishes. A load-time build attributes records from notifications alone, so when it
+   * comes out short the only question that matters is WHICH notifications it discarded — and without
+   * these counters that question needs a debugger.
    */
   private static final boolean DIAG = Boolean.getBoolean("sirix.projection.bulkDiag");
 
@@ -196,8 +198,8 @@ public final class ProjectionBulkLoad {
     }
     return " [notifications=" + diagNotifications + " skippedNamedKind=" + diagSkippedNamedKind + " skippedPathClass="
         + diagSkippedPathClass + " notUnderRecordSet=" + diagNotUnderRecordSet + " unresolved=" + diagUnresolved
-        + " observed=" + diagObserved + " closed=" + diagClosed + " drains=" + diagDrains
-        + " extractFailures=" + diagExtractFailures + " arrayRoots=" + arrayRootInstanceCount + ']';
+        + " observed=" + diagObserved + " closed=" + diagClosed + " drains=" + diagDrains + " extractFailures="
+        + diagExtractFailures + " arrayRoots=" + arrayRootInstanceCount + ']';
   }
 
   private ProjectionBulkLoad(final IndexDef indexDef, final String key, final Object ownerToken,
@@ -234,9 +236,9 @@ public final class ProjectionBulkLoad {
   }
 
   /**
-   * Arm a bulk load for {@code indexDef} on an empty resource and tombstone slot 0 so nothing reads the
-   * half-built index. Fails loudly if one is already armed for this definition — two concurrent bulk
-   * loads over one projection would interleave their leaf slots.
+   * Arm a bulk load for {@code indexDef} on an empty resource and tombstone slot 0 so nothing reads
+   * the half-built index. Fails loudly if one is already armed for this definition — two concurrent
+   * bulk loads over one projection would interleave their leaf slots.
    */
   public static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter) {
@@ -249,8 +251,7 @@ public final class ProjectionBulkLoad {
    * decline a column whose dictionary would not fit. {@code -1} means unknown.
    */
   public static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
-      final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter,
-      final long expectedRows) {
+      final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter, final long expectedRows) {
     return begin(indexDef, resourceKey, storageEngineWriter, pathSummary, storageEngineWriter, expectedRows,
         DEFAULT_ROW_GROUP_PUBLISHER);
   }
@@ -269,24 +270,22 @@ public final class ProjectionBulkLoad {
 
   /** Internal publication-injected form used by focused storage-failure coverage. */
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
-      final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter,
-      final long expectedRows, final RowGroupPublisher rowGroupPublisher) {
-    return begin(indexDef, resourceKey, storageEngineWriter, pathSummary, storageEngineWriter,
-        expectedRows, rowGroupPublisher);
+      final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter, final long expectedRows,
+      final RowGroupPublisher rowGroupPublisher) {
+    return begin(indexDef, resourceKey, storageEngineWriter, pathSummary, storageEngineWriter, expectedRows,
+        rowGroupPublisher);
   }
 
   /** Owner-bound publication-injected form used by focused lifecycle and storage-failure coverage. */
-  static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
-      final Object ownerToken, final PathSummaryReader pathSummary,
-      final StorageEngineWriter storageEngineWriter, final long expectedRows,
+  static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey, final Object ownerToken,
+      final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter, final long expectedRows,
       final RowGroupPublisher rowGroupPublisher) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionBulkLoad requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
     final String key = keyOf(resourceKey, indexDef.getID());
-    final ProjectionBulkLoad load = new ProjectionBulkLoad(indexDef, key, ownerToken, pathSummary,
-        rowGroupPublisher);
+    final ProjectionBulkLoad load = new ProjectionBulkLoad(indexDef, key, ownerToken, pathSummary, rowGroupPublisher);
     load.builder.setExpectedRows(expectedRows);
     final ProjectionBulkLoad previous = ACTIVE.putIfAbsent(key, load);
     if (previous != null) {
@@ -299,8 +298,7 @@ public final class ProjectionBulkLoad {
       // begin() is an explicit full build boundary. Clear every prior positive storage slot and
       // sparse negative record locator before publishing the fail-closed tombstone for the load.
       storage.resetTree();
-      ProjectionStructuralOrderDirectory.open(storage)
-                                        .seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+      ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       return load;
     } catch (final Throwable failure) {
@@ -311,7 +309,9 @@ public final class ProjectionBulkLoad {
     }
   }
 
-  /** The bulk load armed for this definition, or {@code null} when the resource is not being loaded. */
+  /**
+   * The bulk load armed for this definition, or {@code null} when the resource is not being loaded.
+   */
   public static @Nullable ProjectionBulkLoad active(final String resourceKey, final int indexDefId) {
     return ACTIVE.get(keyOf(resourceKey, indexDefId));
   }
@@ -320,7 +320,9 @@ public final class ProjectionBulkLoad {
   public static @Nullable ProjectionBulkLoad active(final String resourceKey, final int indexDefId,
       final NodeReadOnlyTrx ownerTrx) {
     final ProjectionBulkLoad load = ACTIVE.get(keyOf(resourceKey, indexDefId));
-    return load != null && load.ownerToken == ownerTrx ? load : null;
+    return load != null && load.ownerToken == ownerTrx
+        ? load
+        : null;
   }
 
   /** Whether any bulk load is armed at all — one map read on the listener's construction path. */
@@ -328,7 +330,10 @@ public final class ProjectionBulkLoad {
     return !ACTIVE.isEmpty();
   }
 
-  /** Drop the load without finishing it; slot 0 keeps the tombstone, so readers stay on the generic path. */
+  /**
+   * Drop the load without finishing it; slot 0 keeps the tombstone, so readers stay on the generic
+   * path.
+   */
   public synchronized void abort() {
     if (finished) {
       return;
@@ -401,8 +406,9 @@ public final class ProjectionBulkLoad {
    *
    * <p>
    * Fails loudly on a non-monotone record key. This is an explicit append-only contract, not a
-   * heuristic: an out-of-order record means the transaction is not a bulk load (an update reached back
-   * into an already-extracted record), and continuing would silently drop that record's new state.
+   * heuristic: an out-of-order record means the transaction is not a bulk load (an update reached
+   * back into an already-extracted record), and continuing would silently drop that record's new
+   * state.
    */
   public void observeRecord(final long recordKey) {
     if (recordKey == currentRecordKey) {
@@ -413,8 +419,8 @@ public final class ProjectionBulkLoad {
       // batch nothing will ever drain, and the index would be short that row with no sign of it. The
       // ordinary maintenance path takes over from the next transaction epoch, which is where a
       // post-load insert belongs.
-      throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key
-          + " saw record " + recordKey + " after its load-time build was finished. Records written after the "
+      throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " saw record " + recordKey
+          + " after its load-time build was finished. Records written after the "
           + "load's final commit belong to ordinary incremental maintenance, which the listener hands over to "
           + "automatically — reaching this means a listener kept feeding a closed build, and the record would "
           + "have been accepted into a batch nothing will ever drain.");
@@ -440,8 +446,8 @@ public final class ProjectionBulkLoad {
 
   /**
    * Extract every record closed since the last drain into the builder. Runs at pre-commit, where the
-   * cursor may be moved: doing it inside a change notification would move the cursor out from under the
-   * shredder mid-insert.
+   * cursor may be moved: doing it inside a change notification would move the cursor out from under
+   * the shredder mid-insert.
    */
   public void drain(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary,
       final NodeReadOnlyTrx rtx) {
@@ -563,14 +569,12 @@ public final class ProjectionBulkLoad {
       builder.finishStreaming();
       final byte[] columnKinds = builder.columnKinds();
       bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
-      final long[] valueDictionaryHeaderKeys =
-          builder.flushStreamingDictionaryGeneration(storageEngineWriter);
+      final long[] valueDictionaryHeaderKeys = builder.flushStreamingDictionaryGeneration(storageEngineWriter);
       fenceWriter.finish(storage, 0);
       // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
       // the new leaf count to tombstone.
       ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), 0,
-          buildRevision,
-          columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+          buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
       try {
@@ -602,10 +606,10 @@ public final class ProjectionBulkLoad {
    * <p>
    * This is the invariant that makes per-notification record attribution safe to rely on. Attribution
    * decides which node belongs to which record from change notifications alone; if it ever missed a
-   * record root, the index would simply be short a row — no exception, no wrong-looking output, just a
-   * query that quietly answers over fewer records than the resource holds. An array node already
-   * knows its child count, so the check costs one node read per record set and turns that class of bug
-   * from silent into loud.
+   * record root, the index would simply be short a row — no exception, no wrong-looking output, just
+   * a query that quietly answers over fewer records than the resource holds. An array node already
+   * knows its child count, so the check costs one node read per record set and turns that class of
+   * bug from silent into loud.
    *
    * <p>
    * Only the array-rooted shape is checkable this way, which is also the only shape whose attribution
@@ -617,14 +621,14 @@ public final class ProjectionBulkLoad {
       return;
     }
     if (expectedArrayRecords != builder.rowsEmitted()) {
-      throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " emitted "
-          + builder.rowsEmitted() + " rows for " + expectedArrayRecords
-          + " records: the load-time build's per-notification "
-          + "record attribution missed records, and the index would have answered over fewer records than the "
-          + "resource holds. Nothing was published — slot 0 still holds the tombstone, so the resource's data is "
-          + "intact and its queries fall back to the generic pipeline. Build the index with "
-          + "jn:create-projection-index over the loaded resource, which walks it rather than attributing "
-          + "notifications." + diagnostics());
+      throw new IllegalStateException(
+          "Projection index " + indexDef.getID() + " on " + key + " emitted " + builder.rowsEmitted() + " rows for "
+              + expectedArrayRecords + " records: the load-time build's per-notification "
+              + "record attribution missed records, and the index would have answered over fewer records than the "
+              + "resource holds. Nothing was published — slot 0 still holds the tombstone, so the resource's data is "
+              + "intact and its queries fall back to the generic pipeline. Build the index with "
+              + "jn:create-projection-index over the loaded resource, which walks it rather than attributing "
+              + "notifications." + diagnostics());
     }
   }
 
@@ -645,8 +649,8 @@ public final class ProjectionBulkLoad {
       }
     }
     if (children < activeArrayRootCountedChildren) {
-      throw new IllegalStateException("Projection bulk load for " + key + " saw record-set array "
-          + activeArrayRootKey + " shrink from " + activeArrayRootCountedChildren + " to " + children);
+      throw new IllegalStateException("Projection bulk load for " + key + " saw record-set array " + activeArrayRootKey
+          + " shrink from " + activeArrayRootCountedChildren + " to " + children);
     }
     expectedArrayRecords = Math.addExact(expectedArrayRecords, children - activeArrayRootCountedChildren);
     activeArrayRootCountedChildren = children;
@@ -654,8 +658,8 @@ public final class ProjectionBulkLoad {
 
   private long arrayChildCount(final NodeReadOnlyTrx rtx, final long arrayKey) {
     if (!rtx.moveTo(arrayKey)) {
-      throw new IllegalStateException("Projection bulk load for " + key
-          + " cannot read record-set array " + arrayKey + " during its bounded drain");
+      throw new IllegalStateException("Projection bulk load for " + key + " cannot read record-set array " + arrayKey
+          + " during its bounded drain");
     }
     return rtx.getChildCount();
   }
@@ -711,8 +715,7 @@ public final class ProjectionBulkLoad {
     return current;
   }
 
-  private boolean appendRecord(final NodeReadOnlyTrx rtx, final long recordKey,
-      final SirixDeweyID orderLabel) {
+  private boolean appendRecord(final NodeReadOnlyTrx rtx, final long recordKey, final SirixDeweyID orderLabel) {
     if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
       return builder.appendRecord(jsonRtx, recordKey, orderLabel);
     }

@@ -75,17 +75,17 @@ class BasicJsonDBStoreTest {
   void defaultStoreResourcesSupportLoadTimeProjectionsWithoutDeweyIds() {
     store = builder.build();
     final ProjectionSpec projection = new ProjectionSpec("/[]", List.of("/[]/value"), List.of("long"));
-    final JsonDBCollection collection = store.create("defaultProjection", "resource",
-        new JsonReader(new StringReader("[{\"value\":1}]")), projection);
+    final JsonDBCollection collection =
+        store.create("defaultProjection", "resource", new JsonReader(new StringReader("[{\"value\":1}]")), projection);
 
     try (final var session = collection.getDatabase().beginResourceSession("resource");
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       assertFalse(session.getResourceConfig().areDeweyIDsStored);
       final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
       assertNotNull(controller.getIndexes().getIndexDef(0, projection.toIndexDef().getType()));
       assertTrue(controller.hasProjectionIndex());
-      final var handle = controller.openProjectionIndex(rtx.getStorageEngineReader(),
-          new String[] { "[]" }, new String[] { "value" });
+      final var handle =
+          controller.openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"}, new String[] {"value"});
       assertNotNull(handle);
       assertTrue(handle.columnOf("value") >= 0);
     }
@@ -105,17 +105,17 @@ class BasicJsonDBStoreTest {
   void explicitDeweyDisableSupportsLoadTimeProjections() {
     store = builder.storeDeweyIds(false).build();
     final ProjectionSpec projection = new ProjectionSpec("/[]", List.of("/[]/value"), List.of("long"));
-    final JsonDBCollection collection = store.create("disabledDewey", "resource",
-        new JsonReader(new StringReader("[{\"value\":1}]")), projection);
+    final JsonDBCollection collection =
+        store.create("disabledDewey", "resource", new JsonReader(new StringReader("[{\"value\":1}]")), projection);
 
     try (final var session = collection.getDatabase().beginResourceSession("resource");
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       assertFalse(session.getResourceConfig().areDeweyIDsStored);
       final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
       assertNotNull(controller.getIndexes().getIndexDef(0, projection.toIndexDef().getType()));
       assertTrue(controller.hasProjectionIndex());
-      final var handle = controller.openProjectionIndex(rtx.getStorageEngineReader(),
-          new String[] { "[]" }, new String[] { "value" });
+      final var handle =
+          controller.openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"}, new String[] {"value"});
       assertNotNull(handle);
       assertTrue(handle.columnOf("value") >= 0);
     }

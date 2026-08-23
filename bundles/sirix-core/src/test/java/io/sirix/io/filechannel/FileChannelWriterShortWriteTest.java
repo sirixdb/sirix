@@ -55,8 +55,8 @@ final class FileChannelWriterShortWriteTest {
     final ByteBuffer source = ByteBuffer.wrap(new byte[] {8, 9, 7});
     when(channel.write(any(ByteBuffer.class), anyLong())).thenReturn(0);
 
-    final IOException failure = assertThrows(IOException.class,
-        () -> FileChannelWriter.writeFully(channel, source, 91L));
+    final IOException failure =
+        assertThrows(IOException.class, () -> FileChannelWriter.writeFully(channel, source, 91L));
 
     assertEquals(0, source.position());
     assertTrue(failure.getMessage().contains("made no progress"));
@@ -93,8 +93,8 @@ final class FileChannelWriterShortWriteTest {
     final ByteBuffer target = ByteBuffer.allocate(4);
     when(channel.read(any(ByteBuffer.class), anyLong())).thenReturn(0);
 
-    final IOException failure = assertThrows(IOException.class,
-        () -> FileChannelWriter.readFully(channel, target, 307L));
+    final IOException failure =
+        assertThrows(IOException.class, () -> FileChannelWriter.readFully(channel, target, 307L));
 
     assertEquals(0, target.position());
     assertTrue(failure.getMessage().contains("made no progress"));

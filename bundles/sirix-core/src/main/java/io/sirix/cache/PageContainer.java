@@ -61,10 +61,12 @@ public final class PageContainer {
   /**
    * Transient in-memory identity of the TIL slot currently owning this container.
    *
-   * <p>The value packs {@code (generation, logKey)} and is deliberately excluded from equality,
-   * hashing, and page serialization. A same-generation replacement receives the same identity;
-   * resolving that identity through the TIL therefore yields the replacement rather than a stale
-   * page retained by a caller.</p>
+   * <p>
+   * The value packs {@code (generation, logKey)} and is deliberately excluded from equality, hashing,
+   * and page serialization. A same-generation replacement receives the same identity; resolving that
+   * identity through the TIL therefore yields the replacement rather than a stale page retained by a
+   * caller.
+   * </p>
    */
   private long transactionLogIdentity = NULL_TRANSACTION_LOG_IDENTITY;
 

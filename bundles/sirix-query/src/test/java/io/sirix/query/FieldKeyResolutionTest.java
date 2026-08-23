@@ -19,26 +19,27 @@ import java.io.IOException;
 import java.io.PrintWriter;
 
 /**
- * A predicate is compiled by resolving every field it names to an int nameKey, and the resolution has
- * two implementations that return the SAME key: a path-summary probe, and a fallback that walks every
- * page of the document looking for the first object key with that local name. Nothing about an answer
- * distinguishes them, which is why {@link SirixVectorizedExecutor#fieldKeyWalkCount()} exists and why
- * these tests assert on it.
+ * A predicate is compiled by resolving every field it names to an int nameKey, and the resolution
+ * has two implementations that return the SAME key: a path-summary probe, and a fallback that walks
+ * every page of the document looking for the first object key with that local name. Nothing about
+ * an answer distinguishes them, which is why {@link SirixVectorizedExecutor#fieldKeyWalkCount()}
+ * exists and why these tests assert on it.
  *
  * <p>
  * The walk's worst case is the common one. A nested chain reaches the resolver as its JOINED path
  * ({@code commit/operation}), and no single object key is ever named that, so the walk's early exit
  * never fires: it scans the whole document to return {@code -1}. On the 1M-event JSONBench corpus
- * that was ~500 ms per referenced field per query — an order of magnitude more than the aggregate the
- * query actually asked for.
+ * that was ~500 ms per referenced field per query — an order of magnitude more than the aggregate
+ * the query actually asked for.
  *
  * <p>
  * The path summary decides both directions, because it is complete over exactly the node kinds the
  * walk scans: every {@code OBJECT_KEY}, and every fused {@code OBJECT_NAMED_*} (which
  * {@code PathSummaryWriter} files under the {@code OBJECT_KEY} path kind), contributes a path node
  * bearing its local name. So these tests pin the risky direction too — a field that IS in the
- * document but in no projection must still resolve to its real key, since a spurious {@code -1} would
- * make the row path compare every name against a key nothing carries and quietly answer nothing.
+ * document but in no projection must still resolve to its real key, since a spurious {@code -1}
+ * would make the row path compare every name against a key nothing carries and quietly answer
+ * nothing.
  */
 public final class FieldKeyResolutionTest extends AbstractJsonTest {
 
@@ -225,10 +226,11 @@ public final class FieldKeyResolutionTest extends AbstractJsonTest {
   public void withoutAPathSummaryTheDocumentWalkStillAnswers() throws IOException {
     // The proof needs a summary. Without one there is nothing to consult, so the fallback must
     // remain reachable AND correct — this is the configuration that still pays for a walk.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .buildPathSummary(false)
-                                                        .build();
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                       .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                       .buildPathSummary(false)
+                                                       .build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, STORE).evaluate(ctx);

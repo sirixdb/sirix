@@ -56,8 +56,8 @@ import io.sirix.settings.Fixed;
  * Executors are cached per {@code (database, resource, revision)} because building one per compile
  * would build a worker pool per compile. The cache is bounded and access-ordered: the
  * least-recently-used entry is removed under the cache monitor and retired after releasing it. A
- * potentially slow executor retirement therefore never serializes unrelated document resolution.
- * A retired executor runs later chunks on the calling thread, while lazy results detach from their
+ * potentially slow executor retirement therefore never serializes unrelated document resolution. A
+ * retired executor runs later chunks on the calling thread, while lazy results detach from their
  * short-lived construction cursors onto the chain's revision-rebindable consumer cursor pool. A
  * compiled query or already-returned database object holding an evicted executor's state therefore
  * keeps answering from its immutable revision without retaining a cursor per revision and lane. At
@@ -108,8 +108,7 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   record DocumentSource(String database, String resource, int revision) {
   }
 
-  StoreBoundExecutorCache(final JsonDBStore store,
-      final SirixVectorizedExecutor.ExecutionLifecycle executorLifecycle) {
+  StoreBoundExecutorCache(final JsonDBStore store, final SirixVectorizedExecutor.ExecutionLifecycle executorLifecycle) {
     if (store == null) {
       throw new IllegalArgumentException("store must not be null");
     }

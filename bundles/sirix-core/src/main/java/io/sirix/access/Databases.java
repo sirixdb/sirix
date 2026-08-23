@@ -67,11 +67,11 @@ public final class Databases {
   private static volatile RevisionEpochTracker GLOBAL_EPOCH_TRACKER = null;
 
   /**
-   * Database ids are PERSISTED in {@code dbsetting.obj} and key the global caches, so they must
-   * never collide between two databases open in the same JVM. A monotonic counter cannot
-   * guarantee that (it restarts per JVM while old ids live on disk, and file-copied databases
-   * carry the same id twice) — mint random positive ids instead and track which directory claims
-   * each id; a second directory presenting an already-claimed id is re-keyed on open.
+   * Database ids are PERSISTED in {@code dbsetting.obj} and key the global caches, so they must never
+   * collide between two databases open in the same JVM. A monotonic counter cannot guarantee that (it
+   * restarts per JVM while old ids live on disk, and file-copied databases carry the same id twice) —
+   * mint random positive ids instead and track which directory claims each id; a second directory
+   * presenting an already-claimed id is re-keyed on open.
    */
   private static final java.util.concurrent.ConcurrentHashMap<Long, Path> CLAIMED_DATABASE_IDS =
       new java.util.concurrent.ConcurrentHashMap<>();
@@ -85,9 +85,9 @@ public final class Databases {
   }
 
   /**
-   * Claims this database's persisted id for its directory; if another directory already holds the
-   * id (file-copied database, or an id minted by a different JVM run), re-keys THIS database with
-   * a fresh id so global cache entries can never be misattributed across databases.
+   * Claims this database's persisted id for its directory; if another directory already holds the id
+   * (file-copied database, or an id minted by a different JVM run), re-keys THIS database with a
+   * fresh id so global cache entries can never be misattributed across databases.
    */
   private static void claimDatabaseId(final DatabaseConfiguration dbConfig) {
     final Path canonical = dbConfig.getDatabaseFile().toAbsolutePath().normalize();
@@ -95,8 +95,8 @@ public final class Databases {
     final Path claimedBy = CLAIMED_DATABASE_IDS.putIfAbsent(persistedId, canonical);
     if (claimedBy != null && !claimedBy.equals(canonical)) {
       final long freshId = mintDatabaseId(canonical);
-      logger.warn("Database id {} of {} is already claimed by {} — re-keying to {}.",
-                  persistedId, canonical, claimedBy, freshId);
+      logger.warn("Database id {} of {} is already claimed by {} — re-keying to {}.", persistedId, canonical, claimedBy,
+          freshId);
       dbConfig.setDatabaseId(freshId);
       DatabaseConfiguration.serialize(dbConfig);
     }
@@ -217,8 +217,8 @@ public final class Databases {
     // resource. Enforce the contract instead: force-close leaked handles, then remove.
     final var openDatabases = MANAGER.sessions().asMap().get(dbFile);
     if (openDatabases != null && !openDatabases.isEmpty()) {
-      logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.",
-                  dbFile, openDatabases.size());
+      logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", dbFile,
+          openDatabases.size());
       for (final Database<?> database : new ArrayList<>(openDatabases)) {
         try {
           database.close();
@@ -294,9 +294,9 @@ public final class Databases {
   }
 
   /**
-   * Drops every entry from the global caches. NOT part of normal operation — for tests that
-   * modify database files out-of-band (corruption/crash simulations) and need the next open to
-   * read from disk like a freshly started process would.
+   * Drops every entry from the global caches. NOT part of normal operation — for tests that modify
+   * database files out-of-band (corruption/crash simulations) and need the next open to read from
+   * disk like a freshly started process would.
    */
   public static void clearGlobalCaches() {
     if (GLOBAL_BUFFER_MANAGER != null) {
@@ -320,8 +320,8 @@ public final class Databases {
   }
 
   /**
-   * Drops one database's entries from the global caches — for explicit invalidation when its
-   * on-disk state diverges from what was cached (crash-recovery truncation reuses file offsets).
+   * Drops one database's entries from the global caches — for explicit invalidation when its on-disk
+   * state diverges from what was cached (crash-recovery truncation reuses file offsets).
    */
   public static void clearCachesForDatabase(final long databaseId) {
     if (GLOBAL_BUFFER_MANAGER != null) {
@@ -333,12 +333,13 @@ public final class Databases {
   /**
    * Drop every cached page of ONE resource — the scope a truncation actually invalidates.
    *
-   * <p>Prefer this over {@link #clearCachesForDatabase(long)} after a rollback or crash recovery.
+   * <p>
+   * Prefer this over {@link #clearCachesForDatabase(long)} after a rollback or crash recovery.
    * Truncation is resource-scoped: it rewinds one resource's data file and the next commit reuses
    * those offsets, so only that resource's cached pages can go stale. Sweeping the whole database
-   * additionally drops pages of SIBLING resources that were never truncated — and those pages can
-   * be in active use, since the "no concurrent readers" precondition {@code Writer.truncateTo}
-   * documents covers the resource being truncated, not its siblings.
+   * additionally drops pages of SIBLING resources that were never truncated — and those pages can be
+   * in active use, since the "no concurrent readers" precondition {@code Writer.truncateTo} documents
+   * covers the resource being truncated, not its siblings.
    */
   public static void clearCachesForResource(final long databaseId, final long resourceId) {
     if (GLOBAL_BUFFER_MANAGER != null) {
@@ -516,8 +517,8 @@ public final class Databases {
 
   /**
    * System property for the revision-root page cache capacity in ENTRIES (not bytes). One entry
-   * caches one revision's root page; histories longer than the cap thrash under random
-   * point-in-time access (every miss re-reads and re-deserializes the root page). Example:
+   * caches one revision's root page; histories longer than the cap thrash under random point-in-time
+   * access (every miss re-reads and re-deserializes the root page). Example:
    * -Dsirix.cache.revisionRoot.max.entries=100000
    */
   public static final String PROP_REVISION_ROOT_CACHE_ENTRIES = "sirix.cache.revisionRoot.max.entries";
@@ -542,8 +543,8 @@ public final class Databases {
    * <li>{@code -Dsirix.cache.recordPageFragment=<bytes>} - Record page fragment cache size (default:
    * 12.5% of budget)</li>
    * <li>{@code -Dsirix.cache.page=<bytes>} - Metadata page cache size (default: 50MB)</li>
-   * <li>{@code -Dsirix.cache.revisionRoot.max.entries=<entries>} - Revision-root page cache
-   * capacity in entries (default: 20,000)</li>
+   * <li>{@code -Dsirix.cache.revisionRoot.max.entries=<entries>} - Revision-root page cache capacity
+   * in entries (default: 20,000)</li>
    * </ul>
    *
    * @param maxSegmentAllocationSize the maximum memory budget for the allocator
@@ -702,10 +703,10 @@ public final class Databases {
   }
 
   /**
-   * Peek the global BufferManager without forcing initialization. Returns
-   * {@code null} when no database has been opened yet. Use this from observability
-   * code paths (metrics scrape, JFR samplers) so that a poll on an idle server
-   * does not eagerly allocate the default 2 GB buffer pool.
+   * Peek the global BufferManager without forcing initialization. Returns {@code null} when no
+   * database has been opened yet. Use this from observability code paths (metrics scrape, JFR
+   * samplers) so that a poll on an idle server does not eagerly allocate the default 2 GB buffer
+   * pool.
    */
   public static @Nullable BufferManager peekGlobalBufferManager() {
     return GLOBAL_BUFFER_MANAGER;

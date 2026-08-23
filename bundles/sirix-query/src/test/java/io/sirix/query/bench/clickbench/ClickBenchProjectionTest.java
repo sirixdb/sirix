@@ -68,10 +68,7 @@ final class ClickBenchProjectionTest {
 
   @Test
   void createQueryPersistsTheDeclaredProjection(@TempDir final Path directory) throws Exception {
-    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                     .location(directory)
-                                                     .buildPathSummary(true)
-                                                     .build();
+    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).buildPathSummary(true).build();
         Reader source = ClickBenchSource.open("generate:4");
         JsonReader jsonReader = new JsonReader(source)) {
       store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonReader);
@@ -81,20 +78,20 @@ final class ClickBenchProjectionTest {
       }
     }
 
-    try (Database<JsonResourceSession> database =
-             Databases.openJsonDatabase(directory.resolve(ClickBenchSchema.DATABASE));
+    try (
+        Database<JsonResourceSession> database =
+            Databases.openJsonDatabase(directory.resolve(ClickBenchSchema.DATABASE));
         JsonResourceSession session = database.beginResourceSession(ClickBenchSchema.RESOURCE)) {
       final List<IndexDef> definitions = session.getRtxIndexController(session.getMostRecentRevisionNumber())
-                                                   .getIndexes()
-                                                   .getIndexDefs()
-                                                   .stream()
-                                                   .filter(IndexDef::isProjectionIndex)
-                                                   .toList();
+                                                .getIndexes()
+                                                .getIndexDefs()
+                                                .stream()
+                                                .filter(IndexDef::isProjectionIndex)
+                                                .toList();
       Assertions.assertEquals(1, definitions.size());
       final IndexDef expected = ClickBenchProjection.spec().toIndexDef();
       final IndexDef actual = definitions.getFirst();
-      Assertions.assertEquals(expected.getProjectionRootPath().toString(),
-          actual.getProjectionRootPath().toString());
+      Assertions.assertEquals(expected.getProjectionRootPath().toString(), actual.getProjectionRootPath().toString());
       Assertions.assertEquals(expected.getProjectionFields().stream().map(Object::toString).toList(),
           actual.getProjectionFields().stream().map(Object::toString).toList());
       Assertions.assertEquals(expected.getProjectionFieldTypes(), actual.getProjectionFieldTypes());

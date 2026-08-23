@@ -39,11 +39,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for the {@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH} commit path.
  *
- * <p>Verifies the path works under its documented constraints — FILE_CHANNEL or
- * MEMORY_MAPPED backend (both append through the file-channel writer), count-based
- * auto-commit only — including a sync-vs-async content-parity differential on the
- * memory-mapped backend, AND verifies the runtime guards fail-fast on misuse so a
- * regression in the guards is caught.
+ * <p>
+ * Verifies the path works under its documented constraints — FILE_CHANNEL or MEMORY_MAPPED backend
+ * (both append through the file-channel writer), count-based auto-commit only — including a
+ * sync-vs-async content-parity differential on the memory-mapped backend, AND verifies the runtime
+ * guards fail-fast on misuse so a regression in the guards is caught.
  */
 final class AsyncAutoCommitTest {
 
@@ -75,14 +75,14 @@ final class AsyncAutoCommitTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.ROLLING)
-          .buildPathSummary(true)
-          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.ROLLING)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(8, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(8, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
@@ -90,11 +90,10 @@ final class AsyncAutoCommitTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       final String coldSerialized = serialize(session);
       JSONAssert.assertEquals(document, coldSerialized, true);
-      assertEquals(1, session.getMostRecentRevisionNumber(),
-          "intermediate async flushes must not mint revisions");
+      assertEquals(1, session.getMostRecentRevisionNumber(), "intermediate async flushes must not mint revisions");
     }
   }
 
@@ -107,14 +106,14 @@ final class AsyncAutoCommitTest {
     Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(true)
-          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
       try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
-           final XmlNodeTrx wtx = session.beginNodeTrx(4, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final XmlNodeTrx wtx = session.beginNodeTrx(4, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(document), XmlNodeTrx.Commit.No);
         wtx.commit();
       }
@@ -122,12 +121,11 @@ final class AsyncAutoCommitTest {
 
     Databases.clearGlobalCaches();
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath);
-         final XmlResourceSession session = database.beginResourceSession(RESOURCE);
-         final ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+        final ByteArrayOutputStream output = new ByteArrayOutputStream()) {
       XmlSerializer.newBuilder(session, output).build().call();
       assertEquals(document, output.toString(StandardCharsets.UTF_8));
-      assertEquals(1, session.getMostRecentRevisionNumber(),
-          "intermediate XML async flushes must not mint revisions");
+      assertEquals(1, session.getMostRecentRevisionNumber(), "intermediate XML async flushes must not mint revisions");
     }
   }
 
@@ -141,18 +139,18 @@ final class AsyncAutoCommitTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.FULL)
-          .storageType(storageType)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(VersioningType.FULL)
+                                             .storageType(storageType)
+                                             .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           // maxNodes = 1024 → after every 1024 modifications the async path
-           // rotates the TIL (background flush) but does NOT mint a new revision.
-           // Only the final explicit commit creates a revision.
-           final JsonNodeTrx wtx = session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          // maxNodes = 1024 → after every 1024 modifications the async path
+          // rotates the TIL (background flush) but does NOT mint a new revision.
+          // Only the final explicit commit creates a revision.
+          final JsonNodeTrx wtx = session.beginNodeTrx(1024, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         // Insert enough records to cross the maxNodes threshold a few times.
         // Move back to the array on every iteration so we're inserting AS a
@@ -169,17 +167,15 @@ final class AsyncAutoCommitTest {
     }
 
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-      assertTrue(rtx.getRevisionNumber() >= 1,
-          "expected at least one revision after async-auto-commit + final commit");
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.getRevisionNumber() >= 1, "expected at least one revision after async-auto-commit + final commit");
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild();
       // The first child is the array we created. We don't traverse the entire 3000
       // elements — just confirm the array root is reachable, which means the page
       // tree is consistent end-to-end.
-      assertTrue(rtx.hasFirstChild(),
-          "the array must have at least one element after async auto-commit");
+      assertTrue(rtx.hasFirstChild(), "the array must have at least one element after async auto-commit");
     }
   }
 
@@ -204,14 +200,16 @@ final class AsyncAutoCommitTest {
       if (i > 0) {
         json.append(',');
       }
-      json.append("{\"name\":\"user-").append(i)
-          .append("\",\"age\":").append(18 + (i * 37) % 63)
-          .append(",\"active\":").append((i % 3) == 0);
+      json.append("{\"name\":\"user-")
+          .append(i)
+          .append("\",\"age\":")
+          .append(18 + (i * 37) % 63)
+          .append(",\"active\":")
+          .append((i % 3) == 0);
       if (i == 10) {
         json.append(",\"payload\":\"").append(overlong).append('"');
       }
-      json.append(",\"tags\":[\"t").append(i % 7).append("\",\"t").append(i % 11)
-          .append("\"]}");
+      json.append(",\"tags\":[\"t").append(i % 7).append("\",\"t").append(i % 11).append("\"]}");
     }
     json.append(']');
     final String document = json.toString();
@@ -229,8 +227,8 @@ final class AsyncAutoCommitTest {
 
     // Durability: reopen the database and compare the serialized content again.
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession syncSession = db.beginResourceSession("sync-resource");
-         final JsonResourceSession asyncSession = db.beginResourceSession("async-resource")) {
+        final JsonResourceSession syncSession = db.beginResourceSession("sync-resource");
+        final JsonResourceSession asyncSession = db.beginResourceSession("async-resource")) {
       final String reopenedAsyncSerialized = serialize(asyncSession);
       assertEquals(serialize(syncSession), reopenedAsyncSerialized,
           "reopened async-flush resource must match the synchronous one");
@@ -246,12 +244,12 @@ final class AsyncAutoCommitTest {
   private String importAndSerialize(final Database<JsonResourceSession> db, final String resource,
       final String document, final AfterCommitState afterCommitState) {
     db.createResource(ResourceConfiguration.newBuilder(resource)
-        .storeDiffs(false)
-        .hashKind(HashType.ROLLING)
-        .buildPathSummary(true)
-        .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-        .storageType(StorageType.MEMORY_MAPPED)
-        .build());
+                                           .storeDiffs(false)
+                                           .hashKind(HashType.ROLLING)
+                                           .buildPathSummary(true)
+                                           .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                           .storageType(StorageType.MEMORY_MAPPED)
+                                           .build());
     try (final JsonResourceSession session = db.beginResourceSession(resource)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx(512, afterCommitState)) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document), JsonNodeTrx.Commit.NO);
@@ -274,19 +272,22 @@ final class AsyncAutoCommitTest {
         document.append(',');
       }
       switch (i & 7) {
-        case 0 -> document.append("{\"id\":").append(i)
-            .append(",\"nested\":{\"flag\":").append((i & 1) == 0)
-            .append(",\"values\":[").append(i).append(',').append(i + 1).append(",null]}}");
-        case 1 -> document.append('[').append(i)
-            .append(",{\"name\":\"row-").append(i).append("\"},[true,false]]");
+        case 0 -> document.append("{\"id\":")
+                          .append(i)
+                          .append(",\"nested\":{\"flag\":")
+                          .append((i & 1) == 0)
+                          .append(",\"values\":[")
+                          .append(i)
+                          .append(',')
+                          .append(i + 1)
+                          .append(",null]}}");
+        case 1 -> document.append('[').append(i).append(",{\"name\":\"row-").append(i).append("\"},[true,false]]");
         case 2 -> document.append('"').append("text-").append(i).append('"');
         case 3 -> document.append(i);
         case 4 -> document.append((i & 1) == 0);
         case 5 -> document.append("null");
-        case 6 -> document.append("{\"emptyObject\":{},\"emptyArray\":[],\"value\":").append(i)
-            .append('}');
-        case 7 -> document.append("[{\"deep\":{\"leaf\":\"").append(i)
-            .append("\"}},[],[\"tail\",null]]");
+        case 6 -> document.append("{\"emptyObject\":{},\"emptyArray\":[],\"value\":").append(i).append('}');
+        case 7 -> document.append("[{\"deep\":{\"leaf\":\"").append(i).append("\"}},[],[\"tail\",null]]");
         default -> throw new AssertionError("unreachable shape selector");
       }
     }
@@ -299,12 +300,12 @@ final class AsyncAutoCommitTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.FULL)
-          .storageType(StorageType.MEMORY_MAPPED)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(VersioningType.FULL)
+                                             .storageType(StorageType.MEMORY_MAPPED)
+                                             .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
         final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
@@ -322,12 +323,12 @@ final class AsyncAutoCommitTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.FULL)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(VersioningType.FULL)
+                                             .storageType(StorageType.FILE_CHANNEL)
+                                             .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
         final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,

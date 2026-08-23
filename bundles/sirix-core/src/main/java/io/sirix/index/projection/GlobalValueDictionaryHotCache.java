@@ -20,8 +20,7 @@ final class GlobalValueDictionaryHotCache {
   private int lastId;
 
   int find(final byte[] source, final int offset, final int length) {
-    if (lastId != 0 && lastLength == length
-        && Arrays.equals(lastValue, 0, length, source, offset, offset + length)) {
+    if (lastId != 0 && lastLength == length && Arrays.equals(lastValue, 0, length, source, offset, offset + length)) {
       return lastId;
     }
     if (length > MAX_SLOT_LENGTH) {

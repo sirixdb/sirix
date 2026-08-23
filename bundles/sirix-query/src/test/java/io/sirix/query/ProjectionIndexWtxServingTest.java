@@ -22,18 +22,16 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 /**
- * Wtx-visible projection serving: an executor bound to an OPEN write
- * transaction serves analytics from the transaction's UNCOMMITTED state —
- * read-your-writes through {@code IndexController#openProjectionIndex},
- * which applies the pending incremental maintenance and reads the leaves
- * through the transaction log. Committed-revision executors keep seeing the
- * committed snapshot (isolation), the commit applies only the remaining
- * delta after a mid-transaction flush (re-entrancy), and a rollback
- * discards everything.
+ * Wtx-visible projection serving: an executor bound to an OPEN write transaction serves analytics
+ * from the transaction's UNCOMMITTED state — read-your-writes through
+ * {@code IndexController#openProjectionIndex}, which applies the pending incremental maintenance
+ * and reads the leaves through the transaction log. Committed-revision executors keep seeing the
+ * committed snapshot (isolation), the commit applies only the remaining delta after a
+ * mid-transaction flush (re-entrancy), and a rollback discards everything.
  */
 public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
 
-  private static final String[] SOURCE_PATH = { "[]" };
+  private static final String[] SOURCE_PATH = {"[]"};
 
   @BeforeEach
   public void clearProjectionStateBefore() {
@@ -65,20 +63,19 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   }
 
   private static Database<JsonResourceSession> openDatabase() {
-    final Path dbPath =
-        Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
     return Databases.openJsonDatabase(dbPath);
   }
 
   /** Move the wtx to record {@code recordIndex}'s "age" field (its first child). */
   private static void moveToAgeField(final JsonNodeTrx wtx, final int recordIndex) {
     Assertions.assertTrue(wtx.moveToDocumentRoot());
-    Assertions.assertTrue(wtx.moveToFirstChild());          // top-level ARRAY
-    Assertions.assertTrue(wtx.moveToFirstChild());          // record 0
+    Assertions.assertTrue(wtx.moveToFirstChild()); // top-level ARRAY
+    Assertions.assertTrue(wtx.moveToFirstChild()); // record 0
     for (int i = 0; i < recordIndex; i++) {
       Assertions.assertTrue(wtx.moveToRightSibling());
     }
-    Assertions.assertTrue(wtx.moveToFirstChild());          // first field = "age"
+    Assertions.assertTrue(wtx.moveToFirstChild()); // first field = "age"
     Assertions.assertEquals(NodeKind.OBJECT_NAMED_NUMBER, wtx.getKind());
   }
 
@@ -92,7 +89,7 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   public void wtxExecutorServesUncommittedStateAndCommitPersistsIt() throws IOException {
     storeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       final int committedRevision = session.getMostRecentRevisionNumber();
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         // Uncommitted update: record 0's age 30 → 99.
@@ -105,8 +102,7 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
           Assertions.assertEquals(280L, sumAges(wtxExecutor));
 
           // Isolation: a committed-revision executor still sees 211.
-          final SirixVectorizedExecutor committedExecutor =
-              new SirixVectorizedExecutor(session, committedRevision, 2);
+          final SirixVectorizedExecutor committedExecutor = new SirixVectorizedExecutor(session, committedRevision, 2);
           try {
             Assertions.assertEquals(211L, sumAges(committedExecutor));
           } finally {
@@ -158,9 +154,9 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
           let $stats := jn:create-projection-index($doc, '/records/[]', ('/records/[]/age'), ('long'))
           return {"revision": sdb:commit($doc)}
         """);
-    final String[] recordsPath = { "records", "[]" };
+    final String[] recordsPath = {"records", "[]"};
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("mv.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("mv.jn")) {
       final int baselineRevision = session.getMostRecentRevisionNumber();
       final long recordsArrayKey;
       final long record0Key;
@@ -169,17 +165,17 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
       final long archivedRecordKey;
       try (final var rtx = session.beginNodeReadOnlyTrx(baselineRevision)) {
         Assertions.assertTrue(rtx.moveToDocumentRoot());
-        Assertions.assertTrue(rtx.moveToFirstChild());       // top-level OBJECT
-        Assertions.assertTrue(rtx.moveToFirstChild());       // records
+        Assertions.assertTrue(rtx.moveToFirstChild()); // top-level OBJECT
+        Assertions.assertTrue(rtx.moveToFirstChild()); // records
         recordsArrayKey = rtx.getNodeKey();
-        Assertions.assertTrue(rtx.moveToFirstChild());       // age 1
+        Assertions.assertTrue(rtx.moveToFirstChild()); // age 1
         record0Key = rtx.getNodeKey();
-        Assertions.assertTrue(rtx.moveToRightSibling());     // age 2
+        Assertions.assertTrue(rtx.moveToRightSibling()); // age 2
         record1Key = rtx.getNodeKey();
         Assertions.assertTrue(rtx.moveTo(recordsArrayKey));
-        Assertions.assertTrue(rtx.moveToRightSibling());     // archive
+        Assertions.assertTrue(rtx.moveToRightSibling()); // archive
         archiveArrayKey = rtx.getNodeKey();
-        Assertions.assertTrue(rtx.moveToFirstChild());       // age 9
+        Assertions.assertTrue(rtx.moveToFirstChild()); // age 9
         archivedRecordKey = rtx.getNodeKey();
       }
 
@@ -214,9 +210,8 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> reopened = openDatabase();
-         final JsonResourceSession reopenedSession = reopened.beginResourceSession("mv.jn")) {
-      assertRecordProjectionOrder(reopenedSession, recordsPath,
-          reopenedSession.getMostRecentRevisionNumber(), 2L, 9L);
+        final JsonResourceSession reopenedSession = reopened.beginResourceSession("mv.jn")) {
+      assertRecordProjectionOrder(reopenedSession, recordsPath, reopenedSession.getMostRecentRevisionNumber(), 2L, 9L);
     }
   }
 
@@ -230,36 +225,33 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
           let $stats := jn:create-projection-index($doc, '/records/[]', ('/records/[]/age'), ('long'))
           return {"revision": sdb:commit($doc)}
         """);
-    final String[] recordsPath = { "records", "[]" };
+    final String[] recordsPath = {"records", "[]"};
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("insert-order.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("insert-order.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
-        Assertions.assertTrue(wtx.moveToFirstChild());       // "records" fused array
-        wtx.insertObjectAsFirstChild()
-            .insertObjectRecordAsFirstChild("age", new NumberValue(0));
+        Assertions.assertTrue(wtx.moveToFirstChild()); // top-level OBJECT
+        Assertions.assertTrue(wtx.moveToFirstChild()); // "records" fused array
+        wtx.insertObjectAsFirstChild().insertObjectRecordAsFirstChild("age", new NumberValue(0));
         wtx.commit();
       }
       assertRecordProjectionOrder(session, recordsPath, session.getMostRecentRevisionNumber(), 0L, 1L, 2L);
 
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
-        Assertions.assertTrue(wtx.moveToFirstChild());       // records
-        Assertions.assertTrue(wtx.moveToFirstChild());       // age 0
-        wtx.insertObjectAsRightSibling()
-            .insertObjectRecordAsFirstChild("age", new NumberValue(10));
+        Assertions.assertTrue(wtx.moveToFirstChild()); // top-level OBJECT
+        Assertions.assertTrue(wtx.moveToFirstChild()); // records
+        Assertions.assertTrue(wtx.moveToFirstChild()); // age 0
+        wtx.insertObjectAsRightSibling().insertObjectRecordAsFirstChild("age", new NumberValue(10));
         wtx.commit();
       }
       assertRecordProjectionOrder(session, recordsPath, session.getMostRecentRevisionNumber(), 0L, 10L, 1L, 2L);
 
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
-        Assertions.assertTrue(wtx.moveToFirstChild());       // "records" fused array
-        wtx.insertObjectAsLastChild()
-            .insertObjectRecordAsFirstChild("age", new NumberValue(3));
+        Assertions.assertTrue(wtx.moveToFirstChild()); // top-level OBJECT
+        Assertions.assertTrue(wtx.moveToFirstChild()); // "records" fused array
+        wtx.insertObjectAsLastChild().insertObjectRecordAsFirstChild("age", new NumberValue(3));
         wtx.commit();
       }
       final int appendedRevision = session.getMostRecentRevisionNumber();
@@ -270,9 +262,9 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> reopened = openDatabase();
-         final JsonResourceSession reopenedSession = reopened.beginResourceSession("insert-order.jn")) {
-      assertRecordProjectionOrder(reopenedSession, recordsPath,
-          reopenedSession.getMostRecentRevisionNumber(), 0L, 10L, 1L, 2L, 3L);
+        final JsonResourceSession reopenedSession = reopened.beginResourceSession("insert-order.jn")) {
+      assertRecordProjectionOrder(reopenedSession, recordsPath, reopenedSession.getMostRecentRevisionNumber(), 0L, 10L,
+          1L, 2L, 3L);
     }
   }
 
@@ -280,15 +272,15 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   public void moveWhollyWithinOneRecordRemainsIncrementallyMaintainable() throws IOException {
     storeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level ARRAY
-        Assertions.assertTrue(wtx.moveToFirstChild());       // first record
-        Assertions.assertTrue(wtx.moveToFirstChild());       // age
+        Assertions.assertTrue(wtx.moveToFirstChild()); // top-level ARRAY
+        Assertions.assertTrue(wtx.moveToFirstChild()); // first record
+        Assertions.assertTrue(wtx.moveToFirstChild()); // age
         final long ageKey = wtx.getNodeKey();
-        Assertions.assertTrue(wtx.moveToRightSibling());     // active
-        Assertions.assertTrue(wtx.moveToRightSibling());     // dept
+        Assertions.assertTrue(wtx.moveToRightSibling()); // active
+        Assertions.assertTrue(wtx.moveToRightSibling()); // dept
         final long deptKey = wtx.getNodeKey();
         Assertions.assertTrue(wtx.moveTo(ageKey));
         wtx.moveSubtreeToRightSibling(deptKey);
@@ -315,16 +307,17 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
     }
   }
 
-  private static void assertRecordProjectionOrder(final JsonResourceSession session,
-      final String[] recordsPath, final int revision, final long... expectedValues) {
+  private static void assertRecordProjectionOrder(final JsonResourceSession session, final String[] recordsPath,
+      final int revision, final long... expectedValues) {
     try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
-          .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" });
+      final ProjectionIndexRegistry.Handle handle =
+          session.getRtxIndexController(revision)
+                 .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] {"age"});
       Assertions.assertNotNull(handle, "the committed projection must remain servable");
       final long[] actualValues = new long[expectedValues.length];
       int offset = 0;
-      for (final byte[] leafBytes : handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, revision, handle.defId(), handle.rowGroupCount()))) {
+      for (final byte[] leafBytes : handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), handle.rowGroupCount()))) {
         final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leafBytes);
         final int rowCount = leaf.getRowCount();
         Assertions.assertTrue(offset + rowCount <= actualValues.length,
@@ -332,10 +325,8 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
         System.arraycopy(leaf.numericColumn(0), 0, actualValues, offset, rowCount);
         offset += rowCount;
       }
-      Assertions.assertEquals(expectedValues.length, offset,
-          "the projection contains fewer rows than expected");
-      Assertions.assertArrayEquals(expectedValues, actualValues,
-          "projection rows must remain in document order");
+      Assertions.assertEquals(expectedValues.length, offset, "the projection contains fewer rows than expected");
+      Assertions.assertArrayEquals(expectedValues, actualValues, "projection rows must remain in document order");
     }
   }
 
@@ -346,13 +337,13 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
     // gate derives from the catalogued definitions).
     storeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       final int mostRecent = session.getMostRecentRevisionNumber();
       try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
-        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(mostRecent)
-            .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
-        Assertions.assertNotNull(handle,
-            "the committed controller-mediated projection read must serve, not fall back");
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(mostRecent)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] {"age"});
+        Assertions.assertNotNull(handle, "the committed controller-mediated projection read must serve, not fall back");
         Assertions.assertTrue(handle.columnOf("age") >= 0);
       }
     }
@@ -365,27 +356,27 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
     // has to agree with what a full rebuild would produce.
     storeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level ARRAY
+        Assertions.assertTrue(wtx.moveToFirstChild()); // top-level ARRAY
         final long arrayKey = wtx.getNodeKey();
-        wtx.insertObjectAsLastChild();                       // {} record → row 6
+        wtx.insertObjectAsLastChild(); // {} record → row 6
         Assertions.assertTrue(wtx.moveTo(arrayKey));
-        wtx.insertNullValueAsLastChild();                    // null element → row 7
+        wtx.insertNullValueAsLastChild(); // null element → row 7
         wtx.commit();
       }
       Assertions.assertEquals(7, servedRowCount(session));
 
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());       // ARRAY
-        Assertions.assertTrue(wtx.moveToFirstChild());       // record 0
-        for (int i = 0; i < 5; i++) {                        // → the {} record
+        Assertions.assertTrue(wtx.moveToFirstChild()); // ARRAY
+        Assertions.assertTrue(wtx.moveToFirstChild()); // record 0
+        for (int i = 0; i < 5; i++) { // → the {} record
           Assertions.assertTrue(wtx.moveToRightSibling());
         }
         Assertions.assertEquals(NodeKind.OBJECT, wtx.getKind());
-        wtx.remove();                                        // drop the {} record
+        wtx.remove(); // drop the {} record
         wtx.commit();
       }
       Assertions.assertEquals(6, servedRowCount(session));
@@ -396,12 +387,13 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   private static int servedRowCount(final JsonResourceSession session) {
     final int mostRecent = session.getMostRecentRevisionNumber();
     try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
-      final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(mostRecent)
-          .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
+      final ProjectionIndexRegistry.Handle handle =
+          session.getRtxIndexController(mostRecent)
+                 .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] {"age"});
       Assertions.assertNotNull(handle, "the maintained projection must still be served");
       int rows = 0;
-      for (final byte[] leaf : handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, mostRecent, handle.defId(), handle.rowGroupCount()))) {
+      for (final byte[] leaf : handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, mostRecent, handle.defId(), handle.rowGroupCount()))) {
         rows += ProjectionIndexRowGroupPage.deserialize(leaf).getRowCount();
       }
       return rows;
@@ -412,7 +404,7 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   public void rollbackDiscardsWtxVisibleChanges() throws IOException {
     storeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         moveToAgeField(wtx, 0);
         wtx.setNumberValue(1000);
@@ -438,13 +430,13 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   public void deletedRecordDropsOutOfWtxServing() throws IOException {
     storeAndCreateProjection();
     try (final Database<JsonResourceSession> database = openDatabase();
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         // Delete record 1 (age 45).
         Assertions.assertTrue(wtx.moveToDocumentRoot());
-        Assertions.assertTrue(wtx.moveToFirstChild());     // ARRAY
-        Assertions.assertTrue(wtx.moveToFirstChild());     // record 0
-        Assertions.assertTrue(wtx.moveToRightSibling());   // record 1
+        Assertions.assertTrue(wtx.moveToFirstChild()); // ARRAY
+        Assertions.assertTrue(wtx.moveToFirstChild()); // record 0
+        Assertions.assertTrue(wtx.moveToRightSibling()); // record 1
         wtx.remove();
         final SirixVectorizedExecutor wtxExecutor = new SirixVectorizedExecutor(wtx, 2);
         try {

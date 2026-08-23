@@ -93,13 +93,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final StorageType storageType;
 
   /**
-   * Use the asynchronous background pre-flush ({@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH})
-   * for bulk imports instead of synchronous intermediate auto-commits. Default {@code true}:
-   * imports produce ONE semantically meaningful revision ("dataset imported") instead of
-   * parser-progress checkpoint revisions, with the leaf I/O overlapped with parsing and memory
-   * still bounded by the flush threshold. Applies with the FILE_CHANNEL and MEMORY_MAPPED
-   * backends (both append through the same file-channel writer); any other backend falls back
-   * to synchronous auto-commits.
+   * Use the asynchronous background pre-flush ({@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH}) for
+   * bulk imports instead of synchronous intermediate auto-commits. Default {@code true}: imports
+   * produce ONE semantically meaningful revision ("dataset imported") instead of parser-progress
+   * checkpoint revisions, with the leaf I/O overlapped with parsing and memory still bounded by the
+   * flush threshold. Applies with the FILE_CHANNEL and MEMORY_MAPPED backends (both append through
+   * the same file-channel writer); any other backend falls back to synchronous auto-commits.
    */
   private final boolean useAsyncFlushForImports;
 
@@ -114,9 +113,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final boolean buildPathSummary;
 
   /**
-   * Determines if per-path value statistics (count, sum, min, max, HLL) should be
-   * maintained on PathSummary nodes for this store's resources. Requires
-   * {@link #buildPathSummary} to be {@code true}.
+   * Determines if per-path value statistics (count, sum, min, max, HLL) should be maintained on
+   * PathSummary nodes for this store's resources. Requires {@link #buildPathSummary} to be
+   * {@code true}.
    */
   private final boolean buildPathStatistics;
 
@@ -141,9 +140,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final int numberOfNodesBeforeAutoCommit;
 
   /**
-   * Whether the record-to-revisions index should be maintained. Off by default
-   * on this builder — it writes one index entry per insert and is only needed
-   * for cross-revision record history lookups.
+   * Whether the record-to-revisions index should be maintained. Off by default on this builder — it
+   * writes one index entry per insert and is only needed for cross-revision record history lookups.
    */
   private final boolean storeNodeHistory;
 
@@ -185,44 +183,43 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
     /**
      * Determines if per-path value statistics (count, sum, min, max, HLL) should be maintained on
-     * PathSummary nodes. Requires {@link #buildPathSummary} to be {@code true}, which it is by
-     * default.
+     * PathSummary nodes. Requires {@link #buildPathSummary} to be {@code true}, which it is by default.
      *
-     * <p>ON by default. These statistics are what let a count, sum or avg be answered from a
-     * handful of summary nodes instead of by reading every record, and leaving them opt-in meant
-     * the configuration that was measured and the configuration users actually get were not the
-     * same system.
+     * <p>
+     * ON by default. These statistics are what let a count, sum or avg be answered from a handful of
+     * summary nodes instead of by reading every record, and leaving them opt-in meant the configuration
+     * that was measured and the configuration users actually get were not the same system.
      *
-     * <p>They could not be defaulted on while they were inexact: numbers reached them through
+     * <p>
+     * They could not be defaulted on while they were inexact: numbers reached them through
      * {@code Number.longValue()}, so a path holding {@code 17.125} contributed {@code 17} and a
-     * summary-served sum was silently short. The statistics now carry the fractional remainder
-     * beside the integral accumulator, and mark themselves untrusted when a delete makes the sum
-     * unreproducible — floating-point addition is not invertible — so a query falls back to the
-     * scan rather than returning a number that is merely close.
+     * summary-served sum was silently short. The statistics now carry the fractional remainder beside
+     * the integral accumulator, and mark themselves untrusted when a delete makes the sum
+     * unreproducible — floating-point addition is not invertible — so a query falls back to the scan
+     * rather than returning a number that is merely close.
      *
-     * <p>Turn off with {@code -DbuildPathStatistics=false} on write-dominated workloads, where the
+     * <p>
+     * Turn off with {@code -DbuildPathStatistics=false} on write-dominated workloads, where the
      * per-insert maintenance is not repaid.
      */
-    private boolean buildPathStatistics =
-        System.getProperty("buildPathStatistics") == null
-            || Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+    private boolean buildPathStatistics = System.getProperty("buildPathStatistics") == null
+        || Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
 
     /**
-     * Whether a caller actually ASKED for path statistics, as opposed to inheriting the default
-     * above. Statistics cannot exist without a path summary — {@code ResourceConfiguration.Builder}
-     * rejects that combination — so a defaulted {@code true} has to follow
-     * {@link #buildPathSummary} down rather than turn {@code buildPathSummary(false)} into an
-     * {@code IllegalStateException} on every resource creation. An EXPLICIT
-     * {@code buildPathStatistics(true)} still reaches that check and still throws, because there
-     * the caller asked for something impossible and should be told.
+     * Whether a caller actually ASKED for path statistics, as opposed to inheriting the default above.
+     * Statistics cannot exist without a path summary — {@code ResourceConfiguration.Builder} rejects
+     * that combination — so a defaulted {@code true} has to follow {@link #buildPathSummary} down
+     * rather than turn {@code buildPathSummary(false)} into an {@code IllegalStateException} on every
+     * resource creation. An EXPLICIT {@code buildPathStatistics(true)} still reaches that check and
+     * still throws, because there the caller asked for something impossible and should be told.
      */
     private boolean pathStatisticsRequested;
 
     /**
      * Determines if DeweyIDs should be generated for resources.
      */
-    private boolean useDeweyIDs = System.getProperty("useDeweyIDs") != null
-        && Boolean.parseBoolean(System.getProperty("useDeweyIDs"));
+    private boolean useDeweyIDs =
+        System.getProperty("useDeweyIDs") != null && Boolean.parseBoolean(System.getProperty("useDeweyIDs"));
 
     /**
      * Determines the hash type to use (default: rolling).
@@ -250,13 +247,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
         || Boolean.parseBoolean(System.getProperty("sirix.import.asyncFlush"));
 
     /**
-     * Whether the record-to-revisions index is maintained on insert. Default
-     * matches ResourceConfiguration's default ({@code true}) but is overridable
-     * via {@code -DstoreNodeHistory=false} for write-heavy, single-revision
-     * workloads that don't need cross-revision record history lookups.
+     * Whether the record-to-revisions index is maintained on insert. Default matches
+     * ResourceConfiguration's default ({@code true}) but is overridable via
+     * {@code -DstoreNodeHistory=false} for write-heavy, single-revision workloads that don't need
+     * cross-revision record history lookups.
      */
-    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
-        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+    private boolean storeNodeHistory =
+        System.getProperty("storeNodeHistory") == null || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
 
     /**
      * Toggle the record-to-revisions index. Default true.
@@ -292,10 +289,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
-     * Set whether per-path value statistics should be maintained on PathSummary nodes.
-     * Enables the aggregate short-circuit for {@code sum / avg / min / max / count}
-     * queries at the cost of some write-path overhead. Requires
-     * {@link #buildPathSummary(boolean)} to be {@code true}.
+     * Set whether per-path value statistics should be maintained on PathSummary nodes. Enables the
+     * aggregate short-circuit for {@code sum / avg / min / max / count} queries at the cost of some
+     * write-path overhead. Requires {@link #buildPathSummary(boolean)} to be {@code true}.
      *
      * @param buildPathStatistics {@code true} to enable per-path statistics
      * @return this builder instance
@@ -374,9 +370,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
     /**
      * Whether bulk imports use the asynchronous background pre-flush (default) or synchronous
-     * intermediate auto-commits (one revision per threshold crossing). Synchronous auto-commits
-     * give durable checkpoints during the import at the cost of commit barriers on the import
-     * path and parser-progress revisions in the history.
+     * intermediate auto-commits (one revision per threshold crossing). Synchronous auto-commits give
+     * durable checkpoints during the import at the cost of commit barriers on the import path and
+     * parser-progress revisions in the history.
      *
      * @param useAsyncFlushForImports {@code false} to restore synchronous intermediate commits
      * @return this builder instance
@@ -425,21 +421,21 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   /**
-   * Begin the write transaction for a bulk import: the asynchronous background pre-flush when
-   * enabled and supported (FILE_CHANNEL or MEMORY_MAPPED — see the guard in
-   * {@code beginNodeTrx}), otherwise classic synchronous intermediate auto-commits. Both bound
-   * memory by {@code numberOfNodesBeforeAutoCommit}; the async variant overlaps leaf I/O with
-   * parsing and produces a single import revision instead of parser-progress checkpoints.
+   * Begin the write transaction for a bulk import: the asynchronous background pre-flush when enabled
+   * and supported (FILE_CHANNEL or MEMORY_MAPPED — see the guard in {@code beginNodeTrx}), otherwise
+   * classic synchronous intermediate auto-commits. Both bound memory by
+   * {@code numberOfNodesBeforeAutoCommit}; the async variant overlaps leaf I/O with parsing and
+   * produces a single import revision instead of parser-progress checkpoints.
    *
-   * <p>The decision reads the RESOURCE's configured storage type, not this store's default —
-   * per-call options may override the backend, and the fallback contract is "unsupported
-   * backend → synchronous auto-commits", never a failed import.
+   * <p>
+   * The decision reads the RESOURCE's configured storage type, not this store's default — per-call
+   * options may override the backend, and the fallback contract is "unsupported backend → synchronous
+   * auto-commits", never a failed import.
    */
   private JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
     final StorageType resourceStorageType = resourceSession.getResourceConfig().getStorageType();
     if (useAsyncFlushForImports
-        && (resourceStorageType == StorageType.FILE_CHANNEL
-            || resourceStorageType == StorageType.MEMORY_MAPPED)) {
+        && (resourceStorageType == StorageType.FILE_CHANNEL || resourceStorageType == StorageType.MEMORY_MAPPED)) {
       return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
     }
     return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit);
@@ -565,10 +561,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * itself — a ONE-PASS load.
    *
    * <p>
-   * The alternative is to shred first and then run {@code jn:create-projection-index}, which walks the
-   * whole finished resource a second time; at real corpus sizes that second pass costs about as much
-   * as the load. Here the definition is catalogued on the still-empty resource, and the shred's own
-   * change notifications feed the projection builder, so the index is complete when the load commits.
+   * The alternative is to shred first and then run {@code jn:create-projection-index}, which walks
+   * the whole finished resource a second time; at real corpus sizes that second pass costs about as
+   * much as the load. Here the definition is catalogued on the still-empty resource, and the shred's
+   * own change notifications feed the projection builder, so the index is complete when the load
+   * commits.
    *
    * <p>
    * The projection is only readable after that final commit: until then its metadata slot holds the
@@ -582,9 +579,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   /**
-   * High-throughput one-pass creation path backed by Jackson's token-forwarding shredder. Field
-   * names are canonicalized by the parser and string values are UTF-8 encoded into a reusable
-   * buffer, avoiding Gson's per-token byte-array churn on analytical imports.
+   * High-throughput one-pass creation path backed by Jackson's token-forwarding shredder. Field names
+   * are canonicalized by the parser and string values are UTF-8 encoded into a reusable buffer,
+   * avoiding Gson's per-token byte-array churn on analytical imports.
    */
   public JsonDBCollection create(final String collName, final String resourceName, final JsonParser parser,
       final ProjectionSpec projection) {
@@ -608,18 +605,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createWithJackson(collName, resourceName, parser, null, ldjson);
   }
 
-  private JsonDBCollection createWithJackson(final String collName, final String resourceName,
-      final JsonParser parser, final @Nullable ProjectionSpec projection, final boolean ldjson) {
+  private JsonDBCollection createWithJackson(final String collName, final String resourceName, final JsonParser parser,
+      final @Nullable ProjectionSpec projection, final boolean ldjson) {
     requireNonNull(parser);
-    return createCollectionWithLoader(collName, resourceName,
-        wtx -> {
-          if (ldjson) {
-            wtx.insertLdjsonAsFirstChild(parser, JsonNodeTrx.Commit.NO);
-          } else {
-            wtx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
-          }
-        },
-        new ArrayObject(new QNm[0], new Sequence[0]), projection);
+    return createCollectionWithLoader(collName, resourceName, wtx -> {
+      if (ldjson) {
+        wtx.insertLdjsonAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+      } else {
+        wtx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+      }
+    }, new ArrayObject(new QNm[0], new Sequence[0]), projection);
   }
 
   private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
@@ -684,8 +679,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // memory counter is monotonic within a trx (only decrements on commit
       // via page release), and a multi-GB shred exhausts the budget long
       // before the single final commit fires.
-      final IndexDef projectionDef = projection == null ? null : projection.toIndexDef();
-      final long projectionExpectedRows = projection == null ? -1L : projection.expectedRows();
+      final IndexDef projectionDef = projection == null
+          ? null
+          : projection.toIndexDef();
+      final long projectionExpectedRows = projection == null
+          ? -1L
+          : projection.expectedRows();
       ProjectionBulkLoad projectionBulkLoad = null;
       try {
         try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
@@ -695,10 +694,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
             // record set is still empty, or the load has nothing to feed and the index would have to be
             // derived by a second full walk afterwards. Retain the exact build we armed: a failed parser
             // must retire that owner even though the write transaction subsequently rolls back.
-            final JsonIndexController indexController =
-                resourceSession.getWtxIndexController(wtx.getRevisionNumber());
-            projectionBulkLoad = indexController.createProjectionIndexAtLoadStart(projectionDef, wtx,
-                projectionExpectedRows);
+            final JsonIndexController indexController = resourceSession.getWtxIndexController(wtx.getRevisionNumber());
+            projectionBulkLoad =
+                indexController.createProjectionIndexAtLoadStart(projectionDef, wtx, projectionExpectedRows);
           }
           loader.load(wtx);
           if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
@@ -726,9 +724,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   /**
-   * Retire exactly the load owned by this create call. A controller-side partial-arm failure cleans up
-   * the exact {@code begin} results before throwing, so this method must never recover an owner from
-   * the process-global ACTIVE map: that entry could belong to a concurrent/earlier caller.
+   * Retire exactly the load owned by this create call. A controller-side partial-arm failure cleans
+   * up the exact {@code begin} results before throwing, so this method must never recover an owner
+   * from the process-global ACTIVE map: that entry could belong to a concurrent/earlier caller.
    */
   private static void abortProjectionBulkLoad(final @Nullable ProjectionBulkLoad ownedLoad,
       final Throwable primaryFailure) {
@@ -806,7 +804,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     } catch (final SirixException e) {
-      throw new DocumentException(e.getCause() != null ? e.getCause() : e);
+      throw new DocumentException(e.getCause() != null
+          ? e.getCause()
+          : e);
     }
   }
 
@@ -922,7 +922,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
     } catch (final SirixException e) {
-      throw new DocumentException(e.getCause() != null ? e.getCause() : e);
+      throw new DocumentException(e.getCause() != null
+          ? e.getCause()
+          : e);
     }
   }
 
@@ -949,8 +951,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         // "immutable" historical-revision entries — now describes the OLD store. Serving
         // them would feed the cost model stale statistics (e.g. a stale selectivity
         // closing the index gate for freshly stored data).
-        StatisticsCatalog.getInstance()
-                         .invalidateDatabase(dbConfig.getDatabaseFile().getFileName().toString());
+        StatisticsCatalog.getInstance().invalidateDatabase(dbConfig.getDatabaseFile().getFileName().toString());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }

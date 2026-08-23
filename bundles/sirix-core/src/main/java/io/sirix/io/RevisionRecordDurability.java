@@ -11,17 +11,19 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Per-JVM watermark of the highest revision whose 32-byte revisions-file record is known DURABLE
- * (covered by a completed {@code force} on the revisions file), for the lazy-revision-record
- * commit profile ({@code FileChannelWriter}), plus the two writer-to-writer handoffs that profile
- * needs: the tail-log ring snapshot and the write-frontier snapshot.
+ * (covered by a completed {@code force} on the revisions file), for the lazy-revision-record commit
+ * profile ({@code FileChannelWriter}), plus the two writer-to-writer handoffs that profile needs:
+ * the tail-log ring snapshot and the write-frontier snapshot.
  *
- * <p>Writers are per-transaction objects, so none of this can live in the writer: the whole point
- * is that writer B (this commit) may rely on work writer A (a previous commit or its
- * {@code close()}) already paid for. Entries are keyed by the revisions file path PLUS the
- * resource UUID — deleting a resource and recreating one at the same path mints a fresh UUID and
- * therefore a fresh entry, so a stale claim can never vouch for the new resource's records.
+ * <p>
+ * Writers are per-transaction objects, so none of this can live in the writer: the whole point is
+ * that writer B (this commit) may rely on work writer A (a previous commit or its {@code close()})
+ * already paid for. Entries are keyed by the revisions file path PLUS the resource UUID — deleting
+ * a resource and recreating one at the same path mints a fresh UUID and therefore a fresh entry, so
+ * a stale claim can never vouch for the new resource's records.
  *
- * <p>The watermark is an optimization, not a correctness source on its own: a fresh JVM starts at
+ * <p>
+ * The watermark is an optimization, not a correctness source on its own: a fresh JVM starts at
  * {@code -1} and the first tail-log eviction simply pays one synchronous {@code force}. Claims are
  * only ever advanced immediately after a successful force; truncation, rollback and file
  * re-initialization drop the WHOLE entry via {@link #invalidateFor} (there is deliberately no
@@ -34,12 +36,11 @@ public final class RevisionRecordDurability {
   /** Highest revision whose record is known durable; {@code -1} = nothing proven. */
   private final AtomicLong highestDurableRevision = new AtomicLong(-1L);
 
-  private RevisionRecordDurability() {
-  }
+  private RevisionRecordDurability() {}
 
   /**
-   * The entry for the given revisions file / resource identity. UUID halves of {@code 0/0}
-   * (legacy resources without a UUID) key by path alone.
+   * The entry for the given revisions file / resource identity. UUID halves of {@code 0/0} (legacy
+   * resources without a UUID) key by path alone.
    *
    * @param revisionsFile path of the {@code sirix.revisions} file
    * @param resourceUuidMsb most significant UUID half of the resource ({@code 0} = legacy)
@@ -48,8 +49,8 @@ public final class RevisionRecordDurability {
    */
   public static RevisionRecordDurability forFile(final Path revisionsFile, final long resourceUuidMsb,
       final long resourceUuidLsb) {
-    final String key = requireNonNull(revisionsFile, "revisionsFile").toAbsolutePath().normalize()
-        + "#" + resourceUuidMsb + "#" + resourceUuidLsb;
+    final String key = requireNonNull(revisionsFile, "revisionsFile").toAbsolutePath().normalize() + "#"
+        + resourceUuidMsb + "#" + resourceUuidLsb;
     return REGISTRY.computeIfAbsent(key, k -> new RevisionRecordDurability());
   }
 
@@ -63,9 +64,9 @@ public final class RevisionRecordDurability {
   }
 
   /**
-   * Drops every entry registered under the given revisions file path (any resource UUID). Called
-   * when a resource's files are re-initialized outside the writer (interrupted-first-commit
-   * recovery, truncation), where record offsets are about to be reused.
+   * Drops every entry registered under the given revisions file path (any resource UUID). Called when
+   * a resource's files are re-initialized outside the writer (interrupted-first-commit recovery,
+   * truncation), where record offsets are about to be reused.
    *
    * @param revisionsFile path of the {@code sirix.revisions} file being re-initialized
    */
@@ -85,12 +86,13 @@ public final class RevisionRecordDurability {
   }
 
   /**
-   * Records that a force completed AFTER the given revision's record was written — every record up
-   * to and including it is now durable. Monotonic: never lowers the watermark.
+   * Records that a force completed AFTER the given revision's record was written — every record up to
+   * and including it is now durable. Monotonic: never lowers the watermark.
    *
-   * <p>Callers claim only COMPLETED commits (typically {@code revision - 1}): a commit still in
-   * flight may fail and be retried, and the retry rewrites its record with different content that
-   * the completed force never covered.
+   * <p>
+   * Callers claim only COMPLETED commits (typically {@code revision - 1}): a commit still in flight
+   * may fail and be retried, and the retry rewrites its record with different content that the
+   * completed force never covered.
    *
    * @param revision the highest revision covered by the completed force
    */
@@ -99,9 +101,9 @@ public final class RevisionRecordDurability {
   }
 
   /**
-   * Once-per-resource-per-JVM latch for the legacy profile's on-disk tail-log preservation scan
-   * (see {@code FileChannelWriter}): writers are per-commit, so a per-writer flag re-ran the
-   * two-slot scan on EVERY legacy commit.
+   * Once-per-resource-per-JVM latch for the legacy profile's on-disk tail-log preservation scan (see
+   * {@code FileChannelWriter}): writers are per-commit, so a per-writer flag re-ran the two-slot scan
+   * on EVERY legacy commit.
    */
   private final AtomicBoolean legacyTailChecked = new AtomicBoolean();
 
@@ -120,10 +122,10 @@ public final class RevisionRecordDurability {
 
   /**
    * Adopts the predecessor writer's ring for a commit of {@code currentRevision}, or returns
-   * {@code null} when no exact-predecessor snapshot exists (fresh JVM, rollback, gap). Without
-   * this handoff every commit re-derived the ring from the on-disk beacon slots — two 4 KiB preads
-   * plus up to {@code capacity} record verifications per commit. The returned array is a defensive
-   * copy (the caller mutates it freely).
+   * {@code null} when no exact-predecessor snapshot exists (fresh JVM, rollback, gap). Without this
+   * handoff every commit re-derived the ring from the on-disk beacon slots — two 4 KiB preads plus up
+   * to {@code capacity} record verifications per commit. The returned array is a defensive copy (the
+   * caller mutates it freely).
    *
    * @param currentRevision the revision about to be staged
    * @return a copy of the ring as of revision {@code currentRevision - 1}, or {@code null}
@@ -136,9 +138,9 @@ public final class RevisionRecordDurability {
   }
 
   /**
-   * Stores a defensive copy of the ring right after the given revision's entry was staged. The
-   * copy (not the live array) is essential: the storing writer's background hardening phase may
-   * still read its own array while the successor mutates a fresh adoption copy.
+   * Stores a defensive copy of the ring right after the given revision's entry was staged. The copy
+   * (not the live array) is essential: the storing writer's background hardening phase may still read
+   * its own array while the successor mutates a fresh adoption copy.
    *
    * @param tailLog the writer's in-memory ring
    * @param revision the revision whose entry was just staged
@@ -159,8 +161,8 @@ public final class RevisionRecordDurability {
    * @param dataPreallocEnd physical preallocation end of the data file
    * @param revisionsPreallocEnd physical preallocation end of the revisions file
    */
-  private record Frontiers(long dataLogicalEnd, long dataPreallocEnd, long revisionsPreallocEnd,
-                           int revision, long revisionRootOffset, long revisionRootHash) {
+  private record Frontiers(long dataLogicalEnd, long dataPreallocEnd, long revisionsPreallocEnd, int revision,
+      long revisionRootOffset, long revisionRootHash) {
   }
 
   private static final Frontiers UNKNOWN_FRONTIERS = new Frontiers(-1L, -1L, -1L, -1, -1L, 0L);
@@ -168,9 +170,9 @@ public final class RevisionRecordDurability {
   private volatile Frontiers frontiers = UNKNOWN_FRONTIERS;
 
   /**
-   * Stores the writer's current frontiers. Without this handoff every commit re-derived the
-   * logical frontier from the durable revision graph — a beacon parse plus a revision-record read
-   * plus a length-header pread per commit. Truncation and rollback invalidate the whole entry
+   * Stores the writer's current frontiers. Without this handoff every commit re-derived the logical
+   * frontier from the durable revision graph — a beacon parse plus a revision-record read plus a
+   * length-header pread per commit. Truncation and rollback invalidate the whole entry
    * ({@link #invalidateFor}), so a stale frontier can never survive a timeline change.
    *
    * @param dataLogicalEnd logical data-file write frontier
@@ -180,28 +182,27 @@ public final class RevisionRecordDurability {
    * @param revisionRootOffset durable revision-root frame offset
    * @param revisionRootHash durable revision-root payload hash
    */
-  public void storeFrontiers(final long dataLogicalEnd, final long dataPreallocEnd,
-      final long revisionsPreallocEnd, final int revision, final long revisionRootOffset,
-      final long revisionRootHash) {
+  public void storeFrontiers(final long dataLogicalEnd, final long dataPreallocEnd, final long revisionsPreallocEnd,
+      final int revision, final long revisionRootOffset, final long revisionRootHash) {
     if (revision < 0 || revisionRootOffset < IOStorage.DATA_REGION_START || revisionRootHash == 0L) {
       throw new IllegalArgumentException("a durable revision-root identity is required");
     }
-    frontiers = new Frontiers(dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd, revision,
-        revisionRootOffset, revisionRootHash);
+    frontiers = new Frontiers(dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd, revision, revisionRootOffset,
+        revisionRootHash);
   }
 
   /**
-   * The cached frontiers and durable frame identity as one consistent snapshot. Callers MUST validate and adopt from this
-   * single snapshot rather than re-reading, so the values they check are the values they use.
+   * The cached frontiers and durable frame identity as one consistent snapshot. Callers MUST validate
+   * and adopt from this single snapshot rather than re-reading, so the values they check are the
+   * values they use.
    *
    * @return {@code [dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd, revision,
-   *         revisionRootOffset, revisionRootHash]}; a logical end of
-   *         {@code -1} means "unknown, derive from disk"
+   *         revisionRootOffset, revisionRootHash]}; a logical end of {@code -1} means "unknown,
+   *         derive from disk"
    */
   public long[] cachedFrontiers() {
     final Frontiers snapshot = frontiers;
-    return new long[] {snapshot.dataLogicalEnd(), snapshot.dataPreallocEnd(),
-        snapshot.revisionsPreallocEnd(), snapshot.revision(), snapshot.revisionRootOffset(),
-        snapshot.revisionRootHash()};
+    return new long[] {snapshot.dataLogicalEnd(), snapshot.dataPreallocEnd(), snapshot.revisionsPreallocEnd(),
+        snapshot.revision(), snapshot.revisionRootOffset(), snapshot.revisionRootHash()};
   }
 }

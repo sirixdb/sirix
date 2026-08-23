@@ -369,27 +369,26 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
       long pathNodeKey, String name, Number value, SirixDeweyID id) {
-    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
-        requireNonNull(value), BOXED_NUMBER, 0L, id);
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, requireNonNull(value),
+        BOXED_NUMBER, 0L, id);
   }
 
   @Override
   public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
       long pathNodeKey, String name, int value, SirixDeweyID id) {
-    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
-        null, INT_NUMBER, value, id);
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, null, INT_NUMBER,
+        value, id);
   }
 
   @Override
   public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
       long pathNodeKey, String name, long value, SirixDeweyID id) {
-    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
-        null, LONG_NUMBER, value, id);
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, null, LONG_NUMBER,
+        value, id);
   }
 
   private ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
-      long pathNodeKey, String name, Number fallbackValue, byte primitiveType, long primitiveValue,
-      SirixDeweyID id) {
+      long pathNodeKey, String name, Number fallbackValue, byte primitiveType, long primitiveValue, SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();

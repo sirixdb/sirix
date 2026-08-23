@@ -9,21 +9,23 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Thread-safe proxy for {@link JsonNodeReadOnlyTrx} that transparently delegates
- * to a per-thread transaction obtained from the resource session's shared pool.
+ * Thread-safe proxy for {@link JsonNodeReadOnlyTrx} that transparently delegates to a per-thread
+ * transaction obtained from the resource session's shared pool.
  *
- * <p>Extends {@link ForwardingJsonNodeReadOnlyTrx} — all methods delegate via
- * {@link #nodeReadOnlyTrxDelegate()}, which returns the owner trx on the creating
- * thread (~1-2 ns fast-path) or a per-thread trx from the session pool on worker
- * threads (~20 ns after first access).
+ * <p>
+ * Extends {@link ForwardingJsonNodeReadOnlyTrx} — all methods delegate via
+ * {@link #nodeReadOnlyTrxDelegate()}, which returns the owner trx on the creating thread (~1-2 ns
+ * fast-path) or a per-thread trx from the session pool on worker threads (~20 ns after first
+ * access).
  *
- * <p>Only {@code close()}, {@code isClosed()}, and session/revision metadata are
- * overridden. A cursor used to construct escaping lazy items can be {@link #detachOwner() detached}
- * after construction. Such a proxy keeps its immutable revision metadata, closes the construction
- * cursor immediately, and obtains a cursor from a caller-supplied bounded provider when the item is
- * consumed later. A detached item may outlive the executor that materialized it, but it may not be
- * consumed concurrently with terminal close of the provider's owning chain/store: the item itself
- * is not a lifetime lease, and putting a lease around every forwarded node operation would add
+ * <p>
+ * Only {@code close()}, {@code isClosed()}, and session/revision metadata are overridden. A cursor
+ * used to construct escaping lazy items can be {@link #detachOwner() detached} after construction.
+ * Such a proxy keeps its immutable revision metadata, closes the construction cursor immediately,
+ * and obtains a cursor from a caller-supplied bounded provider when the item is consumed later. A
+ * detached item may outlive the executor that materialized it, but it may not be consumed
+ * concurrently with terminal close of the provider's owning chain/store: the item itself is not a
+ * lifetime lease, and putting a lease around every forwarded node operation would add
  * synchronization to the navigation hot path.
  */
 public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOnlyTrx {
@@ -31,9 +33,10 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
   /**
    * Supplies a cursor for a detached proxy on the calling thread.
    *
-   * <p>The provider owns the returned cursor. In particular, closing one proxy must not close a
-   * provider shared by other lazy items. The caller must quiesce detached proxy use before closing
-   * the provider; a returned raw cursor is not guaranteed to survive concurrent provider close.
+   * <p>
+   * The provider owns the returned cursor. In particular, closing one proxy must not close a provider
+   * shared by other lazy items. The caller must quiesce detached proxy use before closing the
+   * provider; a returned raw cursor is not guaranteed to survive concurrent provider close.
    */
   public interface DetachedCursorProvider {
     JsonNodeReadOnlyTrx cursor(JsonResourceSession session, int revision);
@@ -59,8 +62,7 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
   /**
    * Create a proxy whose construction cursor can later be detached in favour of {@code provider}.
    */
-  public ThreadSafeJsonReadOnlyTrx(final JsonNodeReadOnlyTrx ownerTrx,
-      final DetachedCursorProvider provider) {
+  public ThreadSafeJsonReadOnlyTrx(final JsonNodeReadOnlyTrx ownerTrx, final DetachedCursorProvider provider) {
     this.ownerTrx = Objects.requireNonNull(ownerTrx, "ownerTrx must not be null");
     this.ownerThreadId = Thread.currentThread().threadId();
     detachedCursorProvider = provider;
@@ -90,27 +92,37 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
 
   @Override
   public JsonResourceSession getResourceSession() {
-    return ownerDetached ? detachedResourceSession : ownerTrx.getResourceSession();
+    return ownerDetached
+        ? detachedResourceSession
+        : ownerTrx.getResourceSession();
   }
 
   @Override
   public int getRevisionNumber() {
-    return ownerDetached ? detachedRevision : ownerTrx.getRevisionNumber();
+    return ownerDetached
+        ? detachedRevision
+        : ownerTrx.getRevisionNumber();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
-    return ownerDetached ? nodeReadOnlyTrxDelegate().getRevisionTimestamp() : ownerTrx.getRevisionTimestamp();
+    return ownerDetached
+        ? nodeReadOnlyTrxDelegate().getRevisionTimestamp()
+        : ownerTrx.getRevisionTimestamp();
   }
 
   @Override
   public long getMaxNodeKey() {
-    return ownerDetached ? nodeReadOnlyTrxDelegate().getMaxNodeKey() : ownerTrx.getMaxNodeKey();
+    return ownerDetached
+        ? nodeReadOnlyTrxDelegate().getMaxNodeKey()
+        : ownerTrx.getMaxNodeKey();
   }
 
   @Override
   public int getId() {
-    return ownerDetached ? detachedId : ownerTrx.getId();
+    return ownerDetached
+        ? detachedId
+        : ownerTrx.getId();
   }
 
   // -- Lifecycle --
@@ -118,8 +130,9 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
   /**
    * Stop retaining the registered cursor used to construct a lazy item.
    *
-   * <p>Call only after construction has stopped using the owner cursor and before publishing the
-   * item. Subsequent reads transparently use the detached cursor provider. Idempotent.
+   * <p>
+   * Call only after construction has stopped using the owner cursor and before publishing the item.
+   * Subsequent reads transparently use the detached cursor provider. Idempotent.
    */
   public synchronized void detachOwner() {
     if (closed || ownerDetached) {
@@ -159,8 +172,12 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
     // The legacy provider is the session-wide (thread, revision) cache and retains the old close
     // contract. A supplied detached provider is shared by many lazy items and owns its own lifetime.
     if (detachedCursorProvider == null) {
-      final JsonResourceSession session = ownerDetached ? detachedResourceSession : ownerTrx.getResourceSession();
-      final int revision = ownerDetached ? detachedRevision : ownerTrx.getRevisionNumber();
+      final JsonResourceSession session = ownerDetached
+          ? detachedResourceSession
+          : ownerTrx.getResourceSession();
+      final int revision = ownerDetached
+          ? detachedRevision
+          : ownerTrx.getRevisionNumber();
       session.closeSharedReadOnlyTrxs(revision);
     }
     if (!ownerDetached) {

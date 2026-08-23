@@ -4,11 +4,13 @@ package io.sirix.access.trx.node.json.objectvalue;
  * Internal number-kind tags and object-record carrier for exposing a parsed {@code int} or
  * {@code long} without first boxing it as a {@link Number}.
  *
- * <p>The ordinary {@link #getValue()} contract remains available for compatibility. Hot fused
+ * <p>
+ * The ordinary {@link #getValue()} contract remains available for compatibility. Hot fused
  * object-number insertion checks {@link #primitiveType()} first and consumes
  * {@link #primitiveValue()} synchronously, avoiding an otherwise per-field
  * {@link Integer}/{@link Long} allocation. The read-side projection cursor uses the same tags when
- * it copies a bound payload into caller-owned primitive scratch.</p>
+ * it copies a bound payload into caller-owned primitive scratch.
+ * </p>
  */
 public interface PrimitiveNumberValue extends ObjectRecordValue<Number> {
 
@@ -29,8 +31,8 @@ public interface PrimitiveNumberValue extends ObjectRecordValue<Number> {
   byte primitiveType();
 
   /**
-   * Returns the current integral value. The result is meaningful only when
-   * {@link #primitiveType()} is {@link #INT} or {@link #LONG}.
+   * Returns the current integral value. The result is meaningful only when {@link #primitiveType()}
+   * is {@link #INT} or {@link #LONG}.
    *
    * @return the sign-extended primitive value
    */

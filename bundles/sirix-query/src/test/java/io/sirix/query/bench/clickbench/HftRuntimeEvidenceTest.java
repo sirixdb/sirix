@@ -34,8 +34,7 @@ final class HftRuntimeEvidenceTest {
     final String original = HftRuntimeEvidence.runtimeClasspathSha256(classpath);
     assertThrows(IllegalArgumentException.class, () -> HftRuntimeEvidence.runtimeClasspathSha256(
         classpath + File.pathSeparator + temporaryDirectory.resolve("missing-output")));
-    assertNotEquals(original, HftRuntimeEvidence.runtimeClasspathSha256(
-        dependency + File.pathSeparator + classes));
+    assertNotEquals(original, HftRuntimeEvidence.runtimeClasspathSha256(dependency + File.pathSeparator + classes));
 
     Files.write(dependency, new byte[] {4, 5, 7});
     assertNotEquals(original, HftRuntimeEvidence.runtimeClasspathSha256(classpath));
@@ -62,9 +61,7 @@ final class HftRuntimeEvidenceTest {
     assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(List.of("-Xlog:gc=warning:stdout"), "gc"));
     assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(List.of("-Xlog:gc=error:stdout"), "gc"));
     assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(List.of("-Xlog:gc*:file=/tmp/gc.log"), "gc"));
-    assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(
-        List.of("-Xlog:gc*:stdout", "-Xlog:disable"), "gc"));
-    assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(
-        List.of("-Xlog:gc*:stdout", "-Xlog:gc*=off:stdout"), "gc"));
+    assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(List.of("-Xlog:gc*:stdout", "-Xlog:disable"), "gc"));
+    assertFalse(HftRuntimeEvidence.unifiedLoggingCaptured(List.of("-Xlog:gc*:stdout", "-Xlog:gc*=off:stdout"), "gc"));
   }
 }

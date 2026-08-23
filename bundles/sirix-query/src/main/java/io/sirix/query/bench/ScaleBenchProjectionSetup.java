@@ -25,18 +25,16 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Bench helper for ScaleBenchMain: builds an (age, active, dept) projection
- * index on the current revision and registers it wildcard in
- * {@link ProjectionIndexRegistry}. Lives in its own file so
- * {@link io.brackit.query.util.path.Path} can be imported without colliding
- * with {@link java.nio.file.Path} that ScaleBenchMain uses extensively.
+ * Bench helper for ScaleBenchMain: builds an (age, active, dept) projection index on the current
+ * revision and registers it wildcard in {@link ProjectionIndexRegistry}. Lives in its own file so
+ * {@link io.brackit.query.util.path.Path} can be imported without colliding with
+ * {@link java.nio.file.Path} that ScaleBenchMain uses extensively.
  */
 final class ScaleBenchProjectionSetup {
 
   private static final String[] FIELD_NAMES = {"age", "active", "dept", "city", "amount", "score"};
 
-  private ScaleBenchProjectionSetup() {
-  }
+  private ScaleBenchProjectionSetup() {}
 
   /** IndexDef.getID() for the bench projection — one sub-tree per resource. */
   private static final int INDEX_NUMBER = 0;
@@ -88,8 +86,8 @@ final class ScaleBenchProjectionSetup {
           probedMetadata = ProjectionIndexMetadata.parse(
               ProjectionIndexHOTStorage.readBlob(probeRtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
         } catch (final IllegalStateException unreadable) {
-          System.out.println("# Persisted projection metadata unreadable (" + unreadable.getMessage()
-              + ") — rebuilding");
+          System.out.println(
+              "# Persisted projection metadata unreadable (" + unreadable.getMessage() + ") — rebuilding");
           // Break out rather than rebuilding HERE: the rebuild re-walks the whole resource and opens
           // its own transactions, and doing that inside this try-with-resources would hold the probe
           // read transaction — and the revision it pins — open for the entire rebuild.
@@ -101,14 +99,13 @@ final class ScaleBenchProjectionSetup {
           int[] compactPhysicalOrder = null;
           if (probedMetadata != null) {
             try {
-              compactPhysicalOrder = ProjectionIndexFences.readPhysicalOrder(
-                  probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount());
-              compact = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
-                  probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount(),
-                  compactPhysicalOrder);
+              compactPhysicalOrder = ProjectionIndexFences.readPhysicalOrder(probeRtx.getStorageEngineReader(),
+                  INDEX_NUMBER, probedMetadata.rowGroupCount());
+              compact =
+                  ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(probeRtx.getStorageEngineReader(),
+                      INDEX_NUMBER, probedMetadata.rowGroupCount(), compactPhysicalOrder);
             } catch (final IllegalStateException corrupt) {
-              System.out.println("# Persisted projection unreadable (" + corrupt.getMessage()
-                  + ") — rebuilding");
+              System.out.println("# Persisted projection unreadable (" + corrupt.getMessage() + ") — rebuilding");
               parsedMetadata = null;
               compact = new ArrayList<>();
             }
@@ -122,11 +119,13 @@ final class ScaleBenchProjectionSetup {
             if (metadata != null && compact.size() < metadata.rowGroupCount()) {
               // Same contract as ProjectionIndexCatalog: a truncated store is
               // corrupt — refuse loudly instead of benchmarking partial data.
-              throw new IllegalStateException("Persisted projection declares " + metadata.rowGroupCount()
-                  + " leaves but only " + compact.size()
-                  + " are stored — rebuild with -Dsirix.projection.forceRebuild=true.");
+              throw new IllegalStateException(
+                  "Persisted projection declares " + metadata.rowGroupCount() + " leaves but only " + compact.size()
+                      + " are stored — rebuild with -Dsirix.projection.forceRebuild=true.");
             }
-            final int leafEnd = metadata == null ? compact.size() : metadata.rowGroupCount();
+            final int leafEnd = metadata == null
+                ? compact.size()
+                : metadata.rowGroupCount();
             // Leaves are already in the flat scan form (assembled from segments).
             final List<byte[]> persisted = new ArrayList<>(leafEnd);
             for (int i = 0; i < leafEnd; i++) {
@@ -136,12 +135,12 @@ final class ScaleBenchProjectionSetup {
             // under the bench's static field list would mislabel every column.
             if (!persisted.isEmpty()) {
               final byte[] first = persisted.get(0);
-              final int persistedColumns =
-                  first == null || first.length < 8 ? -1 : ProjectionIndexRowGroupPage.columnCountOf(first);
+              final int persistedColumns = first == null || first.length < 8
+                  ? -1
+                  : ProjectionIndexRowGroupPage.columnCountOf(first);
               if (persistedColumns != FIELD_NAMES.length) {
                 throw new IllegalStateException("Persisted projection has " + persistedColumns
-                    + " columns but the bench expects " + FIELD_NAMES.length + " "
-                    + Arrays.toString(FIELD_NAMES)
+                    + " columns but the bench expects " + FIELD_NAMES.length + " " + Arrays.toString(FIELD_NAMES)
                     + " — rebuild it with -Dsirix.projection.forceRebuild=true.");
               }
             }
@@ -158,8 +157,7 @@ final class ScaleBenchProjectionSetup {
               // Repersist the re-encoded leaves back to HOT storage under a
               // single write trx. Next cold run will skip the reencode step
               // because the on-disk bytes will already be in the new format.
-              if (metadata == null || compactPhysicalOrder == null
-                  || compactPhysicalOrder.length != reencoded.size()) {
+              if (metadata == null || compactPhysicalOrder == null || compactPhysicalOrder.length != reencoded.size()) {
                 throw new IllegalStateException(
                     "Cannot repersist a projection without its exact persisted physical row-group order");
               }
@@ -181,8 +179,8 @@ final class ScaleBenchProjectionSetup {
                 }
                 wtx.commit();
               }
-              System.out.printf("# Projection repersisted: %,d leaves in %,d ms%n",
-                  reencoded.size(), (System.nanoTime() - t0) / 1_000_000L);
+              System.out.printf("# Projection repersisted: %,d leaves in %,d ms%n", reencoded.size(),
+                  (System.nanoTime() - t0) / 1_000_000L);
             }
             // No builder flags on this path — the Handle lazily re-derives the
             // NUMERIC_LONG integrality evidence from the leaves' persisted
@@ -198,9 +196,9 @@ final class ScaleBenchProjectionSetup {
   }
 
   /**
-   * Build the projection from {@code revision} and persist it — the path taken when nothing usable
-   * is stored yet, when {@code -Dsirix.projection.forceRebuild=true}, and when slot 0 cannot be read
-   * at all (a store predating the current layout, whose migration IS this rebuild).
+   * Build the projection from {@code revision} and persist it — the path taken when nothing usable is
+   * stored yet, when {@code -Dsirix.projection.forceRebuild=true}, and when slot 0 cannot be read at
+   * all (a store predating the current layout, whose migration IS this rebuild).
    */
   private static int rebuildAndPersist(final JsonResourceSession session, final String resourceKey,
       final int revision) {
@@ -213,11 +211,10 @@ final class ScaleBenchProjectionSetup {
     // Surface that mis-config up front with a clear message instead of a
     // cryptic exit 1 several seconds later.
     if (!session.getResourceConfig().withPathSummary) {
-      throw new IllegalStateException(
-          "ProjectionIndexSetup: no persisted projection index was found and the "
-              + "resource was shredded without a PathSummary — building it now is impossible. "
-              + "Re-shred with -DbuildPathSummary=true -Dprojection=true, or reuse an "
-              + "existing DB that already has a persisted projection (see -Dsirix.db=<path>).");
+      throw new IllegalStateException("ProjectionIndexSetup: no persisted projection index was found and the "
+          + "resource was shredded without a PathSummary — building it now is impossible. "
+          + "Re-shred with -DbuildPathSummary=true -Dprojection=true, or reuse an "
+          + "existing DB that already has a persisted projection (see -Dsirix.db=<path>).");
     }
 
     final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
@@ -229,14 +226,9 @@ final class ScaleBenchProjectionSetup {
     // score is typically non-integral — its column exists to exercise the
     // builder's integrality flags (value-exact consumers must decline it).
     final Path<QNm> scorePath = Path.parse("/[]/score", PathParser.Type.JSON);
-    final List<Path<QNm>> projectedFieldPaths =
-        List.of(agePath, activePath, deptPath, cityPath, amountPath, scorePath);
-    final IndexDef def = IndexDefs.createProjectionIdxDef(
-        rootPath,
-        projectedFieldPaths,
-        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON),
-        INDEX_NUMBER,
-        IndexDef.DbType.JSON);
+    final List<Path<QNm>> projectedFieldPaths = List.of(agePath, activePath, deptPath, cityPath, amountPath, scorePath);
+    final IndexDef def = IndexDefs.createProjectionIdxDef(rootPath, projectedFieldPaths,
+        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);
 
     // Persist under a single write trx. Putting leaves outside the trx would
     // require setting up a StorageEngineWriter by hand — the node trx gives
@@ -266,8 +258,7 @@ final class ScaleBenchProjectionSetup {
     // manifests and metadata-last publication. The former hand-written loop published metadata
     // before its leaves and persisted neither exception locators nor global dictionary anchors.
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      ProjectionIndexBuilder.buildAndPersist(def, wtx.getPathSummary(), wtx,
-          wtx.getStorageEngineWriter(), false);
+      ProjectionIndexBuilder.buildAndPersist(def, wtx.getPathSummary(), wtx, wtx.getStorageEngineWriter(), false);
       wtx.commit();
     }
 
@@ -278,10 +269,10 @@ final class ScaleBenchProjectionSetup {
       if (metadata == null || metadata.isStale()) {
         throw new IllegalStateException("Production projection build did not publish live metadata");
       }
-      final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(
-          rtx.getStorageEngineReader(), INDEX_NUMBER, metadata.rowGroupCount());
-      leaves = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
-          rtx.getStorageEngineReader(), INDEX_NUMBER, metadata.rowGroupCount(), physicalOrder);
+      final int[] physicalOrder =
+          ProjectionIndexFences.readPhysicalOrder(rtx.getStorageEngineReader(), INDEX_NUMBER, metadata.rowGroupCount());
+      leaves = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(rtx.getStorageEngineReader(),
+          INDEX_NUMBER, metadata.rowGroupCount(), physicalOrder);
     }
     long rawBytes = 0L;
     long compactBytes = 0L;
@@ -294,30 +285,31 @@ final class ScaleBenchProjectionSetup {
       }
     }
     System.out.printf("# Projection persisted: %,d leaves, raw %,d bytes -> compact %,d bytes (%.1f%%)%n",
-        leaves.size(), rawBytes, compactBytes, rawBytes == 0 ? 0.0 : 100.0 * compactBytes / rawBytes);
+        leaves.size(), rawBytes, compactBytes, rawBytes == 0
+            ? 0.0
+            : 100.0 * compactBytes / rawBytes);
 
     ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves);
     return leaves.size();
   }
 
   /**
-   * iter#13 helper — re-serialise every persisted leaf through the
-   * current serializer so any wire-format upgrades (e.g. the
-   * NUMERIC_LONG_FOR_BP column-kind introduced in iter#13) take effect
-   * in-memory without touching the on-disk HOT sub-tree. Each leaf is
-   * deserialised, its in-memory columns normalised, then re-serialised.
+   * iter#13 helper — re-serialise every persisted leaf through the current serializer so any
+   * wire-format upgrades (e.g. the NUMERIC_LONG_FOR_BP column-kind introduced in iter#13) take effect
+   * in-memory without touching the on-disk HOT sub-tree. Each leaf is deserialised, its in-memory
+   * columns normalised, then re-serialised.
    *
-   * <p>Cost: one pass over all leaves (~100K at 100M scale). Uses a
-   * right-sized {@code ArrayList} to avoid growth copies — matches the
-   * HFT discipline of the rest of this class.
+   * <p>
+   * Cost: one pass over all leaves (~100K at 100M scale). Uses a right-sized {@code ArrayList} to
+   * avoid growth copies — matches the HFT discipline of the rest of this class.
    */
   static List<byte[]> reencodeLeaves(final List<byte[]> persisted, final byte[] metadataKinds) {
     final List<byte[]> out = new ArrayList<>(persisted.size());
     for (int documentPosition = 0; documentPosition < persisted.size(); documentPosition++) {
       final byte[] payload = persisted.get(documentPosition);
       if (payload == null) {
-        throw new IllegalStateException("Persisted projection row group is null at document position "
-            + documentPosition);
+        throw new IllegalStateException(
+            "Persisted projection row group is null at document position " + documentPosition);
       }
       final ProjectionIndexRowGroupPage before = ProjectionIndexRowGroupPage.deserialize(payload);
       final byte[] reencoded = before.serialize();
@@ -345,38 +337,32 @@ final class ScaleBenchProjectionSetup {
    * Comparisons stay on borrowed primitive arrays and dictionary byte ranges: no bitmap copies or
    * per-cell strings are allocated during the 100M-row migration pass.
    */
-  static void validateWireRewrite(final ProjectionIndexRowGroupPage before,
-      final ProjectionIndexRowGroupPage after,
+  static void validateWireRewrite(final ProjectionIndexRowGroupPage before, final ProjectionIndexRowGroupPage after,
       final byte[] metadataKinds, final int documentPosition) {
-    if (before.getRowCount() != after.getRowCount()
-        || before.getColumnCount() != after.getColumnCount()
+    if (before.getRowCount() != after.getRowCount() || before.getColumnCount() != after.getColumnCount()
         || before.getColumnCount() != metadataKinds.length) {
       throw wireRewriteMismatch(documentPosition, "row-group shape");
     }
-    if (before.firstRecordKey() != after.firstRecordKey()
-        || before.lastRecordKey() != after.lastRecordKey()
+    if (before.firstRecordKey() != after.firstRecordKey() || before.lastRecordKey() != after.lastRecordKey()
         || before.hasOrderExceptions() != after.hasOrderExceptions()) {
       throw wireRewriteMismatch(documentPosition, "record-key fence/order metadata");
     }
     for (int column = 0; column < metadataKinds.length; column++) {
-      if (before.columnKind(column) != metadataKinds[column]
-          || after.columnKind(column) != metadataKinds[column]) {
+      if (before.columnKind(column) != metadataKinds[column] || after.columnKind(column) != metadataKinds[column]) {
         throw wireRewriteMismatch(documentPosition, "column " + column + " kind");
       }
     }
     final long[] beforeKeys = before.recordKeys();
     final long[] afterKeys = after.recordKeys();
     for (int row = 0; row < before.getRowCount(); row++) {
-      if (beforeKeys[row] != afterKeys[row]
-          || before.orderExceptionAt(row) != after.orderExceptionAt(row)) {
+      if (beforeKeys[row] != afterKeys[row] || before.orderExceptionAt(row) != after.orderExceptionAt(row)) {
         throw wireRewriteMismatch(documentPosition, "record identity/order at row " + row);
       }
     }
 
     final int rowCount = before.getRowCount();
     for (int column = 0; column < metadataKinds.length; column++) {
-      if (before.columnMin(column) != after.columnMin(column)
-          || before.columnMax(column) != after.columnMax(column)) {
+      if (before.columnMin(column) != after.columnMin(column) || before.columnMax(column) != after.columnMax(column)) {
         throw wireRewriteMismatch(documentPosition, "column " + column + " zone map");
       }
       if (before.columnUnrepresentable(column) != after.columnUnrepresentable(column)
@@ -390,27 +376,26 @@ final class ScaleBenchProjectionSetup {
 
       switch (metadataKinds[column]) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
-            validateLongValues(before, after, column, rowCount, documentPosition);
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+          validateLongValues(before, after, column, rowCount, documentPosition);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
           if (!liveBitsEqual(before.booleanColumnBits(column), after.booleanColumnBits(column), rowCount)) {
             throw wireRewriteMismatch(documentPosition, "column " + column + " boolean values");
           }
         }
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
-            validateScalarStrings(before, after, column, rowCount, documentPosition);
+          validateScalarStrings(before, after, column, rowCount, documentPosition);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET ->
-            validateStringSets(before, after, column, rowCount, documentPosition);
-        default -> throw wireRewriteMismatch(documentPosition,
-            "column " + column + " unknown kind " + metadataKinds[column]);
+          validateStringSets(before, after, column, rowCount, documentPosition);
+        default ->
+          throw wireRewriteMismatch(documentPosition, "column " + column + " unknown kind " + metadataKinds[column]);
       }
     }
   }
 
   private static void validateLongValues(final ProjectionIndexRowGroupPage before,
-      final ProjectionIndexRowGroupPage after, final int column, final int rowCount,
-      final int documentPosition) {
+      final ProjectionIndexRowGroupPage after, final int column, final int rowCount, final int documentPosition) {
     final long[] beforeValues = before.numericColumn(column);
     final long[] afterValues = after.numericColumn(column);
     for (int row = 0; row < rowCount; row++) {
@@ -421,8 +406,7 @@ final class ScaleBenchProjectionSetup {
   }
 
   private static void validateScalarStrings(final ProjectionIndexRowGroupPage before,
-      final ProjectionIndexRowGroupPage after, final int column, final int rowCount,
-      final int documentPosition) {
+      final ProjectionIndexRowGroupPage after, final int column, final int rowCount, final int documentPosition) {
     validateLocalDictionary(before, after, column, documentPosition, "string");
     final int[] beforeIds = before.stringDictIdColumn(column);
     final int[] afterIds = after.stringDictIdColumn(column);
@@ -434,8 +418,7 @@ final class ScaleBenchProjectionSetup {
   }
 
   private static void validateStringSets(final ProjectionIndexRowGroupPage before,
-      final ProjectionIndexRowGroupPage after, final int column, final int rowCount,
-      final int documentPosition) {
+      final ProjectionIndexRowGroupPage after, final int column, final int rowCount, final int documentPosition) {
     validateLocalDictionary(before, after, column, documentPosition, "set");
     if (before.stringSetLength(column) != after.stringSetLength(column)) {
       throw wireRewriteMismatch(documentPosition, "column " + column + " set cardinality");
@@ -451,23 +434,20 @@ final class ScaleBenchProjectionSetup {
     final int[] afterIds = after.stringSetIdColumn(column);
     for (int element = 0; element < before.stringSetLength(column); element++) {
       if (beforeIds[element] != afterIds[element]) {
-        throw wireRewriteMismatch(documentPosition,
-            "column " + column + " set id at element " + element);
+        throw wireRewriteMismatch(documentPosition, "column " + column + " set id at element " + element);
       }
     }
   }
 
   private static void validateLocalDictionary(final ProjectionIndexRowGroupPage before,
-      final ProjectionIndexRowGroupPage after, final int column, final int documentPosition,
-      final String description) {
+      final ProjectionIndexRowGroupPage after, final int column, final int documentPosition, final String description) {
     final int beforeSize = before.stringDictionarySize(column);
     if (beforeSize != after.stringDictionarySize(column)) {
       throw wireRewriteMismatch(documentPosition, "column " + column + ' ' + description + " dictionary size");
     }
     for (int id = 0; id < beforeSize; id++) {
       if (!dictionaryEntryEquals(before, after, column, id)) {
-        throw wireRewriteMismatch(documentPosition,
-            "column " + column + ' ' + description + " dictionary entry " + id);
+        throw wireRewriteMismatch(documentPosition, "column " + column + ' ' + description + " dictionary entry " + id);
       }
     }
   }
@@ -507,7 +487,7 @@ final class ScaleBenchProjectionSetup {
   }
 
   private static IllegalStateException wireRewriteMismatch(final int documentPosition, final String detail) {
-    return new IllegalStateException("Wire rewrite changed projection " + detail
-        + " at document position " + documentPosition);
+    return new IllegalStateException(
+        "Wire rewrite changed projection " + detail + " at document position " + documentPosition);
   }
 }

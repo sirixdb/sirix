@@ -55,9 +55,8 @@ final class ObjectNamedStringFusedUtf8CursorTest {
   private static ObjectNamedStringNode boundNode(final byte[] storedValue, final boolean compressed,
       final byte[] symbolTable) {
     final MemorySegment page = MemorySegment.ofArray(new byte[512]);
-    ObjectNamedStringNode.writeNewRecord(page, 0,
-        new int[NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT],
-        7L, 1L, -1L, -1L, 11, 13L, -1, 0, 0L, storedValue, compressed);
+    ObjectNamedStringNode.writeNewRecord(page, 0, new int[NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT], 7L, 1L, -1L,
+        -1L, 11, 13L, -1, 0, 0L, storedValue, compressed);
     final ObjectNamedStringNode node = new ObjectNamedStringNode(7L, LongHashFunction.xx3());
     node.bind(page, 0, 7L, 0);
     node.setFsstSymbolTable(symbolTable);

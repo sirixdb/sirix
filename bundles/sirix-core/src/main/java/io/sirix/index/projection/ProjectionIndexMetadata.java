@@ -17,10 +17,10 @@ import java.util.Objects;
  * sub-tree): the projection's root path, per-column field paths, column names, and column kinds.
  * {@link #rowGroupCount()} is the live logical leaf cardinality; physical leaf ids and their
  * document order live in {@link ProjectionIndexFences} and need not be contiguous after local
- * split/recycle maintenance. Hydration reads the projection's shape from HERE
- * instead of trusting the caller's argument list — without it, a re-create with a same-arity but
- * different field list would silently install the persisted columns under the wrong names (the
- * exact corruption the column-count guard alone cannot catch).
+ * split/recycle maintenance. Hydration reads the projection's shape from HERE instead of trusting
+ * the caller's argument list — without it, a re-create with a same-arity but different field list
+ * would silently install the persisted columns under the wrong names (the exact corruption the
+ * column-count guard alone cannot catch).
  *
  * <p>
  * Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, a flags byte
@@ -38,10 +38,10 @@ import java.util.Objects;
  * only) and a commit rewrites only the fence chunks it actually changed.
  *
  * <p>
- * The <b>stale</b> flag is the fail-closed marker used by abandoned builds and legacy listeners that
- * cannot maintain a live snapshot. Ordinary update-time maintenance never installs it. The live
- * leaf count is cross-checked with the fence/order header, whose explicit physical order prevents
- * recycled holes or unrelated higher physical ids from being interpreted as live.
+ * The <b>stale</b> flag is the fail-closed marker used by abandoned builds and legacy listeners
+ * that cannot maintain a live snapshot. Ordinary update-time maintenance never installs it. The
+ * live leaf count is cross-checked with the fence/order header, whose explicit physical order
+ * prevents recycled holes or unrelated higher physical ids from being interpreted as live.
  *
  * <p>
  * {@link #parse} returns {@code null} for payloads without the magic, so hydrate paths can probe
@@ -75,8 +75,9 @@ public final class ProjectionIndexMetadata {
    * Per set column, either hydrated row counts or an empty persisted capability marker.
    *
    * <p>
-   * Indexed by column, {@code null} for columns without one. The current format serializes only the column keys; the
-   * counts live in bounded per-column chunks and are hydrated by the catalog before serving.
+   * Indexed by column, {@code null} for columns without one. The current format serializes only the
+   * column keys; the counts live in bounded per-column chunks and are hydrated by the catalog before
+   * serving.
    *
    * <p>
    * ONE bounded chunk per summarized column, not one per leaf. This cannot serve a count restricted
@@ -93,14 +94,16 @@ public final class ProjectionIndexMetadata {
    * Per {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column, the node key of its
    * value dictionary's header record; {@code 0} for every other column.
    *
-   * <p>This is the only pointer to the dictionary, and it has to live here rather than be computed
-   * from the column's identity: the dictionary's records occupy a run of node keys reserved from a
-   * shared counter, so where a column's run starts is a fact about a particular build, not a
-   * function of which column it is. See {@code GlobalValueDictionary} for why a computed namespace
-   * is not an option.
+   * <p>
+   * This is the only pointer to the dictionary, and it has to live here rather than be computed from
+   * the column's identity: the dictionary's records occupy a run of node keys reserved from a shared
+   * counter, so where a column's run starts is a fact about a particular build, not a function of
+   * which column it is. See {@code GlobalValueDictionary} for why a computed namespace is not an
+   * option.
    *
-   * <p>Written as a trailing section so every current metadata record carries an explicit stable
-   * anchor for each global column.
+   * <p>
+   * Written as a trailing section so every current metadata record carries an explicit stable anchor
+   * for each global column.
    */
   private final long[] valueDictionaryHeaderKeys;
 
@@ -148,8 +151,7 @@ public final class ProjectionIndexMetadata {
     if (valueDictionaryHeaderKeys != null) {
       for (int column = 0; column < valueDictionaryHeaderKeys.length; column++) {
         final long key = valueDictionaryHeaderKeys[column];
-        if (key < 0 || (key > 0
-            && columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL)) {
+        if (key < 0 || (key > 0 && columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL)) {
           throw new IllegalArgumentException("invalid value dictionary anchor " + key + " at column " + column);
         }
       }
@@ -169,8 +171,8 @@ public final class ProjectionIndexMetadata {
       }
     }
     if (rowGroupCount < 0 || rowGroupCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
-      throw new IllegalArgumentException("rowGroupCount out of range [0, "
-          + ProjectionIndexHOTStorage.MAX_ROW_GROUPS + "]: " + rowGroupCount);
+      throw new IllegalArgumentException(
+          "rowGroupCount out of range [0, " + ProjectionIndexHOTStorage.MAX_ROW_GROUPS + "]: " + rowGroupCount);
     }
     if (buildRevision < 0) {
       throw new IllegalArgumentException("buildRevision must be >= 0, got " + buildRevision);
@@ -267,7 +269,10 @@ public final class ProjectionIndexMetadata {
     return buildRevision;
   }
 
-  /** Whether an update transaction invalidated this projection. */
+  /**
+   * Whether slot 0 carries the stale tombstone: a dropped definition, an unfinished load-time build,
+   * or the corruption valve. Ordinary maintenance fails its transaction instead of setting this.
+   */
   public boolean isStale() {
     return (flags & FLAG_STALE) != 0;
   }
@@ -277,13 +282,14 @@ public final class ProjectionIndexMetadata {
   /**
    * Whether this metadata describes exactly the given shape.
    *
-   * <p>Column kinds are compared up to the choice of string dictionary. A caller derives the
-   * expected kinds from the definition's declared TYPES, which can only ever yield
-   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_DICT} for a string column — whereas
-   * whether the build chose a per-leaf or a resource-wide dictionary is a property of the data it
-   * saw, decided while the build ran. Comparing the two byte-for-byte would make every store with
-   * a global dictionary look like a shape mismatch and be rebuilt on sight, forever. The shape this
-   * check is about is what the projection projects, not how a column encodes its strings.
+   * <p>
+   * Column kinds are compared up to the choice of string dictionary. A caller derives the expected
+   * kinds from the definition's declared TYPES, which can only ever yield
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_DICT} for a string column — whereas whether
+   * the build chose a per-leaf or a resource-wide dictionary is a property of the data it saw,
+   * decided while the build ran. Comparing the two byte-for-byte would make every store with a global
+   * dictionary look like a shape mismatch and be rebuilt on sight, forever. The shape this check is
+   * about is what the projection projects, not how a column encodes its strings.
    */
   public boolean matches(final String otherRootPath, final String[] otherFieldPaths, final byte[] otherColumnKinds) {
     if (!rootPath.equals(otherRootPath) || !Arrays.equals(fieldPaths, otherFieldPaths)
@@ -300,9 +306,8 @@ public final class ProjectionIndexMetadata {
 
   /** Whether two column kinds describe the same declared column, ignoring the dictionary choice. */
   private static boolean sameDeclaredShape(final byte persisted, final byte derived) {
-    return persisted == derived
-        || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-            && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
+    return persisted == derived || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+        && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
   }
 
   public byte[] serialize() {
@@ -425,17 +430,16 @@ public final class ProjectionIndexMetadata {
       // the version test above and is treated as no metadata, so there is no shifted-offset read.
       final int setCountColumns = getShortU(payload, pos);
       if (setCountColumns > n) {
-        throw new IllegalStateException("Projection metadata declares " + setCountColumns
-            + " set-summary capabilities for " + n + " columns");
+        throw new IllegalStateException(
+            "Projection metadata declares " + setCountColumns + " set-summary capabilities for " + n + " columns");
       }
       Map<Integer, Map<String, Long>> counts = null;
       for (int c = 0; c < setCountColumns; c++) {
         final int column = getShortU(payload, pos);
         final int values = getShortU(payload, pos);
-        if (column >= n || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
-            || values != 0) {
-          throw new IllegalStateException("Projection metadata names an invalid set-summary capability at column "
-              + column);
+        if (column >= n || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET || values != 0) {
+          throw new IllegalStateException(
+              "Projection metadata names an invalid set-summary capability at column " + column);
         }
         if (counts == null) {
           counts = new LinkedHashMap<>(4);
@@ -454,16 +458,15 @@ public final class ProjectionIndexMetadata {
       final int dictionaryColumns = getShortU(payload, pos);
       if (dictionaryColumns > 0) {
         if (dictionaryColumns > n) {
-          throw new IllegalStateException("Projection metadata declares " + dictionaryColumns
-              + " value dictionaries for " + n + " columns");
+          throw new IllegalStateException(
+              "Projection metadata declares " + dictionaryColumns + " value dictionaries for " + n + " columns");
         }
         dictionaryKeys = new long[n];
         for (int i = 0; i < dictionaryColumns; i++) {
           final int column = getShortU(payload, pos);
           final long headerKey = getLongLE(payload, pos[0]);
           pos[0] += 8;
-          if (column >= n || headerKey <= 0
-              || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+          if (column >= n || headerKey <= 0 || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
               || dictionaryKeys[column] != 0) {
             throw new IllegalStateException(
                 "Projection metadata names value dictionary " + headerKey + " for column " + column);
@@ -472,8 +475,8 @@ public final class ProjectionIndexMetadata {
         }
       }
       if (pos[0] != payload.length) {
-        throw new IllegalStateException("Projection metadata has " + (payload.length - pos[0])
-            + " byte(s) past the value dictionary section");
+        throw new IllegalStateException(
+            "Projection metadata has " + (payload.length - pos[0]) + " byte(s) past the value dictionary section");
       }
       return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts,
           dictionaryKeys);
@@ -483,8 +486,8 @@ public final class ProjectionIndexMetadata {
   }
 
   /**
-   * The node key of column {@code column}'s value dictionary header, or {@code 0} when the column
-   * has none, which is every column that is not
+   * The node key of column {@code column}'s value dictionary header, or {@code 0} when the column has
+   * none, which is every column that is not
    * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}.
    *
    * @param column the column ordinal

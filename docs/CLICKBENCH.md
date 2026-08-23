@@ -24,8 +24,10 @@ Two things are worth saying up front, because they frame every number below:
 | `…/ClickBenchLoadMain.java` | ingest + ClickBench's `Load time:` / `Data size:` lines + an encoding check |
 | `…/ClickBenchRunMain.java` | the 43 queries under the ClickBench protocol; result dumps; results JSON |
 | `…/ClickBenchGenerateMain.java` | writes the synthetic dataset to a file so a reference engine reads identical bytes |
-| `bundles/sirix-query/bench/clickbench/` | the DuckDB reference side: `prepare-data.sh`, `duckdb_reference.py`, `compare-results.py`, `run-differential.sh`, `queries.sql` |
-| `bundles/sirix-query/src/test/java/io/sirix/query/bench/clickbench/` | the CI gates: generator invariants and a 43-query smoke test |
+| `…/ClickBenchProjection.java` | the projection index the 43 queries are served from — its columns are derived from the queries, not hand-listed |
+| `…/ClickBenchMaintenanceMain.java`, `…/HftRuntimeEvidence.java` | a bounded ordinary-maintenance arm (>100 k dirty records in one commit, then cold reopen) and the HFT boundary evidence it emits |
+| `bundles/sirix-query/bench/clickbench/` | the DuckDB reference side (`prepare-data.sh`, `duckdb_reference.py`, `compare-results.py`, `run-differential.sh`, `queries.sql`) and the fixed-heap HFT GC/safepoint and maintenance gates (`cold-rounds.sh`, `hft_*.py`) — protocol and thresholds in that directory's [`README.md`](../bundles/sirix-query/bench/clickbench/README.md) |
+| `bundles/sirix-query/src/test/java/io/sirix/query/bench/clickbench/` | the CI gates: generator invariants, source/projection wiring, HFT runtime evidence, and a 43-query smoke test |
 
 ## Running it
 

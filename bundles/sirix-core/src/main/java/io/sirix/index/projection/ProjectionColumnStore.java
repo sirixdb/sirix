@@ -62,14 +62,14 @@ public final class ProjectionColumnStore {
     byte @Nullable [] @Nullable [] fetchAll(long[] offsets);
 
     /**
-     * Fetch the contiguous sub-range {@code [from, to)} of {@code offsets} into {@code out} at the
-     * SAME indices.
+     * Fetch the contiguous sub-range {@code [from, to)} of {@code offsets} into {@code out} at the SAME
+     * indices.
      *
      * <p>
      * The default delegates to {@link #fetchAll} on the calling thread — correct, and exactly the
      * behaviour of a fetcher that never heard of ranges. A fetcher that can open a read transaction of
-     * its own overrides this and answers {@code true} from {@link #rangedFetchIsConcurrent()}, which
-     * is what lets a chain fetch fan its ranges across cores.
+     * its own overrides this and answers {@code true} from {@link #rangedFetchIsConcurrent()}, which is
+     * what lets a chain fetch fan its ranges across cores.
      */
     default void fetchRange(final long[] offsets, final int from, final int to, final byte[][] out) {
       final int len = to - from;
@@ -84,8 +84,8 @@ public final class ProjectionColumnStore {
 
     /**
      * Whether {@link #fetchRange} may be called CONCURRENTLY on disjoint ranges. Default {@code false}:
-     * a fetcher bound to one shared transaction is not thread-safe, and a read transaction is the
-     * usual binding, so the safe answer has to be the silent one.
+     * a fetcher bound to one shared transaction is not thread-safe, and a read transaction is the usual
+     * binding, so the safe answer has to be the silent one.
      */
     default boolean rangedFetchIsConcurrent() {
       return false;
@@ -597,11 +597,11 @@ public final class ProjectionColumnStore {
    * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} is admitted through
    * {@link ProjectionIndexRowGroupPage#isLongLaneKind}: its slice carries dictionary ids in the
    * NUMERIC lane, which is the shape every consumer here already handles. What makes that safe is
-   * that a predicate over such a column is resolved to an ID before it ever reaches a kernel (see
-   * the executor's leaf conversion), so the numeric evaluator the slice's shape selects is asking
-   * the right question. A string literal meeting a long-lane slice is a route defect, not a slow
-   * path, and {@link ProjectionColumnScan#evaluateMask} refuses it loudly rather than comparing an
-   * unset long against ids.
+   * that a predicate over such a column is resolved to an ID before it ever reaches a kernel (see the
+   * executor's leaf conversion), so the numeric evaluator the slice's shape selects is asking the
+   * right question. A string literal meeting a long-lane slice is a route defect, not a slow path,
+   * and {@link ProjectionColumnScan#evaluateMask} refuses it loudly rather than comparing an unset
+   * long against ids.
    */
   public boolean columnSliceable(final int col) {
     return col >= 0 && col < columnKinds.length
@@ -805,10 +805,11 @@ public final class ProjectionColumnStore {
     }
     if (diag) {
       final long tDone = System.nanoTime();
-      System.err.printf("[proj] identity fill col=%d leaves=%d hashed=%d fallback=%d in %.1f ms | body=%.1f ms "
-          + "hash+dict=%.1f ms decode=%.1f ms | t=%.1f..%.1f%n", col, n, rowLeaves - fallbackLeaves, fallbackLeaves,
-          (tDone - startNanos) / 1e6, (tBody - startNanos) / 1e6, (tHash - tBody) / 1e6, (tDone - tHash) / 1e6,
-          startNanos / 1e6, tDone / 1e6);
+      System.err.printf(
+          "[proj] identity fill col=%d leaves=%d hashed=%d fallback=%d in %.1f ms | body=%.1f ms "
+              + "hash+dict=%.1f ms decode=%.1f ms | t=%.1f..%.1f%n",
+          col, n, rowLeaves - fallbackLeaves, fallbackLeaves, (tDone - startNanos) / 1e6, (tBody - startNanos) / 1e6,
+          (tHash - tBody) / 1e6, (tDone - tHash) / 1e6, startNanos / 1e6, tDone / 1e6);
     }
     return slices;
   }
@@ -1012,18 +1013,23 @@ public final class ProjectionColumnStore {
         decoded += sliceRetainedBytes(s);
       }
       for (final byte[] b : segments) {
-        raw += b == null ? 0 : b.length;
+        raw += b == null
+            ? 0
+            : b.length;
       }
       if (dictSegments != null) {
         for (final byte[] b : dictSegments) {
-          raw += b == null ? 0 : b.length;
+          raw += b == null
+              ? 0
+              : b.length;
         }
       }
       final long total = FILL_DECODED_BYTES.addAndGet(decoded);
       final long rawTotal = FILL_RAW_BYTES.addAndGet(raw);
-      System.err.printf("[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
-          + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n", col,
-          columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6, (tDict - tBody) / 1e6,
+      System.err.printf(
+          "[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
+              + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n",
+          col, columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6, (tDict - tBody) / 1e6,
           (tDone - tDict) / 1e6, n >= PARALLEL_DECODE_MIN, tEnter / 1e6, tDone / 1e6, total / 1048576.0,
           rawTotal / 1048576.0);
     }
@@ -1031,9 +1037,9 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * {@code -Dsirix.projection.fillDiag=true} reports what each column fill retains. A filled column is
-   * held for the store's lifetime, so at large leaf counts the fills — not the query's own working set
-   * — dominate the heap, and nothing else makes that visible.
+   * {@code -Dsirix.projection.fillDiag=true} reports what each column fill retains. A filled column
+   * is held for the store's lifetime, so at large leaf counts the fills — not the query's own working
+   * set — dominate the heap, and nothing else makes that visible.
    */
   private static final boolean FILL_DIAG = Boolean.getBoolean("sirix.projection.fillDiag");
 
@@ -1050,14 +1056,30 @@ public final class ProjectionColumnStore {
       return 0;
     }
     long b = 0;
-    b += s.presenceWords() == null ? 0 : s.presenceWords().length * 8L;
-    b += s.numericValues() == null ? 0 : s.numericValues().length * 8L;
-    b += s.boolWords() == null ? 0 : s.boolWords().length * 8L;
-    b += s.stringDictIds() == null ? 0 : s.stringDictIds().length * 4L;
-    b += s.dictBytes() == null ? 0 : s.dictBytes().length;
-    b += s.dictOffsets() == null ? 0 : s.dictOffsets().length * 4L;
-    b += s.setCounts() == null ? 0 : s.setCounts().length * 4L;
-    b += s.dictHashes() == null ? 0 : s.dictHashes().length * 8L;
+    b += s.presenceWords() == null
+        ? 0
+        : s.presenceWords().length * 8L;
+    b += s.numericValues() == null
+        ? 0
+        : s.numericValues().length * 8L;
+    b += s.boolWords() == null
+        ? 0
+        : s.boolWords().length * 8L;
+    b += s.stringDictIds() == null
+        ? 0
+        : s.stringDictIds().length * 4L;
+    b += s.dictBytes() == null
+        ? 0
+        : s.dictBytes().length;
+    b += s.dictOffsets() == null
+        ? 0
+        : s.dictOffsets().length * 4L;
+    b += s.setCounts() == null
+        ? 0
+        : s.setCounts().length * 4L;
+    b += s.dictHashes() == null
+        ? 0
+        : s.dictHashes().length * 8L;
     return b;
   }
 
@@ -1217,8 +1239,8 @@ public final class ProjectionColumnStore {
 
   /**
    * How many ranges a chain fetch of {@code n} leaves splits into: one (i.e. stay serial) below
-   * {@link #PARALLEL_CHAIN_MIN}, else at most one worker per {@link #CHAIN_RANGE_MIN} leaves and never
-   * more than there are cores. A small store keeps the single batched call it was tuned for.
+   * {@link #PARALLEL_CHAIN_MIN}, else at most one worker per {@link #CHAIN_RANGE_MIN} leaves and
+   * never more than there are cores. A small store keeps the single batched call it was tuned for.
    */
   private static int chainWorkers(final int n) {
     // Read per CHAIN, not per leaf — this runs a handful of times per query, so the property
@@ -1246,7 +1268,10 @@ public final class ProjectionColumnStore {
     return false;
   }
 
-  /** Rollback switch for the parallel chain fetch ({@code -Dsirix.projection.parallelChainFetch=false}). */
+  /**
+   * Rollback switch for the parallel chain fetch
+   * ({@code -Dsirix.projection.parallelChainFetch=false}).
+   */
   private static final boolean PARALLEL_CHAIN_FETCH =
       !"false".equals(System.getProperty("sirix.projection.parallelChainFetch"));
 

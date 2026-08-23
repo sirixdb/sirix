@@ -17,27 +17,23 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Lossless-ness and compaction of {@link ProjectionIndexRowGroupCodec}: for every
- * leaf shape, {@code decode(encode(raw))} must reproduce the raw payload
- * BYTE-IDENTICALLY (presence, unrepresentable and integrality flags
- * included), and the compact form must actually be smaller on
+ * Lossless-ness and compaction of {@link ProjectionIndexRowGroupCodec}: for every leaf shape,
+ * {@code decode(encode(raw))} must reproduce the raw payload BYTE-IDENTICALLY (presence,
+ * unrepresentable and integrality flags included), and the compact form must actually be smaller on
  * representative analytical data.
  */
 public final class ProjectionIndexRowGroupCodecTest {
 
-  private static final byte[] KINDS = {
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-  };
+  private static final byte[] KINDS =
+      {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
 
   private static final String[] DEPTS = {"Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp"};
 
   /**
-   * Representative bench-shaped leaf: ascending record keys with jittered
-   * spacing, small-range ages, 8-value dict, an all-missing numeric column
-   * (the "amount" pattern), sparse dept rows, non-integral marks.
+   * Representative bench-shaped leaf: ascending record keys with jittered spacing, small-range ages,
+   * 8-value dict, an all-missing numeric column (the "amount" pattern), sparse dept rows,
+   * non-integral marks.
    */
   private static ProjectionIndexRowGroupPage benchLeaf(final int rows, final long keyBase) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
@@ -54,14 +50,16 @@ public final class ProjectionIndexRowGroupCodecTest {
       final boolean deptMissing = i % 5 == 0;
       longs[0] = 18 + rng.nextInt(48);
       bools[1] = rng.nextBoolean();
-      strings[2] = deptMissing ? "" : DEPTS[rng.nextInt(DEPTS.length)];
-      longs[3] = 0L;                       // all-missing "amount" column
+      strings[2] = deptMissing
+          ? ""
+          : DEPTS[rng.nextInt(DEPTS.length)];
+      longs[3] = 0L; // all-missing "amount" column
       present[0] = true;
       present[1] = true;
       present[2] = !deptMissing;
       present[3] = false;
       Arrays.fill(unrep, false);
-      nonIntegral[0] = i % 11 == 0;        // occasional truncated double
+      nonIntegral[0] = i % 11 == 0; // occasional truncated double
       assertTrue(page.appendRow(key, longs, bools, strings, present, unrep, nonIntegral));
     }
     return page;
@@ -70,8 +68,7 @@ public final class ProjectionIndexRowGroupCodecTest {
   private static void assertRoundTrip(final ProjectionIndexRowGroupPage page) {
     final byte[] raw = page.serialize();
     final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
-    assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact),
-        "decode(encode(raw)) must be byte-identical");
+    assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact), "decode(encode(raw)) must be byte-identical");
   }
 
   private static boolean appendOrderAwareRow(final ProjectionIndexRowGroupPage page, final long recordKey,
@@ -93,8 +90,7 @@ public final class ProjectionIndexRowGroupCodecTest {
     final byte[] raw = page.serialize();
     final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
     assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact));
-    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES
-        + page.orderLabelLength();
+    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
     assertTrue((compact.length - orderLabelLaneBytes) * 5 < raw.length - orderLabelLaneBytes,
         "expected >5x compaction on bench-shaped column data excluding exact Dewey labels, got "
             + (raw.length - orderLabelLaneBytes) + " -> " + (compact.length - orderLabelLaneBytes));
@@ -104,7 +100,7 @@ public final class ProjectionIndexRowGroupCodecTest {
   void partialLeafAndSingleRowRoundTrip() {
     assertRoundTrip(benchLeaf(100, 42L));
     assertRoundTrip(benchLeaf(1, 42L));
-    assertRoundTrip(benchLeaf(64, 42L));  // exact word boundary
+    assertRoundTrip(benchLeaf(64, 42L)); // exact word boundary
     assertRoundTrip(benchLeaf(65, 42L));
   }
 
@@ -169,8 +165,8 @@ public final class ProjectionIndexRowGroupCodecTest {
     final boolean[] present = {true, true, true, true};
     page.appendRow(1L, new long[] {7, 0, 0, 0}, new boolean[] {false, true, false, false},
         new String[] {"", "", "", ""}, present, new boolean[] {false, false, false, true});
-    page.appendRow(2L, new long[] {8, 0, 0, 0}, new boolean[4],
-        new String[] {"", "", "Eng", ""}, present, new boolean[4]);
+    page.appendRow(2L, new long[] {8, 0, 0, 0}, new boolean[4], new String[] {"", "", "Eng", ""}, present,
+        new boolean[4]);
     assertRoundTrip(page);
   }
 
@@ -180,17 +176,16 @@ public final class ProjectionIndexRowGroupCodecTest {
     final boolean[] present = {true, true, true, true};
     final boolean[] unrep = new boolean[4];
     for (int i = 0; i < 256; i++) {
-      page.appendRow(1000 + i, new long[] {5, 0, 0, 0}, new boolean[4],
-          new String[] {"", "", "OnlyValue", ""}, present, unrep);
+      page.appendRow(1000 + i, new long[] {5, 0, 0, 0}, new boolean[4], new String[] {"", "", "OnlyValue", ""}, present,
+          unrep);
     }
     final byte[] raw = page.serialize();
     final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
     assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact));
-    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES
-        + page.orderLabelLength();
+    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
     assertTrue((compact.length - orderLabelLaneBytes) * 10 < raw.length - orderLabelLaneBytes,
-        "constant columns should collapse excluding exact Dewey labels, got "
-            + (raw.length - orderLabelLaneBytes) + " -> " + (compact.length - orderLabelLaneBytes));
+        "constant columns should collapse excluding exact Dewey labels, got " + (raw.length - orderLabelLaneBytes)
+            + " -> " + (compact.length - orderLabelLaneBytes));
   }
 
   @Test
@@ -203,11 +198,17 @@ public final class ProjectionIndexRowGroupCodecTest {
       final boolean[] present = {true, true, true, true};
       final boolean[] unrep = new boolean[4];
       final Random rng = new Random(width);
-      final long span = width >= 64 ? Long.MAX_VALUE : (1L << (width - 1)) + 7;
+      final long span = width >= 64
+          ? Long.MAX_VALUE
+          : (1L << (width - 1)) + 7;
       for (int i = 0; i < 100; i++) {
-        final long v = i % 3 == 0 ? 0L : i % 3 == 1 ? span - i : Math.floorMod(rng.nextLong(), span);
-        page.appendRow(1_000_000L + i * 3L, new long[] {v, 0, 0, 0}, new boolean[4],
-            new String[] {"", "", "x", ""}, present, unrep);
+        final long v = i % 3 == 0
+            ? 0L
+            : i % 3 == 1
+                ? span - i
+                : Math.floorMod(rng.nextLong(), span);
+        page.appendRow(1_000_000L + i * 3L, new long[] {v, 0, 0, 0}, new boolean[4], new String[] {"", "", "x", ""},
+            present, unrep);
       }
       final byte[] raw = page.serialize();
       assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw)),
@@ -223,8 +224,7 @@ public final class ProjectionIndexRowGroupCodecTest {
     final boolean[] unrep = new boolean[4];
     long key = 10L;
     for (int i = 0; i < 10; i++) {
-      page.appendRow(key, new long[] {i, 0, 0, 0}, new boolean[4],
-          new String[] {"", "", "x", ""}, present, unrep);
+      page.appendRow(key, new long[] {i, 0, 0, 0}, new boolean[4], new String[] {"", "", "x", ""}, present, unrep);
       key += 1L << 58;
     }
     assertRoundTrip(page);
@@ -241,8 +241,8 @@ public final class ProjectionIndexRowGroupCodecTest {
   @Test
   void provenanceSurvivesTheCodec() {
     final byte[] raw = benchLeaf(200, 42L).serialize();
-    final ProjectionIndexRowGroupPage back =
-        ProjectionIndexRowGroupPage.deserialize(ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw)));
+    final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(
+        ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(raw)));
     assertTrue(back.columnNumericNonIntegral(0), "integrality provenance must survive");
     assertEquals(200, back.getRowCount());
     // The all-missing amount column: presence bits all clear.

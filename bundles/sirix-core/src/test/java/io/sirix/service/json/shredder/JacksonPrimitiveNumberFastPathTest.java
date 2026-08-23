@@ -57,19 +57,16 @@ final class JacksonPrimitiveNumberFastPathTest {
                                                    .useDeweyIDs(false)
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           JsonNodeTrx wtx = session.beginNodeTrx();
-           var parser = JacksonJsonShredder.createStringParser(JSON)) {
-        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD)
-            .commitAfterwards()
-            .build()
-            .call();
+          JsonNodeTrx wtx = session.beginNodeTrx();
+          var parser = JacksonJsonShredder.createStringParser(JSON)) {
+        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
     }
 
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveToFirstChild(), "missing root object after cold reopen");
       assertTrue(rtx.moveToFirstChild(), "missing first fused number field after cold reopen");
 

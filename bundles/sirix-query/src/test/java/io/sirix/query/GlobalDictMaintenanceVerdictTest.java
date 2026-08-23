@@ -34,10 +34,11 @@ import java.nio.charset.StandardCharsets;
  * <p>
  * {@code ProjectionIndexChangeListener#applyIncremental} rewrites metadata slot 0 through the 6-arg
  * {@link io.sirix.index.projection.ProjectionIndexMetadata} constructor, which carries neither
- * {@code valueDictionaryHeaderKeys} nor {@code setValueRowCounts} — while the {@code columnKinds} it
- * copies forward still say {@code COLUMN_KIND_STRING_GLOBAL}. So after ONE ordinary update commit a
- * store describes global columns whose dictionary is no longer reachable. The severity depends
- * entirely on what the read routes then do, and that is what this measures rather than argues:
+ * {@code valueDictionaryHeaderKeys} nor {@code setValueRowCounts} — while the {@code columnKinds}
+ * it copies forward still say {@code COLUMN_KIND_STRING_GLOBAL}. So after ONE ordinary update
+ * commit a store describes global columns whose dictionary is no longer reachable. The severity
+ * depends entirely on what the read routes then do, and that is what this measures rather than
+ * argues:
  *
  * <ul>
  * <li>if every route DECLINES and the generic pipeline answers, it is a performance defect;</li>
@@ -51,8 +52,8 @@ import java.nio.charset.StandardCharsets;
  * The serving counters are read on both sides because they are the only thing that distinguishes a
  * route that ran from one that silently fell back; equal answers alone cannot, since the generic
  * pipeline is correct either way. The corpus and query shapes are lifted from
- * {@link GlobalValueDictionaryServingTest}, which already establishes that all three are SERVED on a
- * freshly built store — that is the control this probe needs.
+ * {@link GlobalValueDictionaryServingTest}, which already establishes that all three are SERVED on
+ * a freshly built store — that is the control this probe needs.
  */
 public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
 
@@ -126,7 +127,9 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
   }
 
-  /** One shape's evidence: what the generic pipeline said, what the routes said, and whether they ran. */
+  /**
+   * One shape's evidence: what the generic pipeline said, what the routes said, and whether they ran.
+   */
   private record Evidence(String shape, String generic, String served, String auto, long counterDelta) {
     boolean agrees() {
       return generic.equals(served);
@@ -175,8 +178,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
     // Control: on the freshly built store every shape must both agree AND have run. If a shape did
     // not run before the update, its counter says nothing about the update afterwards.
     for (final Evidence e : before) {
-      Assertions.assertTrue(e.agrees(), "pre-update disagreement in " + e.shape() + " — the fixture is broken, "
-          + "not the maintenance path");
+      Assertions.assertTrue(e.agrees(),
+          "pre-update disagreement in " + e.shape() + " — the fixture is broken, " + "not the maintenance path");
       Assertions.assertTrue(e.counterDelta() > 0,
           "pre-update " + e.shape() + " was never served, so this probe cannot tell a post-update decline from a "
               + "route that was never taken");
@@ -209,15 +212,15 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    final String query = "count(for $e in jn:doc('json-path1','serving.jn')[] where $e.did eq \""
-        + newValue + "\" return $e)";
+    final String query =
+        "count(for $e in jn:doc('json-path1','serving.jn')[] where $e.did eq \"" + newValue + "\" return $e)";
     final Evidence evidence = probe("AFTER", "EQ_NEW", query, Counter.PROJECTION_COUNTS);
     Assertions.assertTrue(evidence.agrees(), evidence.toString());
     Assertions.assertTrue(evidence.autoAgrees(), evidence.toString());
     Assertions.assertTrue(evidence.counterDelta() > 0, evidence.toString());
 
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn");
         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
       final ProjectionIndexMetadata metadata =
@@ -227,23 +230,22 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
       final int id = GlobalValueDictionary.probe(headerKey, newValue.getBytes(StandardCharsets.UTF_8),
           rtx.getStorageEngineReader());
       Assertions.assertTrue(id > 0);
-      Assertions.assertEquals(newValue,
-          GlobalValueDictionary.value(headerKey, id, rtx.getStorageEngineReader()));
+      Assertions.assertEquals(newValue, GlobalValueDictionary.value(headerKey, id, rtx.getStorageEngineReader()));
     }
   }
 
   /**
-   * The shape that once produced a THROW, isolated so the observation is either reproduced or
-   * retired rather than left as folklore.
+   * The shape that once produced a THROW, isolated so the observation is either reproduced or retired
+   * rather than left as folklore.
    *
    * <p>
    * The first run of this probe reported {@code bit:BIDY0300: column 1 is STRING_GLOBAL, but the EQ
    * predicate still carries a string literal — it was never resolved to a dictionary id}. It has not
    * reappeared under any later structure. The one thing that run did and the others do not is open a
    * resource session against the store BEFORE evaluating, which is what a long-lived reader does and
-   * what may resolve the catalog at a revision the query then compiles against. If the throw is
-   * real, it is a hard query failure on shipping defaults; if it is not, the verdict is a clean
-   * decline. Either answer is worth having, so this asserts NOTHING and reports what happened.
+   * what may resolve the catalog at a revision the query then compiles against. If the throw is real,
+   * it is a hard query failure on shipping defaults; if it is not, the verdict is a clean decline.
+   * Either answer is worth having, so this asserts NOTHING and reports what happened.
    * </p>
    */
   @Test
@@ -253,8 +255,9 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
@@ -274,8 +277,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
   }
 
   /**
-   * Can the maintenance path write a GLOBAL column at all? This decides whether the ticket's
-   * proposed fix is safe.
+   * Can the maintenance path write a GLOBAL column at all? This decides whether the ticket's proposed
+   * fix is safe.
    *
    * <p>
    * {@code ProjectionIndexRowGroupPage#internGlobal} throws when no
@@ -316,11 +319,11 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
    *
    * <p>
    * The proposal is to carry {@code valueDictionaryHeaderKeys} (and {@code setValueRowCounts})
-   * forward through the 8-arg constructor, which restores the reader's fast path. But maintenance
-   * has no {@code GlobalValueDictionaryWriter} — the writers exist only inside a build — so it
-   * cannot mint an id for a value the dictionary has never seen. If it nonetheless patches the row
-   * in place, then re-pointing readers at the dictionary makes them decode a cell the dictionary
-   * cannot explain, and today's honest decline becomes a silent WRONG ANSWER.
+   * forward through the 8-arg constructor, which restores the reader's fast path. But maintenance has
+   * no {@code GlobalValueDictionaryWriter} — the writers exist only inside a build — so it cannot
+   * mint an id for a value the dictionary has never seen. If it nonetheless patches the row in place,
+   * then re-pointing readers at the dictionary makes them decode a cell the dictionary cannot
+   * explain, and today's honest decline becomes a silent WRONG ANSWER.
    * </p>
    *
    * <p>
@@ -341,7 +344,7 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
       Assertions.assertTrue(wtx.moveToDocumentRoot());
       Assertions.assertTrue(wtx.moveToFirstChild());
       Assertions.assertTrue(wtx.moveToFirstChild());
-      Assertions.assertTrue(wtx.moveToFirstChild());   // "kind"
+      Assertions.assertTrue(wtx.moveToFirstChild()); // "kind"
       Assertions.assertTrue(wtx.moveToRightSibling()); // "did" — the global column
       wtx.setStringValue(newValue);
     });
@@ -352,8 +355,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
     System.out.println("  [remedy-probe] anchors restored: " + describeDictionariesFresh());
 
     for (final String[] shape : new String[][] {
-        {"the value maintenance wrote", "count(for $e in jn:doc('json-path1','serving.jn')[] where $e.did eq \""
-            + newValue + "\" return $e)"},
+        {"the value maintenance wrote",
+            "count(for $e in jn:doc('json-path1','serving.jn')[] where $e.did eq \"" + newValue + "\" return $e)"},
         {"a value it did not touch",
             "count(for $e in jn:doc('json-path1','serving.jn')[] where $e.did eq \"did:plc:4711\" return $e)"}}) {
       final String generic = evaluateIsolated(shape[1], Arm.GENERIC).trim();
@@ -367,8 +370,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
 
   /** The persisted dictionary anchors, as built. */
   private long[] readAnchors() {
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn");
         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
       final ProjectionIndexMetadata meta =
@@ -383,12 +386,12 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
 
   /** Write slot 0 back with the anchors present — the state the proposed fix would produce. */
   private void restoreAnchors(final long[] anchors) {
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn");
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ProjectionIndexMetadata current = ProjectionIndexMetadata.parse(
-          ProjectionIndexHOTStorage.readBlob(wtx.getStorageEngineReader(), 0, 0L));
+      final ProjectionIndexMetadata current =
+          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(wtx.getStorageEngineReader(), 0, 0L));
       final ProjectionIndexMetadata patched = new ProjectionIndexMetadata(current.rootPath(), current.fieldPaths(),
           current.fieldNames(), current.columnKinds(), current.rowGroupCount(), current.buildRevision(),
           current.setValueRowCounts(), anchors);
@@ -398,8 +401,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
   }
 
   private String describeDictionariesFresh() {
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn")) {
       return describeDictionaries(session);
     }
@@ -413,8 +416,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
 
   /** Run {@code write} and commit, reporting the outcome instead of propagating it. */
   private String attemptWrite(final Write write) {
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         write.apply(wtx);
@@ -448,8 +451,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
    * dictionary anchors survived it, which is the premise the severity question rests on.
    */
   private void updateOneRecordAndCommit() {
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn")) {
       System.out.println("  metadata BEFORE commit: " + describeDictionaries(session));
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -465,8 +468,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
   }
 
   private void updateGlobalValueAndCommit(final String value) {
-    try (final Database<JsonResourceSession> database =
-        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession("serving.jn");
         final JsonNodeTrx wtx = session.beginNodeTrx()) {
       Assertions.assertTrue(wtx.moveToDocumentRoot());
@@ -511,10 +514,10 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
    *
    * <p>
    * Reachability attribution, not decoration: the open question is WHICH pipeline lands in the
-   * predicate-count route when {@code -Dsirix.query.autoVectorize=false} is set. If it is the
-   * generic pipeline, then making that route decline would change what the differential oracle
-   * itself does — and a route that declines into itself either regresses infinitely or answers
-   * wrongly. If it is a third, auto-wired shortcut, the oracle is independent and the fix is safe.
+   * predicate-count route when {@code -Dsirix.query.autoVectorize=false} is set. If it is the generic
+   * pipeline, then making that route decline would change what the differential oracle itself does —
+   * and a route that declines into itself either regresses infinitely or answers wrongly. If it is a
+   * third, auto-wired shortcut, the oracle is independent and the fix is safe.
    * </p>
    */
   private static void printCallerChain(final String label, final Throwable thrown) {
@@ -623,17 +626,18 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
   }
 
   /**
-   * Evaluate {@code q} in its own store/context/chain, either through the generic pipeline or
-   * through the analytical routes with an executor installed. A throw is recorded as the answer
-   * rather than propagated: the question is what EVERY shape does, and stopping at the first
-   * failure would hide whether the others decline cleanly.
+   * Evaluate {@code q} in its own store/context/chain, either through the generic pipeline or through
+   * the analytical routes with an executor installed. A throw is recorded as the answer rather than
+   * propagated: the question is what EVERY shape does, and stopping at the first failure would hide
+   * whether the others decline cleanly.
    */
   private String evaluateIsolated(final String q, final Arm arm) throws IOException {
     if (arm == Arm.GENERIC) {
       System.setProperty("sirix.query.autoVectorize", "false");
     }
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       SirixVectorizedExecutor executor = null;

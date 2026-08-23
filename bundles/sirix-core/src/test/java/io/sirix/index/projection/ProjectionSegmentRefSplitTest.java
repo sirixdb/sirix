@@ -93,8 +93,7 @@ final class ProjectionSegmentRefSplitTest {
   void segmentsSurviveIncrementalLeafSplits() throws IOException {
     final long carriesBefore = HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES.get();
     final long frontierSplicesBefore = AbstractHOTIndexWriter.DIRECTION_ONE_LEAF_FRONTIER_SPLICE.get();
-    final long multiLeafFrontierSplicesBefore =
-        AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get();
+    final long multiLeafFrontierSplicesBefore = AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get();
     final long fullHalfSubinsertsBefore = AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.get();
     final long directionOneFallbacksBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
     final long projectionRebuildAttemptsBefore = AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get();
@@ -125,8 +124,8 @@ final class ProjectionSegmentRefSplitTest {
           + "test no longer covers the path it exists for (carries=" + carries + ")");
       assertTrue(AbstractHOTIndexWriter.DIRECTION_ONE_LEAF_FRONTIER_SPLICE.get() - frontierSplicesBefore > 0,
           "the build no longer covers the I8/I12-safe direct-leaf-frontier Direction-1 splice");
-      assertTrue(AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get()
-          - multiLeafFrontierSplicesBefore > 0,
+      assertTrue(
+          AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get() - multiLeafFrontierSplicesBefore > 0,
           "the build no longer covers a non-sibling adjacent pair expanded to its complete leaf frontier");
       assertTrue(AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.get() - fullHalfSubinsertsBefore > 0,
           "the build no longer covers Direction 1 inside a freshly split full-node half");
@@ -158,15 +157,18 @@ final class ProjectionSegmentRefSplitTest {
               wrongBytes++;
             }
             if ((orphaned || misRouted) && detail.length() < 400) {
-              detail.append("\nrowGroup ").append(rg).append(" column ").append(col).append(orphaned
-                  ? " (segment page orphaned)"
-                  : " (segment page belongs to another slot)");
+              detail.append("\nrowGroup ")
+                    .append(rg)
+                    .append(" column ")
+                    .append(col)
+                    .append(orphaned
+                        ? " (segment page orphaned)"
+                        : " (segment page belongs to another slot)");
             }
           }
         }
-        assertTrue(missing == 0 && wrongBytes == 0,
-            "segment pages lost or mis-routed by a leaf split (" + missing + " orphaned, " + wrongBytes
-                + " mis-routed of " + (ROW_GROUPS * COLUMNS) + "):" + detail);
+        assertTrue(missing == 0 && wrongBytes == 0, "segment pages lost or mis-routed by a leaf split (" + missing
+            + " orphaned, " + wrongBytes + " mis-routed of " + (ROW_GROUPS * COLUMNS) + "):" + detail);
 
         // The descriptors ride the same leaves; a split that mangled the entries would show here.
         final HOTInvariantValidator.Result result = HOTInvariantValidator.validate(root, reader);

@@ -21,8 +21,8 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   private MemorySegment readableByteBufferSegment;
 
   /**
-   * Reusable file-I/O view of the capacity-sized backing segment. The logical limit is reset on
-   * every access; this object is replaced only when growth swaps the backing segment.
+   * Reusable file-I/O view of the capacity-sized backing segment. The logical limit is reset on every
+   * access; this object is replaced only when growth swaps the backing segment.
    */
   private ByteBuffer readableByteBuffer;
 
@@ -48,9 +48,11 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   /**
    * Create reusable scratch whose written prefix is consumed before the next clear or write.
    *
-   * <p>An empty byte-handler pipeline is an identity operation, so the page serializer must not
-   * allocate and retain a second copy for this sink. The caller owns the strict synchronous-lifetime
-   * contract expressed by this factory.</p>
+   * <p>
+   * An empty byte-handler pipeline is an identity operation, so the page serializer must not allocate
+   * and retain a second copy for this sink. The caller owns the strict synchronous-lifetime contract
+   * expressed by this factory.
+   * </p>
    *
    * @param initialCapacity initial scratch capacity in bytes
    * @return a synchronous non-retaining scratch writer
@@ -290,19 +292,20 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
 
   /**
    * Zero-allocation accessor returning the {@code base} segment backing this writer plus the
-   * {@linkplain #position() current write position}. Together they describe exactly the same
-   * byte range as {@link #getDestination()} but without requesting an exact bounded view.
-   * {@code getDestination()} caches recurring small views, but a previously unseen length still
-   * needs one {@code MemorySegment.asSlice(0, position)} wrapper.
+   * {@linkplain #position() current write position}. Together they describe exactly the same byte
+   * range as {@link #getDestination()} but without requesting an exact bounded view.
+   * {@code getDestination()} caches recurring small views, but a previously unseen length still needs
+   * one {@code MemorySegment.asSlice(0, position)} wrapper.
    *
-   * <p>Use when the caller is going to copy out / hand off / persist the written bytes via an
-   * API that takes a {@code (segment, offset, length)} triple — e.g.
+   * <p>
+   * Use when the caller is going to copy out / hand off / persist the written bytes via an API that
+   * takes a {@code (segment, offset, length)} triple — e.g.
    * {@link io.sirix.page.KeyValueLeafPage#setSlotDirect(MemorySegment, long, int, int)} or
-   * {@link MemorySegment#copy(MemorySegment, long, MemorySegment, long, long)}. The returned
-   * segment instance is the live, growable backing segment — its {@code byteSize()} is the
-   * full capacity, NOT the used length. Callers MUST honor {@link #position()} as the upper
-   * bound and MUST NOT cache the segment across writes (a subsequent grow may swap the
-   * backing segment).</p>
+   * {@link MemorySegment#copy(MemorySegment, long, MemorySegment, long, long)}. The returned segment
+   * instance is the live, growable backing segment — its {@code byteSize()} is the full capacity, NOT
+   * the used length. Callers MUST honor {@link #position()} as the upper bound and MUST NOT cache the
+   * segment across writes (a subsequent grow may swap the backing segment).
+   * </p>
    *
    * @return the underlying growable segment (full capacity, position-agnostic)
    */
@@ -311,15 +314,17 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   }
 
   /**
-   * Return an ephemeral {@link ByteBuffer} view over exactly the written prefix without allocating
-   * an exact {@link MemorySegment} slice on each call.
+   * Return an ephemeral {@link ByteBuffer} view over exactly the written prefix without allocating an
+   * exact {@link MemorySegment} slice on each call.
    *
-   * <p>The returned object is owned by this writer and reused. Each call resets its position to
-   * zero and its limit to {@link #writePosition()}; callers must consume it synchronously and must
-   * not retain it, mutate the bytes, or use it concurrently with this writer. A backing-segment
-   * growth invalidates the cached view and creates one replacement on the next call. Distinct
+   * <p>
+   * The returned object is owned by this writer and reused. Each call resets its position to zero and
+   * its limit to {@link #writePosition()}; callers must consume it synchronously and must not retain
+   * it, mutate the bytes, or use it concurrently with this writer. A backing-segment growth
+   * invalidates the cached view and creates one replacement on the next call. Distinct
    * {@code MemorySegmentBytesOut} instances therefore retain independent views for foreground and
-   * background append buffers.</p>
+   * background append buffers.
+   * </p>
    *
    * @return reusable buffer positioned at zero with an exact logical limit
    * @throws IndexOutOfBoundsException if the logical write position is outside the backing segment
@@ -370,9 +375,9 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   }
 
   /**
-   * Currently allocated capacity in bytes (not the write position). Used by the buffer pool to
-   * decide whether a buffer is small enough to keep, so one pathological commit's grown segment is
-   * released rather than pinned for the process's lifetime.
+   * Currently allocated capacity in bytes (not the write position). Used by the buffer pool to decide
+   * whether a buffer is small enough to keep, so one pathological commit's grown segment is released
+   * rather than pinned for the process's lifetime.
    *
    * @return the segment's allocated capacity
    */

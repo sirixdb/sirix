@@ -45,10 +45,9 @@ final class KeyValueLeafPageConstructionFailureTest {
     final ResourceConfiguration config = new ResourceConfiguration.Builder("failed-fresh-frame").build();
 
     final IllegalStateException thrown = assertThrows(IllegalStateException.class,
-        () -> new KeyValueLeafPage(101L, IndexType.DOCUMENT, config, 23, null, null, false,
-            injectedAllocator, () -> {
-              throw primaryFailure;
-            }));
+        () -> new KeyValueLeafPage(101L, IndexType.DOCUMENT, config, 23, null, null, false, injectedAllocator, () -> {
+          throw primaryFailure;
+        }));
 
     assertSame(primaryFailure, thrown, "cleanup must rethrow the exact constructor-stage failure");
     assertTrue(injectedAllocator.releaseAttempted);
@@ -57,8 +56,7 @@ final class KeyValueLeafPageConstructionFailureTest {
     assertEquals(1L, allocator.releaseCount(frameClass) - releasesBefore,
         "the acquired native frame must be returned even though construction never assigned a page");
     assertEquals(liveBefore, allocator.liveSlotCount(frameClass));
-    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES,
-        allocator.slotCoordinates(injectedAllocator.allocated),
+    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES, allocator.slotCoordinates(injectedAllocator.allocated),
         "the failed constructor must leave no live allocator ownership entry");
     final Throwable[] suppressed = thrown.getSuppressed();
     assertEquals(1, suppressed.length);

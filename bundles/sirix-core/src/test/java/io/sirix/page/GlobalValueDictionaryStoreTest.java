@@ -54,20 +54,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * downstream of it — integer group-by, integer distinct folds, integer equality — is only sound if
  * an id keeps meaning the same value for as long as any row group referring to it can be read.
  *
- * <p>These tests are about that, not about the in-memory intern table. Four properties carry the
+ * <p>
+ * These tests are about that, not about the in-memory intern table. Four properties carry the
  * design:
  *
  * <ul>
- * <li><b>The offset run stays gapless.</b> {@link NamePage} serializes its bookkeeping positionally,
- * so occupying offset 2 on a resource whose offset 1 was never used would make the next commit
- * throw. A resource that never enabled FSST is therefore the interesting case, not the boring
- * one.</li>
+ * <li><b>The offset run stays gapless.</b> {@link NamePage} serializes its bookkeeping
+ * positionally, so occupying offset 2 on a resource whose offset 1 was never used would make the
+ * next commit throw. A resource that never enabled FSST is therefore the interesting case, not the
+ * boring one.</li>
  * <li><b>Keys are addressable.</b> The sub-trie's indirect-page traversal only grows a level when a
  * densely allocated page key crosses a power-of-two boundary, so a dictionary spanning many record
  * pages is the case that catches a key layout the trie cannot address — one that would otherwise
  * resolve every page to the root reference and let records overwrite each other silently.</li>
  * <li><b>Revisions are self-consistent.</b> A rebuild re-mints ids from 1; that is safe only
- * because copy-on-write keeps the earlier revision reading the dictionary it was built against.</li>
+ * because copy-on-write keeps the earlier revision reading the dictionary it was built
+ * against.</li>
  * <li><b>"Absent" and "cannot say" are different answers.</b> A probe that reported a value missing
  * when it merely could not see it would turn a fast path into a wrong answer.</li>
  * </ul>
@@ -166,7 +168,9 @@ public final class GlobalValueDictionaryStoreTest {
         final int entries = 260;
         final int targetId = 130;
         for (int id = 1; id <= entries; id++) {
-          final byte[] value = id == targetId ? target : utf8("fabricated-collision-" + id);
+          final byte[] value = id == targetId
+              ? target
+              : utf8("fabricated-collision-" + id);
           dictionary.intern(value, 0, value.length);
         }
         headerKey = flush(wtx, dictionary);
@@ -190,8 +194,8 @@ public final class GlobalValueDictionaryStoreTest {
     final long headerKey;
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
       seed(wtx);
       final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
       for (int id = 1; id <= entries; id++) {
@@ -204,17 +208,15 @@ public final class GlobalValueDictionaryStoreTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, reader);
       assertNotNull(header);
       assertEquals(entries, header.getEntryCount());
       assertEquals(targetId, GlobalValueDictionary.probe(headerKey, target, reader));
-      assertEquals("adversarial-collision-1",
-          GlobalValueDictionary.value(headerKey, 1, reader));
-      assertEquals("adversarial-collision-512",
-          GlobalValueDictionary.value(headerKey, entries, reader));
+      assertEquals("adversarial-collision-1", GlobalValueDictionary.value(headerKey, 1, reader));
+      assertEquals("adversarial-collision-512", GlobalValueDictionary.value(headerKey, entries, reader));
     }
   }
 
@@ -263,7 +265,7 @@ public final class GlobalValueDictionaryStoreTest {
     final byte[] target = utf8("target-in-base");
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         seed(wtx);
         final GlobalValueDictionaryWriter base = new GlobalValueDictionaryWriter();
@@ -289,7 +291,7 @@ public final class GlobalValueDictionaryStoreTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       for (int revision = 1; revision <= session.getMostRecentRevisionNumber(); revision++) {
         try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
           assertEquals(1, GlobalValueDictionary.probe(headerKey, target, rtx.getStorageEngineReader()),
@@ -305,8 +307,8 @@ public final class GlobalValueDictionaryStoreTest {
     final byte[] target = utf8("cycle-target");
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
       seed(wtx);
       final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
       dictionary.intern(target, 0, target.length);
@@ -318,8 +320,8 @@ public final class GlobalValueDictionaryStoreTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertThrows(IllegalStateException.class,
           () -> GlobalValueDictionary.probe(headerKey, target, rtx.getStorageEngineReader()));
     }
@@ -331,8 +333,8 @@ public final class GlobalValueDictionaryStoreTest {
     final byte[] target = utf8("invalid-id-target");
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
       seed(wtx);
       final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
       dictionary.intern(target, 0, target.length);
@@ -342,8 +344,8 @@ public final class GlobalValueDictionaryStoreTest {
     }
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertThrows(IllegalStateException.class,
           () -> GlobalValueDictionary.probe(headerKey, target, rtx.getStorageEngineReader()));
     }
@@ -355,8 +357,8 @@ public final class GlobalValueDictionaryStoreTest {
     final byte[] target = utf8("collision-cycle-target");
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
       seed(wtx);
       final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
       dictionary.intern(target, 0, target.length);
@@ -369,8 +371,8 @@ public final class GlobalValueDictionaryStoreTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertThrows(IllegalStateException.class,
           () -> GlobalValueDictionary.probe(headerKey, target, rtx.getStorageEngineReader()));
     }
@@ -382,7 +384,7 @@ public final class GlobalValueDictionaryStoreTest {
     final byte[] anchor = utf8("exact-reservation-anchor");
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         seed(wtx);
         final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
@@ -402,19 +404,16 @@ public final class GlobalValueDictionaryStoreTest {
         final GlobalValueDictionaryWriter additions = new GlobalValueDictionaryWriter();
         final byte[] added = utf8("exact-reservation-added");
         additions.intern(added, 0, added.length);
-        overrideWriterHashes(additions, 1,
-            GlobalValueDictionary.valueHash(anchor, 0, anchor.length),
+        overrideWriterHashes(additions, 1, GlobalValueDictionary.valueHash(anchor, 0, anchor.length),
             LongHashFunction.xx3().hashBytes(anchor));
         additions.flushAppend(base, namePage, DatabaseType.JSON, writer, writer.getLog());
 
         final long maximumAfter = namePage.getMaxNodeKey(dictionaryOffset);
         final ValueDictionaryHeaderNode updated = GlobalValueDictionary.header(headerKey, writer);
         assertNotNull(updated);
-        final int newlyReachable = countReachableRecordsAfter(updated, maximumBefore, namePage,
-            writer);
+        final int newlyReachable = countReachableRecordsAfter(updated, maximumBefore, namePage, writer);
         assertEquals((long) newlyReachable * GlobalValueDictionary.PERSISTENT_RECORD_STRIDE,
-            maximumAfter - maximumBefore,
-            "reserved key groups must correspond one-for-one with reachable records");
+            maximumAfter - maximumBefore, "reserved key groups must correspond one-for-one with reachable records");
         wtx.commit();
       }
 
@@ -430,7 +429,7 @@ public final class GlobalValueDictionaryStoreTest {
   void publicValueBytesAreOwnershipSafe() {
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         seed(wtx);
         final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
@@ -439,20 +438,16 @@ public final class GlobalValueDictionaryStoreTest {
         wtx.commit();
       }
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        final byte[] exposed = GlobalValueDictionary.valueBytes(headerKey, 1,
-            rtx.getStorageEngineReader());
+        final byte[] exposed = GlobalValueDictionary.valueBytes(headerKey, 1, rtx.getStorageEngineReader());
         assertNotNull(exposed);
         exposed[0] ^= 0x7F;
-        assertEquals("immutable-value",
-            GlobalValueDictionary.value(headerKey, 1, rtx.getStorageEngineReader()));
-        assertEquals(1, GlobalValueDictionary.probe(headerKey, utf8("immutable-value"),
-            rtx.getStorageEngineReader()));
+        assertEquals("immutable-value", GlobalValueDictionary.value(headerKey, 1, rtx.getStorageEngineReader()));
+        assertEquals(1, GlobalValueDictionary.probe(headerKey, utf8("immutable-value"), rtx.getStorageEngineReader()));
       }
     }
   }
 
-  private static void forceCollisionBucket(final JsonNodeTrx wtx, final long headerKey,
-      final byte[] target) {
+  private static void forceCollisionBucket(final JsonNodeTrx wtx, final long headerKey, final byte[] target) {
     final var writer = wtx.getStorageEngineWriter();
     final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
     final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, writer);
@@ -460,8 +455,8 @@ public final class GlobalValueDictionaryStoreTest {
     final int bucket = (int) (hash >>> 40) & 0xFF_FFFF;
     long key = header.getForwardRootKey();
     for (int depth = 0; depth < 3; depth++) {
-      final ValueDictionaryRadixNode node = (ValueDictionaryRadixNode)
-          namePage.getProjectionValueDictionaryRecord(key, DatabaseType.JSON, writer);
+      final ValueDictionaryRadixNode node =
+          (ValueDictionaryRadixNode) namePage.getProjectionValueDictionaryRecord(key, DatabaseType.JSON, writer);
       key = node.childKey((bucket >>> (16 - depth * 8)) & 0xFF);
     }
     final int count = header.getEntryCount();
@@ -475,12 +470,12 @@ public final class GlobalValueDictionaryStoreTest {
       final long[] hashes = new long[end - start];
       final int[] ids = new int[end - start];
       Arrays.fill(hashes, hash);
-      for (int i = start; i < end; i++) ids[i - start] = i + 1;
+      for (int i = start; i < end; i++)
+        ids[i - start] = i + 1;
       final long bucketKey = nextKey;
       nextKey += GlobalValueDictionary.PERSISTENT_RECORD_STRIDE;
-      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHashBucketNode(bucketKey,
-          bucket, (byte) Long.BYTES, secondary, nextBucketKey, hashes, ids),
-          DatabaseType.JSON, writer, writer.getLog());
+      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHashBucketNode(bucketKey, bucket,
+          (byte) Long.BYTES, secondary, nextBucketKey, hashes, ids), DatabaseType.JSON, writer, writer.getLog());
       nextBucketKey = bucketKey;
     }
     final int[] path = new int[Long.BYTES];
@@ -493,20 +488,20 @@ public final class GlobalValueDictionaryStoreTest {
       children[path[depth - 3]] = childKey;
       final long radixKey = nextKey;
       nextKey += GlobalValueDictionary.PERSISTENT_RECORD_STRIDE;
-      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryRadixNode(radixKey,
-          ValueDictionaryRadixNode.FORWARD, (byte) depth, children), DatabaseType.JSON,
-          writer, writer.getLog());
+      namePage.putProjectionValueDictionaryRecord(
+          new ValueDictionaryRadixNode(radixKey, ValueDictionaryRadixNode.FORWARD, (byte) depth, children),
+          DatabaseType.JSON, writer, writer.getLog());
       childKey = radixKey;
     }
     final long[] rootChildren = new long[ValueDictionaryRadixNode.FANOUT];
     rootChildren[path[0]] = childKey;
-    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryRadixNode(key,
-        ValueDictionaryRadixNode.FORWARD, (byte) 3, rootChildren), DatabaseType.JSON,
+    namePage.putProjectionValueDictionaryRecord(
+        new ValueDictionaryRadixNode(key, ValueDictionaryRadixNode.FORWARD, (byte) 3, rootChildren), DatabaseType.JSON,
         writer, writer.getLog());
   }
 
-  private static void forceSecondaryBucket(final JsonNodeTrx wtx, final long headerKey,
-      final byte[] target, final int wrongId, final boolean cyclic) {
+  private static void forceSecondaryBucket(final JsonNodeTrx wtx, final long headerKey, final byte[] target,
+      final int wrongId, final boolean cyclic) {
     final var writer = wtx.getStorageEngineWriter();
     final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
     final long primaryHash = GlobalValueDictionary.valueHash(target, 0, target.length);
@@ -515,19 +510,21 @@ public final class GlobalValueDictionaryStoreTest {
     final long first = namePage.reserveProjectionValueDictionaryKeys(DatabaseType.JSON,
         8L * GlobalValueDictionary.PERSISTENT_RECORD_STRIDE);
     final long bucketKey = first;
-    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHashBucketNode(bucketKey,
-        primaryBucket, (byte) Long.BYTES, secondaryHash, cyclic ? bucketKey : 0L,
-        new long[] {primaryHash}, new int[] {wrongId}), DatabaseType.JSON, writer,
-        writer.getLog());
-    installSecondaryLeaf(wtx, headerKey, target, bucketKey,
-        first + GlobalValueDictionary.PERSISTENT_RECORD_STRIDE);
+    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHashBucketNode(bucketKey, primaryBucket,
+        (byte) Long.BYTES, secondaryHash, cyclic
+            ? bucketKey
+            : 0L,
+        new long[] {primaryHash}, new int[] {wrongId}), DatabaseType.JSON, writer, writer.getLog());
+    installSecondaryLeaf(wtx, headerKey, target, bucketKey, first + GlobalValueDictionary.PERSISTENT_RECORD_STRIDE);
   }
 
-  private static void forceCollisionTree(final JsonNodeTrx wtx, final long headerKey,
-      final byte[] target, final int rootId, final int secondId, final boolean cyclic) {
+  private static void forceCollisionTree(final JsonNodeTrx wtx, final long headerKey, final byte[] target,
+      final int rootId, final int secondId, final boolean cyclic) {
     final var writer = wtx.getStorageEngineWriter();
     final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
-    final int collisionRecords = cyclic ? 2 : 1;
+    final int collisionRecords = cyclic
+        ? 2
+        : 1;
     final long first = namePage.reserveProjectionValueDictionaryKeys(DatabaseType.JSON,
         (collisionRecords + 7L) * GlobalValueDictionary.PERSISTENT_RECORD_STRIDE);
     final long rootKey = first;
@@ -535,19 +532,21 @@ public final class GlobalValueDictionaryStoreTest {
     if (cyclic) {
       final long secondKey = next;
       next += GlobalValueDictionary.PERSISTENT_RECORD_STRIDE;
-      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryCollisionNode(rootKey,
-          rootId, 2, secondKey, secondKey), DatabaseType.JSON, writer, writer.getLog());
-      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryCollisionNode(secondKey,
-          secondId, 1, rootKey, rootKey), DatabaseType.JSON, writer, writer.getLog());
+      namePage.putProjectionValueDictionaryRecord(
+          new ValueDictionaryCollisionNode(rootKey, rootId, 2, secondKey, secondKey), DatabaseType.JSON, writer,
+          writer.getLog());
+      namePage.putProjectionValueDictionaryRecord(
+          new ValueDictionaryCollisionNode(secondKey, secondId, 1, rootKey, rootKey), DatabaseType.JSON, writer,
+          writer.getLog());
     } else {
-      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryCollisionNode(rootKey,
-          rootId, 1, 0L, 0L), DatabaseType.JSON, writer, writer.getLog());
+      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryCollisionNode(rootKey, rootId, 1, 0L, 0L),
+          DatabaseType.JSON, writer, writer.getLog());
     }
     installSecondaryLeaf(wtx, headerKey, target, rootKey, next);
   }
 
-  private static void installSecondaryLeaf(final JsonNodeTrx wtx, final long headerKey,
-      final byte[] target, final long leafKey, long nextKey) {
+  private static void installSecondaryLeaf(final JsonNodeTrx wtx, final long headerKey, final byte[] target,
+      final long leafKey, long nextKey) {
     final var writer = wtx.getStorageEngineWriter();
     final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
     final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, writer);
@@ -556,8 +555,9 @@ public final class GlobalValueDictionaryStoreTest {
     final int primaryBucket = (int) (primaryHash >>> 40) & 0xFF_FFFF;
     long primaryLeafKey = header.getForwardRootKey();
     for (int depth = 0; depth < 3; depth++) {
-      final ValueDictionaryRadixNode node = (ValueDictionaryRadixNode)
-          namePage.getProjectionValueDictionaryRecord(primaryLeafKey, DatabaseType.JSON, writer);
+      final ValueDictionaryRadixNode node =
+          (ValueDictionaryRadixNode) namePage.getProjectionValueDictionaryRecord(primaryLeafKey, DatabaseType.JSON,
+              writer);
       primaryLeafKey = node.childKey((primaryBucket >>> (16 - depth * 8)) & 0xFF);
     }
     if (primaryLeafKey == 0L) {
@@ -575,20 +575,20 @@ public final class GlobalValueDictionaryStoreTest {
       children[path[depth - 3]] = childKey;
       final long radixKey = nextKey;
       nextKey += GlobalValueDictionary.PERSISTENT_RECORD_STRIDE;
-      namePage.putProjectionValueDictionaryRecord(new ValueDictionaryRadixNode(radixKey,
-          ValueDictionaryRadixNode.FORWARD, (byte) depth, children), DatabaseType.JSON,
-          writer, writer.getLog());
+      namePage.putProjectionValueDictionaryRecord(
+          new ValueDictionaryRadixNode(radixKey, ValueDictionaryRadixNode.FORWARD, (byte) depth, children),
+          DatabaseType.JSON, writer, writer.getLog());
       childKey = radixKey;
     }
     final long[] rootChildren = new long[ValueDictionaryRadixNode.FANOUT];
     rootChildren[path[0]] = childKey;
-    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryRadixNode(primaryLeafKey,
-        ValueDictionaryRadixNode.FORWARD, (byte) 3, rootChildren), DatabaseType.JSON,
-        writer, writer.getLog());
+    namePage.putProjectionValueDictionaryRecord(
+        new ValueDictionaryRadixNode(primaryLeafKey, ValueDictionaryRadixNode.FORWARD, (byte) 3, rootChildren),
+        DatabaseType.JSON, writer, writer.getLog());
   }
 
-  private static void overrideWriterHashes(final GlobalValueDictionaryWriter writer,
-      final int id, final long primaryHash, final long secondaryHash) {
+  private static void overrideWriterHashes(final GlobalValueDictionaryWriter writer, final int id,
+      final long primaryHash, final long secondaryHash) {
     try {
       final var primaryField = GlobalValueDictionaryWriter.class.getDeclaredField("hashes");
       primaryField.setAccessible(true);
@@ -601,8 +601,8 @@ public final class GlobalValueDictionaryStoreTest {
     }
   }
 
-  private static void overrideAllWriterHashes(final GlobalValueDictionaryWriter writer,
-      final int entryCount, final long primaryHash, final long secondaryHash) {
+  private static void overrideAllWriterHashes(final GlobalValueDictionaryWriter writer, final int entryCount,
+      final long primaryHash, final long secondaryHash) {
     try {
       final var primaryField = GlobalValueDictionaryWriter.class.getDeclaredField("hashes");
       primaryField.setAccessible(true);
@@ -617,8 +617,8 @@ public final class GlobalValueDictionaryStoreTest {
     }
   }
 
-  private static int countReachableRecordsAfter(final ValueDictionaryHeaderNode header,
-      final long exclusiveFloor, final NamePage namePage, final StorageEngineReader reader) {
+  private static int countReachableRecordsAfter(final ValueDictionaryHeaderNode header, final long exclusiveFloor,
+      final NamePage namePage, final StorageEngineReader reader) {
     final Set<Long> visited = new HashSet<>();
     collectReachableRecords(header.getForwardRootKey(), namePage, reader, visited);
     collectReachableRecords(header.getReverseRootKey(), namePage, reader, visited);
@@ -631,13 +631,12 @@ public final class GlobalValueDictionaryStoreTest {
     return count;
   }
 
-  private static void collectReachableRecords(final long key, final NamePage namePage,
-      final StorageEngineReader reader, final Set<Long> visited) {
+  private static void collectReachableRecords(final long key, final NamePage namePage, final StorageEngineReader reader,
+      final Set<Long> visited) {
     if (key == 0L || !visited.add(key)) {
       return;
     }
-    final DataRecord record = namePage.getProjectionValueDictionaryRecord(key,
-        DatabaseType.JSON, reader);
+    final DataRecord record = namePage.getProjectionValueDictionaryRecord(key, DatabaseType.JSON, reader);
     if (record instanceof ValueDictionaryRadixNode radix) {
       for (final long childKey : radix.getSparseChildKeys()) {
         collectReachableRecords(childKey, namePage, reader, visited);
@@ -661,13 +660,12 @@ public final class GlobalValueDictionaryStoreTest {
   void appendSegmentsSurviveColdHistoricalReadsForEveryVersioningType(final VersioningType versioningType) {
     final String resourceName = "dictionary-" + versioningType.name().toLowerCase();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-      database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                   .versioningApproach(versioningType)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(resourceName).versioningApproach(versioningType).build());
     }
     final long headerKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(resourceName)) {
+        final JsonResourceSession session = database.beginResourceSession(resourceName)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         seed(wtx);
         final GlobalValueDictionaryWriter base = new GlobalValueDictionaryWriter();
@@ -676,22 +674,21 @@ public final class GlobalValueDictionaryStoreTest {
         wtx.commit();
       }
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ValueDictionaryHeaderNode header =
-            GlobalValueDictionary.header(headerKey, wtx.getStorageEngineWriter());
+        final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, wtx.getStorageEngineWriter());
         final GlobalValueDictionaryWriter additions = new GlobalValueDictionaryWriter();
         intern(additions, "added");
         final var writer = wtx.getStorageEngineWriter();
-        additions.flushAppend(header, writer.getNamePage(writer.getActualRevisionRootPage()),
-            DatabaseType.JSON, writer, writer.getLog());
+        additions.flushAppend(header, writer.getNamePage(writer.getActualRevisionRootPage()), DatabaseType.JSON, writer,
+            writer.getLog());
         wtx.commit();
       }
     }
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         final JsonResourceSession session = database.beginResourceSession(resourceName);
-         final JsonNodeReadOnlyTrx revisionOne = session.beginNodeReadOnlyTrx(1);
-         final JsonNodeReadOnlyTrx revisionTwo = session.beginNodeReadOnlyTrx(2)) {
+        final JsonResourceSession session = database.beginResourceSession(resourceName);
+        final JsonNodeReadOnlyTrx revisionOne = session.beginNodeReadOnlyTrx(1);
+        final JsonNodeReadOnlyTrx revisionTwo = session.beginNodeReadOnlyTrx(2)) {
       assertEquals("base", GlobalValueDictionary.value(headerKey, 1, revisionOne.getStorageEngineReader()));
       assertNull(GlobalValueDictionary.value(headerKey, 2, revisionOne.getStorageEngineReader()));
       assertEquals("base", GlobalValueDictionary.value(headerKey, 1, revisionTwo.getStorageEngineReader()));
@@ -743,8 +740,8 @@ public final class GlobalValueDictionaryStoreTest {
   }
 
   /**
-   * The property the whole scheme rests on: a rebuild re-mints ids from 1, so id 1 means one thing
-   * in revision 1 and another in revision 2. That is only safe because each revision reads the
+   * The property the whole scheme rests on: a rebuild re-mints ids from 1, so id 1 means one thing in
+   * revision 1 and another in revision 2. That is only safe because each revision reads the
    * dictionary it was built against.
    */
   @Test
@@ -849,7 +846,7 @@ public final class GlobalValueDictionaryStoreTest {
       }
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         final var reader = rtx.getStorageEngineReader();
-        final int[] ids = { 900, 3, 512, 1, 777, 0 };
+        final int[] ids = {900, 3, 512, 1, 777, 0};
         final String[] values = GlobalValueDictionary.values(header, ids, reader);
         assertEquals(ids.length, values.length);
         for (int i = 0; i < ids.length; i++) {
@@ -950,8 +947,7 @@ public final class GlobalValueDictionaryStoreTest {
         "the reservation is short of the radix and bucket records used");
     assertEquals(1, GlobalValueDictionary.PERSISTENT_RECORD_STRIDE,
         "a dictionary record must consume exactly one key slot");
-    assertEquals(io.sirix.settings.Constants.INP_REFERENCE_COUNT,
-        GlobalValueDictionary.PERSISTENT_RECORDS_PER_PAGE,
+    assertEquals(io.sirix.settings.Constants.INP_REFERENCE_COUNT, GlobalValueDictionary.PERSISTENT_RECORDS_PER_PAGE,
         "dense dictionary records must use every record-page slot");
   }
 

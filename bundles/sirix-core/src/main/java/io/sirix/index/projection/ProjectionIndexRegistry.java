@@ -60,10 +60,12 @@ public final class ProjectionIndexRegistry {
   /**
    * Executor-owned advisory work that can be abandoned before it starts.
    *
-   * <p>{@link java.util.concurrent.ExecutorService#shutdownNow()} returns commands that never
-   * started. The executor owner calls {@link #cancelBeforeExecution()} for those commands so a
-   * handle's one-shot latch is not stranded by cache eviction and a later live executor can issue
-   * the hint. A command already running is fenced by executor termination instead.</p>
+   * <p>
+   * {@link java.util.concurrent.ExecutorService#shutdownNow()} returns commands that never started.
+   * The executor owner calls {@link #cancelBeforeExecution()} for those commands so a handle's
+   * one-shot latch is not stranded by cache eviction and a later live executor can issue the hint. A
+   * command already running is fenced by executor termination instead.
+   * </p>
    */
   public interface CancellableBackgroundTask extends Runnable {
     void cancelBeforeExecution();
@@ -747,17 +749,17 @@ public final class ProjectionIndexRegistry {
      *
      * <p>
      * This is the promotion POLICY signal and it deliberately counts arrivals, not successful sliced
-     * serves. The policy asks "is this handle in a hot group-query loop", which route traffic
-     * answers; an arm that then declined for an unsliceable predicate does not make the handle
-     * colder, and gating the tick on a successful slice would move the promotion trigger point.
+     * serves. The policy asks "is this handle in a hot group-query loop", which route traffic answers;
+     * an arm that then declined for an unsliceable predicate does not make the handle colder, and
+     * gating the tick on a successful slice would move the promotion trigger point.
      * </p>
      *
      * <p>
      * The instrument that must not lie about REAL serves is a separate, per-kernel one:
      * {@code SirixVectorizedExecutor.groupAggSlicedServedCount()}, incremented inside the sliced
      * kernels themselves. That is what the regression tests assert on and what the benchmark runners
-     * report — keeping policy and instrument apart is what lets either change without silently
-     * moving the other.
+     * report — keeping policy and instrument apart is what lets either change without silently moving
+     * the other.
      * </p>
      */
     public int slicedRouteTick() {
@@ -805,9 +807,9 @@ public final class ProjectionIndexRegistry {
     private final AtomicBoolean promotionKicked = new AtomicBoolean();
 
     /**
-     * Largest whole-leaf payload {@link #promoteInBackground} will materialize, in bytes. The
-     * payload is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap,
-     * itself capped so a huge heap does not authorise a huge speculative materialization.
+     * Largest whole-leaf payload {@link #promoteInBackground} will materialize, in bytes. The payload
+     * is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap, itself
+     * capped so a huge heap does not authorise a huge speculative materialization.
      */
     private static long promoteMaxBytes() {
       final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
@@ -825,11 +827,11 @@ public final class ProjectionIndexRegistry {
     private static final long DEFAULT_PROMOTE_MAX_BYTES = 4L << 30;
 
     /**
-     * HOT promotion without the stall: materialize the whole-leaf payloads on an executor-owned task while
-     * callers keep serving from slices; {@link #payloadsMaterialized()} flips when the work lands and
-     * the byte kernels take over on the NEXT query. Failures are swallowed — a failed promotion just
-     * means staying on the (correct) sliced path; the next synchronous consumer re-surfaces the error
-     * attributably through {@link #rowGroupPayloads(Supplier)}.
+     * HOT promotion without the stall: materialize the whole-leaf payloads on an executor-owned task
+     * while callers keep serving from slices; {@link #payloadsMaterialized()} flips when the work lands
+     * and the byte kernels take over on the NEXT query. Failures are swallowed — a failed promotion
+     * just means staying on the (correct) sliced path; the next synchronous consumer re-surfaces the
+     * error attributably through {@link #rowGroupPayloads(Supplier)}.
      */
     public void promoteInBackground(final Executor executor, final Supplier<List<byte[]>> materializer) {
       if (materializer == null || !promotionKicked.compareAndSet(false, true)) {

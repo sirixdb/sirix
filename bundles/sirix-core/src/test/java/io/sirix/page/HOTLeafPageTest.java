@@ -301,8 +301,8 @@ class HOTLeafPageTest {
     hotLeafPage.setPageReference(7L, reference);
     assertEquals(hotLeafPage.estimatedRetainedHeapBytes(), hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
 
-    final HOTLeafPage completePage = new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE), null,
-        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    final HOTLeafPage completePage =
+        new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
     hotLeafPage.setCompletePageRef(completePage);
     assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
     hotLeafPage.setCompletePageRef(null);
@@ -421,8 +421,8 @@ class HOTLeafPageTest {
 
   /**
    * REGRESSION: recalculateUsedMemory() previously used raw short (sign-extended) for key/value
-   * lengths, giving wrong results for lengths >= 32768. Test that compact() + getRemainingSpace()
-   * are consistent when a value of length >= 32768 is stored.
+   * lengths, giving wrong results for lengths >= 32768. Test that compact() + getRemainingSpace() are
+   * consistent when a value of length >= 32768 is stored.
    */
   @Test
   void testRecalculateUsedMemoryLargeValueLength() {
@@ -465,7 +465,7 @@ class HOTLeafPageTest {
   @Test
   void testCompactWithLargeKeys() {
     // Insert keys longer than 8 bytes to exercise compareKeysSimd's > 8 byte path
-    byte[] key9  = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8};      // 9 bytes
+    byte[] key9 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8}; // 9 bytes
     byte[] key16 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 1}; // 16 bytes, differs at byte 15
     byte[] key17 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 2}; // 16 bytes, differs at byte 15
     byte[] value = new byte[] {1};

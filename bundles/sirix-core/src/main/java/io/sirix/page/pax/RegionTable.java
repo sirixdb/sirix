@@ -155,11 +155,13 @@ public final class RegionTable implements AutoCloseable {
    * rather than by discipline. Per table rather than per payload so a page's regions are reclaimed as
    * one unit.
    *
-   * <p>The one exception is a table created by {@link #newConfinedWriterTable()}. That table exists
-   * only while one disposable snapshot copy is being serialized, never escapes the serializer
-   * thread, and is closed before the encoded copy is handed to the append thread. Its confined arena
-   * makes that high-volume allocation deterministic without weakening the automatic lifetime of
-   * resident/read-side tables.</p>
+   * <p>
+   * The one exception is a table created by {@link #newConfinedWriterTable()}. That table exists only
+   * while one disposable snapshot copy is being serialized, never escapes the serializer thread, and
+   * is closed before the encoded copy is handed to the append thread. Its confined arena makes that
+   * high-volume allocation deterministic without weakening the automatic lifetime of
+   * resident/read-side tables.
+   * </p>
    */
   private volatile Arena arena;
 
@@ -184,9 +186,11 @@ public final class RegionTable implements AutoCloseable {
   /**
    * Create a serializer-local table backed by a lazily-created {@link Arena#ofConfined()} arena.
    *
-   * <p>This factory is deliberately separate from the public constructor. Ordinary tables may be
-   * shared by cached pages and must retain their automatic arena lifetime; only a disposable writer
-   * that completes and closes the table on this same thread may use this variant.</p>
+   * <p>
+   * This factory is deliberately separate from the public constructor. Ordinary tables may be shared
+   * by cached pages and must retain their automatic arena lifetime; only a disposable writer that
+   * completes and closes the table on this same thread may use this variant.
+   * </p>
    *
    * @return an explicitly closeable, thread-confined writer table
    */
@@ -395,17 +399,20 @@ public final class RegionTable implements AutoCloseable {
    * read one loaded from disk.
    */
   public void set(final byte kind, final byte[] payload) {
-    set(kind, payload, payload == null ? 0 : payload.length);
+    set(kind, payload, payload == null
+        ? 0
+        : payload.length);
   }
 
   /**
    * Installs a prefix of caller-owned reusable storage, copying it off-heap before returning.
    *
-   * <p>This is the ownership boundary for allocation-free encoders: they may overwrite
-   * {@code payload} as soon as this method returns because the visible region is backed by a fresh
-   * native segment containing exactly {@code length} bytes. A {@code null} payload with zero length
-   * retains {@link #set(byte, byte[])}'s clear semantics; a non-null zero-length payload remains a
-   * present empty region.
+   * <p>
+   * This is the ownership boundary for allocation-free encoders: they may overwrite {@code payload}
+   * as soon as this method returns because the visible region is backed by a fresh native segment
+   * containing exactly {@code length} bytes. A {@code null} payload with zero length retains
+   * {@link #set(byte, byte[])}'s clear semantics; a non-null zero-length payload remains a present
+   * empty region.
    *
    * @param kind region kind
    * @param payload caller-owned bytes, or {@code null} to clear
@@ -415,9 +422,12 @@ public final class RegionTable implements AutoCloseable {
     if (kind < 0 || kind >= KIND_COUNT) {
       throw new IllegalArgumentException("kind=" + kind + " outside [0, " + KIND_COUNT + ')');
     }
-    if (length < 0 || (payload == null ? length != 0 : length > payload.length)) {
-      throw new IllegalArgumentException(
-          "length=" + length + " for payload length " + (payload == null ? "null" : payload.length));
+    if (length < 0 || (payload == null
+        ? length != 0
+        : length > payload.length)) {
+      throw new IllegalArgumentException("length=" + length + " for payload length " + (payload == null
+          ? "null"
+          : payload.length));
     }
     setSegment(kind, payload == null
         ? null
@@ -518,10 +528,12 @@ public final class RegionTable implements AutoCloseable {
    * Close a table created by {@link #newConfinedWriterTable()} and reclaim all of its native payloads
    * immediately.
    *
-   * <p>Ordinary tables intentionally reject this operation: their automatic arena can be shared by
+   * <p>
+   * Ordinary tables intentionally reject this operation: their automatic arena can be shared by
    * cached pages, including the single-fragment versioning shortcut, so closing one page must never
    * invalidate another page's payload view. Confined writer tables, conversely, are serializer-local
-   * and this method must run on the thread that populated them.</p>
+   * and this method must run on the thread that populated them.
+   * </p>
    */
   @Override
   public synchronized void close() {

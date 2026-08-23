@@ -55,9 +55,8 @@ final class DocumentRecordLocationCacheIntegrationTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(resourceConfiguration());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(ASYNC_FLUSH_THRESHOLD,
-               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
-           final var parser = JacksonJsonShredder.createStringParser(document)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(ASYNC_FLUSH_THRESHOLD, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+          final var parser = JacksonJsonShredder.createStringParser(document)) {
         new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).build().call();
         wtx.commit();
       }
@@ -65,7 +64,7 @@ final class DocumentRecordLocationCacheIntegrationTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       final StringWriter output = new StringWriter(document.length());
       new JsonSerializer.Builder(session, output).build().call();
       JSONAssert.assertEquals(document, output.toString(), true);
@@ -82,8 +81,7 @@ final class DocumentRecordLocationCacheIntegrationTest {
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(resourceConfiguration());
       try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
-           final XmlNodeTrx wtx = session.beginNodeTrx(ASYNC_FLUSH_THRESHOLD,
-               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final XmlNodeTrx wtx = session.beginNodeTrx(ASYNC_FLUSH_THRESHOLD, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(document), XmlNodeTrx.Commit.No);
         wtx.commit();
       }
@@ -91,8 +89,8 @@ final class DocumentRecordLocationCacheIntegrationTest {
 
     Databases.clearGlobalCaches();
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath);
-         final XmlResourceSession session = database.beginResourceSession(RESOURCE);
-         final ByteArrayOutputStream output = new ByteArrayOutputStream(document.length())) {
+        final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+        final ByteArrayOutputStream output = new ByteArrayOutputStream(document.length())) {
       XmlSerializer.newBuilder(session, output).build().call();
       final String serializedDocument = output.toString(StandardCharsets.UTF_8);
       assertEquals(document, serializedDocument.replace("<!-- ", "<!--").replace(" -->", "-->"),
@@ -113,22 +111,23 @@ final class DocumentRecordLocationCacheIntegrationTest {
   }
 
   private static String jsonDocument() {
-    final StringBuilder document = new StringBuilder(160 * 1024)
-        .append("{\"overflow\":\"")
-        .append(OVERFLOW_TEXT)
-        .append("\",\"rows\":[");
+    final StringBuilder document =
+        new StringBuilder(160 * 1024).append("{\"overflow\":\"").append(OVERFLOW_TEXT).append("\",\"rows\":[");
     for (int i = 0; i < 220; i++) {
       if (i > 0) {
         document.append(',');
       }
       switch (i & 3) {
-        case 0 -> document.append("{\"id\":").append(i)
-            .append(",\"nested\":{\"flag\":true,\"values\":[")
-            .append(i).append(',').append(i + 1).append(",null]}}");
-        case 1 -> document.append('[').append(i)
-            .append(",{\"name\":\"row-").append(i).append("\"},[true,false]]");
-        case 2 -> document.append("{\"id\":").append(i)
-            .append(",\"text\":\"value-").append(i).append("\",\"empty\":{}}");
+        case 0 -> document.append("{\"id\":")
+                          .append(i)
+                          .append(",\"nested\":{\"flag\":true,\"values\":[")
+                          .append(i)
+                          .append(',')
+                          .append(i + 1)
+                          .append(",null]}}");
+        case 1 -> document.append('[').append(i).append(",{\"name\":\"row-").append(i).append("\"},[true,false]]");
+        case 2 ->
+          document.append("{\"id\":").append(i).append(",\"text\":\"value-").append(i).append("\",\"empty\":{}}");
         case 3 -> document.append("[null,").append(i).append(",\"tail-").append(i).append("\"]");
         default -> throw new AssertionError();
       }
@@ -137,14 +136,18 @@ final class DocumentRecordLocationCacheIntegrationTest {
   }
 
   private static String xmlDocument() {
-    final StringBuilder document = new StringBuilder(160 * 1024)
-        .append("<root><overflow>")
-        .append(OVERFLOW_TEXT)
-        .append("</overflow>");
+    final StringBuilder document =
+        new StringBuilder(160 * 1024).append("<root><overflow>").append(OVERFLOW_TEXT).append("</overflow>");
     for (int i = 0; i < 220; i++) {
-      document.append("<row id=\"").append(i).append("\"><name>row-").append(i)
-          .append("</name><values><v>").append(i).append("</v><v>").append(i + 1)
-          .append("</v></values>");
+      document.append("<row id=\"")
+              .append(i)
+              .append("\"><name>row-")
+              .append(i)
+              .append("</name><values><v>")
+              .append(i)
+              .append("</v><v>")
+              .append(i + 1)
+              .append("</v></values>");
       if ((i & 15) == 0) {
         document.append("<!--comment-").append(i).append("--><?row processing-").append(i).append("?>");
       }

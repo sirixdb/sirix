@@ -6,6 +6,21 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Projection indexes (experimental, analytical)** are maintained **incrementally** by the
+  transactions that touch the record set: inserts, updates, deletes and moves resolve each dirty
+  record through exact locators or a bounded fence probe and rewrite only the touched persistent
+  units (row groups, order/fence chunks, Bloom chunks, set summaries, dictionary radix paths).
+  There is no dirty-record cliff, no whole-index rebuild, and no update-time invalidation — an
+  unattributable or corrupt touched unit fails the owning transaction (rollback-only) instead of
+  silently degrading the index. Column lookup is by the declared path relative to the record set,
+  so nested columns sharing a trailing name with another path are accepted. See
+  `docs/PROJECTION_INDEXES.md` and `docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md`.
+- **Load-time projection builds** — `BasicJsonDBStore#create(collection, resource, reader|parser,
+  ProjectionSpec)` catalogues a projection on the still-empty resource and lets the shred's own
+  change notifications fill it, so a load plus its projection is ONE pass instead of a shred
+  followed by a full `jn:create-projection-index` walk. Until the load's final commit the
+  projection's metadata slot holds the stale tombstone, so an interrupted load leaves queries on
+  the generic pipeline rather than on a half-filled index. See `docs/PROJECTION_INDEXES.md`.
 - **Asynchronous durable commits** (`AfterCommitState.KEEP_OPEN_ASYNC_COMMIT`) — the middle
   ground between synchronous auto-commits and the async pre-flush: every threshold crossing
   creates a real, durable, queryable revision, but the durability barriers (index-catalogue
@@ -30,6 +45,12 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **JSON revision-diff sidecars carry an integrity envelope** (`sirix-diff-format`,
+  `operation-count`, `operations-sha256`). Readers (`jn:diff`, the REST diff handler,
+  multi-revision resource copy) validate identity, count and digest before use and fall back to
+  recomputing the authoritative diff otherwise; sidecars written without those fields are not
+  accepted by this build. The REST diff response shape is unchanged — the envelope fields are
+  internal and stripped before serving. See `docs/DISK_FORMAT.md`.
 - **Breaking rename:** the async intermediate "commit" is now called what it is — an async
   flush. `AfterCommitState.KEEP_OPEN_ASYNC` → `KEEP_OPEN_ASYNC_FLUSH`,
   `StorageEngineWriter.asyncIntermediateCommit()` → `asyncFlush()`,

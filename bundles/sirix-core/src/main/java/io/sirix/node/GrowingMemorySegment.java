@@ -22,9 +22,9 @@ public class GrowingMemorySegment {
   private static final MemorySegment EMPTY_SEGMENT = MemorySegment.ofArray(new byte[0]);
 
   /**
-   * Exact used-length views up to this size are cached after a writer observes more than one
-   * length. Sixteen covers every primitive number encoding (type byte plus at most ten varint
-   * bytes) while keeping the lazily allocated cache small for general-purpose writers.
+   * Exact used-length views up to this size are cached after a writer observes more than one length.
+   * Sixteen covers every primitive number encoding (type byte plus at most ten varint bytes) while
+   * keeping the lazily allocated cache small for general-purpose writers.
    */
   private static final int SMALL_USED_VIEW_CACHE_LIMIT = 16;
 
@@ -40,8 +40,8 @@ public class GrowingMemorySegment {
   private long lastUsedViewSize = -1;
 
   /**
-   * Exact views for recurring small logical lengths. Allocated only after two different small
-   * lengths are requested, so one-shot serializers pay no extra array allocation.
+   * Exact views for recurring small logical lengths. Allocated only after two different small lengths
+   * are requested, so one-shot serializers pay no extra array allocation.
    */
   private MemorySegment[] smallUsedViews;
 
@@ -230,13 +230,14 @@ public class GrowingMemorySegment {
   /**
    * Get an exact, bounds-preserving view of the segment from zero to the current logical size.
    *
-   * <p>The returned segment deliberately is not the capacity-sized base segment: callers use
+   * <p>
+   * The returned segment deliberately is not the capacity-sized base segment: callers use
    * {@link MemorySegment#byteSize()} as the encoded length, and exposing spare capacity would make
    * trailing bytes readable and persistable. Creating that exact view with {@code asSlice} normally
    * allocates a wrapper on every call. This method therefore reuses the last view and lazily caches
    * the small recurring lengths used by primitive-number serialization. Cache entries remain valid
-   * across reset and overwrite because they are live views of the same base segment; a grow swaps
-   * the base and invalidates every cached view.
+   * across reset and overwrite because they are live views of the same base segment; a grow swaps the
+   * base and invalidates every cached view.
    *
    * @return a MemorySegment view containing exactly the used portion
    */

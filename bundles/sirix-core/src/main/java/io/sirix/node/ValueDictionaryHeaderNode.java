@@ -27,7 +27,8 @@ import io.sirix.utils.ToStringHelper;
 /**
  * The header of one global projection value dictionary namespace.
  *
- * <p>It sits at local key 0 of the namespace, so a reader that knows only the namespace can find
+ * <p>
+ * It sits at local key 0 of the namespace, so a reader that knows only the namespace can find
  * everything else with one read. Everything it carries is derived state that a reader cannot
  * reconstruct without scanning the whole namespace, which is exactly what a header is for.
  *
@@ -64,9 +65,8 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
    */
   public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
       final long forwardRootKey, final long reverseRootKey, final int generation) {
-    if (nodeKey <= 0 || version != VERSION || entryCount < 0 || forwardRootKey < 0
-        || reverseRootKey < 0 || generation < 0
-        || (entryCount == 0) != (forwardRootKey == 0 && reverseRootKey == 0)) {
+    if (nodeKey <= 0 || version != VERSION || entryCount < 0 || forwardRootKey < 0 || reverseRootKey < 0
+        || generation < 0 || (entryCount == 0) != (forwardRootKey == 0 && reverseRootKey == 0)) {
       throw new IllegalArgumentException("invalid value dictionary header");
     }
     this.nodeKey = nodeKey;
@@ -125,9 +125,9 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
 
   @Override
   public boolean equals(final Object obj) {
-    return obj instanceof ValueDictionaryHeaderNode other && version == other.version
-        && entryCount == other.entryCount && forwardRootKey == other.forwardRootKey
-        && reverseRootKey == other.reverseRootKey && generation == other.generation;
+    return obj instanceof ValueDictionaryHeaderNode other && version == other.version && entryCount == other.entryCount
+        && forwardRootKey == other.forwardRootKey && reverseRootKey == other.reverseRootKey
+        && generation == other.generation;
   }
 
   @Override

@@ -1442,8 +1442,8 @@ public enum VersioningType {
   }
 
   /** Retire a locally owned CoW result without replacing the failure that prevented its return. */
-  private static void retireModifiedHOTLeafAfterFailure(final HOTLeafPage sourceLeaf,
-      final HOTLeafPage modifiedLeaf, final Throwable primaryFailure) {
+  private static void retireModifiedHOTLeafAfterFailure(final HOTLeafPage sourceLeaf, final HOTLeafPage modifiedLeaf,
+      final Throwable primaryFailure) {
     if (modifiedLeaf == null || modifiedLeaf == sourceLeaf) {
       return;
     }

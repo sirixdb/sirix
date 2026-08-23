@@ -57,13 +57,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression gate for the asynchronous snapshot flush's FAILURE path.
  *
- * <p>A 100M-row ClickBench load stalled forever in {@code awaitPendingAsyncFlush}: a fault on the
+ * <p>
+ * A 100M-row ClickBench load stalled forever in {@code awaitPendingAsyncFlush}: a fault on the
  * flush path left the backpressure permit un-returned, the rollback that the fault triggered parked
  * on that permit with no worker left to hand it back, and the original exception — still travelling
  * as the primary of a try-with-resources whose close never returned — was never printed. Nothing at
  * all appeared in the log for two hours.
  *
- * <p>Each test here pins one of the four properties that turns that silence into a fast, named
+ * <p>
+ * Each test here pins one of the four properties that turns that silence into a fast, named
  * failure: the permit is returned on every path, the throwable is logged the moment it happens, the
  * writer is poisoned so the next request rethrows the REAL cause, and rollback completes instead of
  * hanging. The {@link Timeout} on every test is itself an assertion — a leaked permit now costs the
@@ -72,8 +74,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * and the default same-thread timeout only reports AFTER the method returns — which such a
  * regression never does, so it would wedge the whole suite instead of failing this one test.
  *
- * <p>Verified non-vacuous against the pre-fix code (permit leak restored, cause consumed on read):
- * the two cause-chain tests fail with "the real cause was lost on the way out", and the
+ * <p>
+ * Verified non-vacuous against the pre-fix code (permit leak restored, cause consumed on read): the
+ * two cause-chain tests fail with "the real cause was lost on the way out", and the
  * preparation-fault test parks indefinitely — the incident itself.
  */
 final class AsyncFlushFailurePathTest {
@@ -111,7 +114,7 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter engineWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final byte[] payload = new byte[32 * 1024];
         for (int i = 0; i < payload.length; i++) {
@@ -144,8 +147,7 @@ final class AsyncFlushFailurePathTest {
         final PageReference staleWriterReference = new PageReference();
         final OverflowPage staleWriterPage = new OverflowPage(new byte[1024]);
         staleWriterReference.setPage(staleWriterPage);
-        assertThrows(IllegalStateException.class,
-            () -> engineWriter.stageUncommittedOverflowPage(staleWriterReference),
+        assertThrows(IllegalStateException.class, () -> engineWriter.stageUncommittedOverflowPage(staleWriterReference),
             "a stale writer handle must not allocate a new native reservoir after close");
         assertSame(staleWriterPage, staleWriterReference.getPage());
         assertEquals(0, engineWriter.stagedSidePageCount());
@@ -280,7 +282,7 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter engineWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final ProjectionIndexHOTStorage storage = ProjectionIndexHOTStorage.forBulkBuild(engineWriter, 0);
         storage.putBlob(0, new byte[8 * 1024]);
@@ -330,7 +332,7 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter failedWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final ProjectionIndexHOTStorage storage = ProjectionIndexHOTStorage.forBulkBuild(failedWriter, 0);
         storage.putBlob(0, new byte[8 * 1024]);
@@ -356,8 +358,7 @@ final class AsyncFlushFailurePathTest {
         assertEquals(0, failedWriter.stagedSidePageCount());
         assertEquals(0L, failedWriter.stagedSidePagePayloadBytes());
 
-        final NodeStorageEngineWriter replacementWriter =
-            (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
+        final NodeStorageEngineWriter replacementWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         assertNotSame(failedWriter, replacementWriter,
             "rollback must bind the transaction to a fresh writer after aborting the poisoned one");
         assertFalse(replacementWriter.isClosed(), "the replacement writer must remain usable");
@@ -381,7 +382,7 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter failedWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final PageReference[] references = new PageReference[3];
         final OverflowPage[] stagedPages = new OverflowPage[3];
@@ -443,7 +444,7 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter engineWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final ProjectionIndexHOTStorage storage = ProjectionIndexHOTStorage.forBulkBuild(engineWriter, 0);
         storage.putBlob(0, new byte[8 * 1024]);
@@ -509,10 +510,9 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
-        final NodeStorageEngineWriter failedWriter =
-            (NodeStorageEngineWriter) session.createStorageEngineWriter();
-        final PageReference reference = new PageReference().setDatabaseId(failedWriter.getDatabaseId())
-                                                           .setResourceId(failedWriter.getResourceId());
+        final NodeStorageEngineWriter failedWriter = (NodeStorageEngineWriter) session.createStorageEngineWriter();
+        final PageReference reference =
+            new PageReference().setDatabaseId(failedWriter.getDatabaseId()).setResourceId(failedWriter.getResourceId());
         final IndirectPage page = new IndirectPage();
         failedWriter.getLog().put(reference, PageContainer.getInstance(page, page));
 
@@ -601,9 +601,9 @@ final class AsyncFlushFailurePathTest {
   }
 
   /**
-   * A {@code KEEP_OPEN_ASYNC_FLUSH} import large enough to rotate the transaction log several
-   * times. Mirrors the shape of the bulk loaders: one long transaction, background flushes, a
-   * single commit at the end.
+   * A {@code KEEP_OPEN_ASYNC_FLUSH} import large enough to rotate the transaction log several times.
+   * Mirrors the shape of the bulk loaders: one long transaction, background flushes, a single commit
+   * at the end.
    */
   private void runAsyncFlushImport() {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
@@ -617,8 +617,8 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(MAX_NODES_BEFORE_FLUSH,
-                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx =
+              session.beginNodeTrx(MAX_NODES_BEFORE_FLUSH, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int i = 0; i < INSERTED_RECORDS; i++) {
           wtx.moveTo(arrayNodeKey);
@@ -630,30 +630,33 @@ final class AsyncFlushFailurePathTest {
   }
 
   private static void assertCauseChainContains(final Throwable thrown, final String needle) {
-    for (Throwable t = thrown; t != null; t = t.getCause() == t ? null : t.getCause()) {
+    for (Throwable t = thrown; t != null; t = t.getCause() == t
+        ? null
+        : t.getCause()) {
       if (t.getMessage() != null && t.getMessage().contains(needle)) {
         return;
       }
     }
     throw new AssertionError("no exception in the chain names \"" + needle
-                                 + "\" — the real cause was lost on the way out. Chain: "
-                                 + describe(thrown));
+        + "\" — the real cause was lost on the way out. Chain: " + describe(thrown));
   }
 
   private void assertLoggedAtError(final String needle) {
-    final boolean found = logAppender.list.stream()
-                                          .anyMatch(event -> event.getLevel() == Level.ERROR
-                                              && event.getFormattedMessage().contains(needle));
+    final boolean found =
+        logAppender.list.stream()
+                        .anyMatch(
+                            event -> event.getLevel() == Level.ERROR && event.getFormattedMessage().contains(needle));
     if (!found) {
       throw new AssertionError("nothing was logged at ERROR containing \"" + needle
-                                   + "\" — a flush failure that says nothing is the original defect. Saw: "
-                                   + logAppender.list);
+          + "\" — a flush failure that says nothing is the original defect. Saw: " + logAppender.list);
     }
   }
 
   private static String describe(final Throwable thrown) {
     final StringBuilder chain = new StringBuilder(256);
-    for (Throwable t = thrown; t != null; t = t.getCause() == t ? null : t.getCause()) {
+    for (Throwable t = thrown; t != null; t = t.getCause() == t
+        ? null
+        : t.getCause()) {
       if (!chain.isEmpty()) {
         chain.append(" <- ");
       }

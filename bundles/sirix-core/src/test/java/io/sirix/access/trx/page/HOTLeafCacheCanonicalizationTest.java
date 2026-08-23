@@ -42,8 +42,7 @@ class HOTLeafCacheCanonicalizationTest {
       final HOTLeafPage incoming = newLeaf(arena, 100);
       final PageReference handoff = new PageReference();
 
-      final HOTLeafPage result =
-          NodeStorageEngineReader.adoptCanonicalHOTLeaf(cache, cacheKey(100), handoff, incoming);
+      final HOTLeafPage result = NodeStorageEngineReader.adoptCanonicalHOTLeaf(cache, cacheKey(100), handoff, incoming);
 
       assertSame(incoming, result);
       assertSame(incoming, handoff.getPage());
@@ -161,16 +160,15 @@ class HOTLeafCacheCanonicalizationTest {
   @Test
   void fragmentCleanupContinuesAfterAnEarlierReleaseFailure() {
     try (Arena arena = Arena.ofShared()) {
-      final HOTLeafPage failingFirst = new HOTLeafPage(201, 1, IndexType.PROJECTION,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
+      final HOTLeafPage failingFirst =
+          new HOTLeafPage(201, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw new IllegalStateException("expected frame-release failure");
           }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage guardedSecond = newLeaf(arena, 202);
       assertTrue(guardedSecond.acquireGuard());
 
       assertThrows(IllegalStateException.class,
-          () -> NodeStorageEngineReader.releaseHOTLeafFragmentsCompletely(
-              List.of(failingFirst, guardedSecond), null));
+          () -> NodeStorageEngineReader.releaseHOTLeafFragmentsCompletely(List.of(failingFirst, guardedSecond), null));
 
       assertTrue(failingFirst.isClosed());
       assertEquals(0, guardedSecond.getGuardCount(),
@@ -183,12 +181,12 @@ class HOTLeafCacheCanonicalizationTest {
   void fragmentCleanupToleratesTheSameFailureInstanceAndStillReleasesLaterGuards() {
     try (Arena arena = Arena.ofShared()) {
       final AssertionError sharedFailure = new AssertionError("shared release failure");
-      final HOTLeafPage failingFirst = new HOTLeafPage(203, 1, IndexType.PROJECTION,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
+      final HOTLeafPage failingFirst =
+          new HOTLeafPage(203, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw sharedFailure;
           }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
-      final HOTLeafPage failingSecond = new HOTLeafPage(204, 1, IndexType.PROJECTION,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
+      final HOTLeafPage failingSecond =
+          new HOTLeafPage(204, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw sharedFailure;
           }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage guardedThird = newLeaf(arena, 205);
@@ -196,8 +194,8 @@ class HOTLeafCacheCanonicalizationTest {
       failingSecond.markOrphaned();
       assertTrue(guardedThird.acquireGuard());
 
-      final AssertionError thrown = assertThrows(AssertionError.class,
-          () -> NodeStorageEngineReader.releaseHOTLeafFragmentsCompletely(
+      final AssertionError thrown =
+          assertThrows(AssertionError.class, () -> NodeStorageEngineReader.releaseHOTLeafFragmentsCompletely(
               List.of(failingFirst, failingSecond, guardedThird), null));
 
       assertSame(sharedFailure, thrown);

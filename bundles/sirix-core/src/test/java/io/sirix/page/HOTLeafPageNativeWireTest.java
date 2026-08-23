@@ -88,8 +88,7 @@ final class HOTLeafPageNativeWireTest {
       serialize(config, sink, pageB);
       final byte[] secondAWire = serialize(config, sink, pageA);
 
-      assertEquals(34, sink.segmentWriteCount,
-          "sparse serialization must issue one exact segment copy per dirty slot");
+      assertEquals(34, sink.segmentWriteCount, "sparse serialization must issue one exact segment copy per dirty slot");
       assertSame(pageA.slots(), sink.segmentSource);
       assertArrayEquals(firstAWire, secondAWire, "A/B/A reuse must not retain page B's packed offsets or payload");
       assertArrayEquals(serializeWithLegacyHeapPayload(config, pageA), secondAWire,
@@ -129,8 +128,8 @@ final class HOTLeafPageNativeWireTest {
       assertArrayEquals(serializeWithLegacyHeapPayload(config, pageA), secondAWire,
           "reusable primitive key scratch must retain deterministic signed-long ordering");
 
-      coldPage = (HOTLeafPage) new PagePersister().deserializePage(
-          config, Bytes.wrapForRead(secondAWire), SerializationType.DATA);
+      coldPage = (HOTLeafPage) new PagePersister().deserializePage(config, Bytes.wrapForRead(secondAWire),
+          SerializationType.DATA);
       assertEquals(3, coldPage.segmentRefCount());
       assertEquals(31_000L, coldPage.getPageReference(HOTLeafPage.overflowPageRefKey(9L, 31)).getKey());
       assertEquals(17_000L, coldPage.getPageReference(HOTLeafPage.overflowPageRefKey(-2L, 17)).getKey());
@@ -209,8 +208,8 @@ final class HOTLeafPageNativeWireTest {
       pooledSegment.reset();
       MemorySegment.ofArray(pooledBacking).fill((byte) 0xCC);
 
-      coldPage = (HOTLeafPage) new PagePersister().deserializePage(
-          config, Bytes.wrapForRead(persistedWire), SerializationType.DATA);
+      coldPage = (HOTLeafPage) new PagePersister().deserializePage(config, Bytes.wrapForRead(persistedWire),
+          SerializationType.DATA);
       assertEquals(256, coldPage.getEntryCount());
       assertEquals(page.getPageKey(), coldPage.getPageKey());
       assertEquals(page.getRevision(), coldPage.getRevision());
@@ -251,8 +250,8 @@ final class HOTLeafPageNativeWireTest {
       sink.writeShort((short) prefixLength);
       sink.write(prefix, 0, prefixLength);
 
-      final boolean sparseEmit = config.versioningType != VersioningType.FULL
-          && page.getCompletePageRef() != null && page.hasDirty();
+      final boolean sparseEmit =
+          config.versioningType != VersioningType.FULL && page.getCompletePageRef() != null && page.hasDirty();
       if (sparseEmit) {
         final int dirtyCount = page.getDirtyEntryCount();
         final int dirtyBytes = page.getDirtyEntriesUsedSize();
@@ -294,8 +293,7 @@ final class HOTLeafPageNativeWireTest {
     }
   }
 
-  private static void addDurableSideReference(final HOTLeafPage page, final long compositeKey,
-      final long durableKey) {
+  private static void addDurableSideReference(final HOTLeafPage page, final long compositeKey, final long durableKey) {
     page.setPageReference(compositeKey, new PageReference().setKey(durableKey));
   }
 
@@ -335,14 +333,16 @@ final class HOTLeafPageNativeWireTest {
 
   private static ResourceConfiguration fullConfig(final String name) {
     return new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE + '-' + name)
-        .versioningApproach(VersioningType.FULL)
-        .build();
+                                                                                  .versioningApproach(
+                                                                                      VersioningType.FULL)
+                                                                                  .build();
   }
 
   private static ResourceConfiguration slidingConfig(final String name) {
     return new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE + '-' + name)
-        .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-        .build();
+                                                                                  .versioningApproach(
+                                                                                      VersioningType.SLIDING_SNAPSHOT)
+                                                                                  .build();
   }
 
   private static final class TrackingMemorySegmentBytesOut extends MemorySegmentBytesOut {

@@ -14,8 +14,8 @@ import io.sirix.query.scan.SirixVectorizedExecutor;
 
 /**
  * Projection-served COVERED-ROW expression (P5b stage 7c): attempts
- * {@link SirixVectorizedExecutor#executeRowMaterialize} and, on any decline, evaluates the
- * generic pipeline compiled alongside — serving can change cost, never answers.
+ * {@link SirixVectorizedExecutor#executeRowMaterialize} and, on any decline, evaluates the generic
+ * pipeline compiled alongside — serving can change cost, never answers.
  */
 public final class SirixRowMaterializeExpr implements Expr {
 
@@ -36,10 +36,9 @@ public final class SirixRowMaterializeExpr implements Expr {
   private final SourceRef sourceRef;
   private final Expr genericFallback;
 
-  public SirixRowMaterializeExpr(final SirixExecutorProvider executorProvider,
-      final String[] sourcePath, final PredicateNode predicateOrNull, final String[] fields,
-      final String[] outNames, final int[] direct, final int[][] codes, final long[][] consts,
-      final SourceRef sourceRef, final Expr genericFallback) {
+  public SirixRowMaterializeExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] fields, final String[] outNames, final int[] direct,
+      final int[][] codes, final long[][] consts, final SourceRef sourceRef, final Expr genericFallback) {
     this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -59,8 +58,8 @@ public final class SirixRowMaterializeExpr implements Expr {
       try (lease) {
         final SirixVectorizedExecutor executor = lease.executor();
         if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
-          final Sequence served = executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames,
-              direct, codes, consts);
+          final Sequence served =
+              executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames, direct, codes, consts);
           if (served != null) {
             return served;
           }

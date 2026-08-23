@@ -48,10 +48,10 @@ final class RevisionTrackingExecutorTest {
 
   /**
    * The delegation trap: a method added to {@link VectorizedExecutor} later would be inherited here
-   * as the interface default ("unsupported") instead of being forwarded. At the entry points
-   * brackit substitutes at translate time that is not a lost fast path but a failed query, and
-   * nothing else in the suite would notice — every existing test would still pass. So the full set
-   * is checked structurally, and a new interface method breaks the build instead of the user.
+   * as the interface default ("unsupported") instead of being forwarded. At the entry points brackit
+   * substitutes at translate time that is not a lost fast path but a failed query, and nothing else
+   * in the suite would notice — every existing test would still pass. So the full set is checked
+   * structurally, and a new interface method breaks the build instead of the user.
    */
   @Test
   void everyExecutorMethodIsForwarded() {
@@ -71,7 +71,7 @@ final class RevisionTrackingExecutorTest {
       }
     }
     assertTrue(missing.isEmpty(),
-               "RevisionTrackingExecutor must forward every VectorizedExecutor method; missing: " + missing);
+        "RevisionTrackingExecutor must forward every VectorizedExecutor method; missing: " + missing);
   }
 
   private static String signature(final Method m) {
@@ -80,8 +80,8 @@ final class RevisionTrackingExecutorTest {
 
   /**
    * Before anything has ever resolved, every entry point declines rather than throwing — the
-   * translator then builds the generic pipeline, which is the only correct thing to do when there
-   * is nothing to serve from.
+   * translator then builds the generic pipeline, which is the only correct thing to do when there is
+   * nothing to serve from.
    */
   @Test
   void anUnresolvableExecutorDeclinesEverything() {
@@ -92,15 +92,15 @@ final class RevisionTrackingExecutorTest {
     assertFalse(executor.acceptsSource(SourceRef.document("db", "res", SourceRef.LATEST_REVISION)));
     assertFalse(executor.supportsSortedScan());
     assertFalse(executor.supportsMultiKeyGroupBy());
-    assertNull(executor.executeAggregate(null, new String[] { "[]" }, "sum", "age"));
-    assertNull(executor.executeGroupByCount(null, new String[] { "[]" }, "age"));
-    assertNull(executor.executePredicateCount(null, new String[] { "[]" }, null));
+    assertNull(executor.executeAggregate(null, new String[] {"[]"}, "sum", "age"));
+    assertNull(executor.executeGroupByCount(null, new String[] {"[]"}, "age"));
+    assertNull(executor.executePredicateCount(null, new String[] {"[]"}, null));
   }
 
   /**
-   * A resolver that transiently stops answering must leave the last resolved executor in place
-   * while its lifecycle remains open. Terminal chain close is covered by the lifecycle tests and
-   * rejects through the shared admission fence.
+   * A resolver that transiently stops answering must leave the last resolved executor in place while
+   * its lifecycle remains open. Terminal chain close is covered by the lifecycle tests and rejects
+   * through the shared admission fence.
    */
   @Test
   void theLastResolvedExecutorSurvivesAResolverThatStopsAnswering() throws Exception {
@@ -128,7 +128,7 @@ final class RevisionTrackingExecutorTest {
 
             answer.set(null);
             assertTrue(executor.canExecute(null),
-                       "a resolver that stops answering must keep serving from the last one");
+                "a resolver that stops answering must keep serving from the last one");
             assertSame(resolved, executor.lastResolved());
           } finally {
             resolved.close();
@@ -168,7 +168,7 @@ final class RevisionTrackingExecutorTest {
         assertSame(gated, executor.lastResolved(), "the gated scan must serve from what the gate admitted");
 
         // The scan consumes the pin; everything after it re-resolves.
-        executor.executeAggregate(evaluation, new String[] { "[]" }, "count", "age");
+        executor.executeAggregate(evaluation, new String[] {"[]"}, "count", "age");
         assertTrue(executor.canExecute(evaluation));
         assertSame(afterCommit, executor.lastResolved(), "the pin must not outlive the scan that consumed it");
       } finally {
@@ -207,9 +207,8 @@ final class RevisionTrackingExecutorTest {
   }
 
   /**
-   * Belt and braces for the same property: a pin is bound to the evaluation that took it, so even
-   * one left behind cannot answer for a LATER execution — which carries its own
-   * {@link QueryContext}.
+   * Belt and braces for the same property: a pin is bound to the evaluation that took it, so even one
+   * left behind cannot answer for a LATER execution — which carries its own {@link QueryContext}.
    */
   @Test
   void aPinCannotServeADifferentEvaluation() throws Exception {
@@ -227,7 +226,7 @@ final class RevisionTrackingExecutorTest {
         answer.set(afterCommit);
         assertTrue(executor.canExecute(new BrackitQueryContext()));
         assertSame(afterCommit, executor.lastResolved(),
-                   "a pin from an earlier evaluation must not answer for a new one");
+            "a pin from an earlier evaluation must not answer for a new one");
       } finally {
         gated.close();
         afterCommit.close();
@@ -255,8 +254,7 @@ final class RevisionTrackingExecutorTest {
         // A different context used to leave the old context's pin behind; the no-context
         // capability path used to leave every pin behind. Terminal close is irreversible, so
         // neither reference can belong to useful outer work after admission is rejected.
-        assertThrows(IllegalStateException.class,
-            () -> contextCall.canExecute(new BrackitQueryContext()));
+        assertThrows(IllegalStateException.class, () -> contextCall.canExecute(new BrackitQueryContext()));
         assertThrows(IllegalStateException.class, capabilityCall::supportsSortedScan);
         assertFalse(hasPinnedExecutor(contextCall));
         assertFalse(hasPinnedExecutor(capabilityCall));
@@ -308,7 +306,7 @@ final class RevisionTrackingExecutorTest {
       final var threads = Executors.newFixedThreadPool(2);
       try {
         final var query = threads.submit(
-            () -> executor.executeAggregate(new BrackitQueryContext(), new String[] { "[]" }, "sum", "age"));
+            () -> executor.executeAggregate(new BrackitQueryContext(), new String[] {"[]"}, "sum", "age"));
         assertTrue(resolverStarted.await(30, TimeUnit.SECONDS), "the query must reach its resolver");
 
         final var close = threads.submit(() -> {
@@ -344,12 +342,10 @@ final class RevisionTrackingExecutorTest {
     withResource((session, executorFactory, lifecycle) -> {
       final var resolverCalls = new AtomicInteger();
       final SourceRef source = SourceRef.document(DB, RES, SourceRef.LATEST_REVISION);
-      final RevisionTrackingExecutor root = new RevisionTrackingExecutor(executorFactory,
-          ignored -> () -> {
-            resolverCalls.incrementAndGet();
-            return executorFactory.get();
-          },
-          lifecycle);
+      final RevisionTrackingExecutor root = new RevisionTrackingExecutor(executorFactory, ignored -> () -> {
+        resolverCalls.incrementAndGet();
+        return executorFactory.get();
+      }, lifecycle);
 
       final VectorizedExecutor child = root.executorForSource(source);
       assertEquals(1, resolverCalls.get());

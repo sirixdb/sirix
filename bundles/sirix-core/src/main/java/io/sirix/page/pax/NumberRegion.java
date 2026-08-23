@@ -11,14 +11,14 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * PAX number-region codec. Packs the numeric payload of all
- * {@code OBJECT_NUMBER_VALUE} slots on a {@link io.sirix.page.KeyValueLeafPage}
- * into one contiguous buffer, grouped by parent {@code OBJECT_KEY}
- * {@code nameKey}. Scan operators look up the target field's range via a
- * per-tag directory in the header and iterate only the matching values — no
- * per-entry tag decode, no slot walk, no {@code moveTo}.
+ * PAX number-region codec. Packs the numeric payload of all {@code OBJECT_NUMBER_VALUE} slots on a
+ * {@link io.sirix.page.KeyValueLeafPage} into one contiguous buffer, grouped by parent
+ * {@code OBJECT_KEY} {@code nameKey}. Scan operators look up the target field's range via a per-tag
+ * directory in the header and iterate only the matching values — no per-entry tag decode, no slot
+ * walk, no {@code moveTo}.
  *
  * <h2>Wire format</h2>
+ * 
  * <pre>
  * byte   encodingKind         // 0 = PLAIN_LONG, 1 = BIT_PACKED  (legacy, no per-tag zone maps)
  *                             // 2 = PLAIN_LONG_ZM, 3 = BIT_PACKED_ZM (with per-tag zone maps)
@@ -41,19 +41,15 @@ import java.util.Objects;
  *                             //    BIT_PACKED: count × valueBitWidth bits)
  * </pre>
  *
- * <h2>HFT-grade scan loop</h2>
- * A scan on field {@code F} looks up the tag id (O(dictSize)), reads
- * {@code tagStart[tag]} + {@code tagCount[tag]}, then iterates a tight range
- * of {@link #decodeValueAt(byte[], Header, int)} calls. No conditional per
- * iteration, no tag decode, bit-packing decode reduces to one unaligned
- * 64-bit load + shift + mask.
+ * <h2>HFT-grade scan loop</h2> A scan on field {@code F} looks up the tag id (O(dictSize)), reads
+ * {@code tagStart[tag]} + {@code tagCount[tag]}, then iterates a tight range of
+ * {@link #decodeValueAt(byte[], Header, int)} calls. No conditional per iteration, no tag decode,
+ * bit-packing decode reduces to one unaligned 64-bit load + shift + mask.
  */
 public final class NumberRegion {
 
-  private static final VarHandle INT_LE =
-      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
-  private static final VarHandle LONG_LE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle LONG_LE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   public static final byte ENC_PLAIN_LONG = 0;
   public static final byte ENC_BIT_PACKED = 1;
@@ -62,35 +58,33 @@ public final class NumberRegion {
   /** BIT_PACKED with per-tag zone maps appended (tagMin[], tagMax[]). */
   public static final byte ENC_BIT_PACKED_ZM = 3;
   /**
-   * Value-bytes encoded via {@link NumberRegionCompact} (FOR+BP with its own
-   * embedded header: version + bitWidth + varint count + minValue + body).
-   * Outer tag dict + zone maps remain intact. Written when wiring is enabled;
-   * reader supports all four encoding kinds for backward compatibility.
+   * Value-bytes encoded via {@link NumberRegionCompact} (FOR+BP with its own embedded header: version
+   * + bitWidth + varint count + minValue + body). Outer tag dict + zone maps remain intact. Written
+   * when wiring is enabled; reader supports all four encoding kinds for backward compatibility.
    */
   public static final byte ENC_COMPACT_ZM = 4;
 
   /**
-   * Value-bytes encoded via {@link NumberRegionDelta} (delta-of-delta / zig-zag
-   * bit-pack). Outer tag dict + zone maps are laid out exactly like
-   * {@link #ENC_COMPACT_ZM} (no outer {@code valueBase}/{@code valueBitWidth} —
-   * those live in the nested delta header). Chosen automatically when it
-   * produces a strictly smaller value region than FOR+BP, which is the case for
+   * Value-bytes encoded via {@link NumberRegionDelta} (delta-of-delta / zig-zag bit-pack). Outer tag
+   * dict + zone maps are laid out exactly like {@link #ENC_COMPACT_ZM} (no outer
+   * {@code valueBase}/{@code valueBitWidth} — those live in the nested delta header). Chosen
+   * automatically when it produces a strictly smaller value region than FOR+BP, which is the case for
    * temporal columns (commit timestamps, valid-time, monotonic ids).
    *
-   * <p>Delta decode is sequential, so payloads under this encoding are excluded
-   * from the SIMD scan kernels (they fall back to the scalar
-   * {@link #decodeValueAt} / {@link #decodeAllValues} loop).
+   * <p>
+   * Delta decode is sequential, so payloads under this encoding are excluded from the SIMD scan
+   * kernels (they fall back to the scalar {@link #decodeValueAt} / {@link #decodeAllValues} loop).
    */
   public static final byte ENC_DELTA_ZM = 5;
 
   /**
-   * Write {@link #ENC_COMPACT_ZM} instead of {@link #ENC_BIT_PACKED_ZM} on the
-   * bit-packed path when enabled. Off by default because the compact codec
-   * adds ~2-7 bytes/region of framing overhead (version + varint) without a
-   * proportional speedup on Sirix's cold-path. Flip to test.
+   * Write {@link #ENC_COMPACT_ZM} instead of {@link #ENC_BIT_PACKED_ZM} on the bit-packed path when
+   * enabled. Off by default because the compact codec adds ~2-7 bytes/region of framing overhead
+   * (version + varint) without a proportional speedup on Sirix's cold-path. Flip to test.
    *
-   * <p>Read volatile-per-call so tests can toggle without class reload. The
-   * system property fallback lets production JVMs pin a value at startup.
+   * <p>
+   * Read volatile-per-call so tests can toggle without class reload. The system property fallback
+   * lets production JVMs pin a value at startup.
    */
   private static volatile Boolean COMPACT_WRITE_OVERRIDE = null;
 
@@ -113,11 +107,10 @@ public final class NumberRegion {
   }
 
   /**
-   * Enable/disable the delta-of-delta ({@link #ENC_DELTA_ZM}) write path. When
-   * enabled (the default) the encoder emits delta whenever it yields a strictly
-   * smaller value region than FOR+BP; when disabled the encoder never writes
-   * delta (readers still decode existing delta payloads). Toggled without a
-   * class reload for A/B tests.
+   * Enable/disable the delta-of-delta ({@link #ENC_DELTA_ZM}) write path. When enabled (the default)
+   * the encoder emits delta whenever it yields a strictly smaller value region than FOR+BP; when
+   * disabled the encoder never writes delta (readers still decode existing delta payloads). Toggled
+   * without a class reload for A/B tests.
    */
   private static volatile Boolean DELTA_WRITE_OVERRIDE = null;
 
@@ -144,17 +137,15 @@ public final class NumberRegion {
   private static final int MIN_DELTA_COUNT = 3;
 
   /**
-   * {@code tagKind} classifier for the region's tag dictionary. Determines the
-   * semantic interpretation of {@link Header#dict}:
+   * {@code tagKind} classifier for the region's tag dictionary. Determines the semantic
+   * interpretation of {@link Header#dict}:
    *
    * <ul>
-   *   <li>{@link #TAG_KIND_NAME} — tags are parent OBJECT_KEY nameKeys
-   *       (compression-only; not SIMD-safe when the same nameKey sits under
-   *       multiple pathNodeKeys on one page).</li>
-   *   <li>{@link #TAG_KIND_PATH_NODE} — tags are parent OBJECT_KEY pathNodeKeys
-   *       truncated to int. SIMD-safe for path-scoped scans: a successful
-   *       {@link #lookupTag(Header, int)} implies every value in the tag's
-   *       range belongs to the exact requested pathNodeKey.</li>
+   * <li>{@link #TAG_KIND_NAME} — tags are parent OBJECT_KEY nameKeys (compression-only; not SIMD-safe
+   * when the same nameKey sits under multiple pathNodeKeys on one page).</li>
+   * <li>{@link #TAG_KIND_PATH_NODE} — tags are parent OBJECT_KEY pathNodeKeys truncated to int.
+   * SIMD-safe for path-scoped scans: a successful {@link #lookupTag(Header, int)} implies every value
+   * in the tag's range belongs to the exact requested pathNodeKey.</li>
    * </ul>
    */
   public static final byte TAG_KIND_NAME = 0;
@@ -166,16 +157,13 @@ public final class NumberRegion {
   }
 
   /**
-   * @return true iff the value bytes are FOR + bit-packed and directly
-   *         random-accessible / SIMD-scannable. {@link #ENC_COMPACT_ZM} counts
-   *         (bit-packed under an embedded header); {@link #ENC_DELTA_ZM} does
-   *         <em>not</em> — delta is sequential and must never be routed through
-   *         a FOR unpack loop.
+   * @return true iff the value bytes are FOR + bit-packed and directly random-accessible /
+   *         SIMD-scannable. {@link #ENC_COMPACT_ZM} counts (bit-packed under an embedded header);
+   *         {@link #ENC_DELTA_ZM} does <em>not</em> — delta is sequential and must never be routed
+   *         through a FOR unpack loop.
    */
   public static boolean isBitPacked(final byte encodingKind) {
-    return encodingKind == ENC_BIT_PACKED
-        || encodingKind == ENC_BIT_PACKED_ZM
-        || encodingKind == ENC_COMPACT_ZM;
+    return encodingKind == ENC_BIT_PACKED || encodingKind == ENC_BIT_PACKED_ZM || encodingKind == ENC_COMPACT_ZM;
   }
 
   /** @return true iff {@code encodingKind == ENC_COMPACT_ZM}. */
@@ -201,21 +189,20 @@ public final class NumberRegion {
     public long valueMin;
     public long valueMax;
     /**
-     * Frame-of-reference base for bit-packed encodings. Populated from the
-     * outer header for {@link #ENC_BIT_PACKED_ZM}; populated from the nested
-     * compact header for {@link #ENC_COMPACT_ZM}.
+     * Frame-of-reference base for bit-packed encodings. Populated from the outer header for
+     * {@link #ENC_BIT_PACKED_ZM}; populated from the nested compact header for {@link #ENC_COMPACT_ZM}.
      */
     public long valueBase;
     /**
-     * Bits per value for bit-packed encodings. For {@link #ENC_PLAIN_LONG_ZM}
-     * this is 64. For {@link #ENC_COMPACT_ZM} this is taken from the nested
-     * compact header (so constant-run encodings surface as 0 here too).
+     * Bits per value for bit-packed encodings. For {@link #ENC_PLAIN_LONG_ZM} this is 64. For
+     * {@link #ENC_COMPACT_ZM} this is taken from the nested compact header (so constant-run encodings
+     * surface as 0 here too).
      */
     public byte valueBitWidth;
     public int dictSize;
-    public int[] dict;       // length ≥ dictSize
-    public int[] tagStart;   // length ≥ dictSize
-    public int[] tagCount;   // length ≥ dictSize
+    public int[] dict; // length ≥ dictSize
+    public int[] tagStart; // length ≥ dictSize
+    public int[] tagCount; // length ≥ dictSize
     /** Per-tag minimum value. Populated only when {@link #hasZoneMap(byte)}; else null. */
     public long[] tagMin;
     /** Per-tag maximum value. Populated only when {@link #hasZoneMap(byte)}; else null. */
@@ -223,9 +210,8 @@ public final class NumberRegion {
     public int valueBytesOffset;
     public int valueBytesLength;
     /**
-     * Nested delta header. Populated only for {@link #ENC_DELTA_ZM}; null
-     * otherwise. Carries {@code firstValue}/{@code firstDelta}/{@code bodyOffset}
-     * needed to replay the delta prefix sum.
+     * Nested delta header. Populated only for {@link #ENC_DELTA_ZM}; null otherwise. Carries
+     * {@code firstValue}/{@code firstDelta}/{@code bodyOffset} needed to replay the delta prefix sum.
      */
     public NumberRegionDelta.Header deltaHeader;
 
@@ -246,17 +232,27 @@ public final class NumberRegion {
         valueBitWidth = bb.readByte();
       }
       dictSize = bb.readInt();
-      if (dict == null || dict.length < dictSize) dict = new int[Math.max(4, dictSize)];
-      if (tagStart == null || tagStart.length < dictSize) tagStart = new int[Math.max(4, dictSize)];
-      if (tagCount == null || tagCount.length < dictSize) tagCount = new int[Math.max(4, dictSize)];
-      for (int i = 0; i < dictSize; i++) dict[i] = bb.readInt();
-      for (int i = 0; i < dictSize; i++) tagStart[i] = bb.readInt();
-      for (int i = 0; i < dictSize; i++) tagCount[i] = bb.readInt();
+      if (dict == null || dict.length < dictSize)
+        dict = new int[Math.max(4, dictSize)];
+      if (tagStart == null || tagStart.length < dictSize)
+        tagStart = new int[Math.max(4, dictSize)];
+      if (tagCount == null || tagCount.length < dictSize)
+        tagCount = new int[Math.max(4, dictSize)];
+      for (int i = 0; i < dictSize; i++)
+        dict[i] = bb.readInt();
+      for (int i = 0; i < dictSize; i++)
+        tagStart[i] = bb.readInt();
+      for (int i = 0; i < dictSize; i++)
+        tagCount[i] = bb.readInt();
       if (hasZoneMap(encodingKind)) {
-        if (tagMin == null || tagMin.length < dictSize) tagMin = new long[Math.max(4, dictSize)];
-        if (tagMax == null || tagMax.length < dictSize) tagMax = new long[Math.max(4, dictSize)];
-        for (int i = 0; i < dictSize; i++) tagMin[i] = bb.readLong();
-        for (int i = 0; i < dictSize; i++) tagMax[i] = bb.readLong();
+        if (tagMin == null || tagMin.length < dictSize)
+          tagMin = new long[Math.max(4, dictSize)];
+        if (tagMax == null || tagMax.length < dictSize)
+          tagMax = new long[Math.max(4, dictSize)];
+        for (int i = 0; i < dictSize; i++)
+          tagMin[i] = bb.readLong();
+        for (int i = 0; i < dictSize; i++)
+          tagMax[i] = bb.readLong();
       } else {
         tagMin = null;
         tagMax = null;
@@ -290,19 +286,25 @@ public final class NumberRegion {
       } else {
         deltaHeader = null;
         valueBytesOffset = bb.position();
-        valueBytesLength = bitsToBytes((long) count * (isBitPacked(encodingKind) ? valueBitWidth : 64));
+        valueBytesLength = bitsToBytes((long) count * (isBitPacked(encodingKind)
+            ? valueBitWidth
+            : 64));
       }
       return this;
     }
 
     /** Per-tag minimum, or the page-global {@link #valueMin} if no per-tag map is present. */
     public long tagMinOrGlobal(final int tag) {
-      return tagMin != null ? tagMin[tag] : valueMin;
+      return tagMin != null
+          ? tagMin[tag]
+          : valueMin;
     }
 
     /** Per-tag maximum, or the page-global {@link #valueMax} if no per-tag map is present. */
     public long tagMaxOrGlobal(final int tag) {
-      return tagMax != null ? tagMax[tag] : valueMax;
+      return tagMax != null
+          ? tagMax[tag]
+          : valueMax;
     }
   }
 
@@ -329,25 +331,22 @@ public final class NumberRegion {
       ThreadLocal.withInitial(() -> new Encoder(MAX_RETAINED_COMPAT_COUNT));
 
   /**
-   * Legacy 3-arg entry point. Encodes with {@link #TAG_KIND_NAME}: dict holds
-   * parent OBJECT_KEY nameKeys. Kept for test and callers that don't have
-   * pathNodeKey information.
+   * Legacy 3-arg entry point. Encodes with {@link #TAG_KIND_NAME}: dict holds parent OBJECT_KEY
+   * nameKeys. Kept for test and callers that don't have pathNodeKey information.
    */
   public static byte[] encode(final long[] values, final int[] parentTags, final int count) {
     return encode(values, parentTags, count, TAG_KIND_NAME);
   }
 
   /**
-   * Encode parallel arrays {@code values[i]} and {@code parentTags[i]} into a
-   * tag-sorted payload. {@code tagKind} declares the semantic interpretation
-   * of {@code parentTags} so downstream scan operators can decide whether a
-   * tag match is safe for path-scoped queries.
+   * Encode parallel arrays {@code values[i]} and {@code parentTags[i]} into a tag-sorted payload.
+   * {@code tagKind} declares the semantic interpretation of {@code parentTags} so downstream scan
+   * operators can decide whether a tag match is safe for path-scoped queries.
    *
-   * <p>The arrays may be longer than {@code count}; only the prefix is
-   * consumed.
+   * <p>
+   * The arrays may be longer than {@code count}; only the prefix is consumed.
    */
-  public static byte[] encode(final long[] values, final int[] parentTags, final int count,
-      final byte tagKind) {
+  public static byte[] encode(final long[] values, final int[] parentTags, final int count, final byte tagKind) {
     validateEncodeInput(values, parentTags, count, tagKind);
     // The generic API is not page-size-limited. Do not let one exceptional caller pin eight huge
     // work arrays and its output in a long-lived pool thread; only page-bounded calls use the TL.
@@ -361,13 +360,15 @@ public final class NumberRegion {
   // ───────────────────────────────────────────────────────────── decoding
 
   /**
-   * Thread-confined reusable number-region encoder. One instance may serve any number of pages on
-   * one thread, but it must not be shared or entered recursively. The output array is scratch: only
+   * Thread-confined reusable number-region encoder. One instance may serve any number of pages on one
+   * thread, but it must not be shared or entered recursively. The output array is scratch: only
    * {@code [0, encodeInto(...))} is valid, and the next encode overwrites it.
    *
-   * <p>The page writer must copy that prefix into page-owned storage before another encode. In
-   * particular, a heap {@link MemorySegment} view of {@link #output()} must never be installed through
-   * {@link RegionTable#setSegment(byte, MemorySegment)} because later pages would overwrite it.
+   * <p>
+   * The page writer must copy that prefix into page-owned storage before another encode. In
+   * particular, a heap {@link MemorySegment} view of {@link #output()} must never be installed
+   * through {@link RegionTable#setSegment(byte, MemorySegment)} because later pages would overwrite
+   * it.
    */
   public static final class Encoder {
     private int[] dict;
@@ -394,8 +395,7 @@ public final class NumberRegion {
      *
      * @return exact encoded length; only this prefix of {@link #output()} is valid
      */
-    public int encodeInto(final long[] values, final int[] parentTags, final int count,
-        final byte tagKind) {
+    public int encodeInto(final long[] values, final int[] parentTags, final int count, final byte tagKind) {
       encodedLength = 0;
       validateEncodeInput(values, parentTags, count, tagKind);
       ensureCapacity(count);
@@ -459,14 +459,17 @@ public final class NumberRegion {
         }
       }
 
-      final long spread = count == 0 ? 0L : max - min;
-      final boolean bitPacked =
-          count > 0 && spread >= 0 && spread < (1L << BitUnpackSimd.MAX_BIT_WIDTH);
+      final long spread = count == 0
+          ? 0L
+          : max - min;
+      final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << BitUnpackSimd.MAX_BIT_WIDTH);
 
       // Delta-of-delta must win on both residual width and exact encoded bytes because selecting it
       // trades away random access and SIMD scans.
       if (deltaWriteEnabled() && count >= MIN_DELTA_COUNT) {
-        final int forBitWidth = bitPacked ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread)) : 64;
+        final int forBitWidth = bitPacked
+            ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
+            : 64;
         final int deltaBitWidth = NumberRegionDelta.computeBitWidth(sortedValues, count);
         if (deltaBitWidth < forBitWidth) {
           final long forValueRegionBytes = 9L + bitsToBytes((long) count * forBitWidth);
@@ -494,16 +497,20 @@ public final class NumberRegion {
       return encodedLength;
     }
 
-    private int encodePlain(final int count, final int dictSize, final long min, final long max,
-        final long spread, final boolean bitPacked, final byte tagKind) {
-      final byte encodingKind = bitPacked ? ENC_BIT_PACKED_ZM : ENC_PLAIN_LONG_ZM;
-      final long valueBase = bitPacked ? min : 0L;
+    private int encodePlain(final int count, final int dictSize, final long min, final long max, final long spread,
+        final boolean bitPacked, final byte tagKind) {
+      final byte encodingKind = bitPacked
+          ? ENC_BIT_PACKED_ZM
+          : ENC_PLAIN_LONG_ZM;
+      final long valueBase = bitPacked
+          ? min
+          : 0L;
       final byte valueBitWidth = bitPacked
           ? (byte) Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
           : (byte) 64;
       final int valueBytes = bitsToBytes((long) count * (valueBitWidth & 0xFF));
-      final int totalBytes = checkedEncodedLength(
-          (long) PLAIN_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + valueBytes);
+      final int totalBytes =
+          checkedEncodedLength((long) PLAIN_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + valueBytes);
       ensureOutputCapacity(totalBytes);
 
       int position = 0;
@@ -533,13 +540,13 @@ public final class NumberRegion {
       return totalBytes;
     }
 
-    private int encodeNested(final byte encodingKind, final int count, final int dictSize,
-        final long min, final long max, final byte tagKind) {
+    private int encodeNested(final byte encodingKind, final int count, final int dictSize, final long min,
+        final long max, final byte tagKind) {
       final long nestedBytes = encodingKind == ENC_COMPACT_ZM
           ? NumberRegionCompact.maxEncodedSize(sortedValues, count)
           : NumberRegionDelta.maxEncodedSize(sortedValues, count);
-      final int totalBytes = checkedEncodedLength(
-          (long) NESTED_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + nestedBytes);
+      final int totalBytes =
+          checkedEncodedLength((long) NESTED_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + nestedBytes);
       ensureOutputCapacity(totalBytes);
 
       int position = 0;
@@ -598,7 +605,9 @@ public final class NumberRegion {
       if (count <= dict.length) {
         return;
       }
-      final int doubled = dict.length <= (Integer.MAX_VALUE >>> 1) ? dict.length << 1 : Integer.MAX_VALUE;
+      final int doubled = dict.length <= (Integer.MAX_VALUE >>> 1)
+          ? dict.length << 1
+          : Integer.MAX_VALUE;
       allocate(Math.max(count, doubled));
     }
 
@@ -627,10 +636,9 @@ public final class NumberRegion {
   }
 
   /**
-   * Decode the value at {@code index} (absolute within the sorted payload).
-   * O(1) for every encoding except {@link #ENC_DELTA_ZM}, where the sequential
-   * prefix sum makes it O(index) — scan loops over delta payloads should use
-   * {@link #decodeAllValues} instead.
+   * Decode the value at {@code index} (absolute within the sorted payload). O(1) for every encoding
+   * except {@link #ENC_DELTA_ZM}, where the sequential prefix sum makes it O(index) — scan loops over
+   * delta payloads should use {@link #decodeAllValues} instead.
    */
   public static long decodeValueAt(final MemorySegment payload, final Header h, final int index) {
     if (isDelta(h.encodingKind)) {
@@ -647,16 +655,17 @@ public final class NumberRegion {
   }
 
   /**
-   * Local tag id for a parent tag value, or {@code -1} when absent. O(dictSize).
-   * The tag value is interpreted according to {@link Header#tagKind}: nameKey
-   * for {@link #TAG_KIND_NAME}, pathNodeKey (int-truncated) for
-   * {@link #TAG_KIND_PATH_NODE}.
+   * Local tag id for a parent tag value, or {@code -1} when absent. O(dictSize). The tag value is
+   * interpreted according to {@link Header#tagKind}: nameKey for {@link #TAG_KIND_NAME}, pathNodeKey
+   * (int-truncated) for {@link #TAG_KIND_PATH_NODE}.
    */
   public static int lookupTag(final Header h, final int tag) {
     final int[] dict = h.dict;
-    if (dict == null) return -1;
+    if (dict == null)
+      return -1;
     for (int i = 0; i < h.dictSize; i++) {
-      if (dict[i] == tag) return i;
+      if (dict[i] == tag)
+        return i;
     }
     return -1;
   }
@@ -723,12 +732,14 @@ public final class NumberRegion {
     return (int) ((bits + 7L) >>> 3);
   }
 
-  private static void bitPackLongs(final byte[] out, final int outOff, final long[] values,
-      final int count, final long base, final int bitWidth) {
+  private static void bitPackLongs(final byte[] out, final int outOff, final long[] values, final int count,
+      final long base, final int bitWidth) {
     long buf = 0L;
     int bitsInBuf = 0;
     int writePos = outOff;
-    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
+    final long mask = bitWidth == 64
+        ? ~0L
+        : (1L << bitWidth) - 1L;
     for (int i = 0; i < count; i++) {
       final long v = (values[i] - base) & mask;
       buf |= v << bitsInBuf;
@@ -744,13 +755,14 @@ public final class NumberRegion {
     }
   }
 
-  private static long bitUnpackLong(final MemorySegment data, final int baseOff, final int bitWidth,
-      final int index) {
+  private static long bitUnpackLong(final MemorySegment data, final int baseOff, final int bitWidth, final int index) {
     final long bitOff = (long) index * bitWidth;
     final int byteOff = (int) (bitOff >>> 3) + baseOff;
     final int bitInByte = (int) (bitOff & 7L);
     final long w0 = readUpToLongLE(data, byteOff);
-    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
+    final long mask = bitWidth == 64
+        ? ~0L
+        : (1L << bitWidth) - 1L;
     long v = (w0 >>> bitInByte) & mask;
     final int bitsConsumed = 64 - bitInByte;
     if (bitsConsumed < bitWidth) {
@@ -774,7 +786,9 @@ public final class NumberRegion {
   }
 
   private static long readByteUnsigned(final MemorySegment data, final long off) {
-    return off < data.byteSize() ? (data.get(ValueLayout.JAVA_BYTE, off) & 0xFFL) : 0L;
+    return off < data.byteSize()
+        ? (data.get(ValueLayout.JAVA_BYTE, off) & 0xFFL)
+        : 0L;
   }
 
 }

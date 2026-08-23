@@ -169,9 +169,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private static final long ESTIMATED_FIXED_HEAP_BYTES = 4L * 1024L;
 
   /**
-   * Conservative retained heap charge for one side-map key/reference pair. Covers an
-   * uncompressed-oop {@link PageReference} plus this fastutil map's key/value-table capacity
-   * immediately after a resize; cache accounting must not depend on CompressedOops being enabled.
+   * Conservative retained heap charge for one side-map key/reference pair. Covers an uncompressed-oop
+   * {@link PageReference} plus this fastutil map's key/value-table capacity immediately after a
+   * resize; cache accounting must not depend on CompressedOops being enabled.
    */
   private static final long ESTIMATED_SIDE_REFERENCE_HEAP_BYTES = 144L;
 
@@ -327,9 +327,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     /**
-     * Whether every entry has the shallow, key-only shape admitted to the bounded HOT leaf cache.
-     * This is deliberately a raw, non-mutating check: a completed transaction-log handle must have
-     * been materialized and dropped before cache admission.
+     * Whether every entry has the shallow, key-only shape admitted to the bounded HOT leaf cache. This
+     * is deliberately a raw, non-mutating check: a completed transaction-log handle must have been
+     * materialized and dropped before cache admission.
      */
     boolean allCanonicalCacheReferences() {
       // fastutil's generic backing table is allocated as Object[]. Keep that runtime type and
@@ -2606,8 +2606,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
       // Create new page with copied data. Until this returns, this method still owns the raw frame
       // and must release it directly if construction fails.
-      copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser,
-          newSlotOffsets, entryCount, usedSlotMemorySize, newPrefix, commonPrefixLen);
+      copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser, newSlotOffsets, entryCount,
+          usedSlotMemorySize, newPrefix, commonPrefixLen);
 
       // Deep copy resolved projection segment refs so a commit through one page copy never mutates a
       // historical page's view. The one exception is a fresh immutable ref currently owned by the
@@ -4517,8 +4517,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Conservative, allocation-free estimate of the heap retained by this HOT leaf, excluding its
    * separately charged native slot frame. The fixed charge covers the leaf object, slot-offset and
    * dirty-bit arrays, atomics, and an empty side map; variable arrays and side references are added
-   * explicitly so a bounded cache remains honest for unusually deep keys and large projection
-   * leaves.
+   * explicitly so a bounded cache remains honest for unusually deep keys and large projection leaves.
    *
    * @return estimated retained heap bytes, or zero once eviction has retired this leaf
    */
@@ -4540,10 +4539,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * claim, or {@link #completePageRef} would retain a graph that the bounded cache weight does not
    * charge.
    *
-   * <p>The validation and estimate are allocation-free and atomic with respect to side-map
-   * retirement. A retired leaf fails loudly with {@link FrameReusedException}; a live but
-   * noncanonical leaf fails with {@link IllegalStateException} rather than entering the cache under
-   * an incomplete weight.</p>
+   * <p>
+   * The validation and estimate are allocation-free and atomic with respect to side-map retirement. A
+   * retired leaf fails loudly with {@link FrameReusedException}; a live but noncanonical leaf fails
+   * with {@link IllegalStateException} rather than entering the cache under an incomplete weight.
+   * </p>
    *
    * @return the conservative on-heap byte estimate for a canonical cache-admission leaf
    */
@@ -4566,9 +4566,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     bytes += estimatedArrayHeapBytes(commonPrefix.length, Byte.BYTES);
     bytes += estimatedArrayHeapBytes(ancestorOwnedBits.length, Integer.BYTES);
     bytes += estimatedArrayHeapBytes(ancestorOwnedValues.length, Byte.BYTES);
-    bytes += estimatedArrayHeapBytes(densePKBytes == null ? 0 : densePKBytes.length, Byte.BYTES);
-    bytes += estimatedArrayHeapBytes(densePKShorts == null ? 0 : densePKShorts.length, Short.BYTES);
-    bytes += estimatedArrayHeapBytes(densePKInts == null ? 0 : densePKInts.length, Integer.BYTES);
+    bytes += estimatedArrayHeapBytes(densePKBytes == null
+        ? 0
+        : densePKBytes.length, Byte.BYTES);
+    bytes += estimatedArrayHeapBytes(densePKShorts == null
+        ? 0
+        : densePKShorts.length, Short.BYTES);
+    bytes += estimatedArrayHeapBytes(densePKInts == null
+        ? 0
+        : densePKInts.length, Integer.BYTES);
     bytes += (long) pageReferences.size() * ESTIMATED_SIDE_REFERENCE_HEAP_BYTES;
     return bytes;
   }

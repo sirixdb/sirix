@@ -201,11 +201,11 @@ public final class ProjectionColumnGroupScan {
    * @param roster this worker's created-id list, which the selection walks instead of the id space
    * @param decline set to {@code 1} when a row carries an id the table was not sized for
    */
-  public static void aggregateByGroupNumericDense(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
-      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
-      final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf, final DenseGlobalGroupAggTable out,
-      final long[] missingAcc, final DenseGlobalGroupAggTable.IdRoster roster, final long[] decline) {
+  public static void aggregateByGroupNumericDense(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
+      final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols, final int fromLeaf,
+      final int toLeaf, final DenseGlobalGroupAggTable out, final long[] missingAcc,
+      final DenseGlobalGroupAggTable.IdRoster roster, final long[] decline) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null || roster == null
         || decline == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc, aggCols, roster and decline must not be null");
@@ -262,8 +262,8 @@ public final class ProjectionColumnGroupScan {
   /**
    * {@link #foldSliced} restricted to plain numeric aggregate lanes — the shape the missing-key
    * accumulator of the dense arm needs, where no distinct set, no string-length operand and no
-   * dictionary state can occur. Kept beside its atomic twin
-   * ({@link DenseGlobalGroupAggTable#fold}) so the lane order of the two is read together.
+   * dictionary state can occur. Kept beside its atomic twin ({@link DenseGlobalGroupAggTable#fold})
+   * so the lane order of the two is read together.
    */
   private static void foldNumericPlain(final long[] acc, final int base, final long[][] aggValues,
       final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
@@ -471,7 +471,7 @@ public final class ProjectionColumnGroupScan {
             if (slotArr[0] == 0) {
               slotArr[1] = leafOrdinalBase | rowIdx;
             }
-dset = distinctMissing;
+            dset = distinctMissing;
             if (localWords != null) {
               // The missing-key group is a real group with a real distinct count; give it the same
               // bitmap treatment under a reserved key no dictionary id can collide with.
@@ -666,8 +666,8 @@ dset = distinctMissing;
   /**
    * The shared bitmap for {@code groupKey}, resolved through the worker's thread-confined cache so
    * the per-row path never consults the concurrent map. A {@code null} return means the bitmap budget
-   * is spent and the caller must decline — signalled through the same {@code budget[1]} flag the exact
-   * sets use, so both ceilings surface to the executor as one decline.
+   * is spent and the caller must decline — signalled through the same {@code budget[1]} flag the
+   * exact sets use, so both ceilings surface to the executor as one decline.
    */
   private static long[] wordsFor(final Long2ObjectOpenHashMap<long[]> local, final GroupDistinctBitmaps shared,
       final long groupKey, final long[] budget) {

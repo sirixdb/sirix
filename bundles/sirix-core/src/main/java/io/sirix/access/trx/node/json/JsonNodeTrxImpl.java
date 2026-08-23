@@ -175,13 +175,12 @@ final class JsonNodeTrxImpl extends
   private boolean canRemoveValue;
 
   /**
-   * @return {@code true} when the cursor is positioned on the synthetic primitive-value child of
-   *         a fused {@code OBJECT_NAMED_*} record. The concrete class is probed because the
-   *         narrower read-only interface does not expose the flag.
+   * @return {@code true} when the cursor is positioned on the synthetic primitive-value child of a
+   *         fused {@code OBJECT_NAMED_*} record. The concrete class is probed because the narrower
+   *         read-only interface does not expose the flag.
    */
   private boolean isFusedSyntheticChildCursor() {
-    return nodeReadOnlyTrx instanceof AbstractNodeReadOnlyTrx<?, ?, ?> anrt
-        && anrt.isFusedSyntheticChild();
+    return nodeReadOnlyTrx instanceof AbstractNodeReadOnlyTrx<?, ?, ?> anrt && anrt.isFusedSyntheticChild();
   }
 
   /**
@@ -212,18 +211,19 @@ final class JsonNodeTrxImpl extends
   /**
    * Transaction-local, bounded cache for the immutable {@link QNm}s used by path-summary lookups.
    *
-   * <p>The cache deliberately remains valid across commits: a {@code QNm} depends only on the JSON
-   * field name, not on a revision. Bounding both entry count and retained key length prevents a
+   * <p>
+   * The cache deliberately remains valid across commits: a {@code QNm} depends only on the JSON field
+   * name, not on a revision. Bounding both entry count and retained key length prevents a
    * long-running transaction over arbitrary-shaped JSON from retaining an unbounded set of names.
-   * Clearing at the entry limit also lets the cache adapt when an ingest changes schema.</p>
+   * Clearing at the entry limit also lets the cache adapt when an ingest changes schema.
+   * </p>
    */
   static final class ObjectNameQNmCache {
     static final int MAX_CACHED_NAMES = 4_096;
     static final int MAX_CACHED_NAME_LENGTH = 256;
     private static final int EXPECTED_COMMON_NAMES = 128;
 
-    private final Object2ObjectOpenHashMap<String, QNm> names =
-        new Object2ObjectOpenHashMap<>(EXPECTED_COMMON_NAMES);
+    private final Object2ObjectOpenHashMap<String, QNm> names = new Object2ObjectOpenHashMap<>(EXPECTED_COMMON_NAMES);
 
     QNm qNmFor(final String name) {
       requireNonNull(name);
@@ -484,14 +484,14 @@ final class JsonNodeTrxImpl extends
    * Immutable holder for the shape of the input being inserted (object vs array).
    *
    * @param isObject {@code true} if the input starts with an object
-   * @param isArray  {@code true} if the input starts with an array
+   * @param isArray {@code true} if the input starts with an array
    */
   private record InputShape(boolean isObject, boolean isArray) {
   }
 
   /**
-   * Functional interface for validating the input source and determining its shape. May throw
-   * checked exceptions (e.g. {@link IOException} from Gson/Jackson peek/nextToken).
+   * Functional interface for validating the input source and determining its shape. May throw checked
+   * exceptions (e.g. {@link IOException} from Gson/Jackson peek/nextToken).
    */
   @FunctionalInterface
   private interface InputValidator {
@@ -512,16 +512,16 @@ final class JsonNodeTrxImpl extends
    * sets up bulk-insert state, delegates to the shredder, then adapts hashes and commits.
    *
    * @param insertionPosition where to insert relative to the current node
-   * @param commit            whether to commit implicitly after insertion
-   * @param checkParentNode   whether to validate the parent node type for sibling insertions
-   * @param doSkipRootToken   whether to skip the root JSON token of the input
-   * @param inputValidator    validates the input and returns its shape (object vs array)
-   * @param shredderExecutor  constructs and runs the appropriate shredder
+   * @param commit whether to commit implicitly after insertion
+   * @param checkParentNode whether to validate the parent node type for sibling insertions
+   * @param doSkipRootToken whether to skip the root JSON token of the input
+   * @param inputValidator validates the input and returns its shape (object vs array)
+   * @param shredderExecutor constructs and runs the appropriate shredder
    * @return this transaction for fluent chaining
    */
   private JsonNodeTrx insertSubtreeInternal(final InsertPosition insertionPosition, final Commit commit,
-      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken,
-      final InputValidator inputValidator, final ShredderExecutor shredderExecutor) {
+      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken, final InputValidator inputValidator,
+      final ShredderExecutor shredderExecutor) {
     nodeReadOnlyTrx.assertNotClosed();
     assert insertionPosition != null;
 
@@ -540,8 +540,7 @@ final class JsonNodeTrxImpl extends
             // the OBJECT/ARRAY role under fusion, so admit them as valid first/last-child
             // anchor points alongside their non-fused counterparts.
             if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
-                && nodeKind != NodeKind.OBJECT_NAMED_OBJECT
-                && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
+                && nodeKind != NodeKind.OBJECT_NAMED_OBJECT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
               throw new IllegalStateException(
                   "Current node must either be the document root, an array or an object key.");
             }
@@ -572,13 +571,13 @@ final class JsonNodeTrxImpl extends
         nodeHashing.setBulkInsert(true);
         // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
         // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
-        //  - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
-        //    upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
-        //    Revision-producing intermediate commits reInstantiate the hashing helper without its
-        //    autoCommit flag, so imports spanning those logical commits still need the repair mode.
-        //  - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
-        //    repair over the imported subtree at the end. Correct for ANY import size; costs a
-        //    full subtree walk after the import (opt-in for exactly that reason).
+        // - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
+        // upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
+        // Revision-producing intermediate commits reInstantiate the hashing helper without its
+        // autoCommit flag, so imports spanning those logical commits still need the repair mode.
+        // - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
+        // repair over the imported subtree at the end. Correct for ANY import size; costs a
+        // full subtree walk after the import (opt-in for exactly that reason).
         final boolean perInsertHashAdaptation =
             isAutoCommitting && !resourceSession.getResourceConfig().repairBulkInsertHashes;
         if (perInsertHashAdaptation) {
@@ -627,19 +626,17 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * A bare (nameless) object/array can only be inserted under the document root, an array, or a
-   * fused OBJECT_NAMED_ARRAY (array role). Under fusion an OBJECT_NAMED_OBJECT's children are its
-   * inner object's NAMED fields, so a nameless child is invalid — and the legacy OBJECT_KEY
-   * special-casing either force-NULLed both sibling keys (ORPHANING the existing fields — silent
-   * data loss + childCount divergence) or chained the fields after the new node (a malformed
-   * object). Reject it, like the insertObjectRecordWith* and insertPrimitiveAsChild variants
-   * already do.
+   * A bare (nameless) object/array can only be inserted under the document root, an array, or a fused
+   * OBJECT_NAMED_ARRAY (array role). Under fusion an OBJECT_NAMED_OBJECT's children are its inner
+   * object's NAMED fields, so a nameless child is invalid — and the legacy OBJECT_KEY special-casing
+   * either force-NULLed both sibling keys (ORPHANING the existing fields — silent data loss +
+   * childCount divergence) or chained the fields after the new node (a malformed object). Reject it,
+   * like the insertObjectRecordWith* and insertPrimitiveAsChild variants already do.
    */
   private static void rejectBareChildUnderObjectField(final NodeKind kind, final String what) {
     if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-      throw new SirixUsageException(
-          "Inserting a bare " + what + " as the child of an object field is not supported. "
-              + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
+      throw new SirixUsageException("Inserting a bare " + what + " as the child of an object field is not supported. "
+          + "Use insertObjectRecordAs*/insertObjectRecordWith* to emit a named (fused) record.");
     }
   }
 
@@ -653,8 +650,7 @@ final class JsonNodeTrxImpl extends
       final NodeKind kind = getKind();
 
       rejectBareChildUnderObjectField(kind, "object");
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
-          && kind != NodeKind.OBJECT_NAMED_ARRAY)
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
@@ -665,8 +661,9 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-      final long parentPathNodeKey =
-          indexController.hasAnyPrimitiveIndex() ? getPathNodeKey(structNode) : -1;
+      final long parentPathNodeKey = indexController.hasAnyPrimitiveIndex()
+          ? getPathNodeKey(structNode)
+          : -1;
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -718,8 +715,7 @@ final class JsonNodeTrxImpl extends
       final NodeKind kind = getKind();
 
       rejectBareChildUnderObjectField(kind, "object");
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
-          && kind != NodeKind.OBJECT_NAMED_ARRAY)
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
@@ -730,8 +726,9 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-      final long parentPathNodeKey =
-          indexController.hasAnyPrimitiveIndex() ? getPathNodeKey(structNode) : -1;
+      final long parentPathNodeKey = indexController.hasAnyPrimitiveIndex()
+          ? getPathNodeKey(structNode)
+          : -1;
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = kind == NodeKind.OBJECT_NAMED_OBJECT
@@ -924,11 +921,12 @@ final class JsonNodeTrxImpl extends
    * P2 fused-structural emission: insert a single OBJECT_NAMED_OBJECT (kindId 52) or
    * OBJECT_NAMED_ARRAY (kindId 53) record as the first child of the current OBJECT cursor.
    *
-   * <p>The fused record IS the legacy OBJECT_KEY + OBJECT/ARRAY pair collapsed into one slot.
-   * After return the cursor is positioned ON the fused parent so subsequent inner-field inserts
-   * land as its first child.
+   * <p>
+   * The fused record IS the legacy OBJECT_KEY + OBJECT/ARRAY pair collapsed into one slot. After
+   * return the cursor is positioned ON the fused parent so subsequent inner-field inserts land as its
+   * first child.
    *
-   * @param key      the field name
+   * @param key the field name
    * @param valueKind {@link NodeKind#OBJECT} or {@link NodeKind#ARRAY} — selects 52 vs 53
    */
   private JsonNodeTrx insertObjectRecordStructuralAsFirstChild(final String key, final NodeKind valueKind) {
@@ -960,12 +958,12 @@ final class JsonNodeTrxImpl extends
 
       final long nodeKey;
       if (valueKind == NodeKind.OBJECT) {
-        final ObjectNamedObjectNode node = nodeFactory.createJsonObjectNamedObjectNode(parentKey,
-            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        final ObjectNamedObjectNode node =
+            nodeFactory.createJsonObjectNamedObjectNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id);
         nodeKey = node.getNodeKey();
       } else {
-        final ObjectNamedArrayNode node = nodeFactory.createJsonObjectNamedArrayNode(parentKey,
-            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        final ObjectNamedArrayNode node =
+            nodeFactory.createJsonObjectNamedArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id);
         nodeKey = node.getNodeKey();
       }
 
@@ -995,9 +993,9 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * P2 fused-structural emission: insert as last child. Walks to existing last child (when
-   * present) and emits the fused structural as its right sibling; falls back to first-child
-   * insertion when the object is empty.
+   * P2 fused-structural emission: insert as last child. Walks to existing last child (when present)
+   * and emits the fused structural as its right sibling; falls back to first-child insertion when the
+   * object is empty.
    */
   private JsonNodeTrx insertObjectRecordStructuralAsLastChild(final String key, final NodeKind valueKind) {
     if (lock != null) {
@@ -1041,27 +1039,29 @@ final class JsonNodeTrxImpl extends
     // entry, otherwise it would receive a no-op DELETE on the just-replaced node and surface
     // it as a phantom delete in the diff JSON.
     if (id == null) {
-      updateOperationsUnordered.values().removeIf(t ->
-          t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
+      updateOperationsUnordered.values()
+                               .removeIf(
+                                   t -> t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
       updateOperationsUnordered.put(newNodeKey,
           new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, null));
     } else {
-      updateOperationsOrdered.values().removeIf(t ->
-          t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
+      updateOperationsOrdered.values()
+                             .removeIf(
+                                 t -> t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
       updateOperationsOrdered.put(id, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey,
           new DiffDepth(id.getLevel(), id.getLevel())));
     }
   }
 
   /**
-   * Record a subtree move in the update-operations maps as DELETED at the old position +
-   * INSERTED at the new one — the same representation a remove+copy produces, which diff
-   * consumers (replay, change feeds) already understand. Without these tuples a move-only
-   * transaction wrote an empty diff for a revision whose tree order changed (#1074).
+   * Record a subtree move in the update-operations maps as DELETED at the old position + INSERTED at
+   * the new one — the same representation a remove+copy produces, which diff consumers (replay,
+   * change feeds) already understand. Without these tuples a move-only transaction wrote an empty
+   * diff for a revision whose tree order changed (#1074).
    *
    * @param oldDeweyID the moved node's DeweyID before the move ({@code null} without DeweyIDs)
    * @param newDeweyID the moved node's DeweyID after the move ({@code null} without DeweyIDs)
-   * @param nodeKey    the moved node's key (unchanged by the move)
+   * @param nodeKey the moved node's key (unchanged by the move)
    */
   private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
       final long nodeKey) {
@@ -1084,8 +1084,8 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Get the path node key by restoring the cursor position via moveTo instead of setCurrentNode.
-   * This avoids retaining a reference to the singleton structural node across cursor moves.
+   * Get the path node key by restoring the cursor position via moveTo instead of setCurrentNode. This
+   * avoids retaining a reference to the singleton structural node across cursor moves.
    *
    * @param restoreNodeKey the node key to restore the cursor to after path summary lookup
    * @param name the name for the path summary
@@ -1114,17 +1114,17 @@ final class JsonNodeTrxImpl extends
    * the document cursor. The fallback retains legacy-record support for a sibling without a usable
    * path node key.
    */
-  private long getPathNodeKeyForNamedSibling(final long restoreNodeKey, final String name,
-      final NodeKind siblingKind, final long siblingPathNodeKey, final NodeKind pathKind) {
+  private long getPathNodeKeyForNamedSibling(final long restoreNodeKey, final String name, final NodeKind siblingKind,
+      final long siblingPathNodeKey, final NodeKind pathKind) {
     if (!buildPathSummary) {
       return 0;
     }
-    return getPathNodeKeyForNamedSibling(restoreNodeKey, nameToQNm.qNmFor(name), siblingKind,
-        siblingPathNodeKey, pathKind);
+    return getPathNodeKeyForNamedSibling(restoreNodeKey, nameToQNm.qNmFor(name), siblingKind, siblingPathNodeKey,
+        pathKind);
   }
 
-  private long getPathNodeKeyForNamedSibling(final long restoreNodeKey, final QNm name,
-      final NodeKind siblingKind, final long siblingPathNodeKey, final NodeKind pathKind) {
+  private long getPathNodeKeyForNamedSibling(final long restoreNodeKey, final QNm name, final NodeKind siblingKind,
+      final long siblingPathNodeKey, final NodeKind pathKind) {
     if (!buildPathSummary) {
       return 0;
     }
@@ -1144,13 +1144,13 @@ final class JsonNodeTrxImpl extends
     // PCR. Start from the structural parent: starting the walk on an OBJECT_NAMED_OBJECT/ARRAY would
     // stop on the sibling itself and incorrectly nest the new sibling's path below it.
     if (!nodeReadOnlyTrx.moveToParent()) {
-      throw new IllegalStateException("Unable to move from named sibling " + restoreNodeKey
-          + " to its structural parent");
+      throw new IllegalStateException(
+          "Unable to move from named sibling " + restoreNodeKey + " to its structural parent");
     }
     final NodeKind parentKind = nodeReadOnlyTrx.getKind();
     if (parentKind != NodeKind.OBJECT && parentKind != NodeKind.OBJECT_NAMED_OBJECT) {
-      throw new IllegalStateException("Expected named sibling " + restoreNodeKey
-          + " to have an object parent, but found " + parentKind);
+      throw new IllegalStateException(
+          "Expected named sibling " + restoreNodeKey + " to have an object parent, but found " + parentKind);
     }
     return getPathNodeKey(restoreNodeKey, name, pathKind);
   }
@@ -1160,10 +1160,8 @@ final class JsonNodeTrxImpl extends
     // play the
     // OBJECT_KEY+OBJECT (or ARRAY) role under fusion — stop walking up at them so the
     // path-summary writer anchors child path nodes at the correct ancestor.
-    while (nodeKind != NodeKind.OBJECT_NAMED_OBJECT
-        && nodeKind != NodeKind.OBJECT_NAMED_ARRAY
-        && nodeKind != NodeKind.ARRAY
-        && nodeKind != NodeKind.JSON_DOCUMENT) {
+    while (nodeKind != NodeKind.OBJECT_NAMED_OBJECT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY
+        && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
       nodeReadOnlyTrx.moveToParent();
       nodeKind = nodeReadOnlyTrx.getKind();
     }
@@ -1200,8 +1198,8 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * P2 fused-structural left-sibling emission. Cursor must currently be on an OBJECT_KEY or
-   * any OBJECT_NAMED_* (primitive or structural) record.
+   * P2 fused-structural left-sibling emission. Cursor must currently be on an OBJECT_KEY or any
+   * OBJECT_NAMED_* (primitive or structural) record.
    */
   private JsonNodeTrx insertObjectRecordStructuralAsLeftSibling(final String key, final NodeKind valueKind) {
     if (lock != null) {
@@ -1220,8 +1218,8 @@ final class JsonNodeTrxImpl extends
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long siblingPathNodeKey = nodeReadOnlyTrx.getPathNodeKey();
 
-      final long objectKeyPathNodeKey = getPathNodeKeyForNamedSibling(rightSibKey, key, kind,
-          siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
+      final long objectKeyPathNodeKey =
+          getPathNodeKeyForNamedSibling(rightSibKey, key, kind, siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
       // array-valued field needs the `__array__/ARRAY` path-summary layer
       // anchored under the OBJECT_KEY layer the field name created. Anchor the fused node's
       // pathNodeKey at the ARRAY layer so child fields (`/foo/[]/bar`) resolve correctly.
@@ -1233,12 +1231,12 @@ final class JsonNodeTrxImpl extends
 
       final long nodeKey;
       if (valueKind == NodeKind.OBJECT) {
-        final ObjectNamedObjectNode node = nodeFactory.createJsonObjectNamedObjectNode(parentKey,
-            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        final ObjectNamedObjectNode node =
+            nodeFactory.createJsonObjectNamedObjectNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id);
         nodeKey = node.getNodeKey();
       } else {
-        final ObjectNamedArrayNode node = nodeFactory.createJsonObjectNamedArrayNode(parentKey,
-            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        final ObjectNamedArrayNode node =
+            nodeFactory.createJsonObjectNamedArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id);
         nodeKey = node.getNodeKey();
       }
 
@@ -1263,21 +1261,22 @@ final class JsonNodeTrxImpl extends
   /**
    * Fold a JSON number into the path statistics without losing its fractional part.
    *
-   * <p>Integral types keep the exact long accumulator; anything else goes through the double entry
+   * <p>
+   * Integral types keep the exact long accumulator; anything else goes through the double entry
    * point, which splits the value and carries the remainder. The previous code called
-   * {@code Number.longValue()} for every number, so {@code 17.125} was recorded as {@code 17} and
-   * a sum answered from the summary disagreed with the same sum answered by a scan.
+   * {@code Number.longValue()} for every number, so {@code 17.125} was recorded as {@code 17} and a
+   * sum answered from the summary disagreed with the same sum answered by a scan.
    *
-   * <p>A {@link BigInteger} is integral but not necessarily long-representable —
-   * {@code JsonNumber.stringToNumber} produces one PRECISELY when the literal does not fit in a
-   * long — and {@code longValue()} on those wraps modulo 2^64. That wrap is worse than the
-   * truncation above rather than better: it leaves the column looking purely integral, so nothing
-   * marks it untrustworthy and the wrapped value is SERVED. One that fits is recorded exactly; one
-   * that does not routes through the double path, whose {@code doubleTyped} flag makes value
-   * aggregates decline to the scan.
+   * <p>
+   * A {@link BigInteger} is integral but not necessarily long-representable —
+   * {@code JsonNumber.stringToNumber} produces one PRECISELY when the literal does not fit in a long
+   * — and {@code longValue()} on those wraps modulo 2^64. That wrap is worse than the truncation
+   * above rather than better: it leaves the column looking purely integral, so nothing marks it
+   * untrustworthy and the wrapped value is SERVED. One that fits is recorded exactly; one that does
+   * not routes through the double path, whose {@code doubleTyped} flag makes value aggregates decline
+   * to the scan.
    */
-  private void recordNumericPathStat(final long pathNodeKey, final Number number,
-      final long valueNodeKey) {
+  private void recordNumericPathStat(final long pathNodeKey, final Number number, final long valueNodeKey) {
     if (isExactLong(number)) {
       pathSummaryWriter.recordValue(pathNodeKey, number.longValue(), valueNodeKey);
     } else {
@@ -1300,8 +1299,7 @@ final class JsonNodeTrxImpl extends
 
   /** Whether {@code number} is integral AND representable as a {@code long} without loss. */
   private static boolean isExactLong(final Number number) {
-    if (number instanceof Long || number instanceof Integer || number instanceof Short
-        || number instanceof Byte) {
+    if (number instanceof Long || number instanceof Integer || number instanceof Short || number instanceof Byte) {
       return true;
     }
     if (number instanceof BigInteger bigInteger) {
@@ -1312,29 +1310,32 @@ final class JsonNodeTrxImpl extends
 
 
   /**
-   * Re-attribute a moved subtree's value observations from the paths they were counted under to
-   * the paths they now have.
+   * Re-attribute a moved subtree's value observations from the paths they were counted under to the
+   * paths they now have.
    *
-   * <p>Hooked on the move itself rather than on {@code adaptPathForChangedNode}, which only runs
-   * when the moved node's NAME changes. Moving an array element between two arrays changes no
-   * name at all, so the name-triggered hook never fired and the source path went on counting the
-   * records that had left it — a count answered from the summary came back one too many.
+   * <p>
+   * Hooked on the move itself rather than on {@code adaptPathForChangedNode}, which only runs when
+   * the moved node's NAME changes. Moving an array element between two arrays changes no name at all,
+   * so the name-triggered hook never fired and the source path went on counting the records that had
+   * left it — a count answered from the summary came back one too many.
    *
-   * <p>A move keeps every value and changes only where it hangs, so both ends are repairable
-   * rather than merely invalidatable. Call this once BEFORE the move with {@code reAttach} false
-   * to subtract the subtree from the paths it currently sits under, and once AFTER the path
-   * summary has been adapted with {@code reAttach} true to add it back under the new ones. Each
-   * pass reads the {@code pathNodeKey} the records carry AT THAT MOMENT, so no old-to-new mapping
-   * has to be threaded through the move — and a move that leaves the path unchanged (the summary
-   * node travelling with its records, rather than the records being re-pointed at a path class the
-   * destination already had) subtracts and re-adds the same numbers, which is the correct no-op.
+   * <p>
+   * A move keeps every value and changes only where it hangs, so both ends are repairable rather than
+   * merely invalidatable. Call this once BEFORE the move with {@code reAttach} false to subtract the
+   * subtree from the paths it currently sits under, and once AFTER the path summary has been adapted
+   * with {@code reAttach} true to add it back under the new ones. Each pass reads the
+   * {@code pathNodeKey} the records carry AT THAT MOMENT, so no old-to-new mapping has to be threaded
+   * through the move — and a move that leaves the path unchanged (the summary node travelling with
+   * its records, rather than the records being re-pointed at a path class the destination already
+   * had) subtracts and re-adds the same numbers, which is the correct no-op.
    *
-   * <p>What this recovers is {@code count}, and with it every aggregate: the previous behaviour
-   * marked both path subtrees stale, nothing ever cleared {@code countDirty}, and the reader
-   * disqualifies EVERYTHING on a stale count — so one move anywhere permanently switched
-   * summary-served aggregates off for two whole path subtrees. What it cannot recover is what a
-   * delete cannot either: the source's min/max go dirty when the value that left WAS the bound,
-   * and its HLL keeps counting distinct values that are gone. Both follow the policy
+   * <p>
+   * What this recovers is {@code count}, and with it every aggregate: the previous behaviour marked
+   * both path subtrees stale, nothing ever cleared {@code countDirty}, and the reader disqualifies
+   * EVERYTHING on a stale count — so one move anywhere permanently switched summary-served aggregates
+   * off for two whole path subtrees. What it cannot recover is what a delete cannot either: the
+   * source's min/max go dirty when the value that left WAS the bound, and its HLL keeps counting
+   * distinct values that are gone. Both follow the policy
    * {@link io.sirix.index.path.summary.PathNode#removeLongValue} already sets for deletions. The
    * destination stays exact, because adding is monotone in every aggregate.
    */
@@ -1353,14 +1354,15 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Subtract or re-add one record's value observation, under whichever path the record carries
-   * right now.
+   * Subtract or re-add one record's value observation, under whichever path the record carries right
+   * now.
    *
-   * <p>One method for both directions on purpose. The insert and delete sides of these statistics
-   * have to classify a value IDENTICALLY — recording an exact {@code 17.125} and removing a
-   * truncated {@code 17} leaves the accumulator permanently off by the fraction, and it survives
-   * the operation that should have cancelled it — and a single dispatch makes that structural
-   * instead of a convention two switches have to keep agreeing on.
+   * <p>
+   * One method for both directions on purpose. The insert and delete sides of these statistics have
+   * to classify a value IDENTICALLY — recording an exact {@code 17.125} and removing a truncated
+   * {@code 17} leaves the accumulator permanently off by the fraction, and it survives the operation
+   * that should have cancelled it — and a single dispatch makes that structural instead of a
+   * convention two switches have to keep agreeing on.
    */
   private void transferPathStatForRecord(final ImmutableNode node, final boolean reAttach) {
     final NodeKind kind = node.getKind();
@@ -1380,9 +1382,9 @@ final class JsonNodeTrxImpl extends
       // A fused OBJECT_NAMED_* record carries the name and the value on one slot, so it is counted
       // under its own path.
       case OBJECT_NAMED_STRING, OBJECT_NAMED_NUMBER, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NULL ->
-          pathNodeKey = ((NameNode) node).getPathNodeKey();
+        pathNodeKey = ((NameNode) node).getPathNodeKey();
       default -> {
-        return;   // containers and named structural records hold no value observation
+        return; // containers and named structural records hold no value observation
       }
     }
     if (pathNodeKey <= 0) {
@@ -1391,11 +1393,11 @@ final class JsonNodeTrxImpl extends
     final long valueNodeKey = node.getNodeKey();
     switch (kind) {
       case STRING_VALUE, OBJECT_NAMED_STRING ->
-          transferBytesStat(pathNodeKey, nodeReadOnlyTrx.getValueBytes(), valueNodeKey, reAttach);
+        transferBytesStat(pathNodeKey, nodeReadOnlyTrx.getValueBytes(), valueNodeKey, reAttach);
       case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
-          transferNumberStat(pathNodeKey, nodeReadOnlyTrx.getNumberValue(), valueNodeKey, reAttach);
+        transferNumberStat(pathNodeKey, nodeReadOnlyTrx.getNumberValue(), valueNodeKey, reAttach);
       case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
-          transferBooleanStat(pathNodeKey, nodeReadOnlyTrx.getBooleanValue(), valueNodeKey, reAttach);
+        transferBooleanStat(pathNodeKey, nodeReadOnlyTrx.getBooleanValue(), valueNodeKey, reAttach);
       case NULL_VALUE, OBJECT_NAMED_NULL -> {
         if (reAttach) {
           pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
@@ -1403,12 +1405,13 @@ final class JsonNodeTrxImpl extends
           pathSummaryWriter.removeNullValue(pathNodeKey);
         }
       }
-      default -> { /* unreachable: the first switch already returned for every other kind */ }
+      default -> {
+        /* unreachable: the first switch already returned for every other kind */ }
     }
   }
 
-  private void transferBytesStat(final long pathNodeKey, final byte @Nullable [] value,
-      final long valueNodeKey, final boolean reAttach) {
+  private void transferBytesStat(final long pathNodeKey, final byte @Nullable [] value, final long valueNodeKey,
+      final boolean reAttach) {
     if (value == null) {
       return;
     }
@@ -1420,8 +1423,8 @@ final class JsonNodeTrxImpl extends
   }
 
   /** Routed through the shared numeric classifiers so both directions agree by construction. */
-  private void transferNumberStat(final long pathNodeKey, final @Nullable Number value,
-      final long valueNodeKey, final boolean reAttach) {
+  private void transferNumberStat(final long pathNodeKey, final @Nullable Number value, final long valueNodeKey,
+      final boolean reAttach) {
     if (value == null) {
       return;
     }
@@ -1432,8 +1435,8 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void transferBooleanStat(final long pathNodeKey, final boolean value,
-      final long valueNodeKey, final boolean reAttach) {
+  private void transferBooleanStat(final long pathNodeKey, final boolean value, final long valueNodeKey,
+      final boolean reAttach) {
     if (reAttach) {
       pathSummaryWriter.recordBooleanValue(pathNodeKey, value, valueNodeKey);
     } else {
@@ -1462,8 +1465,8 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
       final long siblingPathNodeKey = nodeReadOnlyTrx.getPathNodeKey();
 
-      final long objectKeyPathNodeKey = getPathNodeKeyForNamedSibling(leftSibKey, key, kind,
-          siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
+      final long objectKeyPathNodeKey =
+          getPathNodeKeyForNamedSibling(leftSibKey, key, kind, siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
       // array-valued field needs the `__array__/ARRAY` path-summary layer
       // anchored under the OBJECT_KEY layer the field name created.
       final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
@@ -1474,12 +1477,12 @@ final class JsonNodeTrxImpl extends
 
       final long nodeKey;
       if (valueKind == NodeKind.OBJECT) {
-        final ObjectNamedObjectNode node = nodeFactory.createJsonObjectNamedObjectNode(parentKey,
-            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        final ObjectNamedObjectNode node =
+            nodeFactory.createJsonObjectNamedObjectNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id);
         nodeKey = node.getNodeKey();
       } else {
-        final ObjectNamedArrayNode node = nodeFactory.createJsonObjectNamedArrayNode(parentKey,
-            leftSibKey, rightSibKey, pathNodeKey, key, id);
+        final ObjectNamedArrayNode node =
+            nodeFactory.createJsonObjectNamedArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id);
         nodeKey = node.getNodeKey();
       }
 
@@ -1502,8 +1505,7 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  public JsonNodeTrx insertObjectRecordWithPrimitiveAsFirstChild(final String key,
-      final ObjectRecordValue<?> value) {
+  public JsonNodeTrx insertObjectRecordWithPrimitiveAsFirstChild(final String key, final ObjectRecordValue<?> value) {
     requireNonNull(key);
     requireNonNull(value);
     if (lock != null) {
@@ -1532,8 +1534,7 @@ final class JsonNodeTrxImpl extends
 
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
 
-      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
-          pathNodeKey, id);
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
@@ -1563,8 +1564,7 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  public JsonNodeTrx insertObjectRecordWithPrimitiveAsRightSibling(final String key,
-      final ObjectRecordValue<?> value) {
+  public JsonNodeTrx insertObjectRecordWithPrimitiveAsRightSibling(final String key, final ObjectRecordValue<?> value) {
     requireNonNull(key);
     requireNonNull(value);
     if (lock != null) {
@@ -1591,13 +1591,12 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
       final long siblingPathNodeKey = nodeReadOnlyTrx.getPathNodeKey();
 
-      final long pathNodeKey = getPathNodeKeyForNamedSibling(leftSibKey, key, kind,
-          siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
+      final long pathNodeKey =
+          getPathNodeKeyForNamedSibling(leftSibKey, key, kind, siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
-      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
-          pathNodeKey, id);
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey);
 
@@ -1622,12 +1621,14 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Record a path-statistics observation for the inline primitive payload of a freshly inserted
-   * fused {@code OBJECT_NAMED_*} record. No-op when stats are disabled, the path node key is
-   * non-positive, or the {@link PathSummaryWriter} is null.
+   * Record a path-statistics observation for the inline primitive payload of a freshly inserted fused
+   * {@code OBJECT_NAMED_*} record. No-op when stats are disabled, the path node key is non-positive,
+   * or the {@link PathSummaryWriter} is null.
    *
-   * <p>Mirrors {@link #recordPrimitiveStat} for the non-fused path: fusion keeps the same logical
-   * value-observation semantics, only the physical node count is halved.</p>
+   * <p>
+   * Mirrors {@link #recordPrimitiveStat} for the non-fused path: fusion keeps the same logical
+   * value-observation semantics, only the physical node count is halved.
+   * </p>
    */
   private void recordFusedPrimitiveStat(final long pathNodeKey, final ObjectRecordValue<?> value,
       final long valueNodeKey) {
@@ -1665,11 +1666,11 @@ final class JsonNodeTrxImpl extends
         if (value instanceof PrimitiveNumberValue primitiveNumber) {
           switch (primitiveNumber.primitiveType()) {
             case PrimitiveNumberValue.INT, PrimitiveNumberValue.LONG ->
-                pathSummaryWriter.recordValue(pathNodeKey, primitiveNumber.primitiveValue(), valueNodeKey);
+              pathSummaryWriter.recordValue(pathNodeKey, primitiveNumber.primitiveValue(), valueNodeKey);
             case PrimitiveNumberValue.NONE ->
-                recordNumericPathStat(pathNodeKey, primitiveNumber.getValue(), valueNodeKey);
-            default -> throw new IllegalArgumentException(
-                "Unknown primitive number type: " + primitiveNumber.primitiveType());
+              recordNumericPathStat(pathNodeKey, primitiveNumber.getValue(), valueNodeKey);
+            default ->
+              throw new IllegalArgumentException("Unknown primitive number type: " + primitiveNumber.primitiveType());
           }
         } else if (value.getValue() instanceof Number n) {
           // doubleValue(), not longValue(): the latter truncated every fractional number BEFORE
@@ -1685,7 +1686,8 @@ final class JsonNodeTrxImpl extends
         }
       }
       case NULL_VALUE -> pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
-      default -> { /* non-primitive payload: shouldn't reach the fused path */ }
+      default -> {
+        /* non-primitive payload: shouldn't reach the fused path */ }
     }
   }
 
@@ -1695,28 +1697,24 @@ final class JsonNodeTrxImpl extends
    * Drives fused OBJECT_NAMED_* dispatch in the public {@code insertObjectRecordAs*} entry points.
    */
   private static boolean isPrimitiveValueKind(final NodeKind valueKind) {
-    return valueKind == NodeKind.STRING_VALUE
-        || valueKind == NodeKind.NUMBER_VALUE
-        || valueKind == NodeKind.BOOLEAN_VALUE
-        || valueKind == NodeKind.NULL_VALUE;
+    return valueKind == NodeKind.STRING_VALUE || valueKind == NodeKind.NUMBER_VALUE
+        || valueKind == NodeKind.BOOLEAN_VALUE || valueKind == NodeKind.NULL_VALUE;
   }
 
   /**
-   * Fused {@code OBJECT_NAMED_*} variant of {@link #insertObjectRecordAsLastChild(String,
-   * ObjectRecordValue)}. Walks to the existing last child (when present) and emits the fused
-   * record as its right sibling; falls back to {@link #insertObjectRecordWithPrimitiveAsFirstChild}
-   * when the object is empty.
+   * Fused {@code OBJECT_NAMED_*} variant of
+   * {@link #insertObjectRecordAsLastChild(String, ObjectRecordValue)}. Walks to the existing last
+   * child (when present) and emits the fused record as its right sibling; falls back to
+   * {@link #insertObjectRecordWithPrimitiveAsFirstChild} when the object is empty.
    */
-  private JsonNodeTrx insertObjectRecordWithPrimitiveAsLastChild(final String key,
-      final ObjectRecordValue<?> value) {
+  private JsonNodeTrx insertObjectRecordWithPrimitiveAsLastChild(final String key, final ObjectRecordValue<?> value) {
     if (lock != null) {
       lock.lock();
     }
     try {
       final NodeKind kind = getKind();
       if (kind != NodeKind.OBJECT && kind != NodeKind.OBJECT_NAMED_OBJECT) {
-        throw new SirixUsageException(
-            "Insert is not allowed if current node is not an object node!");
+        throw new SirixUsageException("Insert is not allowed if current node is not an object node!");
       }
       final StructNode obj = nodeReadOnlyTrx.getStructuralNodeView();
       final long lastChildKey = obj.getLastChildKey();
@@ -1733,12 +1731,12 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Fused {@code OBJECT_NAMED_*} variant of {@link #insertObjectRecordAsLeftSibling(String,
-   * ObjectRecordValue)}. Mirrors {@link #insertObjectRecordWithPrimitiveAsRightSibling} but
-   * places the new record to the LEFT of the current cursor.
+   * Fused {@code OBJECT_NAMED_*} variant of
+   * {@link #insertObjectRecordAsLeftSibling(String, ObjectRecordValue)}. Mirrors
+   * {@link #insertObjectRecordWithPrimitiveAsRightSibling} but places the new record to the LEFT of
+   * the current cursor.
    */
-  private JsonNodeTrx insertObjectRecordWithPrimitiveAsLeftSibling(final String key,
-      final ObjectRecordValue<?> value) {
+  private JsonNodeTrx insertObjectRecordWithPrimitiveAsLeftSibling(final String key, final ObjectRecordValue<?> value) {
     if (lock != null) {
       lock.lock();
     }
@@ -1757,12 +1755,11 @@ final class JsonNodeTrxImpl extends
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long siblingPathNodeKey = nodeReadOnlyTrx.getPathNodeKey();
 
-      final long pathNodeKey = getPathNodeKeyForNamedSibling(rightSibKey, key, kind,
-          siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
+      final long pathNodeKey =
+          getPathNodeKeyForNamedSibling(rightSibKey, key, kind, siblingPathNodeKey, NodeKind.OBJECT_NAMED_OBJECT);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
-      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
-          pathNodeKey, id);
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey);
 
@@ -1790,13 +1787,14 @@ final class JsonNodeTrxImpl extends
    * @return the new node's key
    * @throws IllegalArgumentException if the value wraps a non-primitive (object / array)
    */
-  private long createFusedObjectNamedNode(final String key, final ObjectRecordValue<?> value,
-      final long parentKey, final long leftSibKey, final long rightSibKey, final long pathNodeKey,
-      final SirixDeweyID id) {
+  private long createFusedObjectNamedNode(final String key, final ObjectRecordValue<?> value, final long parentKey,
+      final long leftSibKey, final long rightSibKey, final long pathNodeKey, final SirixDeweyID id) {
     final NodeKind valueKind = value.getKind();
     return switch (valueKind) {
-      case BOOLEAN_VALUE -> nodeFactory.createJsonObjectNamedBooleanNode(parentKey, leftSibKey,
-          rightSibKey, pathNodeKey, key, (Boolean) value.getValue(), id).getNodeKey();
+      case BOOLEAN_VALUE -> nodeFactory
+                                       .createJsonObjectNamedBooleanNode(parentKey, leftSibKey, rightSibKey,
+                                           pathNodeKey, key, (Boolean) value.getValue(), id)
+                                       .getNodeKey();
       case NUMBER_VALUE -> {
         if (value instanceof PrimitiveNumberValue primitiveNumber) {
           final long primitiveValue = primitiveNumber.primitiveValue();
@@ -1807,26 +1805,28 @@ final class JsonNodeTrxImpl extends
                 throw new IllegalArgumentException(
                     "Primitive INT carrier value is outside the int range: " + primitiveValue);
               }
-              yield nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey,
-                  rightSibKey, pathNodeKey, key, intValue, id).getNodeKey();
+              yield nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key,
+                  intValue, id).getNodeKey();
             }
-            case PrimitiveNumberValue.LONG -> nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey,
-                rightSibKey, pathNodeKey, key, primitiveValue, id).getNodeKey();
+            case PrimitiveNumberValue.LONG -> nodeFactory
+                                                         .createJsonObjectNamedNumberNode(parentKey, leftSibKey,
+                                                             rightSibKey, pathNodeKey, key, primitiveValue, id)
+                                                         .getNodeKey();
             case PrimitiveNumberValue.NONE -> nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey,
                 rightSibKey, pathNodeKey, key, primitiveNumber.getValue(), id).getNodeKey();
-            default -> throw new IllegalArgumentException(
-                "Unknown primitive number type: " + primitiveNumber.primitiveType());
+            default ->
+              throw new IllegalArgumentException("Unknown primitive number type: " + primitiveNumber.primitiveType());
           };
         }
-        yield nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey,
-            rightSibKey, pathNodeKey, key, (Number) value.getValue(), id).getNodeKey();
+        yield nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key,
+            (Number) value.getValue(), id).getNodeKey();
       }
       case STRING_VALUE -> {
         // Honour ByteStringValue's (buffer, off, len) slice — the underlying buffer may be a
         // larger reusable scratch shared across records.
         if (value instanceof ByteStringValue bsv) {
-          yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey,
-              pathNodeKey, key, bsv.getValue(), bsv.getOffset(), bsv.getLength(), id).getNodeKey();
+          yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key,
+              bsv.getValue(), bsv.getOffset(), bsv.getLength(), id).getNodeKey();
         }
         final byte[] rawValue;
         final Object raw = value.getValue();
@@ -1835,15 +1835,16 @@ final class JsonNodeTrxImpl extends
         } else if (raw instanceof String s) {
           rawValue = s.getBytes(Constants.DEFAULT_ENCODING);
         } else {
-          throw new IllegalStateException(
-              "STRING_VALUE payload must be String or byte[], got: "
-                  + (raw == null ? "null" : raw.getClass().getName()));
+          throw new IllegalStateException("STRING_VALUE payload must be String or byte[], got: " + (raw == null
+              ? "null"
+              : raw.getClass().getName()));
         }
-        yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey,
-            pathNodeKey, key, rawValue, id).getNodeKey();
+        yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key,
+            rawValue, id).getNodeKey();
       }
-      case NULL_VALUE -> nodeFactory.createJsonObjectNamedNullNode(parentKey, leftSibKey, rightSibKey,
-          pathNodeKey, key, id).getNodeKey();
+      case NULL_VALUE ->
+        nodeFactory.createJsonObjectNamedNullNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, id)
+                   .getNodeKey();
       default -> throw new IllegalArgumentException(
           "Fused OBJECT_NAMED_* insert requires a primitive value kind, got: " + valueKind);
     };
@@ -1860,8 +1861,7 @@ final class JsonNodeTrxImpl extends
       // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
       // first/last-child slot is the array body, exactly like ARRAY. Accept it.
       rejectBareChildUnderObjectField(kind, "array");
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
-          && kind != NodeKind.OBJECT_NAMED_ARRAY)
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
@@ -1921,8 +1921,7 @@ final class JsonNodeTrxImpl extends
       // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
       // first/last-child slot is the array body, exactly like ARRAY. Accept it.
       rejectBareChildUnderObjectField(kind, "array");
-      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY
-          && kind != NodeKind.OBJECT_NAMED_ARRAY)
+      if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.ARRAY && kind != NodeKind.OBJECT_NAMED_ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
@@ -2112,7 +2111,9 @@ final class JsonNodeTrxImpl extends
       final String keyName = getName().getLocalName();
       final long oldValueNodeKey = nodeKey; // fused record IS the value holder
       final boolean hasLeft = hasLeftSibling();
-      final long anchorKey = hasLeft ? getLeftSiblingKey() : getParentKey();
+      final long anchorKey = hasLeft
+          ? getLeftSiblingKey()
+          : getParentKey();
       final InsertPosition insertPos = hasLeft
           ? InsertPosition.AS_RIGHT_SIBLING
           : InsertPosition.AS_FIRST_CHILD;
@@ -2194,8 +2195,8 @@ final class JsonNodeTrxImpl extends
     return pathNodeKey;
   }
 
-  private void adaptNodesAndHashesForInsertAsChild(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey) {
+  private void adaptNodesAndHashesForInsertAsChild(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey) {
     // Pass structural keys directly — eliminates moveTo before adaptForInsert.
     // Old code did: moveTo(nodeKey) → adaptForInsert(getStructuralNodeView()) → moveTo(nodeKey) → hash.
     // New code: adaptForInsert(keys) → hash(nodeKey) → moveTo(nodeKey).
@@ -2286,14 +2287,13 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void insertAsSibling(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey) {
-    insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, false,
-        UNKNOWN_NOTIFICATION_PATH_NODE_KEY);
+  private void insertAsSibling(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey) {
+    insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, false, UNKNOWN_NOTIFICATION_PATH_NODE_KEY);
   }
 
-  private void insertAsSibling(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey, final boolean useParentPathNodeKeyIfAvailable) {
+  private void insertAsSibling(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final boolean useParentPathNodeKeyIfAvailable) {
     insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, useParentPathNodeKeyIfAvailable,
         UNKNOWN_NOTIFICATION_PATH_NODE_KEY);
   }
@@ -2303,17 +2303,18 @@ final class JsonNodeTrxImpl extends
    * is deliberately owned here: one physical fused record produces exactly one INSERT callback, and
    * the caller must not emit a second callback after this method returns.
    */
-  private void insertAsSibling(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey, final long notificationPathNodeKey) {
+  private void insertAsSibling(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final long notificationPathNodeKey) {
     insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, false, notificationPathNodeKey);
   }
 
-  private void insertAsSibling(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey, final boolean useParentPathNodeKeyIfAvailable,
-      final long knownNotificationPathNodeKey) {
+  private void insertAsSibling(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final boolean useParentPathNodeKeyIfAvailable, final long knownNotificationPathNodeKey) {
     final boolean notifyPrimitiveIndexes = indexController.hasAnyPrimitiveIndex();
-    final boolean resolveParentPathNodeKey = useParentPathNodeKeyIfAvailable && notifyPrimitiveIndexes && buildPathSummary;
-    final long parentPathNodeKey = adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, resolveParentPathNodeKey);
+    final boolean resolveParentPathNodeKey =
+        useParentPathNodeKeyIfAvailable && notifyPrimitiveIndexes && buildPathSummary;
+    final long parentPathNodeKey =
+        adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, resolveParentPathNodeKey);
     nodeHashing.adaptHashesWithAdd(nodeKey);
     if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
       moveToJustInsertedNode(nodeKey);
@@ -2337,8 +2338,7 @@ final class JsonNodeTrxImpl extends
         pathNodeKey = 0;
       }
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
-          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(),
-          pathNodeKey);
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
     }
 
     markFreshlyInsertedCursor(nodeKey);
@@ -2352,16 +2352,17 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Record a primitive value observation in the PathSummary statistics for the path
-   * identified by {@code pathNodeKey}. No-op when stats are disabled, the path node
-   * key is non-positive, or the PathSummaryWriter is null (resource without summary).
+   * Record a primitive value observation in the PathSummary statistics for the path identified by
+   * {@code pathNodeKey}. No-op when stats are disabled, the path node key is non-positive, or the
+   * PathSummaryWriter is null (resource without summary).
    *
-   * <p>For STRING values, avoids an extra {@code byte[]} allocation when the offset
-   * is 0 and the length matches the full array (the common case).
+   * <p>
+   * For STRING values, avoids an extra {@code byte[]} allocation when the offset is 0 and the length
+   * matches the full array (the common case).
    */
-  private void recordPrimitiveStat(final long pathNodeKey, final PrimitiveNodeType type,
-      final byte[] stringValue, final int stringOff, final int stringLen,
-      final Number numberValue, final boolean booleanValue, final long valueNodeKey) {
+  private void recordPrimitiveStat(final long pathNodeKey, final PrimitiveNodeType type, final byte[] stringValue,
+      final int stringOff, final int stringLen, final Number numberValue, final boolean booleanValue,
+      final long valueNodeKey) {
     if (pathSummaryWriter == null || pathNodeKey <= 0) {
       return;
     }
@@ -2374,8 +2375,7 @@ final class JsonNodeTrxImpl extends
           pathSummaryWriter.recordValue(pathNodeKey, stringValue, valueNodeKey);
         } else {
           pathSummaryWriter.recordValue(pathNodeKey,
-              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen),
-              valueNodeKey);
+              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen), valueNodeKey);
         }
       }
       case NUMBER -> {
@@ -2390,16 +2390,15 @@ final class JsonNodeTrxImpl extends
 
 
   /**
-   * Create a sibling node (child of array) based on primitive type.
-   * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
+   * Create a sibling node (child of array) based on primitive type. For STRING type, uses
+   * (stringValue, stringOff, stringLen); other types ignore off/len.
    */
-  private StructNode createSiblingNode(final PrimitiveNodeType type, final long parentKey,
-      final long leftSibKey, final long rightSibKey,
-      final byte[] stringValue, final int stringOff, final int stringLen,
+  private StructNode createSiblingNode(final PrimitiveNodeType type, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final byte[] stringValue, final int stringOff, final int stringLen,
       final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
     return switch (type) {
-      case STRING -> nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey,
-          stringValue, stringOff, stringLen, useTextCompression, id);
+      case STRING -> nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, stringValue, stringOff,
+          stringLen, useTextCompression, id);
       case NUMBER -> nodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, numberValue, id);
       case BOOLEAN -> nodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, booleanValue, id);
       case NULL -> nodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey, id);
@@ -2408,13 +2407,14 @@ final class JsonNodeTrxImpl extends
 
   private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type, final byte[] stringValue,
       final Number numberValue, final boolean booleanValue, final boolean notifyIndex, final boolean isFirstChild) {
-    return insertPrimitiveAsChild(type, stringValue, 0, stringValue != null ? stringValue.length : 0,
-        numberValue, booleanValue, notifyIndex, isFirstChild);
+    return insertPrimitiveAsChild(type, stringValue, 0, stringValue != null
+        ? stringValue.length
+        : 0, numberValue, booleanValue, notifyIndex, isFirstChild);
   }
 
-  private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type,
-      final byte[] stringValue, final int stringOff, final int stringLen,
-      final Number numberValue, final boolean booleanValue, final boolean notifyIndex, final boolean isFirstChild) {
+  private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type, final byte[] stringValue,
+      final int stringOff, final int stringLen, final Number numberValue, final boolean booleanValue,
+      final boolean notifyIndex, final boolean isFirstChild) {
     if (lock != null) {
       lock.lock();
     }
@@ -2428,8 +2428,7 @@ final class JsonNodeTrxImpl extends
                 + "Use insertObjectRecordWithPrimitiveAs* to emit a fused OBJECT_NAMED_* record.");
       }
 
-      if (kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT
-          && kind != NodeKind.OBJECT_NAMED_ARRAY) {
+      if (kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_NAMED_ARRAY) {
         throw new SirixUsageException("Insert is not allowed if current node is not an array-node!");
       }
 
@@ -2440,8 +2439,7 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-      final boolean pathStatsEnabled =
-          pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final boolean pathStatsEnabled = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
       final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex()) || pathStatsEnabled
           ? getPathNodeKey(structNode)
           : 0;
@@ -2457,14 +2455,16 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newFirstChildID();
         leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         rightSibKey = firstChildKey;
-        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
+        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen,
+            numberValue, booleanValue, id);
       } else {
         id = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
             ? deweyIDManager.newFirstChildID()
             : deweyIDManager.newLastChildID();
         leftSibKey = lastChildKey;
         rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
+        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen,
+            numberValue, booleanValue, id);
       }
 
       final long nodeKey = node.getNodeKey();
@@ -2498,13 +2498,14 @@ final class JsonNodeTrxImpl extends
 
   private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type, final byte[] stringValue,
       final Number numberValue, final boolean booleanValue, final boolean isLeftSibling) {
-    return insertPrimitiveAsSibling(type, stringValue, 0, stringValue != null ? stringValue.length : 0,
-        numberValue, booleanValue, isLeftSibling);
+    return insertPrimitiveAsSibling(type, stringValue, 0, stringValue != null
+        ? stringValue.length
+        : 0, numberValue, booleanValue, isLeftSibling);
   }
 
-  private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type,
-      final byte[] stringValue, final int stringOff, final int stringLen,
-      final Number numberValue, final boolean booleanValue, final boolean isLeftSibling) {
+  private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type, final byte[] stringValue,
+      final int stringOff, final int stringLen, final Number numberValue, final boolean booleanValue,
+      final boolean isLeftSibling) {
     if (lock != null) {
       lock.lock();
     }
@@ -2533,8 +2534,8 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRightSiblingID();
       }
 
-      final StructNode node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey,
-          stringValue, stringOff, stringLen, numberValue, booleanValue, id);
+      final StructNode node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff,
+          stringLen, numberValue, booleanValue, id);
       final long nodeKey = node.getNodeKey();
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);
@@ -2557,8 +2558,8 @@ final class JsonNodeTrxImpl extends
         nodeReadOnlyTrx.moveTo(parentKey);
         final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
         nodeReadOnlyTrx.moveTo(nodeKey);
-        recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen,
-            numberValue, booleanValue, nodeKey);
+        recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen, numberValue, booleanValue,
+            nodeKey);
       }
 
       if (!nodeHashing.isBulkInsert()) {
@@ -2603,11 +2604,13 @@ final class JsonNodeTrxImpl extends
   /**
    * Elide the streaming shredder's immediate move back to the node an insert just returned.
    *
-   * <p>This is intentionally narrower than a general write-cursor self-move shortcut. The shared
-   * marker proves that no mutation or writer replacement occurred since insertion, while the
-   * current-key check proves that the physical cursor is presently rebound to the marked node.
-   * Forwarded navigation may preserve the marker, including an away-and-back sequence; that is
-   * safe because the normal navigation back has already re-established the current binding.</p>
+   * <p>
+   * This is intentionally narrower than a general write-cursor self-move shortcut. The shared marker
+   * proves that no mutation or writer replacement occurred since insertion, while the current-key
+   * check proves that the physical cursor is presently rebound to the marked node. Forwarded
+   * navigation may preserve the marker, including an away-and-back sequence; that is safe because the
+   * normal navigation back has already re-established the current binding.
+   * </p>
    */
   @Override
   public boolean moveTo(final long key) {
@@ -2682,9 +2685,9 @@ final class JsonNodeTrxImpl extends
         final NodeKind anchorKind = getKind();
         // play the
         // OBJECT/ARRAY role under fusion, so admit them as valid move anchors.
-        if (anchorKind != NodeKind.OBJECT && anchorKind != NodeKind.ARRAY
-            && anchorKind != NodeKind.OBJECT_NAMED_OBJECT && anchorKind != NodeKind.JSON_DOCUMENT
-            && anchorKind != NodeKind.OBJECT_NAMED_OBJECT && anchorKind != NodeKind.OBJECT_NAMED_ARRAY) {
+        if (anchorKind != NodeKind.OBJECT && anchorKind != NodeKind.ARRAY && anchorKind != NodeKind.OBJECT_NAMED_OBJECT
+            && anchorKind != NodeKind.JSON_DOCUMENT && anchorKind != NodeKind.OBJECT_NAMED_OBJECT
+            && anchorKind != NodeKind.OBJECT_NAMED_ARRAY) {
           throw new SirixUsageException(
               "Move is not allowed if the anchor node is not an OBJECT, ARRAY, OBJECT_KEY, or JSON_DOCUMENT node!");
         }
@@ -2708,7 +2711,9 @@ final class JsonNodeTrxImpl extends
           final long originalParentKey = toMove.getParentKey();
           // Capture position identity BEFORE the move for the update-operations tuples (#1074).
           final long movedNodeKey = toMove.getNodeKey();
-          final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
+          final SirixDeweyID oldDeweyID = storeDeweyIDs()
+              ? toMove.getDeweyID()
+              : null;
 
           // Structural surgery: per-node move notifications are incomplete
           // (plain containers and value elements fire none, and a moved-out
@@ -2729,10 +2734,9 @@ final class JsonNodeTrxImpl extends
           if (buildPathSummary && toMove instanceof NameNode moved) {
             // Re-points the moved records at their new path classes; the statistics follow in the
             // re-attach pass below, which reads the pathNodeKeys this leaves behind.
-            pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
-                moved.getPrefixKey(), moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
-          } else if (buildPathSummary
-              && originalParentKey != nodeAnchor.getNodeKey()) {
+            pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
+                moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+          } else if (buildPathSummary && originalParentKey != nodeAnchor.getNodeKey()) {
             // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
             adaptDescendantNameNodePaths(toMove);
           }
@@ -2755,7 +2759,9 @@ final class JsonNodeTrxImpl extends
           // position + INSERTED at the new one, so a move-only revision no longer serializes
           // an empty diff.
           nodeReadOnlyTrx.moveTo(movedNodeKey);
-          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
+          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs()
+              ? getDeweyID()
+              : null, movedNodeKey);
           indexController.notifyAfterStructuralChange(movedNodeKey);
           pendingStructuralChange = -1L;
         }
@@ -2818,7 +2824,9 @@ final class JsonNodeTrxImpl extends
           final long originalParentKey = toMove.getParentKey();
           // Capture position identity BEFORE the move for the update-operations tuples (#1074).
           final long movedNodeKey = toMove.getNodeKey();
-          final SirixDeweyID oldDeweyID = storeDeweyIDs() ? toMove.getDeweyID() : null;
+          final SirixDeweyID oldDeweyID = storeDeweyIDs()
+              ? toMove.getDeweyID()
+              : null;
 
           // Structural surgery: per-node move notifications are incomplete
           // (plain containers and value elements fire none, and a moved-out
@@ -2844,8 +2852,8 @@ final class JsonNodeTrxImpl extends
             if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
               // Re-points the moved records at their new path classes; the statistics follow in
               // the re-attach pass below, which reads the pathNodeKeys this leaves behind.
-              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
-                  moved.getPrefixKey(), moved.getLocalNameKey(), type);
+              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
+                  moved.getLocalNameKey(), type);
             }
           } else if (buildPathSummary && originalParentKey != parentKey) {
             // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
@@ -2870,7 +2878,9 @@ final class JsonNodeTrxImpl extends
           // position + INSERTED at the new one, so a move-only revision no longer serializes
           // an empty diff.
           nodeReadOnlyTrx.moveTo(movedNodeKey);
-          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
+          adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs()
+              ? getDeweyID()
+              : null, movedNodeKey);
           indexController.notifyAfterStructuralChange(movedNodeKey);
           pendingStructuralChange = -1L;
         }
@@ -2935,8 +2945,8 @@ final class JsonNodeTrxImpl extends
   /**
    * Adapt subtree regarding the index-structures for move operations.
    *
-   * @param node  node which is moved
-   * @param type  the type of change (DELETE from old position or INSERT into new position)
+   * @param node node which is moved
+   * @param type the type of change (DELETE from old position or INSERT into new position)
    */
   private void adaptSubtreeForMove(final Node node, final IndexController.ChangeType type) {
     assert type != null;
@@ -2976,12 +2986,14 @@ final class JsonNodeTrxImpl extends
 
   /**
    * Adapts path summary for descendant NameNode children when a non-NameNode (OBJECT or ARRAY) is
-   * moved to a different parent. Without this, nested OBJECT_KEY nodes would retain stale
-   * pathNodeKey references after the container node moves.
+   * moved to a different parent. Without this, nested OBJECT_KEY nodes would retain stale pathNodeKey
+   * references after the container node moves.
    *
-   * <p>Only processes the <b>shallowest</b> NameNode descendants (first OBJECT_KEY layer reached
-   * in each branch), because {@code adaptPathForChangedNode} internally handles deeper descendants
-   * via its own descendant traversal.</p>
+   * <p>
+   * Only processes the <b>shallowest</b> NameNode descendants (first OBJECT_KEY layer reached in each
+   * branch), because {@code adaptPathForChangedNode} internally handles deeper descendants via its
+   * own descendant traversal.
+   * </p>
    *
    * @param movedNode the non-NameNode that was moved
    */
@@ -2993,8 +3005,8 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Recursively finds the shallowest NameNode descendants under a non-NameNode container and
-   * adapts their path summary entries. Stops recursing once a NameNode is found (because
+   * Recursively finds the shallowest NameNode descendants under a non-NameNode container and adapts
+   * their path summary entries. Stops recursing once a NameNode is found (because
    * {@code adaptPathForChangedNode} handles deeper descendants).
    */
   private void collectAndAdaptShallowNameNodes(final long parentKey) {
@@ -3010,8 +3022,8 @@ final class JsonNodeTrxImpl extends
         // Found a NameNode — adapt its path (which also fixes all its descendants).
         // No need to recurse deeper.
         moveTo(childKey);
-        pathSummaryWriter.adaptPathForChangedNode(nameNode, getName(), nameNode.getURIKey(),
-            nameNode.getPrefixKey(), nameNode.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+        pathSummaryWriter.adaptPathForChangedNode(nameNode, getName(), nameNode.getURIKey(), nameNode.getPrefixKey(),
+            nameNode.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
         moveTo(childKey);
       } else if (childNode instanceof StructNode structChild && structChild.hasFirstChild()) {
         // Non-NameNode with children (e.g., OBJECT inside ARRAY) — recurse to find NameNodes.
@@ -3025,19 +3037,17 @@ final class JsonNodeTrxImpl extends
    * Insert position for move operations.
    */
   private enum MovePosition {
-    AS_FIRST_CHILD,
-    AS_RIGHT_SIBLING
+    AS_FIRST_CHILD, AS_RIGHT_SIBLING
   }
 
   /**
    * Adapts pointers for move operations. JSON-specific: no text node merging.
    *
    * @param fromNode root {@link StructNode} of the subtree to be moved
-   * @param toNode   the {@link StructNode} which is the anchor of the new subtree
-   * @param pos      determines if it has to be inserted as a first child or a right sibling
+   * @param toNode the {@link StructNode} which is the anchor of the new subtree
+   * @param pos determines if it has to be inserted as a first child or a right sibling
    */
-  private void adaptForMove(final StructNode fromNode, final StructNode toNode,
-      final MovePosition pos) {
+  private void adaptForMove(final StructNode fromNode, final StructNode toNode, final MovePosition pos) {
     assert fromNode != null;
     assert toNode != null;
     assert pos != null;
@@ -3209,8 +3219,7 @@ final class JsonNodeTrxImpl extends
         // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
         // child parents alongside the legacy kinds.
         if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-            && parentNodeKind != NodeKind.ARRAY
-            && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
+            && parentNodeKind != NodeKind.ARRAY && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
             && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
           throw new SirixUsageException(
               "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
@@ -3234,7 +3243,9 @@ final class JsonNodeTrxImpl extends
         // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
         // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
         // DELETED tuple of the root subsumes all descendant operations.
-        final LongOpenHashSet removedDescendantKeys = storeDeweyIDs() ? new LongOpenHashSet() : null;
+        final LongOpenHashSet removedDescendantKeys = storeDeweyIDs()
+            ? new LongOpenHashSet()
+            : null;
 
         // Remove subtree.
         for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
@@ -3392,7 +3403,9 @@ final class JsonNodeTrxImpl extends
             ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
             : null;
         case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
-            ? (namedBool.getValue() ? STR_TRUE : STR_FALSE)
+            ? (namedBool.getValue()
+                ? STR_TRUE
+                : STR_FALSE)
             : null;
         case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
             ? new Str(String.valueOf(namedNum.getValue()))
@@ -3408,9 +3421,8 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Resolve the {@link QNm} for a fused {@code OBJECT_NAMED_*} record via the storage
-   * engine's name index (the nameKey was created under the canonical fused-named bucket at
-   * shred time).
+   * Resolve the {@link QNm} for a fused {@code OBJECT_NAMED_*} record via the storage engine's name
+   * index (the nameKey was created under the canonical fused-named bucket at shred time).
    */
   private QNm resolveFusedName(final ImmutableNode node) {
     final int nameKey;
@@ -3430,13 +3442,14 @@ final class JsonNodeTrxImpl extends
       return null;
     }
     final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
-    return localName == null ? null : new QNm(localName);
+    return localName == null
+        ? null
+        : new QNm(localName);
   }
 
   private void removeValue() {
     final NodeKind nodeKind = getKind();
-    if (nodeKind == NodeKind.STRING_VALUE
-        || nodeKind == NodeKind.NUMBER_VALUE || nodeKind == NodeKind.BOOLEAN_VALUE) {
+    if (nodeKind == NodeKind.STRING_VALUE || nodeKind == NodeKind.NUMBER_VALUE || nodeKind == NodeKind.BOOLEAN_VALUE) {
       final long nodeKey = getNodeKey();
       final StructNode currentValueNode = nodeReadOnlyTrx.getStructuralNode();
 
@@ -3469,26 +3482,25 @@ final class JsonNodeTrxImpl extends
               pathSummaryWriter.removeBooleanValue(pathNodeKey, b.getValue());
             }
           }
-          default -> { /* no stats for other kinds */ }
+          default -> {
+            /* no stats for other kinds */ }
         }
       }
     }
   }
 
   /**
-   * De-index a plain {@code ARRAY} node on removal — the mirror of the PATH-index INSERT fired
-   * for arrays in {@code insertArrayAs*Child}. Fused {@code OBJECT_NAMED_ARRAY} records are
-   * handled by {@link #removeName()} (they play the object-key role); this covers only the
-   * standalone {@code ARRAY} kind that neither {@code removeName} nor {@code removeValue} touch.
+   * De-index a plain {@code ARRAY} node on removal — the mirror of the PATH-index INSERT fired for
+   * arrays in {@code insertArrayAs*Child}. Fused {@code OBJECT_NAMED_ARRAY} records are handled by
+   * {@link #removeName()} (they play the object-key role); this covers only the standalone
+   * {@code ARRAY} kind that neither {@code removeName} nor {@code removeValue} touch.
    */
   /**
-   * Fire the DELETE notification for kinds that carry neither a name nor a
-   * value — plain {@code OBJECT} records and {@code NULL_VALUE} elements.
-   * Without it an empty {@code {}} record or a null element vanishes with no
-   * index listener ever seeing it: entry-level listeners filter these kinds
-   * out anyway, but the projection listener must attribute the deletion to
-   * its enclosing record (resolved via its ancestor walk — parents are still
-   * alive during the post-order removal).
+   * Fire the DELETE notification for kinds that carry neither a name nor a value — plain
+   * {@code OBJECT} records and {@code NULL_VALUE} elements. Without it an empty {@code {}} record or
+   * a null element vanishes with no index listener ever seeing it: entry-level listeners filter these
+   * kinds out anyway, but the projection listener must attribute the deletion to its enclosing record
+   * (resolved via its ancestor walk — parents are still alive during the post-order removal).
    */
   private void removeObjectOrNullEntry() {
     final NodeKind kind = getKind();
@@ -3542,7 +3554,7 @@ final class JsonNodeTrxImpl extends
         if (pathSummaryWriter.isPathStatisticsEnabled() && pathNodeKey > 0) {
           switch (kind) {
             case OBJECT_NAMED_STRING ->
-                pathSummaryWriter.removeValue(pathNodeKey, ((ObjectNamedStringNode) node).getRawValue());
+              pathSummaryWriter.removeValue(pathNodeKey, ((ObjectNamedStringNode) node).getRawValue());
             case OBJECT_NAMED_NUMBER -> {
               final Number v = ((ObjectNamedNumberNode) node).getValue();
               if (v != null) {
@@ -3554,7 +3566,7 @@ final class JsonNodeTrxImpl extends
               }
             }
             case OBJECT_NAMED_BOOLEAN ->
-                pathSummaryWriter.removeBooleanValue(pathNodeKey, ((ObjectNamedBooleanNode) node).getValue());
+              pathSummaryWriter.removeBooleanValue(pathNodeKey, ((ObjectNamedBooleanNode) node).getValue());
             case OBJECT_NAMED_NULL -> pathSummaryWriter.removeNullValue(pathNodeKey);
             default -> throw new AssertionError(kind);
           }
@@ -3580,8 +3592,9 @@ final class JsonNodeTrxImpl extends
         // remove must decrement BOTH entries so refcounts stay balanced.
         // Snapshot the OBJECT_KEY parent BEFORE removing the ARRAY entry, since the standard
         // remove(...) may collapse the entire ARRAY subtree on the last reference.
-        final long objectKeyParentForFusedArray =
-            kind == NodeKind.OBJECT_NAMED_ARRAY ? pathSummaryWriter.lookupArrayPathParentKey(pathNodeKey) : -1L;
+        final long objectKeyParentForFusedArray = kind == NodeKind.OBJECT_NAMED_ARRAY
+            ? pathSummaryWriter.lookupArrayPathParentKey(pathNodeKey)
+            : -1L;
         pathSummaryWriter.remove((ImmutableNameNode) node);
         if (objectKeyParentForFusedArray >= 0) {
           pathSummaryWriter.decrementObjectKeyRefByKey(objectKeyParentForFusedArray);
@@ -3637,8 +3650,7 @@ final class JsonNodeTrxImpl extends
         // continues to carry the `__array__` synthetic name.
         if (currentKind == NodeKind.OBJECT_NAMED_ARRAY) {
           final long arrayPathNodeKey = nameNode.getPathNodeKey();
-          final long objectKeyPathParent =
-              pathSummaryWriter.lookupArrayPathParentKey(arrayPathNodeKey);
+          final long objectKeyPathParent = pathSummaryWriter.lookupArrayPathParentKey(arrayPathNodeKey);
           if (objectKeyPathParent >= 0) {
             // For a SHARED path class the rename SPLITS (other instances keep their class), so
             // the record may now point at a NEW __array__/ARRAY layer — adopt the returned key.
@@ -3668,12 +3680,10 @@ final class JsonNodeTrxImpl extends
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Re-index under the NEW name/path (see the DELETE above).
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node,
-          nameNode.getPathNodeKey());
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
 
       final long updatedNodeKey = ((Node) node).getNodeKey();
-      adaptUpdateOperationsForUpdate(((ImmutableJsonNode) node).getDeweyID(),
-          updatedNodeKey);
+      adaptUpdateOperationsForUpdate(((ImmutableJsonNode) node).getDeweyID(), updatedNodeKey);
 
       if (storeNodeHistory) {
         nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(updatedNodeKey);
@@ -3721,10 +3731,8 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      if (kind != NodeKind.STRING_VALUE
-          && kind != NodeKind.OBJECT_NAMED_STRING) {
-        throw new SirixUsageException(
-            "Not allowed if current node is not a string value node!");
+      if (kind != NodeKind.STRING_VALUE && kind != NodeKind.OBJECT_NAMED_STRING) {
+        throw new SirixUsageException("Not allowed if current node is not a string value node!");
       }
       if (kind == NodeKind.OBJECT_NAMED_STRING) {
         // Fused record carries (name, value) inline. Updating only the value is semantically
@@ -3743,7 +3751,9 @@ final class JsonNodeTrxImpl extends
       final ValueNode node = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
       final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
       // Capture old bytes before mutation so stats can rebound on value change.
-      final byte[] oldBytes = statsOn ? node.getRawValue().clone() : null;
+      final byte[] oldBytes = statsOn
+          ? node.getRawValue().clone()
+          : null;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -3785,8 +3795,7 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      if (kind != NodeKind.BOOLEAN_VALUE
-          && kind != NodeKind.OBJECT_NAMED_BOOLEAN) {
+      if (kind != NodeKind.BOOLEAN_VALUE && kind != NodeKind.OBJECT_NAMED_BOOLEAN) {
         throw new SirixUsageException("Not allowed if current node is not a boolean value node!");
       }
       if (kind == NodeKind.OBJECT_NAMED_BOOLEAN) {
@@ -3845,10 +3854,8 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      if (kind != NodeKind.NUMBER_VALUE
-          && kind != NodeKind.OBJECT_NAMED_NUMBER) {
-        throw new SirixUsageException(
-            "Not allowed if current node is not a number value node!");
+      if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NAMED_NUMBER) {
+        throw new SirixUsageException("Not allowed if current node is not a number value node!");
       }
       if (kind == NodeKind.OBJECT_NAMED_NUMBER) {
         // In-place number update on fused record — see setStringValueFused comment.
@@ -3863,7 +3870,9 @@ final class JsonNodeTrxImpl extends
 
       final NumericValueNode node = (NumericValueNode) nodeReadOnlyTrx.getStructuralNode();
       final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
-      final long oldValueAsLong = statsOn && node.getValue() != null ? node.getValue().longValue() : 0L;
+      final long oldValueAsLong = statsOn && node.getValue() != null
+          ? node.getValue().longValue()
+          : 0L;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -3915,12 +3924,13 @@ final class JsonNodeTrxImpl extends
     checkAccessAndCommit();
 
     final long nodeKey = getNodeKey();
-    ObjectNamedStringNode node =
-        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    ObjectNamedStringNode node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     final long pathNodeKey = node.getPathNodeKey();
 
     final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
-    final byte[] oldBytes = statsOn ? node.getRawValue().clone() : null;
+    final byte[] oldBytes = statsOn
+        ? node.getRawValue().clone()
+        : null;
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
     final long oldHash = node.computeHash(bytes);
@@ -3955,8 +3965,7 @@ final class JsonNodeTrxImpl extends
     checkAccessAndCommit();
 
     final long nodeKey = getNodeKey();
-    ObjectNamedBooleanNode node =
-        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    ObjectNamedBooleanNode node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     final long pathNodeKey = node.getPathNodeKey();
 
     final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
@@ -3993,13 +4002,13 @@ final class JsonNodeTrxImpl extends
     checkAccessAndCommit();
 
     final long nodeKey = getNodeKey();
-    ObjectNamedNumberNode node =
-        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    ObjectNamedNumberNode node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     final long pathNodeKey = node.getPathNodeKey();
 
     final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
-    final long oldValueAsLong =
-        statsOn && node.getValue() != null ? node.getValue().longValue() : 0L;
+    final long oldValueAsLong = statsOn && node.getValue() != null
+        ? node.getValue().longValue()
+        : 0L;
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
     final long oldHash = node.computeHash(bytes);
@@ -4036,19 +4045,19 @@ final class JsonNodeTrxImpl extends
   // ////////////////////////////////////////////////////////////
 
   /**
-   * Adapting everything for insert operations. Accepts the new node's structural keys directly
-   * to avoid a moveTo call — the caller already knows these values from the factory call.
+   * Adapting everything for insert operations. Accepts the new node's structural keys directly to
+   * avoid a moveTo call — the caller already knows these values from the factory call.
    *
    * @param structNodeKey the new node's key
-   * @param parentKey     the new node's parent key
-   * @param leftSibKey    the new node's left sibling key
-   * @param rightSibKey   the new node's right sibling key
+   * @param parentKey the new node's parent key
+   * @param leftSibKey the new node's left sibling key
+   * @param rightSibKey the new node's right sibling key
    * @param resolveParentPathNodeKey whether to resolve and return the parent path node key
    * @return the parent path node key if available, otherwise {@code -1}
    * @throws SirixIOException if anything weird happens
    */
-  private long adaptForInsert(final long structNodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey, final boolean resolveParentPathNodeKey) {
+  private long adaptForInsert(final long structNodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final boolean resolveParentPathNodeKey) {
     markStructuralMutation();
     final boolean hasLeft = leftSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
     final boolean hasRight = rightSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -4112,14 +4121,16 @@ final class JsonNodeTrxImpl extends
 
     // Phase 1: Adapt left sibling node if there is one.
     if (hasLeft) {
-      final StructNode leftSibling = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      final StructNode leftSibling =
+          storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
       leftSibling.setRightSiblingKey(rightSibKey);
       persistUpdatedRecord(leftSibling);
     }
 
     // Phase 2: Adapt right sibling node if there is one.
     if (hasRight) {
-      final StructNode rightSibling = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      final StructNode rightSibling =
+          storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
       rightSibling.setLeftSiblingKey(leftSibKey);
       persistUpdatedRecord(rightSibling);
     }
@@ -4324,11 +4335,11 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Recursively copies a single node and its entire subtree at the given insertion position.
-   * After this method returns, the write-transaction cursor is positioned on the newly inserted
-   * subtree root.
+   * Recursively copies a single node and its entire subtree at the given insertion position. After
+   * this method returns, the write-transaction cursor is positioned on the newly inserted subtree
+   * root.
    *
-   * @param rtx    source read-only transaction positioned at the node to copy
+   * @param rtx source read-only transaction positioned at the node to copy
    * @param insert where to insert relative to the current write-transaction cursor
    */
   private void copyNode(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
@@ -4388,22 +4399,20 @@ final class JsonNodeTrxImpl extends
         copyChildren(rtx);
       }
       case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
-          copyFusedObjectRecord(rtx, insert, kind);
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
-          copyFusedStructuralRecord(rtx, insert, kind);
+        copyFusedObjectRecord(rtx, insert, kind);
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> copyFusedStructuralRecord(rtx, insert, kind);
       // $CASES-OMITTED$
-      default -> throw new UnsupportedOperationException(
-          "Copying node kind " + kind + " is not supported.");
+      default -> throw new UnsupportedOperationException("Copying node kind " + kind + " is not supported.");
     }
   }
 
   /**
    * Copy a fused OBJECT_NAMED_OBJECT/OBJECT_NAMED_ARRAY record by emitting an equivalent fused
-   * structural record at the destination, then recursively copying its children. The fused
-   * record IS the OBJECT_KEY+OBJECT/ARRAY pair in legacy semantics, so a moveToFirstChild after
-   * creation puts the cursor on the first inner field (or returns false if empty), but for
-   * copy-children purposes the cursor must STAY on the structural record so that subsequent
-   * inner-field inserts land as its children.
+   * structural record at the destination, then recursively copying its children. The fused record IS
+   * the OBJECT_KEY+OBJECT/ARRAY pair in legacy semantics, so a moveToFirstChild after creation puts
+   * the cursor on the first inner field (or returns false if empty), but for copy-children purposes
+   * the cursor must STAY on the structural record so that subsequent inner-field inserts land as its
+   * children.
    */
   private void copyFusedStructuralRecord(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert,
       final NodeKind kind) {
@@ -4430,14 +4439,13 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Copy a fused OBJECT_NAMED_* record by emitting an equivalent fused record in the
-   * destination transaction. The destination's shredder default (fusion on) will re-fuse
-   * when the name + primitive pair are inserted via
+   * Copy a fused OBJECT_NAMED_* record by emitting an equivalent fused record in the destination
+   * transaction. The destination's shredder default (fusion on) will re-fuse when the name +
+   * primitive pair are inserted via
    * {@link #insertObjectRecordWithPrimitiveAsFirstChild(String, ObjectRecordValue)} /
    * {@link #insertObjectRecordWithPrimitiveAsRightSibling(String, ObjectRecordValue)}.
    */
-  private void copyFusedObjectRecord(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert,
-      final NodeKind kind) {
+  private void copyFusedObjectRecord(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert, final NodeKind kind) {
     final String keyName = rtx.getName().getLocalName();
     final ObjectRecordValue<?> value = switch (kind) {
       case OBJECT_NAMED_BOOLEAN -> BooleanValue.of(rtx.getBooleanValue());
@@ -4456,8 +4464,8 @@ final class JsonNodeTrxImpl extends
 
   /**
    * Copies all children of the source node (at rtx's current position) as children of the
-   * write-transaction's current node. After this method, both cursors are restored to their
-   * original positions.
+   * write-transaction's current node. After this method, both cursors are restored to their original
+   * positions.
    *
    * @param rtx source read-only transaction positioned at the parent whose children are to be copied
    */

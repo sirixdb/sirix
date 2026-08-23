@@ -53,7 +53,7 @@ final class StringDictSketchTest {
 
     for (final String v : values) {
       assertTrue(StringDictSketch.mayContain(PaxTestSegments.of(sketch), v.getBytes(StandardCharsets.UTF_8)),
-                 "false negative for a value that IS in the dictionary: " + v);
+          "false negative for a value that IS in the dictionary: " + v);
     }
   }
 
@@ -75,14 +75,14 @@ final class StringDictSketchTest {
     }
     // Designed for ~1 %; assert an order of magnitude of headroom so the test pins the sizing
     // without becoming a hash-function tripwire.
-    assertTrue(falsePositives < probes / 10,
-               "false-positive rate too high: " + falsePositives + "/" + probes);
+    assertTrue(falsePositives < probes / 10, "false-positive rate too high: " + falsePositives + "/" + probes);
   }
 
   @Test
   void anAbsentSketchNeverRulesAnythingOut() {
     assertTrue(StringDictSketch.mayContain(null, "anything".getBytes(StandardCharsets.UTF_8)));
-    assertTrue(StringDictSketch.mayContain(PaxTestSegments.of(new byte[0]), "anything".getBytes(StandardCharsets.UTF_8)));
+    assertTrue(
+        StringDictSketch.mayContain(PaxTestSegments.of(new byte[0]), "anything".getBytes(StandardCharsets.UTF_8)));
     // A payload claiming a future version must also fail open, never closed.
     final byte[] futureVersion = new byte[32];
     futureVersion[0] = 99;
@@ -103,9 +103,9 @@ final class StringDictSketchTest {
   }
 
   /**
-   * The FSST case, which is the whole reason the sketch hashes STORED bytes: a dictionary of
-   * encoded entries must still be probeable, by encoding the literal the same way. Nothing here
-   * decompresses anything.
+   * The FSST case, which is the whole reason the sketch hashes STORED bytes: a dictionary of encoded
+   * entries must still be probeable, by encoding the literal the same way. Nothing here decompresses
+   * anything.
    */
   @Test
   void fsstEncodedEntriesAreProbeableWithoutDecompressing() {
@@ -152,7 +152,7 @@ final class StringDictSketchTest {
       // And the dictionary lookup itself must find it, comparing stored bytes only.
       final int tag = StringRegion.lookupTag(h, 3);
       assertTrue(StringRegion.findDictId(PaxTestSegments.of(payload), h, tag, raw, encoded) >= 0,
-                 "dictionary lookup missed an FSST-stored value: " + v);
+          "dictionary lookup missed an FSST-stored value: " + v);
     }
   }
 
@@ -176,8 +176,8 @@ final class StringDictSketchTest {
     final StringRegion.Header h = new StringRegion.Header().parseInto(PaxTestSegments.of(payload));
     final int tag = StringRegion.lookupTag(h, 9);
     assertEquals(StringRegion.DICT_ID_UNDECIDABLE,
-                 StringRegion.findDictId(PaxTestSegments.of(payload), h, tag, raw, null),
-                 "an encoded entry with no table in hand must be undecidable, not absent");
+        StringRegion.findDictId(PaxTestSegments.of(payload), h, tag, raw, null),
+        "an encoded entry with no table in hand must be undecidable, not absent");
   }
 
   @Test
@@ -189,10 +189,9 @@ final class StringDictSketchTest {
     assertFalse(StringDictSketch.mayContain(PaxTestSegments.of(sketch), "not-solo".getBytes(StandardCharsets.UTF_8)));
     final int tag = StringRegion.lookupTag(r.header(), 1);
     assertEquals(0, StringRegion.findDictId(PaxTestSegments.of(r.payload()), r.header(), tag,
-                                            "solo".getBytes(StandardCharsets.UTF_8), null));
-    assertEquals(StringRegion.DICT_ID_ABSENT,
-                 StringRegion.findDictId(PaxTestSegments.of(r.payload()), r.header(), tag,
-                                         "nope".getBytes(StandardCharsets.UTF_8), null));
+        "solo".getBytes(StandardCharsets.UTF_8), null));
+    assertEquals(StringRegion.DICT_ID_ABSENT, StringRegion.findDictId(PaxTestSegments.of(r.payload()), r.header(), tag,
+        "nope".getBytes(StandardCharsets.UTF_8), null));
   }
 
   @Test
@@ -208,8 +207,7 @@ final class StringDictSketchTest {
     enc.addValue(9, "beta".getBytes(StandardCharsets.UTF_8));
     final int logicalLength = enc.encodeInto(StringRegion.TAG_KIND_PATH_NODE, true);
     final byte[] exactPayload = Arrays.copyOf(enc.output(), logicalLength);
-    final StringRegion.Header header =
-        new StringRegion.Header().parseInto(PaxTestSegments.of(exactPayload));
+    final StringRegion.Header header = new StringRegion.Header().parseInto(PaxTestSegments.of(exactPayload));
 
     final byte[] expected = StringDictSketch.encodeFromStringRegion(exactPayload, header);
     final byte[] actual = StringDictSketch.encodeFromStringRegion(enc.output(), logicalLength, header);

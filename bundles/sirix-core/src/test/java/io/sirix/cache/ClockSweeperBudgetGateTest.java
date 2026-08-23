@@ -15,22 +15,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression tests for the {@link ClockSweeper} budget gate.
  *
- * <p>The sweeper used to run its clock unconditionally on every cycle: any page that was neither
- * HOT nor guarded was evicted regardless of how much headroom the cache budget had. A cache
- * holding 128 MB against an 8 GB budget was therefore emptied ~10 % per cycle, so every analytical
- * scan re-read and re-decompressed the whole resource. Measured on a 109 MB / ~4,000-page store,
- * each pass took ~4,000 cache misses and ~4,100 evictions with <em>zero</em> hits; gating the
- * sweep on a high-water mark took the same query from ~4,180 ms to ~240 ms.
+ * <p>
+ * The sweeper used to run its clock unconditionally on every cycle: any page that was neither HOT
+ * nor guarded was evicted regardless of how much headroom the cache budget had. A cache holding 128
+ * MB against an 8 GB budget was therefore emptied ~10 % per cycle, so every analytical scan re-read
+ * and re-decompressed the whole resource. Measured on a 109 MB / ~4,000-page store, each pass took
+ * ~4,000 cache misses and ~4,100 evictions with <em>zero</em> hits; gating the sweep on a
+ * high-water mark took the same query from ~4,180 ms to ~240 ms.
  *
- * <p>These tests pin both directions, because a gate that never evicts would be just as wrong as
- * one that always does:
+ * <p>
+ * These tests pin both directions, because a gate that never evicts would be just as wrong as one
+ * that always does:
  * <ul>
  * <li>well under budget → the sweeper must leave the working set alone;</li>
  * <li>at or above the high-water mark → the sweeper must still reclaim.</li>
  * </ul>
  *
- * <p>Every case drives {@link ClockSweeper#sweep()} directly rather than starting the thread, so
- * the result does not depend on sweep-interval timing.
+ * <p>
+ * Every case drives {@link ClockSweeper#sweep()} directly rather than starting the thread, so the
+ * result does not depend on sweep-interval timing.
  */
 @DisplayName("ClockSweeper budget-gate regression Tests")
 class ClockSweeperBudgetGateTest {

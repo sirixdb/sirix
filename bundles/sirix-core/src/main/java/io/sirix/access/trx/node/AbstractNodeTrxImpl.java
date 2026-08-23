@@ -152,8 +152,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private long modificationCount;
 
   /**
-   * Monotonic visible-state sequence used to validate transaction-local cursor fast paths.
-   * Unlike {@link #modificationCount}, this value is never reset at an intermediate flush.
+   * Monotonic visible-state sequence used to validate transaction-local cursor fast paths. Unlike
+   * {@link #modificationCount}, this value is never reset at an intermediate flush.
    */
   private long mutationSequence;
 
@@ -179,17 +179,19 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * One-shot marker for a cursor that was just rebound to a newly inserted document node.
    *
-   * <p>Streaming shredders commonly call {@code moveTo(insertedNodeKey)} immediately after an
-   * insert even though the insert contract already leaves the cursor on that node. A write cursor
-   * normally must resolve every move through the transaction-intent log: an async flush can replace
-   * the active modified page while the frozen predecessor remains open. The marker makes only the
-   * provably safe immediate self-move skippable. A subsequent mutation changes
-   * {@link #mutationSequence}; an async page flush advances the transaction-log generation; a
-   * commit/revert replaces {@link #storageEngineWriter}; and the type-specific transaction
-   * additionally verifies that the physical cursor still has this key.
-   * The first explicit {@code moveTo} consumes the marker regardless of whether it qualifies.
-   * Consuming the marker only approves reuse of the physical binding; the caller must still invoke
-   * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before reporting success.</p>
+   * <p>
+   * Streaming shredders commonly call {@code moveTo(insertedNodeKey)} immediately after an insert
+   * even though the insert contract already leaves the cursor on that node. A write cursor normally
+   * must resolve every move through the transaction-intent log: an async flush can replace the active
+   * modified page while the frozen predecessor remains open. The marker makes only the provably safe
+   * immediate self-move skippable. A subsequent mutation changes {@link #mutationSequence}; an async
+   * page flush advances the transaction-log generation; a commit/revert replaces
+   * {@link #storageEngineWriter}; and the type-specific transaction additionally verifies that the
+   * physical cursor still has this key. The first explicit {@code moveTo} consumes the marker
+   * regardless of whether it qualifies. Consuming the marker only approves reuse of the physical
+   * binding; the caller must still invoke
+   * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before reporting success.
+   * </p>
    */
   private long freshlyInsertedCursorNodeKey = Long.MIN_VALUE;
   private long freshlyInsertedCursorMutationSequence;
@@ -260,7 +262,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.buildPathSummary = resourceSession.getResourceConfig().withPathSummary;
     this.nodeFactory = requireNonNull(nodeFactory);
     this.pathSummaryWriter = pathSummaryWriter;
-    this.indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    this.indexController =
+        resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
     this.updateOperationsOrdered = new TreeMap<>();
@@ -283,8 +286,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /** Resolve the bounded storage-epoch threshold without changing any other commit mode. */
-  static int autoCommitNodeCountThreshold(final int maxNodeCount,
-      final AfterCommitState afterCommitState) {
+  static int autoCommitNodeCountThreshold(final int maxNodeCount, final AfterCommitState afterCommitState) {
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     requireNonNull(afterCommitState);
     return afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
@@ -437,8 +439,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * Drain the async-commit pipeline: wait for a pending background hardening and surface its
-   * failure. Called before any synchronous commit, rollback, or close.
+   * Drain the async-commit pipeline: wait for a pending background hardening and surface its failure.
+   * Called before any synchronous commit, rollback, or close.
    */
   @Override
   public final void awaitPendingAsyncCommit() {
@@ -456,9 +458,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * Pipelined intermediate commit: phase 1 (page writes) inline, phase 2 (durability barriers)
-   * in the background; the transaction immediately continues on a successor epoch based on the
-   * pending uber page. Readers see the revision when the background hardening publishes it.
+   * Pipelined intermediate commit: phase 1 (page writes) inline, phase 2 (durability barriers) in the
+   * background; the transaction immediately continues on a successor epoch based on the pending uber
+   * page. Readers see the revision when the background hardening publishes it.
    */
   private void asyncCommitInternal(final String commitMessage) {
     runLocked(() -> {
@@ -641,8 +643,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       try {
         // Reinstantiate everything.
-        if (afterCommitState == AfterCommitState.KEEP_OPEN
-            || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+        if (afterCommitState == AfterCommitState.KEEP_OPEN || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
             || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
           // Use the newly committed revision number, not the pre-commit revision.
           // After commit, uberPage represents the new revision, and we need to
@@ -675,16 +676,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * intermediate auto-commits are suppressed: compound operations internally call public mutators
    * (each running {@link #checkAccessAndCommit()}), and an auto-commit firing between the internal
    * steps would durably persist a structurally inconsistent tree — e.g. a moved subtree already
-   * detached from its old position but not yet re-attached (#1062). The counter keeps growing, so
-   * the deferred auto-commit fires on the next top-level mutation once the tree is consistent
-   * again. Guarded by the transaction lock like all mutations; no extra synchronization needed.
+   * detached from its old position but not yet re-attached (#1062). The counter keeps growing, so the
+   * deferred auto-commit fires on the next top-level mutation once the tree is consistent again.
+   * Guarded by the transaction lock like all mutations; no extra synchronization needed.
    */
   private int compoundOperationDepth;
 
   /**
    * Mark the start of a compound structural operation. Must be balanced with
-   * {@link #endCompoundOperation()} in a {@code finally} block so an exception mid-operation
-   * cannot leave auto-commits suppressed forever.
+   * {@link #endCompoundOperation()} in a {@code finally} block so an exception mid-operation cannot
+   * leave auto-commits suppressed forever.
    */
   protected final void beginCompoundOperation() {
     compoundOperationDepth++;
@@ -704,7 +705,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected void checkAccessAndCommit() {
     nodeReadOnlyTrx.assertNotClosed();
     assertRunning();
-    // Rotate the completed epoch before accounting for the mutation that is about to run.  Doing
+    // Rotate the completed epoch before accounting for the mutation that is about to run. Doing
     // this after incrementing loses that mutation when commit/reset clears modificationCount and
     // lets every successor epoch contain maxNodeCount + 1 actual mutations.
     intermediateCommitIfRequired();
@@ -713,8 +714,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * Fast-path for bulk insert: skips assertNotClosed/assertRunning (always true mid-shredder),
-   * keeps mod count + auto-commit logic. Uses intermediate commit to skip redundant I/O.
+   * Fast-path for bulk insert: skips assertNotClosed/assertRunning (always true mid-shredder), keeps
+   * mod count + auto-commit logic. Uses intermediate commit to skip redundant I/O.
    */
   protected final void checkAccessAndCommitBulk() {
     assertNotRollbackOnly();
@@ -732,10 +733,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * Shared insertion preflight. A subtree shredder already established that the transaction is
-   * open and running before enabling bulk mode, so its per-node inserts retain count-based
-   * rotation while avoiding two redundant state checks. Standalone JSON/XML insertions keep the
-   * full public-mutator validation path.
+   * Shared insertion preflight. A subtree shredder already established that the transaction is open
+   * and running before enabling bulk mode, so its per-node inserts retain count-based rotation while
+   * avoiding two redundant state checks. Standalone JSON/XML insertions keep the full public-mutator
+   * validation path.
    */
   protected final void checkAccessAndCommitForInsert() {
     if (nodeHashing.isBulkInsert()) {
@@ -748,11 +749,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * Position the cursor on the document node created by the current insertion.
    *
-   * <p>The node factory's allocation is still the writer's most recent document allocation at
-   * this point: insertion preflight ran before creation, while linkage and hash maintenance do not
+   * <p>
+   * The node factory's allocation is still the writer's most recent document allocation at this
+   * point: insertion preflight ran before creation, while linkage and hash maintenance do not
    * allocate another document node. The internal cursor can therefore bind its own singleton from
    * that exact page slot and avoid a redundant TIL page resolution. Any violated guard takes the
-   * ordinary TIL-aware move path.</p>
+   * ordinary TIL-aware move path.
+   * </p>
    */
   protected final void moveToJustInsertedNode(final long nodeKey) {
     if (!nodeReadOnlyTrx.tryMoveToLastAllocatedDocumentNode(storageEngineWriter, nodeKey)) {
@@ -763,8 +766,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * Mark that a successful insert has left the physical cursor on {@code nodeKey}.
    *
-   * <p>The marker is deliberately transaction-local and allocation-free. It does not relax the
-   * general rule that write-cursor moves must consult the transaction-intent log.</p>
+   * <p>
+   * The marker is deliberately transaction-local and allocation-free. It does not relax the general
+   * rule that write-cursor moves must consult the transaction-intent log.
+   * </p>
    */
   protected final void markFreshlyInsertedCursor(final long nodeKey) {
     assert nodeKey >= 0 : "inserted document node keys must be non-negative";
@@ -778,9 +783,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * Consume and validate the one-shot freshly-inserted cursor marker.
    *
-   * <p>A {@code true} result approves skipping only the physical node rebind. The caller remains
+   * <p>
+   * A {@code true} result approves skipping only the physical node rebind. The caller remains
    * responsible for applying the normal logical cursor-move side effects through
-   * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before returning to its caller.</p>
+   * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before returning to its caller.
+   * </p>
    *
    * @return {@code true} only when {@code nodeKey} is an immediate self-move in the same mutation
    *         epoch and on the same storage writer
@@ -795,9 +802,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     freshlyInsertedCursorNodeKey = Long.MIN_VALUE;
     freshlyInsertedCursorWriter = null;
 
-    return nodeKey == markedNodeKey
-        && mutationSequence == markedMutationSequence
-        && storageEngineWriter == markedWriter
+    return nodeKey == markedNodeKey && mutationSequence == markedMutationSequence && storageEngineWriter == markedWriter
         && storageEngineWriter.getLog().getCurrentGeneration() == markedLogGeneration
         && nodeReadOnlyTrx.getNodeKey() == nodeKey;
   }
@@ -827,7 +832,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
         flushIntermediateAsyncEpoch();
       } else {
-        LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
+        LOGGER.debug(
+            "AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
         commitInternal("autoCommit", null, true);
         LOGGER.debug("AUTO-COMMIT completed");
       }
@@ -846,7 +852,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Rotate one bounded intermediate async-flush epoch.
    */
   private void flushIntermediateAsyncEpoch() {
-    final long started = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+    final long started = HFT_TELEMETRY_ENABLED
+        ? System.nanoTime()
+        : 0L;
     try {
       // Index maintenance that has to READ the records it is maintaining must run while those records
       // are still reachable through this transaction. The flush writes their pages out and lets go of
@@ -864,8 +872,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // repair follows an async flush.
     } finally {
       if (HFT_TELEMETRY_ENABLED) {
-        storageEngineWriter.recordAsyncFlushForegroundNanos(
-            Math.max(0L, System.nanoTime() - started));
+        storageEngineWriter.recordAsyncFlushForegroundNanos(Math.max(0L, System.nanoTime() - started));
       }
     }
   }
@@ -883,14 +890,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * @param pendingBaseUberPage non-null for pipelined async commits: the phase-1-complete uber
-   *        page of the still-hardening revision. The superseded page transaction is DETACHED
-   *        (closed later by the background hardening thread), and the successor is based on the
-   *        pending uber page instead of {@code lastCommittedUberPage}.
+   * @param pendingBaseUberPage non-null for pipelined async commits: the phase-1-complete uber page
+   *        of the still-hardening revision. The superseded page transaction is DETACHED (closed later
+   *        by the background hardening thread), and the successor is based on the pending uber page
+   *        instead of {@code lastCommittedUberPage}.
    */
   private void reInstantiate(final int trxID, final int revNumber, final UberPage pendingBaseUberPage) {
     final boolean timing = LOGGER.isDebugEnabled();
-    final long r0 = timing ? System.nanoTime() : 0;
+    final long r0 = timing
+        ? System.nanoTime()
+        : 0;
 
     // Save the current cursor position. getNodeKey() reads from a Java field, always valid.
     final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
@@ -902,16 +911,19 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       resourceSession.detachNodePageWriteTransaction(getId());
     }
 
-    final long r1 = timing ? System.nanoTime() : 0;
+    final long r1 = timing
+        ? System.nanoTime()
+        : 0;
 
-    storageEngineWriter =
-        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true,
-            pendingBaseUberPage);
+    storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
+        InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
     resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-    final long r2 = timing ? System.nanoTime() : 0;
+    final long r2 = timing
+        ? System.nanoTime()
+        : 0;
 
     nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
@@ -929,11 +941,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
     nodeReadOnlyTrx.moveTo(currentNodeKey);
 
-    final long r3 = timing ? System.nanoTime() : 0;
+    final long r3 = timing
+        ? System.nanoTime()
+        : 0;
 
     if (timing) {
-      LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms",
-          ms(r1 - r0), ms(r2 - r1), ms(r3 - r2), ms(r3 - r0));
+      LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms", ms(r1 - r0), ms(r2 - r1),
+          ms(r3 - r2), ms(r3 - r0));
     }
   }
 
@@ -958,7 +972,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // duplicate listeners or (for listener types that dedup per definition)
     // keep a stale, possibly spent listener in place of a fresh one.
     final var indexDefs = indexController.getIndexes().getIndexDefs();
-    indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    indexController =
+        resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     indexController.clearChangeListeners();
     indexController.createIndexListeners(indexDefs, self());
 
@@ -1140,18 +1155,18 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * Rolls the resource back to {@code revision}: truncates the data + revisions files, rewrites
-   * both uber beacons, resets the session's last-committed uber page, and drops the database's
-   * cached pages. Was a no-op TODO — {@code TransactionImpl}'s atomicity undo silently did
-   * nothing. The transaction's cursor state still refers to the truncated revision afterwards;
-   * callers must close (or roll back) the transaction without committing through it.
+   * Rolls the resource back to {@code revision}: truncates the data + revisions files, rewrites both
+   * uber beacons, resets the session's last-committed uber page, and drops the database's cached
+   * pages. Was a no-op TODO — {@code TransactionImpl}'s atomicity undo silently did nothing. The
+   * transaction's cursor state still refers to the truncated revision afterwards; callers must close
+   * (or roll back) the transaction without committing through it.
    */
   @Override
   public W truncateTo(final int revision) {
     nodeReadOnlyTrx.assertNotClosed();
     final int currentRevision = getRevisionNumber();
-    checkArgument(revision >= 0 && revision < currentRevision,
-                  "revision %s must be in [0, current revision %s).", revision, currentRevision);
+    checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
+        revision, currentRevision);
 
     indexController.notifyTransactionAbort();
     storageEngineWriter.truncateTo(revision);
@@ -1195,8 +1210,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         try {
           awaitPendingAsyncCommit();
         } catch (final RuntimeException e) {
-          LOGGER.error("Async commit pipeline failed before close — the last pipelined revision(s) "
-              + "did not become durable.", e);
+          LOGGER.error(
+              "Async commit pipeline failed before close — the last pipelined revision(s) " + "did not become durable.",
+              e);
         }
 
         // Make sure to commit all dirty data.
@@ -1268,9 +1284,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("super", super.toString())
-                      .add("hashType", this.hashType)
-                      .add("nodeReadOnlyTrx", this.nodeReadOnlyTrx)
-                      .toString();
+                         .add("super", super.toString())
+                         .add("hashType", this.hashType)
+                         .add("nodeReadOnlyTrx", this.nodeReadOnlyTrx)
+                         .toString();
   }
 }

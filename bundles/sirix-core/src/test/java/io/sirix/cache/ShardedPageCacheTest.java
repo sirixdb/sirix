@@ -45,8 +45,8 @@ class ShardedPageCacheTest {
   }
 
   private static HOTLeafPage hotLeaf(Arena arena, long pageKey, int sideReferenceCount) {
-    final HOTLeafPage leaf = new HOTLeafPage(pageKey, 1, IndexType.PROJECTION,
-        arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    final HOTLeafPage leaf = new HOTLeafPage(pageKey, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE),
+        null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
     for (int index = 0; index < sideReferenceCount; index++) {
       leaf.setPageReference(index, new PageReference().setKey(index + 1L));
     }
@@ -80,9 +80,8 @@ class ShardedPageCacheTest {
       final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
       final PageReference key = keyFor(103);
       final byte[] commonPrefix = new byte[257];
-      final HOTLeafPage leaf = new HOTLeafPage(103, 1, IndexType.CAS,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0, commonPrefix,
-          commonPrefix.length);
+      final HOTLeafPage leaf = new HOTLeafPage(103, 1, IndexType.CAS, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
+          new int[HOTLeafPage.MAX_ENTRIES], 0, 0, commonPrefix, commonPrefix.length);
 
       cache.put(key, leaf);
 
@@ -109,8 +108,7 @@ class ShardedPageCacheTest {
       // A re-put is the publication boundary for a changed page and replaces the prior charge.
       cache.put(key, leaf);
 
-      assertEquals(weightWithoutSideReferences + 37L * HOT_SIDE_REFERENCE_HEAP_BYTES,
-          cache.getCurrentWeightBytes());
+      assertEquals(weightWithoutSideReferences + 37L * HOT_SIDE_REFERENCE_HEAP_BYTES, cache.getCurrentWeightBytes());
       cache.remove(key);
       leaf.close();
     }
@@ -193,8 +191,7 @@ class ShardedPageCacheTest {
       final long existingWeight = cache.getCurrentWeightBytes();
       existing.retire(); // leave a deliberately stale mapping so the loader path is exercised
 
-      assertThrows(IllegalStateException.class,
-          () -> cache.getOrLoadAndGuard(key, _ -> invalidCandidate));
+      assertThrows(IllegalStateException.class, () -> cache.getOrLoadAndGuard(key, _ -> invalidCandidate));
 
       assertSame(existing, cache.asMap().get(key), "failed admission must not mutate CHM ownership");
       assertEquals(existingWeight, cache.getCurrentWeightBytes(),
@@ -217,8 +214,8 @@ class ShardedPageCacheTest {
     candidate.lastCacheKeyFailure = publicationFailure;
     final long existingWeight = cache.getCurrentWeightBytes();
 
-    final AssertionError thrown = assertThrows(AssertionError.class,
-        () -> cache.getOrLoadAndGuard(key, _ -> candidate));
+    final AssertionError thrown =
+        assertThrows(AssertionError.class, () -> cache.getOrLoadAndGuard(key, _ -> candidate));
 
     assertSame(publicationFailure, thrown);
     assertSame(existing, cache.asMap().get(key));
@@ -258,8 +255,8 @@ class ShardedPageCacheTest {
     try (Arena arena = Arena.ofConfined()) {
       final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
       final PageReference key = keyFor(304);
-      final HOTLeafPage page = new HOTLeafPage(304, 1, IndexType.PROJECTION,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
+      final HOTLeafPage page =
+          new HOTLeafPage(304, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw new AssertionError("expected release failure");
           }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
       cache.put(key, page);
@@ -281,8 +278,8 @@ class ShardedPageCacheTest {
   void clearDrainsEveryOwnerBeforeRethrowing() {
     try (Arena arena = Arena.ofConfined()) {
       final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-      final HOTLeafPage failing = new HOTLeafPage(305, 1, IndexType.PROJECTION,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
+      final HOTLeafPage failing =
+          new HOTLeafPage(305, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw new AssertionError("expected clear release failure");
           }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage succeeding = hotLeaf(arena, 306, 1);
@@ -564,7 +561,7 @@ class ShardedPageCacheTest {
     final FakePage kept = new FakePage(1);
     cache.put(keptKey, kept);
 
-    cache.removePage(new FakePage(99));   // not cached — must not throw or disturb anything
+    cache.removePage(new FakePage(99)); // not cached — must not throw or disturb anything
 
     assertSame(kept, cache.get(keptKey), "an unrelated cached page must be untouched");
     assertEquals(PAGE_BYTES, cache.getCurrentWeightBytes());
@@ -579,7 +576,7 @@ class ShardedPageCacheTest {
     final FakePage[] pages = new FakePage[7];
     for (int i = 0; i < pages.length; i++) {
       pages[i] = new FakePage(i);
-      pages[i].markAccessed();   // sets the HOT bit
+      pages[i].markAccessed(); // sets the HOT bit
       cache.put(keyFor(i), pages[i]);
     }
     for (final FakePage p : pages) {

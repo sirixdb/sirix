@@ -50,13 +50,13 @@ final class WriterNamePageCacheTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(resourceConfiguration());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
 
         NamePage currentEpochPage = writer.cachedCurrentNamePageForTesting();
-        final NodeKind[] jsonKinds = {NodeKind.OBJECT_NAMED_OBJECT, NodeKind.OBJECT_NAMED_ARRAY,
-            NodeKind.OBJECT_NAMED_BOOLEAN, NodeKind.OBJECT_NAMED_NUMBER, NodeKind.OBJECT_NAMED_STRING,
-            NodeKind.OBJECT_NAMED_NULL};
+        final NodeKind[] jsonKinds =
+            {NodeKind.OBJECT_NAMED_OBJECT, NodeKind.OBJECT_NAMED_ARRAY, NodeKind.OBJECT_NAMED_BOOLEAN,
+                NodeKind.OBJECT_NAMED_NUMBER, NodeKind.OBJECT_NAMED_STRING, NodeKind.OBJECT_NAMED_NULL};
         for (final NodeKind kind : jsonKinds) {
           writer.createNameKey("json-" + kind.name(), kind);
           if (currentEpochPage == null) {
@@ -81,8 +81,7 @@ final class WriterNamePageCacheTest {
         assertNull(writer.cachedCurrentNamePageForTesting(),
             "rollback must sever the retired writer's structural-page pointer");
 
-        final NodeStorageEngineWriter replacementWriter =
-            (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
+        final NodeStorageEngineWriter replacementWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         assertNotSame(writer, replacementWriter);
         assertNull(replacementWriter.cachedCurrentNamePageForTesting());
         replacementWriter.createNameKey("after-rollback", NodeKind.OBJECT_NAMED_STRING);
@@ -102,12 +101,12 @@ final class WriterNamePageCacheTest {
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(resourceConfiguration());
       try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
-           final XmlNodeTrx wtx = session.beginNodeTrx()) {
+          final XmlNodeTrx wtx = session.beginNodeTrx()) {
         final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
 
         NamePage currentEpochPage = writer.cachedCurrentNamePageForTesting();
-        final NodeKind[] xmlKinds = {NodeKind.ELEMENT, NodeKind.ATTRIBUTE, NodeKind.NAMESPACE,
-            NodeKind.PROCESSING_INSTRUCTION};
+        final NodeKind[] xmlKinds =
+            {NodeKind.ELEMENT, NodeKind.ATTRIBUTE, NodeKind.NAMESPACE, NodeKind.PROCESSING_INSTRUCTION};
         for (final NodeKind kind : xmlKinds) {
           writer.createNameKey("xml-" + kind.name(), kind);
           if (currentEpochPage == null) {
@@ -136,8 +135,7 @@ final class WriterNamePageCacheTest {
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
         final NodeStorageEngineWriter successorWriter;
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-          final NodeStorageEngineWriter committingWriter =
-              (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
+          final NodeStorageEngineWriter committingWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
           committingWriter.keyForName("committed-name", NodeKind.OBJECT_NAMED_NUMBER);
           assertNotNull(committingWriter.cachedCurrentNamePageForTesting());
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"committed-name\":1}"),

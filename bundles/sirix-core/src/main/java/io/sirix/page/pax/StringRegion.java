@@ -593,16 +593,16 @@ public final class StringRegion {
     /** Exact stored-byte length of each dictionary entry. */
     private int[][] tagLengths = new int[4][];
     /**
-     * Parallel to {@link #tagStores}: whether each dict entry's bytes are FSST-encoded rather than
-     * raw UTF-8. Rides the dedup: two adds only fold into one entry when bytes AND flag agree, because
-     * raw bytes that happen to equal some other value's encoded form are still a different value.
+     * Parallel to {@link #tagStores}: whether each dict entry's bytes are FSST-encoded rather than raw
+     * UTF-8. Rides the dedup: two adds only fold into one entry when bytes AND flag agree, because raw
+     * bytes that happen to equal some other value's encoded form are still a different value.
      */
     private boolean[][] tagCompressed = new boolean[4][];
     private int[] tagDictSize = new int[4];
     /**
-     * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset;
-     * only the logical length returns to zero. Entries in the alternative name/path encoder may
-     * temporarily borrow an exact range from this store.
+     * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset; only
+     * the logical length returns to zero. Entries in the alternative name/path encoder may temporarily
+     * borrow an exact range from this store.
      */
     private final ValueStore ownedValueStore = new ValueStore();
     /** Owner-confined reusable wire scratch. Only {@code [0, encodedLength)} is current. */
@@ -659,28 +659,25 @@ public final class StringRegion {
      * no decode ever happens at page-deserialize time (where no reader, and therefore no symbol table,
      * is in scope). The flag travels as the sign of the entry's length on the wire.
      *
-     * <p>On a dictionary miss the encoder copies the bytes into its reusable grow-only store. The
-     * caller may therefore reuse or mutate {@code value} as soon as this method returns.
+     * <p>
+     * On a dictionary miss the encoder copies the bytes into its reusable grow-only store. The caller
+     * may therefore reuse or mutate {@code value} as soon as this method returns.
      */
     public void addValue(final int parentNameKey, final byte[] value, final boolean compressed) {
       if (value == null) {
         throw new NullPointerException("value");
       }
-      addValueInternal(parentNameKey,
-          value,
-          0,
-          value.length,
-          compressed,
-          VALUE_HASH.hashBytes(value, 0, value.length));
+      addValueInternal(parentNameKey, value, 0, value.length, compressed, VALUE_HASH.hashBytes(value, 0, value.length));
     }
 
     /**
      * Add a slice from reusable caller scratch without retaining that scratch.
      *
-     * <p>Hashing and collision confirmation operate directly on
+     * <p>
+     * Hashing and collision confirmation operate directly on
      * {@code value[valueOffset..valueOffset + valueLength)}. A dictionary hit therefore performs no
-     * allocation. On a miss, the encoder appends to one owner-confined grow-only store; later
-     * changes to the caller's array cannot alter dictionary identity or encoded wire bytes.
+     * allocation. On a miss, the encoder appends to one owner-confined grow-only store; later changes
+     * to the caller's array cannot alter dictionary identity or encoded wire bytes.
      *
      * @param parentNameKey semantic tag value (name key or path node key, as selected at finish)
      * @param value caller-owned source array
@@ -688,21 +685,21 @@ public final class StringRegion {
      * @param valueLength number of bytes in the value
      * @param compressed whether the slice is FSST-encoded rather than raw UTF-8
      */
-    public void addValue(final int parentNameKey, final byte[] value, final int valueOffset,
-        final int valueLength, final boolean compressed) {
-      addValueCopiedAndShareWith(
-          parentNameKey, value, valueOffset, valueLength, compressed, null, 0);
+    public void addValue(final int parentNameKey, final byte[] value, final int valueOffset, final int valueLength,
+        final boolean compressed) {
+      addValueCopiedAndShareWith(parentNameKey, value, valueOffset, valueLength, compressed, null, 0);
     }
 
     /**
      * Add a reusable-scratch slice and optionally share its private canonical representation with a
      * second tag encoder.
      *
-     * <p>This encoder appends to its owner-confined store on a dictionary miss (or reuses its
-     * existing entry on a hit). When {@code alternate} is non-null, its dictionary references the
-     * exact same private store range through the no-copy internal path. This is how the page writer
-     * builds name- and path-tagged candidates without either retaining caller scratch or copying each
-     * distinct value twice. No mutable canonical reference escapes either encoder.
+     * <p>
+     * This encoder appends to its owner-confined store on a dictionary miss (or reuses its existing
+     * entry on a hit). When {@code alternate} is non-null, its dictionary references the exact same
+     * private store range through the no-copy internal path. This is how the page writer builds name-
+     * and path-tagged candidates without either retaining caller scratch or copying each distinct value
+     * twice. No mutable canonical reference escapes either encoder.
      *
      * @param parentNameKey this encoder's semantic tag
      * @param value caller-owned scratch
@@ -726,12 +723,8 @@ public final class StringRegion {
       final int id = addValueInternal(parentNameKey, value, valueOffset, valueLength, compressed, hash);
       if (alternate != null) {
         final int tag = tagIndex.get(parentNameKey);
-        alternate.addStoredValueInternal(alternateParentNameKey,
-            tagStores[tag][id],
-            tagOffsets[tag][id],
-            tagLengths[tag][id],
-            compressed,
-            hash);
+        alternate.addStoredValueInternal(alternateParentNameKey, tagStores[tag][id], tagOffsets[tag][id],
+            tagLengths[tag][id], compressed, hash);
       }
     }
 
@@ -771,8 +764,8 @@ public final class StringRegion {
     }
 
     /** Add a dictionary occurrence from an internal immutable-for-the-page store range. */
-    private int addStoredValueInternal(final int parentNameKey, final ValueStore sourceStore,
-        final int sourceOffset, final int valueLength, final boolean compressed, final long hash) {
+    private int addStoredValueInternal(final int parentNameKey, final ValueStore sourceStore, final int sourceOffset,
+        final int valueLength, final boolean compressed, final long hash) {
       final int tag = getOrCreateTag(parentNameKey);
       final long[] hashes = tagHashes[tag];
       final ValueStore[] stores = tagStores[tag];
@@ -846,11 +839,7 @@ public final class StringRegion {
       }
       final int tag = tagIndex.get(parentNameKey);
       final int alternateTag = alternate.tagIndex.get(alternateParentNameKey);
-      return tag >= 0
-          && alternateTag >= 0
-          && dictId >= 0
-          && dictId < tagDictSize[tag]
-          && alternateDictId >= 0
+      return tag >= 0 && alternateTag >= 0 && dictId >= 0 && dictId < tagDictSize[tag] && alternateDictId >= 0
           && alternateDictId < alternate.tagDictSize[alternateTag]
           && tagStores[tag][dictId] == alternate.tagStores[alternateTag][alternateDictId]
           && tagOffsets[tag][dictId] == alternate.tagOffsets[alternateTag][alternateDictId]
@@ -873,7 +862,8 @@ public final class StringRegion {
     /**
      * Serialize to a detached exact-size array, defaulting tagKind to {@link #TAG_KIND_NAME}.
      *
-     * <p>The returned array is caller-owned and is never reused by this encoder.
+     * <p>
+     * The returned array is caller-owned and is never reused by this encoder.
      */
     public byte[] finish() {
       return finish(TAG_KIND_NAME);
@@ -903,10 +893,10 @@ public final class StringRegion {
     /**
      * Serialize into this encoder's owner-confined reusable output buffer.
      *
-     * <p>Only {@code [0, returnedLength)} of {@link #output()} is valid. The next call may overwrite
-     * that prefix or replace the backing array. A caller that retains the result must synchronously
-     * copy the exact prefix first; {@link RegionTable#set(byte, byte[], int)} is such an ownership
-     * boundary.
+     * <p>
+     * Only {@code [0, returnedLength)} of {@link #output()} is valid. The next call may overwrite that
+     * prefix or replace the backing array. A caller that retains the result must synchronously copy the
+     * exact prefix first; {@link RegionTable#set(byte, byte[], int)} is such an ownership boundary.
      *
      * @param tagKind semantic interpretation of the tag dictionary
      * @param elementsStaged whether array-element staging ran for this page
@@ -930,8 +920,7 @@ public final class StringRegion {
       }
       final int bitWidth = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxLocalDict - 1)));
       // +1 byte for tagKind prefix.
-      final long headerSize = 1L + 1L + Integer.BYTES + 1L + Integer.BYTES
-          + (long) ps * Integer.BYTES * 4L;
+      final long headerSize = 1L + 1L + Integer.BYTES + 1L + Integer.BYTES + (long) ps * Integer.BYTES * 4L;
       long dictBytesSize = 0L;
       for (int t = 0; t < ps; t++) {
         final int sz = tagDictSize[t];
@@ -1013,7 +1002,10 @@ public final class StringRegion {
       return output;
     }
 
-    /** Exact length returned by the most recent successful encode, or zero after an empty/failed attempt. */
+    /**
+     * Exact length returned by the most recent successful encode, or zero after an empty/failed
+     * attempt.
+     */
     public int encodedLength() {
       return encodedLength;
     }
@@ -1038,9 +1030,9 @@ public final class StringRegion {
 
     /**
      * One encoder-owned append-only byte area. Alternative tag encoders retain ranges rather than
-     * arrays; a reset is therefore deferred until the last foreign dictionary entry releases it.
-     * The class is deliberately unsynchronised: encoders and their shared candidate are confined to
-     * one page-writer thread.
+     * arrays; a reset is therefore deferred until the last foreign dictionary entry releases it. The
+     * class is deliberately unsynchronised: encoders and their shared candidate are confined to one
+     * page-writer thread.
      */
     private static final class ValueStore {
       private byte[] bytes = new byte[1024];
@@ -1061,20 +1053,14 @@ public final class StringRegion {
         return offset;
       }
 
-      private boolean equalsRange(final int offset, final byte[] other, final int otherOffset,
-          final int rangeLength) {
+      private boolean equalsRange(final int offset, final byte[] other, final int otherOffset, final int rangeLength) {
         return Arrays.equals(bytes, offset, offset + rangeLength, other, otherOffset, otherOffset + rangeLength);
       }
 
       private boolean equalsRange(final int offset, final ValueStore other, final int otherOffset,
           final int rangeLength) {
         return (this == other && offset == otherOffset)
-            || Arrays.equals(bytes,
-                offset,
-                offset + rangeLength,
-                other.bytes,
-                otherOffset,
-                otherOffset + rangeLength);
+            || Arrays.equals(bytes, offset, offset + rangeLength, other.bytes, otherOffset, otherOffset + rangeLength);
       }
 
       private void copyTo(final int offset, final byte[] destination, final int destinationOffset,

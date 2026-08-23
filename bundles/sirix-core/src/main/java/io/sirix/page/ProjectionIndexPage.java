@@ -21,26 +21,25 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 /**
  * Container page for projection indexes, keyed by {@code IndexDef#getID()}.
  *
- * <p>Structurally identical to {@link CASPage} / {@link PathPage} /
- * {@link NamePage}: the page delegate holds one {@link PageReference} per
- * registered projection index, each rooting a versioned HOT sub-tree whose
- * leaves are {@link io.sirix.index.projection.ProjectionIndexRowGroupRecord}
- * entries. Per-index book-keeping mirrors the other secondary indexes:
+ * <p>
+ * Structurally identical to {@link CASPage} / {@link PathPage} / {@link NamePage}: the page
+ * delegate holds one {@link PageReference} per registered projection index, each rooting a
+ * versioned HOT sub-tree whose leaves are
+ * {@link io.sirix.index.projection.ProjectionIndexRowGroupRecord} entries. Per-index book-keeping
+ * mirrors the other secondary indexes:
  *
  * <ul>
- *   <li>{@link #maxNodeKeys}: largest leaf-record nodeKey ever allocated in
- *       index {@code i}. Used by the builder to stamp sequential leaf ids
- *       without a full trie walk.</li>
- *   <li>{@link #maxHotPageKeys}: largest HOT page-key ever allocated, matches
- *       the persistence layer's {@code HOTTrieWriter}.</li>
- *   <li>{@link #currentMaxLevelsOfIndirectPages}: depth of the indirect-page
- *       chain per index. The executor uses this to short-circuit
- *       empty indexes.</li>
+ * <li>{@link #maxNodeKeys}: largest leaf-record nodeKey ever allocated in index {@code i}. Used by
+ * the builder to stamp sequential leaf ids without a full trie walk.</li>
+ * <li>{@link #maxHotPageKeys}: largest HOT page-key ever allocated, matches the persistence layer's
+ * {@code HOTTrieWriter}.</li>
+ * <li>{@link #currentMaxLevelsOfIndirectPages}: depth of the indirect-page chain per index. The
+ * executor uses this to short-circuit empty indexes.</li>
  * </ul>
  *
- * <p>Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern:
- * one sibling reference offset, populated on fresh revisions via
- * {@link RevisionRootPage#getProjectionPageReference()}.
+ * <p>
+ * Placement in {@link RevisionRootPage} matches the CAS/PATH/NAME pattern: one sibling reference
+ * offset, populated on fresh revisions via {@link RevisionRootPage#getProjectionPageReference()}.
  */
 public final class ProjectionIndexPage extends AbstractForwardingPage {
 
@@ -59,8 +58,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
   }
 
-  ProjectionIndexPage(final Page delegate, final Int2LongMap maxNodeKeys,
-      final Int2LongMap maxHotPageKeys, final Int2IntMap currentMaxLevelsOfIndirectPages) {
+  ProjectionIndexPage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2LongMap maxHotPageKeys,
+      final Int2IntMap currentMaxLevelsOfIndirectPages) {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.maxHotPageKeys = maxHotPageKeys;
@@ -68,11 +67,11 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
-   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
-   * mutations to a child reference (key, pageFragments, swizzled page) cannot bleed back into the
-   * historical revision's view through cache aliasing. The bookkeeping maps are duplicated to
-   * decouple writer-side mutations from the prior-revision's instance.
+   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}: the
+   * underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so mutations
+   * to a child reference (key, pageFragments, swizzled page) cannot bleed back into the historical
+   * revision's view through cache aliasing. The bookkeeping maps are duplicated to decouple
+   * writer-side mutations from the prior-revision's instance.
    */
   public ProjectionIndexPage(final ProjectionIndexPage other) {
     final Page otherDelegate = other.delegate;
@@ -98,8 +97,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Get the indirect-page reference for the projection index with the given
-   * {@code IndexDef} id. Creates an empty reference slot if none exists yet.
+   * Get the indirect-page reference for the projection index with the given {@code IndexDef} id.
+   * Creates an empty reference slot if none exists yet.
    */
   public PageReference getIndirectPageReference(int index) {
     return getOrCreateProjectionReference(index);
@@ -114,8 +113,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
    * Initialise the HOT sub-tree for a projection index. Mirrors
    * {@link CASPage#createHOTCASIndexTree}.
    */
-  public void createProjectionIndexTree(final StorageEngineReader storageEngineReader,
-      final int index, final TransactionIntentLog log) {
+  public void createProjectionIndexTree(final StorageEngineReader storageEngineReader, final int index,
+      final TransactionIntentLog log) {
     final PageReference reference = getOrCreateProjectionReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
@@ -130,8 +129,8 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   }
 
   /** Swap in a fresh empty sub-tree for {@code index}, preserving earlier revisions through CoW. */
-  public void resetProjectionIndexTree(final StorageEngineReader storageEngineReader,
-      final int index, final TransactionIntentLog log) {
+  public void resetProjectionIndexTree(final StorageEngineReader storageEngineReader, final int index,
+      final TransactionIntentLog log) {
     getOrCreateProjectionReference(index);
     final PageReference fresh = new PageReference();
     delegate = PageUtils.setReference(delegate, index, fresh);
@@ -161,11 +160,13 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   /**
    * Create one projection-root reference while honoring both delegate growth thresholds.
    *
-   * <p>{@link BitmapReferencesPage#getOrCreateReference(int)} deliberately returns {@code null}
-   * when adding the threshold entry, after the entry has already been installed. Treating every
-   * such {@code null} as a {@link ReferencesPage4} overflow causes a class cast at the
-   * bitmap-to-full transition. Routing the replacement through {@link PageUtils#setReference}
-   * performs the correct sparse-to-bitmap or bitmap-to-full conversion.</p>
+   * <p>
+   * {@link BitmapReferencesPage#getOrCreateReference(int)} deliberately returns {@code null} when
+   * adding the threshold entry, after the entry has already been installed. Treating every such
+   * {@code null} as a {@link ReferencesPage4} overflow causes a class cast at the bitmap-to-full
+   * transition. Routing the replacement through {@link PageUtils#setReference} performs the correct
+   * sparse-to-bitmap or bitmap-to-full conversion.
+   * </p>
    */
   private PageReference getOrCreateProjectionReference(final int index) {
     if (index < 0 || index >= Constants.INP_REFERENCE_COUNT) {

@@ -18,19 +18,22 @@ import java.io.PrintWriter;
 /**
  * The two string-column encodings must be indistinguishable from a query's point of view.
  *
- * <p>A {@code string} column is stored either with a per-leaf dictionary
+ * <p>
+ * A {@code string} column is stored either with a per-leaf dictionary
  * ({@code COLUMN_KIND_STRING_DICT}) or with ids into a resource-wide one
  * ({@code COLUMN_KIND_STRING_GLOBAL}), and which one a build picks is decided from the data it
  * sees. Nothing in a query says which it wants, so nothing in an answer may depend on which it got
  * — not the values, not the grouping, not the counts, not the order.
  *
- * <p>The test builds the SAME corpus both ways in one JVM (the mode is a system property read per
+ * <p>
+ * The test builds the SAME corpus both ways in one JVM (the mode is a system property read per
  * build, precisely so this is possible) and requires the answers to be character-identical. It
  * would catch every failure mode the conversion has: ids that mean different things in different
  * leaves, absent cells that acquire a value, the empty string colliding with "no value", and a
  * dictionary whose reverse direction disagrees with what was interned.
  *
- * <p>Both arms are compared against each other rather than against a hard-coded expectation on
+ * <p>
+ * Both arms are compared against each other rather than against a hard-coded expectation on
  * purpose: the per-leaf arm is the already-verified behaviour, so it is the reference, and pinning
  * literals here would only duplicate the suites that already own those answers.
  */
@@ -39,27 +42,26 @@ public final class GlobalValueDictionaryParityTest extends AbstractJsonTest {
   private static final String GLOBAL_DICT_PROPERTY = "sirix.projection.globalDict";
 
   /**
-   * Deliberately awkward data. Every row's {@code did} is distinct except for two deliberate
-   * repeats spanning what will be separate leaves under a small row group; {@code kind} repeats
-   * heavily (the shape that must STAY per-leaf); one row omits {@code did} entirely (absent, which
-   * must not become a value); one carries the empty string (a real value that must not become
-   * "absent"); and two differ only past a shared prefix.
+   * Deliberately awkward data. Every row's {@code did} is distinct except for two deliberate repeats
+   * spanning what will be separate leaves under a small row group; {@code kind} repeats heavily (the
+   * shape that must STAY per-leaf); one row omits {@code did} entirely (absent, which must not become
+   * a value); one carries the empty string (a real value that must not become "absent"); and two
+   * differ only past a shared prefix.
    */
-  private static final String STORE =
-      """
-            jn:store('json-path1','parity.jn','[
-              {"kind":"commit","did":"did:plc:aaaa","tag":"x","n":1},
-              {"kind":"commit","did":"did:plc:aaab","tag":"y","n":2},
-              {"kind":"commit","did":"","tag":"x","n":3},
-              {"kind":"identity","did":"did:plc:cccc","tag":"z","n":4},
-              {"kind":"commit","tag":"x","n":5},
-              {"kind":"commit","did":"did:plc:aaaa","tag":"y","n":6},
-              {"kind":"account","did":"did:plc:dddd","tag":"x","n":7},
-              {"kind":"commit","did":"did:plc:eeee","tag":"z","n":8},
-              {"kind":"commit","did":"did:plc:ffff","tag":"y","n":9},
-              {"kind":"identity","did":"","tag":"x","n":10}
-            ]')
-          """;
+  private static final String STORE = """
+        jn:store('json-path1','parity.jn','[
+          {"kind":"commit","did":"did:plc:aaaa","tag":"x","n":1},
+          {"kind":"commit","did":"did:plc:aaab","tag":"y","n":2},
+          {"kind":"commit","did":"","tag":"x","n":3},
+          {"kind":"identity","did":"did:plc:cccc","tag":"z","n":4},
+          {"kind":"commit","tag":"x","n":5},
+          {"kind":"commit","did":"did:plc:aaaa","tag":"y","n":6},
+          {"kind":"account","did":"did:plc:dddd","tag":"x","n":7},
+          {"kind":"commit","did":"did:plc:eeee","tag":"z","n":8},
+          {"kind":"commit","did":"did:plc:ffff","tag":"y","n":9},
+          {"kind":"identity","did":"","tag":"x","n":10}
+        ]')
+      """;
 
   private static final String INDEX = """
         let $doc := jn:doc('json-path1','parity.jn')
@@ -140,9 +142,8 @@ public final class GlobalValueDictionaryParityTest extends AbstractJsonTest {
 
   @Test
   public void bothEncodingsAnswerIdentically() throws IOException {
-    final String[] queries = { GROUP_BY_DID, DISTINCT_PER_GROUP, EMIT_VALUES, ORDER_BY_DID, TOP_K };
-    final String[] names =
-        { "group-by-did", "distinct-per-group", "emit-values", "order-by-did", "top-k" };
+    final String[] queries = {GROUP_BY_DID, DISTINCT_PER_GROUP, EMIT_VALUES, ORDER_BY_DID, TOP_K};
+    final String[] names = {"group-by-did", "distinct-per-group", "emit-values", "order-by-did", "top-k"};
 
     final String[] perLeaf = answersUnder("never", queries);
     final String[] global = answersUnder("always", queries);
@@ -159,24 +160,24 @@ public final class GlobalValueDictionaryParityTest extends AbstractJsonTest {
    * {@code count(... where col eq "")} answers 2 under per-leaf dictionaries and 0 under a
    * resource-wide one.
    *
-   * <p>The data itself is right — the same corpus groups, orders, emits and distinct-counts the
-   * empty string identically under both encodings (that is what
-   * {@link #bothEncodingsAnswerIdentically} shows). What differs is a count route that answers from
-   * per-value dictionary row counts, which a global column does not carry, and which returns "no
-   * rows" instead of declining. It is reachable only with
-   * {@code -Dsirix.projection.globalDict} set away from its default, so nothing ships exposed to
-   * it; it must be fixed with the query routes.
+   * <p>
+   * The data itself is right — the same corpus groups, orders, emits and distinct-counts the empty
+   * string identically under both encodings (that is what {@link #bothEncodingsAnswerIdentically}
+   * shows). What differs is a count route that answers from per-value dictionary row counts, which a
+   * global column does not carry, and which returns "no rows" instead of declining. It is reachable
+   * only with {@code -Dsirix.projection.globalDict} set away from its default, so nothing ships
+   * exposed to it; it must be fixed with the query routes.
    */
   @Test
   public void equalityCountsAgreeAcrossEncodings() throws IOException {
-    final String[] perLeaf = answersUnder("never", new String[] { EQUALITY });
-    final String[] global = answersUnder("always", new String[] { EQUALITY });
+    final String[] perLeaf = answersUnder("never", new String[] {EQUALITY});
+    final String[] global = answersUnder("always", new String[] {EQUALITY});
     Assertions.assertEquals(perLeaf[0], global[0]);
   }
 
   /**
-   * A forced-global build must actually produce a global column, or the parity above is vacuous —
-   * it would be comparing the per-leaf encoding with itself.
+   * A forced-global build must actually produce a global column, or the parity above is vacuous — it
+   * would be comparing the per-leaf encoding with itself.
    */
   @Test
   public void theForcedBuildActuallyProducesAGlobalDictionary() throws IOException {
@@ -197,9 +198,9 @@ public final class GlobalValueDictionaryParityTest extends AbstractJsonTest {
    * <p>
    * Ten rows over a handful of distinct values is the shape a per-leaf dictionary was made for: it
    * packs into a couple of bits per row and materialises with no record read. A resource-wide
-   * dictionary cannot repay its machinery against that, so a heuristic that reached for it here
-   * would be choosing the encoding by type rather than by data — which is the one thing the
-   * measurement exists to avoid.
+   * dictionary cannot repay its machinery against that, so a heuristic that reached for it here would
+   * be choosing the encoding by type rather than by data — which is the one thing the measurement
+   * exists to avoid.
    */
   @Test
   public void theDefaultBuildLeavesALowCardinalityCorpusPerLeaf() throws IOException {
@@ -240,8 +241,9 @@ public final class GlobalValueDictionaryParityTest extends AbstractJsonTest {
 
   /** Run one query and return its serialized answer. */
   private String queryToString(final String query) throws IOException {
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
         final ByteArrayOutputStream out = new ByteArrayOutputStream();

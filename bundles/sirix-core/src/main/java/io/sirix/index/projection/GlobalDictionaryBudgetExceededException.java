@@ -46,8 +46,8 @@ public final class GlobalDictionaryBudgetExceededException extends RuntimeExcept
     this(column, retainedBytes, budgetBytes, entryCount, null);
   }
 
-  GlobalDictionaryBudgetExceededException(final int column, final long retainedBytes,
-      final long budgetBytes, final int entryCount, final String admissionDetail) {
+  GlobalDictionaryBudgetExceededException(final int column, final long retainedBytes, final long budgetBytes,
+      final int entryCount, final String admissionDetail) {
     super(message(column, retainedBytes, budgetBytes, entryCount, admissionDetail));
     this.column = column;
     this.retainedBytes = retainedBytes;
@@ -56,8 +56,8 @@ public final class GlobalDictionaryBudgetExceededException extends RuntimeExcept
     this.admissionDetail = admissionDetail;
   }
 
-  private static String message(final int column, final long retainedBytes,
-      final long budgetBytes, final int entryCount, final String admissionDetail) {
+  private static String message(final int column, final long retainedBytes, final long budgetBytes,
+      final int entryCount, final String admissionDetail) {
     final String reason = admissionDetail == null
         ? "reached its configured aggregate budget of " + budgetBytes + " B"
         : "declined an unsafe allocation before mutation: " + admissionDetail;
@@ -66,8 +66,8 @@ public final class GlobalDictionaryBudgetExceededException extends RuntimeExcept
             + " bounded append generations."
         : " Use per-leaf dictionaries or split the ingest into bounded append generations; raising"
             + " the byte budget cannot override a structural allocation ceiling.";
-    return "Resource-wide value dictionary for column " + column + " " + reason
-        + "; retained " + retainedBytes + " B across " + entryCount
+    return "Resource-wide value dictionary for column " + column + " " + reason + "; retained " + retainedBytes
+        + " B across " + entryCount
         + " distinct values. The projection is abandoned for this load (readers fall back to the generic"
         + " pipeline); the load itself completes." + remediation;
   }

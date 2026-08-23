@@ -50,12 +50,12 @@ final class AsyncCommitFrontierOrderingTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .buildPathSummary(false)
+                                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
     }
 
     final CountDownLatch firstHardenEntered = new CountDownLatch(1);

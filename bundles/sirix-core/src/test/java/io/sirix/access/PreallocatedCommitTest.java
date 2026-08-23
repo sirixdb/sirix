@@ -35,13 +35,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Correctness gate for the low-latency preallocated-commit profile
  * ({@code -Dsirix.commit.preallocated=true}) on the FILE_CHANNEL backend.
  *
- * <p>The profile preallocates the data/revisions files so per-commit writes never extend
- * {@code i_size}, then commits with {@code fdatasync} ({@code force(false)}) instead of {@code fsync}
- * ({@code force(true)}) — on a non-growing file this skips the ext4/xfs metadata-journal commit that
- * dominates the per-commit latency. The logical write frontier is derived from the durable revision
- * graph (the last revision root), NOT from the preallocation-inflated physical file size.
+ * <p>
+ * The profile preallocates the data/revisions files so per-commit writes never extend
+ * {@code i_size}, then commits with {@code fdatasync} ({@code force(false)}) instead of
+ * {@code fsync} ({@code force(true)}) — on a non-growing file this skips the ext4/xfs
+ * metadata-journal commit that dominates the per-commit latency. The logical write frontier is
+ * derived from the durable revision graph (the last revision root), NOT from the
+ * preallocation-inflated physical file size.
  *
- * <p>Integrity is checked the unambiguous way — serialize the resource to JSON and compare the
+ * <p>
+ * Integrity is checked the unambiguous way — serialize the resource to JSON and compare the
  * preallocated path byte-for-byte against the legacy path — rather than via a single scalar that
  * could pass vacuously.
  */
@@ -66,19 +69,17 @@ final class PreallocatedCommitTest {
   }
 
   private static Path dataFilePath(final Path databasePath, final String resourceName) {
-    return databasePath
-        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-        .resolve(resourceName)
-        .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-        .resolve("sirix.data");
+    return databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                       .resolve(resourceName)
+                       .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                       .resolve("sirix.data");
   }
 
   private static Path commitMarkerPath(final Path databasePath, final String resourceName) {
-    return databasePath
-        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-        .resolve(resourceName)
-        .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
-        .resolve(".commit");
+    return databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                       .resolve(resourceName)
+                       .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
+                       .resolve(".commit");
   }
 
   private static Path revisionsFilePath(final Path databasePath, final String resourceName) {
@@ -104,11 +105,11 @@ final class PreallocatedCommitTest {
 
   private static ResourceConfiguration.Builder fileChannelResource(final String name) {
     return ResourceConfiguration.newBuilder(name)
-        .storeDiffs(false)
-        .hashKind(HashType.NONE)
-        .buildPathSummary(false)
-        .versioningApproach(VersioningType.FULL)
-        .storageType(StorageType.FILE_CHANNEL);
+                                .storeDiffs(false)
+                                .hashKind(HashType.NONE)
+                                .buildPathSummary(false)
+                                .versioningApproach(VersioningType.FULL)
+                                .storageType(StorageType.FILE_CHANNEL);
   }
 
   private static int latestRevision(final JsonResourceSession session) {
@@ -191,8 +192,7 @@ final class PreallocatedCommitTest {
 
     assertTrue(bJson.length() > 2_000,
         "sanity: serialized output must be substantial, not empty (got " + bJson.length() + " chars)");
-    assertEquals(legacyJson, bJson,
-        "buffered-beacons commit must produce logically-identical data to the legacy path");
+    assertEquals(legacyJson, bJson, "buffered-beacons commit must produce logically-identical data to the legacy path");
   }
 
   @Test
@@ -267,9 +267,8 @@ final class PreallocatedCommitTest {
       }
       final long afterMany = Files.size(dataFile);
 
-      assertEquals(afterFirst, afterMany,
-          "preallocation must be reused across reopens, not compounded; file grew from " + afterFirst
-              + " to " + afterMany + " bytes over 8 tiny commits");
+      assertEquals(afterFirst, afterMany, "preallocation must be reused across reopens, not compounded; file grew from "
+          + afterFirst + " to " + afterMany + " bytes over 8 tiny commits");
       assertTrue(afterMany <= 2 * chunk,
           "preallocated file must stay bounded to ~1 chunk for a tiny resource; was " + afterMany);
     }
@@ -293,25 +292,27 @@ final class PreallocatedCommitTest {
         revision = session.getMostRecentRevisionNumber();
       }
     }
-    assertTrue(io.sirix.io.RevisionRecordDurability.forFile(revisionsFilePath(dbPath, RESOURCE),
-        resourceUuid.getMostSignificantBits(), resourceUuid.getLeastSignificantBits()).cachedFrontiers()[0] > 0L,
+    assertTrue(
+        io.sirix.io.RevisionRecordDurability.forFile(revisionsFilePath(dbPath, RESOURCE),
+            resourceUuid.getMostSignificantBits(), resourceUuid.getLeastSignificantBits()).cachedFrontiers()[0] > 0L,
         "the fixture must retain the predecessor writer's warm frontier");
 
-    final ByteBuffer revisionRecord = ByteBuffer.allocate(io.sirix.io.IOStorage.REVISIONS_FILE_RECORD_SIZE)
-                                                .order(ByteOrder.LITTLE_ENDIAN);
-    try (final var revisions = java.nio.channels.FileChannel.open(revisionsFilePath(dbPath, RESOURCE),
-        StandardOpenOption.READ)) {
+    final ByteBuffer revisionRecord =
+        ByteBuffer.allocate(io.sirix.io.IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+    try (final var revisions =
+        java.nio.channels.FileChannel.open(revisionsFilePath(dbPath, RESOURCE), StandardOpenOption.READ)) {
       final long offset = io.sirix.io.IOStorage.REVISIONS_RECORDS_START
           + (long) revision * io.sirix.io.IOStorage.REVISIONS_FILE_RECORD_SIZE;
       while (revisionRecord.hasRemaining()) {
         final int read = revisions.read(revisionRecord, offset + revisionRecord.position());
-        if (read <= 0) throw new IOException("short revision record read");
+        if (read <= 0)
+          throw new IOException("short revision record read");
       }
     }
     revisionRecord.flip();
     final long revisionRootOffset = revisionRecord.getLong();
-    try (final var data = java.nio.channels.FileChannel.open(dataFilePath(dbPath, RESOURCE),
-        StandardOpenOption.WRITE)) {
+    try (
+        final var data = java.nio.channels.FileChannel.open(dataFilePath(dbPath, RESOURCE), StandardOpenOption.WRITE)) {
       data.write(ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN).putInt(1).flip(),
           revisionRootOffset);
     }
@@ -352,8 +353,8 @@ final class PreallocatedCommitTest {
       final Path dataFile = dataFilePath(dbPath, RESOURCE);
       final byte[] garbage = new byte[8192];
       Arrays.fill(garbage, (byte) 0xCC);
-      try (final var ch = java.nio.channels.FileChannel.open(dataFile,
-          StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+      try (final var ch =
+          java.nio.channels.FileChannel.open(dataFile, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
         ch.write(java.nio.ByteBuffer.wrap(garbage));
       }
       Files.createFile(commitMarkerPath(dbPath, RESOURCE));
@@ -398,7 +399,8 @@ final class PreallocatedCommitTest {
       prealloc = measureCommitsPerSecond(db, "bench-prealloc", true, false, warmup, n);
       bufferedBeacons = measureCommitsPerSecond(db, "bench-bufbeacons", true, true, warmup, n);
     }
-    System.out.printf("[BENCH] FileChannel commit throughput: legacy=%.0f/s  preallocated=%.0f/s (%.2fx)  "
+    System.out.printf(
+        "[BENCH] FileChannel commit throughput: legacy=%.0f/s  preallocated=%.0f/s (%.2fx)  "
             + "buffered-beacons=%.0f/s (%.2fx)%n",
         legacy, prealloc, prealloc / legacy, bufferedBeacons, bufferedBeacons / legacy);
   }

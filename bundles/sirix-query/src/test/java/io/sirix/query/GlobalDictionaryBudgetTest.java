@@ -89,24 +89,26 @@ final class GlobalDictionaryBudgetTest {
       }
       // Distinct per row and long, so the per-leaf dictionary deduplicates nothing — exactly the
       // property the election reads as "a resource-wide dictionary would be better".
-      sb.append("{\"id\":").append(i).append(",\"url\":\"http://example.com/a/rather/long/path/segment?id=")
-        .append(i).append("\"}");
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"url\":\"http://example.com/a/rather/long/path/segment?id=")
+        .append(i)
+        .append("\"}");
     }
     return sb.append(']').toString();
   }
 
   /**
-   * A corpus whose leading leaves elect a resource-wide dictionary and whose tail then offers a
-   * value the V0 entry layout cannot hold.
+   * A corpus whose leading leaves elect a resource-wide dictionary and whose tail then offers a value
+   * the V0 entry layout cannot hold.
    *
    * <p>
    * The trigger is the VALUE-LENGTH ceiling rather than the interner's distinct-entry ceiling,
    * because the streaming build flushes a dictionary generation at every drain and starts the next
-   * one with an empty interner: the per-append entry limit therefore resets long before any
-   * realistic corpus reaches it, and a dataset sized to cross it would exercise nothing. The
-   * length ceiling is per VALUE, so it is reachable at any point in any generation — and it is
-   * genuinely a RUNTIME refusal, because election samples only the leading leaves and this value is
-   * not among them.
+   * one with an empty interner: the per-append entry limit therefore resets long before any realistic
+   * corpus reaches it, and a dataset sized to cross it would exercise nothing. The length ceiling is
+   * per VALUE, so it is reachable at any point in any generation — and it is genuinely a RUNTIME
+   * refusal, because election samples only the leading leaves and this value is not among them.
    * </p>
    */
   private static String runtimeCapDataset() {
@@ -116,8 +118,8 @@ final class GlobalDictionaryBudgetTest {
     // extreme that some earlier layer could have rejected it first.
     final int oversizedRow = sampledRows + ProjectionIndexRowGroupPage.MAX_ROWS;
     final String oversized = "x".repeat(GlobalValueDictionaryWriter.MAX_VALUE_BYTES + 1);
-    final StringBuilder sb = new StringBuilder((sampledRows + novelRows) * 64
-        + GlobalValueDictionaryWriter.MAX_VALUE_BYTES).append('[');
+    final StringBuilder sb =
+        new StringBuilder((sampledRows + novelRows) * 64 + GlobalValueDictionaryWriter.MAX_VALUE_BYTES).append('[');
     for (int i = 0; i < sampledRows + novelRows; i++) {
       if (i > 0) {
         sb.append(',');
@@ -142,7 +144,9 @@ final class GlobalDictionaryBudgetTest {
       if (i > 0) {
         sb.append(',');
       }
-      final int value = i == sampledRows - 1 ? 0 : i;
+      final int value = i == sampledRows - 1
+          ? 0
+          : i;
       sb.append("{\"id\":").append(i).append(",\"url\":\"near-cap-").append(value).append("\"}");
     }
     return sb.append(']').toString();
@@ -152,19 +156,20 @@ final class GlobalDictionaryBudgetTest {
     return loadAndCountGlobalColumns(dbName, expectedRows, RECORDS);
   }
 
-  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows,
-      final int records) throws IOException {
+  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows, final int records)
+      throws IOException {
     return loadAndCountGlobalColumns(dbName, expectedRows, dataset(records));
   }
 
-  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows,
-      final String json) throws IOException {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(root.resolve(dbName))
-                                                        .numberOfNodesBeforeAutoCommit(4096)
-                                                        .buildPathSummary(true)
-                                                        .buildPathStatistics(false)
-                                                        .build();
+  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows, final String json)
+      throws IOException {
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                       .location(root.resolve(dbName))
+                                                       .numberOfNodesBeforeAutoCommit(4096)
+                                                       .buildPathSummary(true)
+                                                       .buildPathStatistics(false)
+                                                       .build();
         final JsonReader reader = new JsonReader(new StringReader(json))) {
       store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES, expectedRows));
     }
@@ -172,11 +177,14 @@ final class GlobalDictionaryBudgetTest {
   }
 
   private ProjectionIndexMetadata projectionMetadata(final String dbName) {
-    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(root.resolve(dbName).resolve("coll"));
+    try (
+        final Database<JsonResourceSession> database = Databases.openJsonDatabase(root.resolve(dbName).resolve("coll"));
         final JsonResourceSession session = database.beginResourceSession("res.jn");
         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
       final byte[] raw = ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), 0, 0L);
-      return raw == null ? null : ProjectionIndexMetadata.parse(raw);
+      return raw == null
+          ? null
+          : ProjectionIndexMetadata.parse(raw);
     }
   }
 

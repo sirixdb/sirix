@@ -17,18 +17,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public final class ScaleBenchProjectionSetupWireRewriteTest {
 
-  private static final byte[] KINDS = {
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
-  };
+  private static final byte[] KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET};
 
   @Test
   void reencodeRoundTripPreservesEveryLocalLogicalLane() {
-    final byte[] persisted = page(7L, true, "middle", new String[] {"set-a", "set-b"},
-        true, false, false, false).serialize();
+    final byte[] persisted =
+        page(7L, true, "middle", new String[] {"set-a", "set-b"}, true, false, false, false).serialize();
 
     final List<byte[]> rewritten = ScaleBenchProjectionSetup.reencodeLeaves(List.of(persisted), KINDS);
 
@@ -37,14 +33,12 @@ public final class ScaleBenchProjectionSetupWireRewriteTest {
 
   @Test
   void semanticGuardRejectsValueChangesThatKeepShapeIdentityAndZoneBounds() {
-    final ProjectionIndexRowGroupPage before = page(7L, false, "middle", new String[] {"set-a", "set-b"},
-        true, false, false, false);
+    final ProjectionIndexRowGroupPage before =
+        page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, false, false, false);
 
     assertSemanticMismatch(before,
-        page(8L, false, "middle", new String[] {"set-a", "set-b"}, true, false, false, false),
-        "column 0 value");
-    assertSemanticMismatch(before,
-        page(7L, true, "middle", new String[] {"set-a", "set-b"}, true, false, false, false),
+        page(8L, false, "middle", new String[] {"set-a", "set-b"}, true, false, false, false), "column 0 value");
+    assertSemanticMismatch(before, page(7L, true, "middle", new String[] {"set-a", "set-b"}, true, false, false, false),
         "column 2 boolean");
     assertSemanticMismatch(before,
         page(7L, false, "changed", new String[] {"set-a", "set-b"}, true, false, false, false),
@@ -56,20 +50,16 @@ public final class ScaleBenchProjectionSetupWireRewriteTest {
 
   @Test
   void semanticGuardRejectsPresenceAndAggregateProvenanceChanges() {
-    final ProjectionIndexRowGroupPage before = page(7L, false, "middle", new String[] {"set-a", "set-b"},
-        true, false, false, false);
+    final ProjectionIndexRowGroupPage before =
+        page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, false, false, false);
 
     assertSemanticMismatch(before,
-        page(7L, false, "middle", new String[] {"set-a", "set-b"}, false, false, false, false),
-        "column 0 presence");
-    assertSemanticMismatch(before,
-        page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, true, false, false),
+        page(7L, false, "middle", new String[] {"set-a", "set-b"}, false, false, false, false), "column 0 presence");
+    assertSemanticMismatch(before, page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, true, false, false),
         "column 0 provenance");
-    assertSemanticMismatch(before,
-        page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, false, true, false),
+    assertSemanticMismatch(before, page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, false, true, false),
         "column 0 provenance");
-    assertSemanticMismatch(before,
-        page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, false, false, true),
+    assertSemanticMismatch(before, page(7L, false, "middle", new String[] {"set-a", "set-b"}, true, false, false, true),
         "column 1 provenance");
   }
 
@@ -77,8 +67,8 @@ public final class ScaleBenchProjectionSetupWireRewriteTest {
   void writerMustStillBeBasedOnTheProbedRevision() {
     assertDoesNotThrow(() -> ScaleBenchProjectionSetup.validateWriterBaseRevision(7, 8));
 
-    final IllegalStateException stale = assertThrows(IllegalStateException.class,
-        () -> ScaleBenchProjectionSetup.validateWriterBaseRevision(7, 9));
+    final IllegalStateException stale =
+        assertThrows(IllegalStateException.class, () -> ScaleBenchProjectionSetup.validateWriterBaseRevision(7, 9));
     assertTrue(stale.getMessage().contains("based on revision 8"), stale.getMessage());
   }
 
@@ -92,20 +82,18 @@ public final class ScaleBenchProjectionSetupWireRewriteTest {
 
   private static ProjectionIndexRowGroupPage page(final long middleNumber, final boolean middleBoolean,
       final String middleString, final String[] middleSet, final boolean middleNumberPresent,
-      final boolean middleNonIntegral, final boolean middleUnrepresentable,
-      final boolean middleNonDoubleSource) {
+      final boolean middleNonIntegral, final boolean middleUnrepresentable, final boolean middleNonDoubleSource) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     append(page, 11L, 1L, false, "first", new String[] {"fixed-a"}, true, false, false, false);
-    append(page, 19L, middleNumber, middleBoolean, middleString, middleSet, middleNumberPresent,
-        middleNonIntegral, middleUnrepresentable, middleNonDoubleSource);
+    append(page, 19L, middleNumber, middleBoolean, middleString, middleSet, middleNumberPresent, middleNonIntegral,
+        middleUnrepresentable, middleNonDoubleSource);
     append(page, 27L, 10L, true, "last", new String[] {"fixed-z"}, true, false, false, false);
     return page;
   }
 
-  private static void append(final ProjectionIndexRowGroupPage page, final long recordKey,
-      final long number, final boolean bool, final String string, final String[] set,
-      final boolean numberPresent, final boolean nonIntegral, final boolean unrepresentable,
-      final boolean nonDoubleSource) {
+  private static void append(final ProjectionIndexRowGroupPage page, final long recordKey, final long number,
+      final boolean bool, final String string, final String[] set, final boolean numberPresent,
+      final boolean nonIntegral, final boolean unrepresentable, final boolean nonDoubleSource) {
     final long[] longs = new long[KINDS.length];
     longs[0] = number;
     longs[1] = ProjectionDoubleEncoding.encode(2.5d);
@@ -124,7 +112,7 @@ public final class ScaleBenchProjectionSetupWireRewriteTest {
     nonIntegralColumns[0] = nonIntegral;
     final boolean[] nonDoubleSourceColumns = new boolean[KINDS.length];
     nonDoubleSourceColumns[1] = nonDoubleSource;
-    assertTrue(page.appendRow(recordKey, longs, bools, strings, sets, present,
-        unrepresentableColumns, nonIntegralColumns, nonDoubleSourceColumns));
+    assertTrue(page.appendRow(recordKey, longs, bools, strings, sets, present, unrepresentableColumns,
+        nonIntegralColumns, nonDoubleSourceColumns));
   }
 }

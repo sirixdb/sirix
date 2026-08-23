@@ -67,8 +67,8 @@ final class ProjectionIndexPageTest {
     final Int2IntOpenHashMap maxLevels = new Int2IntOpenHashMap();
     maxLevels.put(0, 3);
 
-    final ProjectionIndexPage page = new ProjectionIndexPage(
-        new ReferencesPage4(), maxNodeKeys, maxHotPageKeys, maxLevels);
+    final ProjectionIndexPage page =
+        new ProjectionIndexPage(new ReferencesPage4(), maxNodeKeys, maxHotPageKeys, maxLevels);
 
     assertEquals(42L, page.getMaxNodeKey(0));
     assertEquals(100L, page.getMaxNodeKey(1));

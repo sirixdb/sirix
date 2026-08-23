@@ -25,16 +25,17 @@ import java.io.PrintWriter;
  * <p>
  * {@link GlobalValueDictionaryParityTest} shows the two encodings answer identically. That is
  * necessary and, on its own, proves nothing about the routes: a global column that declines every
- * fast path also answers identically, because the generic pipeline is correct. So this suite asserts
- * a delta on the serving counters — the only signal that distinguishes a route that works from one
- * that silently is not taken — with the generic pipeline's own answer as the oracle beside it.
+ * fast path also answers identically, because the generic pipeline is correct. So this suite
+ * asserts a delta on the serving counters — the only signal that distinguishes a route that works
+ * from one that silently is not taken — with the generic pipeline's own answer as the oracle beside
+ * it.
  *
  * <p>
  * The corpus is sized so that the AUTO heuristic itself picks the encoding for {@code did} and
  * rejects it for {@code kind}: {@code did} is distinct per row (per-leaf dedup factor 1, so a
- * per-leaf dictionary stores every value once per leaf and compresses nothing), {@code kind} repeats
- * across three labels. Forcing the mode would test the routes but not the decision, and the decision
- * is what ships.
+ * per-leaf dictionary stores every value once per leaf and compresses nothing), {@code kind}
+ * repeats across three labels. Forcing the mode would test the routes but not the decision, and the
+ * decision is what ships.
  */
 public final class GlobalValueDictionaryServingTest extends AbstractJsonTest {
 
@@ -167,14 +168,13 @@ public final class GlobalValueDictionaryServingTest extends AbstractJsonTest {
   public void equalityAgainstAGlobalColumnIsServedByOneProbe() throws IOException {
     buildUnderDefault();
     SirixVectorizedExecutor.resetProjectionCountsServed();
-    final String hit = answer("count(for $e in jn:doc('json-path1','serving.jn')[] "
-        + "where $e.did eq \"did:plc:4711\" return $e)");
-    final String miss = answer("count(for $e in jn:doc('json-path1','serving.jn')[] "
-        + "where $e.did eq \"did:plc:nope\" return $e)");
+    final String hit =
+        answer("count(for $e in jn:doc('json-path1','serving.jn')[] " + "where $e.did eq \"did:plc:4711\" return $e)");
+    final String miss =
+        answer("count(for $e in jn:doc('json-path1','serving.jn')[] " + "where $e.did eq \"did:plc:nope\" return $e)");
     Assertions.assertEquals("1", hit.trim());
     Assertions.assertEquals("0", miss.trim(),
-        "a literal the dictionary provably lacks must answer zero exactly — not decline, and above "
-            + "all not match");
+        "a literal the dictionary provably lacks must answer zero exactly — not decline, and above " + "all not match");
     Assertions.assertTrue(SirixVectorizedExecutor.projectionCountsServed() > 0,
         "an equality over a global column must be served: the literal resolves to an id once and "
             + "every row is then an integer compare");
@@ -212,13 +212,14 @@ public final class GlobalValueDictionaryServingTest extends AbstractJsonTest {
    * then install one and hand both to {@code check}.
    *
    * <p>
-   * The install is what wires the analytical routes in at all. Without it every group query takes
-   * the generic pipeline, the answers are right, and a serving counter that never moves says nothing
+   * The install is what wires the analytical routes in at all. Without it every group query takes the
+   * generic pipeline, the answers are right, and a serving counter that never moves says nothing
    * about the route — which is exactly the trap this suite exists to avoid.
    */
   private void withExecutor(final String oracleQuery, final ServedCheck check) throws IOException {
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
@@ -247,8 +248,9 @@ public final class GlobalValueDictionaryServingTest extends AbstractJsonTest {
   }
 
   private String answer(final String q) throws IOException {
-    try (final BasicJsonDBStore store =
-        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       return evaluateQuery(chain, ctx, q);

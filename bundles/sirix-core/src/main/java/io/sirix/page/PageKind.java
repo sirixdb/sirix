@@ -1560,9 +1560,8 @@ public enum PageKind {
      */
     private static void writeEncodedBody(final BytesOut<?> sink, final MemorySegment slottedPage,
         final int populatedCount, final int[] slotKindIds, final byte[] slotFieldCounts, final int[] slotHeapOffs,
-        final int[] slotDataLens, final short[] slotBits, final int[] slotRegionAbsIdx,
-        final boolean deweyIdsStored, final boolean chunkedBody, final long fsstDictId,
-        final boolean nameKeyRegionPresent) {
+        final int[] slotDataLens, final short[] slotBits, final int[] slotRegionAbsIdx, final boolean deweyIdsStored,
+        final boolean chunkedBody, final long fsstDictId, final boolean nameKeyRegionPresent) {
       final boolean finerDiag = PAGE_SECTION_DIAG;
       final long diagS0 = finerDiag
           ? sink.writePosition()
@@ -1863,10 +1862,9 @@ public enum PageKind {
               }
               if (slotValueElided[i] != 0) {
                 final int slot = slotBits[i] & 0xFFFF;
-                valueElisionWireBytes +=
-                    DeltaVarIntCodec.computeSignedEncodedWidth(slot - previousValueElidedSlot) + 1
-                        + DeltaVarIntCodec.computeSignedEncodedWidth(slotValueWidths[i] & 0xFFFF)
-                        + DeltaVarIntCodec.computeSignedEncodedWidth(slotRegionAbsIdx[slot]);
+                valueElisionWireBytes += DeltaVarIntCodec.computeSignedEncodedWidth(slot - previousValueElidedSlot) + 1
+                    + DeltaVarIntCodec.computeSignedEncodedWidth(slotValueWidths[i] & 0xFFFF)
+                    + DeltaVarIntCodec.computeSignedEncodedWidth(slotRegionAbsIdx[slot]);
                 previousValueElidedSlot = slot;
               }
             }
@@ -1877,8 +1875,8 @@ public enum PageKind {
             // both the old two-byte reads and the duplicate signed-varint decode/dictionary scan.
             if (nameKeyElisionCandidate && KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
               totalFusedNamedSlotCount++;
-              final int offsetPair = offsetTablePair(slottedPage,
-                  recordBase + 1 + NodeFieldLayout.FUSED_PRIMITIVE_NAME_KEY_FIELD);
+              final int offsetPair =
+                  offsetTablePair(slottedPage, recordBase + 1 + NodeFieldLayout.FUSED_PRIMITIVE_NAME_KEY_FIELD);
               final int nameKeyOff = offsetPair & 0xFF;
               final int nameKeyWidth = ((offsetPair >>> 8) & 0xFF) - nameKeyOff;
               // signed-varint width is 1..5 for any 32-bit nameKey value. A malformed width keeps
@@ -2946,9 +2944,9 @@ public enum PageKind {
 
     /**
      * Build the PAX {@link RegionTable} for {@code page} by walking the compact slot descriptors that
-     * the serializer's single bitmap pass already collected, collecting each fused
-     * OBJECT_NAMED_NUMBER slot's value (long) and its parent OBJECT_KEY's nameKey, and encoding them
-     * via {@link NumberRegion}.
+     * the serializer's single bitmap pass already collected, collecting each fused OBJECT_NAMED_NUMBER
+     * slot's value (long) and its parent OBJECT_KEY's nameKey, and encoding them via
+     * {@link NumberRegion}.
      *
      * <p>
      * Values whose payload type is not int/long (BigDecimal, double, float) are skipped — the slow-path
@@ -3069,248 +3067,241 @@ public enum PageKind {
       // them removes one directory-kind foreign-memory read per populated slot plus the 16 bitmap-word
       // reads, without changing any region order or contributor predicate.
       for (int i = 0; i < populatedCount; i++) {
-          final int slot = slotBits[i] & 0xFFFF;
-          final int kindId = slotKindIds[i];
-          if (KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
-            // Fused OBJECT_NAMED_* plays the OBJECT_KEY role; add to the nameKey region so the
-            // SIMD scan in ObjectKeyNameKeyRegion.findMatchingSlots sees fused slots natively,
-            // then feed NUMBER/STRING/BOOLEAN regions from the inline value (no parent indirection).
-            okNameKeys[okCount] = page.getFusedObjectNamedNameKeyFromSlot(slot);
-            okSlots[okCount] = slot;
-            // Enclosing object's node key, raw. Read here because the writer already has the
-            // record in hand; a scan resolving it later would be reconstructing the very record
-            // the columns exist to avoid touching. Classification — on-page parent, the spanning
-            // record's skip prefix, or a refusal — is RecordOrdinalRegion.encode's own contract.
-            okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
-            okCount++;
-            if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
-              final int numericOrdinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, okNameKeys[okCount - 1]);
-              final long value = page.getFusedObjectNamedNumberValueLongFromSlot(slot);
-              if (value != Long.MIN_VALUE) {
-                final int fusedNameKey = okNameKeys[okCount - 1];
-                int fusedPathNodeKeyInt = -1;
-                if (numberAllPathNodeKeysValid) {
-                  final long fusedNodeKey = pageKeyBase + slot;
-                  final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
-                  if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
-                    fusedPathNodeKeyInt = (int) pnk;
-                  } else {
-                    numberAllPathNodeKeysValid = false;
-                  }
-                }
-                valBuf[count] = value;
-                parBuf[count] = fusedNameKey;
-                numberPathBuf[count] = fusedPathNodeKeyInt;
-                numberSlots[count] = slot;
-                count++;
-              } else {
-                // The long region declined the value: it is Double/Float-typed (or a Big* the
-                // column-izer skips entirely). Route the floating-point ones to their own column
-                // so a mixed field can still be answered as longKernel + doubleKernel instead of
-                // sending the whole page back to the records over a handful of values. The
-                // value itself STAYS in the record heap — this column is a pure accelerator and
-                // takes no part in per-slot value elision.
-                int dblScale = KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE;
-                long dblUnscaled = 0L;
-                final double dblValue;
-                if (page.isFusedObjectNamedNumberDecimalSlot(slot)) {
-                  // A decimal, whatever its double image happens to be — the STORED TYPE picks the
-                  // column, so prices like 19.99 are no longer dropped here and 1000.25 cannot slip
-                  // into the double domain beside them. Carried EXACTLY as its own unscaled integer:
-                  // the column stores such a tag at e = scale, f = 0, and the scan converts its
-                  // threshold into the same domain, so the kernel's integer comparison IS the
-                  // decimal comparison.
-                  dblUnscaled = page.getFusedObjectNamedNumberValueDecimalFromSlot(slot, dblDecOut);
-                  dblScale = dblDecOut[0];
-                  // Zone-map bound only, and every bound over a decimal tag is widened outward
-                  // before use, so this division's ulp cannot prune a matching page.
-                  dblValue = dblScale == KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE
-                      ? Double.NaN
-                      : dblUnscaled / DoubleRegion.exp10(dblScale);
-                } else {
-                  dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
-                }
-                if (!Double.isNaN(dblValue)) {
-                  final int fusedNameKey = okNameKeys[okCount - 1];
-                  int fusedPathNodeKeyInt = -1;
-                  if (doubleAllPathNodeKeysValid) {
-                    final long fusedNodeKey = pageKeyBase + slot;
-                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
-                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
-                      fusedPathNodeKeyInt = (int) pnk;
-                    } else {
-                      doubleAllPathNodeKeysValid = false;
-                    }
-                  }
-                  dblValBuf[dblCount] = dblValue;
-                  dblDecUnscaled[dblCount] = dblUnscaled;
-                  dblDecScales[dblCount] = dblScale;
-                  dblNameTags[dblCount] = fusedNameKey;
-                  dblPathTags[dblCount] = fusedPathNodeKeyInt;
-                  dblOrdinals[dblCount] = numericOrdinal;
-                  dblCount++;
-                }
-              }
-            } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
-              // STORED bytes, verbatim — FSST-encoded when the compress pass rewrote the slot.
-              // The dictionary must mirror the heap bit-for-bit so value elision stays a pure
-              // copy in both directions; decoding belongs to whoever materialises the value.
-              if (stringValueScratch == null) {
-                stringValueScratch = STRING_REGION_VALUE_SCRATCH.get();
-              }
-              int valueLength = page.copyFusedObjectNamedStringStoredBytes(slot, stringValueScratch);
-              while (valueLength > stringValueScratch.length) {
-                stringValueScratch = growStringRegionValueScratch(stringValueScratch, valueLength);
-                valueLength = page.copyFusedObjectNamedStringStoredBytes(slot, stringValueScratch);
-              }
-              final boolean valueCompressed = valueLength >= 0
-                  && page.isFusedObjectNamedStringValueCompressed(slot);
-              if (valueLength >= 0) {
-                final int fusedNameKey = okNameKeys[okCount - 1];
-                int fusedPathNodeKeyInt = -1;
-                if (stringAllPathNodeKeysValid) {
-                  final long fusedNodeKey = pageKeyBase + slot;
-                  final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
-                  if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
-                    fusedPathNodeKeyInt = (int) pnk;
-                  } else {
-                    stringAllPathNodeKeysValid = false;
-                  }
-                }
-                if (stringEncName == null) {
-                  stringEncName = STRING_REGION_ENCODER.get();
-                  stringEncName.reset();
-                  stringEncPath = resetStringRegionPathCandidate(withPathSummary);
-                }
-                // The name-key dictionary owns the sole store range. The bridge gives the
-                // alternative path-key dictionary that exact private range without exposing it or
-                // copying the same distinct value twice.
-                final StringRegion.Encoder alternateStringEncoder = stringEncPath != null
-                    && stringAllPathNodeKeysValid
-                        ? stringEncPath
-                        : null;
-                stringEncName.addValueCopiedAndShareWith(fusedNameKey,
-                    stringValueScratch,
-                    0,
-                    valueLength,
-                    valueCompressed,
-                    alternateStringEncoder,
-                    fusedPathNodeKeyInt);
-                stringSlots[stringCount] = slot;
-                stringNameTags[stringCount] = fusedNameKey;
-                stringPathTags[stringCount] = fusedPathNodeKeyInt;
-                stringCount++;
-              }
-            } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID) {
-              final boolean value = page.getFusedObjectNamedBooleanValueFromSlot(slot);
+        final int slot = slotBits[i] & 0xFFFF;
+        final int kindId = slotKindIds[i];
+        if (KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
+          // Fused OBJECT_NAMED_* plays the OBJECT_KEY role; add to the nameKey region so the
+          // SIMD scan in ObjectKeyNameKeyRegion.findMatchingSlots sees fused slots natively,
+          // then feed NUMBER/STRING/BOOLEAN regions from the inline value (no parent indirection).
+          okNameKeys[okCount] = page.getFusedObjectNamedNameKeyFromSlot(slot);
+          okSlots[okCount] = slot;
+          // Enclosing object's node key, raw. Read here because the writer already has the
+          // record in hand; a scan resolving it later would be reconstructing the very record
+          // the columns exist to avoid touching. Classification — on-page parent, the spanning
+          // record's skip prefix, or a refusal — is RecordOrdinalRegion.encode's own contract.
+          okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
+          okCount++;
+          if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
+            final int numericOrdinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, okNameKeys[okCount - 1]);
+            final long value = page.getFusedObjectNamedNumberValueLongFromSlot(slot);
+            if (value != Long.MIN_VALUE) {
               final int fusedNameKey = okNameKeys[okCount - 1];
               int fusedPathNodeKeyInt = -1;
-              if (booleanAllPathNodeKeysValid) {
+              if (numberAllPathNodeKeysValid) {
                 final long fusedNodeKey = pageKeyBase + slot;
                 final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
                 if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
                   fusedPathNodeKeyInt = (int) pnk;
                 } else {
-                  booleanAllPathNodeKeysValid = false;
+                  numberAllPathNodeKeysValid = false;
                 }
               }
-              boolValBuf[boolCount] = value;
-              boolNameTags[boolCount] = fusedNameKey;
-              boolPathTags[boolCount] = fusedPathNodeKeyInt;
-              boolSlots[boolCount] = slot;
-              boolCount++;
-            }
-          } else if (elemUsable && kindId == KeyValueLeafPage.STRING_VALUE_KIND_ID_PUBLIC) {
-            // An ARRAY ELEMENT. It carries no path node key of its own — every one reads back as
-            // -1 — which is why a path-tagged string column never held them. Its enclosing array
-            // does have one, and that is the tag a query naming `$m.genres[]` looks under.
-            final byte[] elementValue = page.readStringValueBytes(slot);
-            final long parentKey = page.getSlotParentKey(slot);
-            final long parentSlotLong = parentKey - pageKeyBase;
-            if (elementValue == null) {
-              elemUsable = false; // an undecodable value; the set would be silently short
-            } else if (parentSlotLong < 0 || parentSlotLong >= Constants.NDP_NODE_COUNT) {
-              // An element whose array opens on the PREVIOUS page. Slot order is node-key order,
-              // so those form a LEADING RUN at the head of the page and nowhere else — the same
-              // shape RecordOrdinalRegion records as its skip prefix rather than refusing.
-              //
-              // They used to be dropped, and that made the page holding the array unable to settle
-              // its own last record: profiled cold, deciding those records through the records was
-              // 69 % of an array-membership query, one full page rebuild each. They cannot be
-              // tagged by their array's path — it is off-page and unnameable from here — so they go
-              // under the reserved orphan tag, which is all the owning page needs, since only its
-              // last array can spill and every orphan here therefore belongs to it.
-              if (elemCount > orphanCount) {
-                // An orphan PAST the leading run — i.e. after an element this page's own array
-                // owns. Slot order makes that impossible in a well-formed page, so it is a shape
-                // this does not model.
-                elemUsable = false;
-              } else {
-                if (elemValues == null) {
-                  elemValues = new byte[64][];
-                  elemNameTags = new int[64];
-                  elemPathTags = new int[64];
-                  elemSlots = new int[64];
-                } else if (elemCount == elemValues.length) {
-                  elemValues = Arrays.copyOf(elemValues, elemCount << 1);
-                  elemNameTags = Arrays.copyOf(elemNameTags, elemCount << 1);
-                  elemPathTags = Arrays.copyOf(elemPathTags, elemCount << 1);
-                  elemSlots = Arrays.copyOf(elemSlots, elemCount << 1);
-                }
-                elemNameTags[elemCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
-                elemPathTags[elemCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
-                elemValues[elemCount] = elementValue;
-                elemSlots[elemCount] = slot;
-                elemCount++;
-                orphanCount++;
-              }
+              valBuf[count] = value;
+              parBuf[count] = fusedNameKey;
+              numberPathBuf[count] = fusedPathNodeKeyInt;
+              numberSlots[count] = slot;
+              count++;
             } else {
-              final int parentSlot = (int) parentSlotLong;
-              final int parentKind = PageLayout.getDirNodeKindId(slottedPage, parentSlot);
-              if (!KeyValueLeafPage.isFusedStructuralKindId(parentKind)
-                  && !KeyValueLeafPage.isFusedObjectNamedKindId(parentKind)) {
-                elemUsable = false;
+              // The long region declined the value: it is Double/Float-typed (or a Big* the
+              // column-izer skips entirely). Route the floating-point ones to their own column
+              // so a mixed field can still be answered as longKernel + doubleKernel instead of
+              // sending the whole page back to the records over a handful of values. The
+              // value itself STAYS in the record heap — this column is a pure accelerator and
+              // takes no part in per-slot value elision.
+              int dblScale = KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE;
+              long dblUnscaled = 0L;
+              final double dblValue;
+              if (page.isFusedObjectNamedNumberDecimalSlot(slot)) {
+                // A decimal, whatever its double image happens to be — the STORED TYPE picks the
+                // column, so prices like 19.99 are no longer dropped here and 1000.25 cannot slip
+                // into the double domain beside them. Carried EXACTLY as its own unscaled integer:
+                // the column stores such a tag at e = scale, f = 0, and the scan converts its
+                // threshold into the same domain, so the kernel's integer comparison IS the
+                // decimal comparison.
+                dblUnscaled = page.getFusedObjectNamedNumberValueDecimalFromSlot(slot, dblDecOut);
+                dblScale = dblDecOut[0];
+                // Zone-map bound only, and every bound over a decimal tag is widened outward
+                // before use, so this division's ulp cannot prune a matching page.
+                dblValue = dblScale == KeyValueLeafPage.DECIMAL_SCALE_UNAVAILABLE
+                    ? Double.NaN
+                    : dblUnscaled / DoubleRegion.exp10(dblScale);
               } else {
-                if (elemValues == null) {
-                  elemValues = new byte[64][];
-                  elemNameTags = new int[64];
-                  elemPathTags = new int[64];
-                  elemSlots = new int[64];
-                } else if (elemCount == elemValues.length) {
-                  elemValues = Arrays.copyOf(elemValues, elemCount << 1);
-                  elemNameTags = Arrays.copyOf(elemNameTags, elemCount << 1);
-                  elemPathTags = Arrays.copyOf(elemPathTags, elemCount << 1);
-                  elemSlots = Arrays.copyOf(elemSlots, elemCount << 1);
+                dblValue = page.getFusedObjectNamedNumberValueDoubleFromSlot(slot);
+              }
+              if (!Double.isNaN(dblValue)) {
+                final int fusedNameKey = okNameKeys[okCount - 1];
+                int fusedPathNodeKeyInt = -1;
+                if (doubleAllPathNodeKeysValid) {
+                  final long fusedNodeKey = pageKeyBase + slot;
+                  final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
+                  if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                    fusedPathNodeKeyInt = (int) pnk;
+                  } else {
+                    doubleAllPathNodeKeysValid = false;
+                  }
                 }
-                elemNameTags[elemCount] = KeyValueLeafPage.isFusedStructuralKindId(parentKind)
-                    ? page.getFusedStructuralNameKeyFromSlot(parentSlot)
-                    : page.getFusedObjectNamedNameKeyFromSlot(parentSlot);
-                final long parentPnk = page.getObjectKeyPathNodeKeyFromSlot(parentSlot, pageKeyBase + parentSlot);
-                elemPathTags[elemCount] = parentPnk > 0L && parentPnk <= (long) Integer.MAX_VALUE
-                    ? (int) parentPnk
-                    : -1;
-                elemValues[elemCount] = elementValue;
-                elemSlots[elemCount] = slot;
-                elemCount++;
+                dblValBuf[dblCount] = dblValue;
+                dblDecUnscaled[dblCount] = dblUnscaled;
+                dblDecScales[dblCount] = dblScale;
+                dblNameTags[dblCount] = fusedNameKey;
+                dblPathTags[dblCount] = fusedPathNodeKeyInt;
+                dblOrdinals[dblCount] = numericOrdinal;
+                dblCount++;
               }
             }
-          } else if (KeyValueLeafPage.isFusedStructuralKindId(kindId)) {
-            // OBJECT- and ARRAY-valued fields play the OBJECT_KEY role too — they carry a field
-            // name — but their VALUE is a sub-tree, so they join the name and parent columns only
-            // and feed no value region. Leaving them out made them invisible to every anchored
-            // scan: getObjectKeySlotsForNameKey("genres") answered EMPTY, so a predicate over an
-            // array visited no records at all, and the record-ordinal linkage built from this same
-            // column had no entry to attribute an array element to.
-            //
-            // The name is read through the STRUCTURAL accessor: these are a 12-field layout with
-            // NAME_KEY at index 5 against the primitive-fused 9-field layout with it at index 3,
-            // which is why widening isFusedObjectNamedKindId would decode them wrongly rather than
-            // include them.
-            okNameKeys[okCount] = page.getFusedStructuralNameKeyFromSlot(slot);
-            okSlots[okCount] = slot;
-            okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
-            okCount++;
+          } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
+            // STORED bytes, verbatim — FSST-encoded when the compress pass rewrote the slot.
+            // The dictionary must mirror the heap bit-for-bit so value elision stays a pure
+            // copy in both directions; decoding belongs to whoever materialises the value.
+            if (stringValueScratch == null) {
+              stringValueScratch = STRING_REGION_VALUE_SCRATCH.get();
+            }
+            int valueLength = page.copyFusedObjectNamedStringStoredBytes(slot, stringValueScratch);
+            while (valueLength > stringValueScratch.length) {
+              stringValueScratch = growStringRegionValueScratch(stringValueScratch, valueLength);
+              valueLength = page.copyFusedObjectNamedStringStoredBytes(slot, stringValueScratch);
+            }
+            final boolean valueCompressed = valueLength >= 0 && page.isFusedObjectNamedStringValueCompressed(slot);
+            if (valueLength >= 0) {
+              final int fusedNameKey = okNameKeys[okCount - 1];
+              int fusedPathNodeKeyInt = -1;
+              if (stringAllPathNodeKeysValid) {
+                final long fusedNodeKey = pageKeyBase + slot;
+                final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
+                if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                  fusedPathNodeKeyInt = (int) pnk;
+                } else {
+                  stringAllPathNodeKeysValid = false;
+                }
+              }
+              if (stringEncName == null) {
+                stringEncName = STRING_REGION_ENCODER.get();
+                stringEncName.reset();
+                stringEncPath = resetStringRegionPathCandidate(withPathSummary);
+              }
+              // The name-key dictionary owns the sole store range. The bridge gives the
+              // alternative path-key dictionary that exact private range without exposing it or
+              // copying the same distinct value twice.
+              final StringRegion.Encoder alternateStringEncoder = stringEncPath != null && stringAllPathNodeKeysValid
+                  ? stringEncPath
+                  : null;
+              stringEncName.addValueCopiedAndShareWith(fusedNameKey, stringValueScratch, 0, valueLength,
+                  valueCompressed, alternateStringEncoder, fusedPathNodeKeyInt);
+              stringSlots[stringCount] = slot;
+              stringNameTags[stringCount] = fusedNameKey;
+              stringPathTags[stringCount] = fusedPathNodeKeyInt;
+              stringCount++;
+            }
+          } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID) {
+            final boolean value = page.getFusedObjectNamedBooleanValueFromSlot(slot);
+            final int fusedNameKey = okNameKeys[okCount - 1];
+            int fusedPathNodeKeyInt = -1;
+            if (booleanAllPathNodeKeysValid) {
+              final long fusedNodeKey = pageKeyBase + slot;
+              final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
+              if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                fusedPathNodeKeyInt = (int) pnk;
+              } else {
+                booleanAllPathNodeKeysValid = false;
+              }
+            }
+            boolValBuf[boolCount] = value;
+            boolNameTags[boolCount] = fusedNameKey;
+            boolPathTags[boolCount] = fusedPathNodeKeyInt;
+            boolSlots[boolCount] = slot;
+            boolCount++;
           }
+        } else if (elemUsable && kindId == KeyValueLeafPage.STRING_VALUE_KIND_ID_PUBLIC) {
+          // An ARRAY ELEMENT. It carries no path node key of its own — every one reads back as
+          // -1 — which is why a path-tagged string column never held them. Its enclosing array
+          // does have one, and that is the tag a query naming `$m.genres[]` looks under.
+          final byte[] elementValue = page.readStringValueBytes(slot);
+          final long parentKey = page.getSlotParentKey(slot);
+          final long parentSlotLong = parentKey - pageKeyBase;
+          if (elementValue == null) {
+            elemUsable = false; // an undecodable value; the set would be silently short
+          } else if (parentSlotLong < 0 || parentSlotLong >= Constants.NDP_NODE_COUNT) {
+            // An element whose array opens on the PREVIOUS page. Slot order is node-key order,
+            // so those form a LEADING RUN at the head of the page and nowhere else — the same
+            // shape RecordOrdinalRegion records as its skip prefix rather than refusing.
+            //
+            // They used to be dropped, and that made the page holding the array unable to settle
+            // its own last record: profiled cold, deciding those records through the records was
+            // 69 % of an array-membership query, one full page rebuild each. They cannot be
+            // tagged by their array's path — it is off-page and unnameable from here — so they go
+            // under the reserved orphan tag, which is all the owning page needs, since only its
+            // last array can spill and every orphan here therefore belongs to it.
+            if (elemCount > orphanCount) {
+              // An orphan PAST the leading run — i.e. after an element this page's own array
+              // owns. Slot order makes that impossible in a well-formed page, so it is a shape
+              // this does not model.
+              elemUsable = false;
+            } else {
+              if (elemValues == null) {
+                elemValues = new byte[64][];
+                elemNameTags = new int[64];
+                elemPathTags = new int[64];
+                elemSlots = new int[64];
+              } else if (elemCount == elemValues.length) {
+                elemValues = Arrays.copyOf(elemValues, elemCount << 1);
+                elemNameTags = Arrays.copyOf(elemNameTags, elemCount << 1);
+                elemPathTags = Arrays.copyOf(elemPathTags, elemCount << 1);
+                elemSlots = Arrays.copyOf(elemSlots, elemCount << 1);
+              }
+              elemNameTags[elemCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+              elemPathTags[elemCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+              elemValues[elemCount] = elementValue;
+              elemSlots[elemCount] = slot;
+              elemCount++;
+              orphanCount++;
+            }
+          } else {
+            final int parentSlot = (int) parentSlotLong;
+            final int parentKind = PageLayout.getDirNodeKindId(slottedPage, parentSlot);
+            if (!KeyValueLeafPage.isFusedStructuralKindId(parentKind)
+                && !KeyValueLeafPage.isFusedObjectNamedKindId(parentKind)) {
+              elemUsable = false;
+            } else {
+              if (elemValues == null) {
+                elemValues = new byte[64][];
+                elemNameTags = new int[64];
+                elemPathTags = new int[64];
+                elemSlots = new int[64];
+              } else if (elemCount == elemValues.length) {
+                elemValues = Arrays.copyOf(elemValues, elemCount << 1);
+                elemNameTags = Arrays.copyOf(elemNameTags, elemCount << 1);
+                elemPathTags = Arrays.copyOf(elemPathTags, elemCount << 1);
+                elemSlots = Arrays.copyOf(elemSlots, elemCount << 1);
+              }
+              elemNameTags[elemCount] = KeyValueLeafPage.isFusedStructuralKindId(parentKind)
+                  ? page.getFusedStructuralNameKeyFromSlot(parentSlot)
+                  : page.getFusedObjectNamedNameKeyFromSlot(parentSlot);
+              final long parentPnk = page.getObjectKeyPathNodeKeyFromSlot(parentSlot, pageKeyBase + parentSlot);
+              elemPathTags[elemCount] = parentPnk > 0L && parentPnk <= (long) Integer.MAX_VALUE
+                  ? (int) parentPnk
+                  : -1;
+              elemValues[elemCount] = elementValue;
+              elemSlots[elemCount] = slot;
+              elemCount++;
+            }
+          }
+        } else if (KeyValueLeafPage.isFusedStructuralKindId(kindId)) {
+          // OBJECT- and ARRAY-valued fields play the OBJECT_KEY role too — they carry a field
+          // name — but their VALUE is a sub-tree, so they join the name and parent columns only
+          // and feed no value region. Leaving them out made them invisible to every anchored
+          // scan: getObjectKeySlotsForNameKey("genres") answered EMPTY, so a predicate over an
+          // array visited no records at all, and the record-ordinal linkage built from this same
+          // column had no entry to attribute an array element to.
+          //
+          // The name is read through the STRUCTURAL accessor: these are a 12-field layout with
+          // NAME_KEY at index 5 against the primitive-fused 9-field layout with it at index 3,
+          // which is why widening isFusedObjectNamedKindId would decode them wrongly rather than
+          // include them.
+          okNameKeys[okCount] = page.getFusedStructuralNameKeyFromSlot(slot);
+          okSlots[okCount] = slot;
+          okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
+          okCount++;
+        }
       }
 
       if (count == 0 && okCount == 0 && stringCount == 0 && boolCount == 0) {
@@ -3411,18 +3402,12 @@ public enum PageKind {
           }
         }
         for (int e = 0; e < elemCount; e++) {
-          final StringRegion.Encoder alternateStringEncoder = stringEncPath != null
-              && stringAllPathNodeKeysValid
-                  ? stringEncPath
-                  : null;
+          final StringRegion.Encoder alternateStringEncoder = stringEncPath != null && stringAllPathNodeKeysValid
+              ? stringEncPath
+              : null;
           final byte[] elementValue = elemValues[e];
-          stringEncName.addValueCopiedAndShareWith(elemNameTags[e],
-              elementValue,
-              0,
-              elementValue.length,
-              false,
-              alternateStringEncoder,
-              elemPathTags[e]);
+          stringEncName.addValueCopiedAndShareWith(elemNameTags[e], elementValue, 0, elementValue.length, false,
+              alternateStringEncoder, elemPathTags[e]);
           stringSlots[stringCount] = elemSlots[e];
           stringNameTags[stringCount] = elemNameTags[e];
           stringPathTags[stringCount] = elemPathTags[e];
@@ -5006,8 +4991,8 @@ public enum PageKind {
 
   /**
    * Owner-confined primitive scratch for deterministic side-map emission. It starts at one key per
-   * possible leaf slot and grows geometrically to the format ceiling; an allocation is paid only
-   * when a serializer thread observes a new high-water mark, never on recurring warm spills.
+   * possible leaf slot and grows geometrically to the format ceiling; an allocation is paid only when
+   * a serializer thread observes a new high-water mark, never on recurring warm spills.
    */
   private static final ThreadLocal<long[]> HOT_LEAF_SIDE_REFERENCE_KEYS =
       ThreadLocal.withInitial(() -> new long[HOTLeafPage.MAX_ENTRIES]);
@@ -5026,11 +5011,10 @@ public enum PageKind {
     final int usedSlotBytes = hotLeaf.getUsedSlotsSize();
     final MemorySegment slots = hotLeaf.slots();
     if (expectedEntryCount <= 0 || expectedEntryCount > entryCount || entryCount > HOTLeafPage.MAX_ENTRIES
-        || expectedPayloadBytes <= 0 || expectedPayloadBytes > usedSlotBytes
-        || usedSlotBytes > slots.byteSize()) {
+        || expectedPayloadBytes <= 0 || expectedPayloadBytes > usedSlotBytes || usedSlotBytes > slots.byteSize()) {
       throw new IllegalStateException("Invalid sparse HOT-leaf bounds: dirtyCount=" + expectedEntryCount
-          + ", entryCount=" + entryCount + ", dirtyBytes=" + expectedPayloadBytes + ", usedSlotBytes="
-          + usedSlotBytes + ", slotCapacity=" + slots.byteSize());
+          + ", entryCount=" + entryCount + ", dirtyBytes=" + expectedPayloadBytes + ", usedSlotBytes=" + usedSlotBytes
+          + ", slotCapacity=" + slots.byteSize());
     }
 
     int emittedEntries = 0;
@@ -5079,16 +5063,15 @@ public enum PageKind {
       final int actualEntryCount, final int actualPayloadBytes, final String pass) {
     if (actualEntryCount != expectedEntryCount || actualPayloadBytes != expectedPayloadBytes) {
       throw new IllegalStateException("Sparse HOT-leaf " + pass + " pass changed beneath serialization: entries="
-          + actualEntryCount + '/' + expectedEntryCount + ", bytes=" + actualPayloadBytes + '/'
-          + expectedPayloadBytes);
+          + actualEntryCount + '/' + expectedEntryCount + ", bytes=" + actualPayloadBytes + '/' + expectedPayloadBytes);
     }
   }
 
   /** Return reusable primitive scratch with an explicit format-derived capacity bound. */
   private static long[] hotLeafSideReferenceKeyScratch(final int required) {
     if (required < 0 || required > MAX_HOT_LEAF_SIDE_REFERENCES) {
-      throw new IllegalStateException("HOT-leaf side-reference count " + required + " exceeds format limit "
-          + MAX_HOT_LEAF_SIDE_REFERENCES);
+      throw new IllegalStateException(
+          "HOT-leaf side-reference count " + required + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
     }
     long[] scratch = HOT_LEAF_SIDE_REFERENCE_KEYS.get();
     if (scratch.length >= required) {
@@ -5234,9 +5217,8 @@ public enum PageKind {
     final long[] keys = hotLeafSideReferenceKeyScratch(keyCount);
     final int copiedKeyCount = hotLeaf.copyOverflowPageRefKeysInto(keys);
     if (copiedKeyCount != keyCount) {
-      throw new IllegalStateException(
-          "HOT-leaf side-reference map changed beneath serialization: copied=" + copiedKeyCount + ", expected="
-              + keyCount);
+      throw new IllegalStateException("HOT-leaf side-reference map changed beneath serialization: copied="
+          + copiedKeyCount + ", expected=" + keyCount);
     }
     sortHotLeafSideReferenceKeyPrefix(keys, keyCount);
     Utils.putVarLong(sink, keyCount);
@@ -5437,10 +5419,9 @@ public enum PageKind {
    * Shared sequential output for the small page regions. {@link RegionTable#set(byte, byte[], int)}
    * copies each valid prefix into page-owned native storage before the next encoder reuses it.
    */
-  private static final ThreadLocal<byte[]> REGION_ENCODE_SCRATCH = ThreadLocal.withInitial(() ->
-      new byte[Math.max(NumberZoneMapRegion.encodedSize(PageLayout.SLOT_COUNT),
-          Math.max(ObjectKeyNameKeyRegion.maxEncodedSize(PageLayout.SLOT_COUNT),
-              RecordOrdinalRegion.maxEncodedSize()))]);
+  private static final ThreadLocal<byte[]> REGION_ENCODE_SCRATCH = ThreadLocal.withInitial(() -> new byte[Math.max(
+      NumberZoneMapRegion.encodedSize(PageLayout.SLOT_COUNT),
+      Math.max(ObjectKeyNameKeyRegion.maxEncodedSize(PageLayout.SLOT_COUNT), RecordOrdinalRegion.maxEncodedSize()))]);
 
   /**
    * Per-thread reusable {@link StringRegion.Encoder}. The encoder's internal fastutil maps and
@@ -5481,8 +5462,7 @@ public enum PageKind {
    * Reusable destination for copying fused stored-string payloads out of native page memory. Its
    * contents are borrowed only until both candidate StringRegion encoders return synchronously.
    */
-  private static final ThreadLocal<byte[]> STRING_REGION_VALUE_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[1024]);
+  private static final ThreadLocal<byte[]> STRING_REGION_VALUE_SCRATCH = ThreadLocal.withInitial(() -> new byte[1024]);
 
   /** Grow the current thread's scratch geometrically without copying dead contents. */
   private static byte[] growStringRegionValueScratch(final byte[] current, final int required) {
@@ -5507,8 +5487,8 @@ public enum PageKind {
 
   /**
    * Per-thread field-count array parallel to {@link #SLOT_KINDID_SCRATCH}. The bitmap scan derives it
-   * once from the cached kind id; the encoder's pre-scan, sizing pass and staging pass then consume the
-   * byte directly instead of repeating the same kind-table lookup.
+   * once from the cached kind id; the encoder's pre-scan, sizing pass and staging pass then consume
+   * the byte directly instead of repeating the same kind-table lookup.
    */
   private static final ThreadLocal<byte[]> SLOT_FIELD_COUNT_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
@@ -5657,8 +5637,8 @@ public enum PageKind {
 
   /**
    * Per-thread scratch byte buffer for the {@link PathNodeKeyRegion} encoded column bytes. Grows on
-   * demand on the read path. Its initial capacity has one spare dictionary entry beyond the
-   * encoder's 255-entry ceiling, so every writer payload fits without a sizing pass or growth.
+   * demand on the read path. Its initial capacity has one spare dictionary entry beyond the encoder's
+   * 255-entry ceiling, so every writer payload fits without a sizing pass or growth.
    */
   private static final ThreadLocal<byte[]> PATH_NODE_KEY_COLUMN_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[1 + 256 * 4 + 2 + 128 + PageLayout.SLOT_COUNT]);
@@ -6565,12 +6545,14 @@ public enum PageKind {
       final Page page, final SerializationType type);
 
   /**
-   * Serialize a caller-owned disposable page without publishing serializer-only native state onto
-   * the page that crosses an asynchronous hand-off.
+   * Serialize a caller-owned disposable page without publishing serializer-only native state onto the
+   * page that crosses an asynchronous hand-off.
    *
-   * <p>Only {@link #KEYVALUELEAFPAGE} has such state (its writer-built {@link RegionTable}); every
-   * other kind rejects this specialized entry point so a future caller cannot silently assume an
-   * ownership contract that kind does not implement.</p>
+   * <p>
+   * Only {@link #KEYVALUELEAFPAGE} has such state (its writer-built {@link RegionTable}); every other
+   * kind rejects this specialized entry point so a future caller cannot silently assume an ownership
+   * contract that kind does not implement.
+   * </p>
    */
   public void serializeDisposablePage(final ResourceConfiguration resourceConfiguration, final BytesOut<?> sink,
       final Page page, final SerializationType type) {

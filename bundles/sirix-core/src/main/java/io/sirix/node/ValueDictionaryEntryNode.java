@@ -32,12 +32,14 @@ import static java.util.Objects.requireNonNull;
 /**
  * One value of a global projection value dictionary: the reverse (id &rarr; value) direction.
  *
- * <p>The reverse-id radix maps a stable dictionary id to this record's opaque persistence key.
- * Append generations can therefore reserve dense key runs without renumbering any existing id.
- * Keeping each immutable value as its own record lets a lookup read only the radix path, its small
- * value bucket, and the page holding the requested value rather than materialising the dictionary.
+ * <p>
+ * The reverse-id radix maps a stable dictionary id to this record's opaque persistence key. Append
+ * generations can therefore reserve dense key runs without renumbering any existing id. Keeping
+ * each immutable value as its own record lets a lookup read only the radix path, its small value
+ * bucket, and the page holding the requested value rather than materialising the dictionary.
  *
- * <p>Immutable once written, for the same reason an FSST symbol table is
+ * <p>
+ * Immutable once written, for the same reason an FSST symbol table is
  * ({@link FsstSymbolTableNode}): row cells in every already-written row group refer to values by
  * id, so re-pointing an id at a different value would silently rewrite the meaning of data in
  * revisions that have already been committed. Ids are therefore minted monotonically and never
@@ -49,7 +51,7 @@ import static java.util.Objects.requireNonNull;
 public final class ValueDictionaryEntryNode implements DataRecord {
 
   /**
-   * Largest value payload admitted by V0.  The minimum G1 region is 1 MiB and an object becomes
+   * Largest value payload admitted by V0. The minimum G1 region is 1 MiB and an object becomes
    * humongous at half a region; a 256 KiB payload plus its array header therefore retains almost
    * another 256 KiB of safety margin even under that smallest region configuration.
    */
@@ -70,26 +72,28 @@ public final class ValueDictionaryEntryNode implements DataRecord {
     this(nodeKey, value, false);
   }
 
-  private ValueDictionaryEntryNode(final long nodeKey, final byte[] value,
-      final boolean takeOwnership) {
+  private ValueDictionaryEntryNode(final long nodeKey, final byte[] value, final boolean takeOwnership) {
     if (nodeKey <= 0L) {
       throw new IllegalArgumentException("value dictionary entry key must be positive");
     }
     this.nodeKey = nodeKey;
     final byte[] checkedValue = requireNonNull(value, "value must not be null");
     if (checkedValue.length > MAX_VALUE_LENGTH) {
-      throw new IllegalArgumentException("value dictionary entry exceeds the safe V0 payload limit of "
-          + MAX_VALUE_LENGTH + " bytes");
+      throw new IllegalArgumentException(
+          "value dictionary entry exceeds the safe V0 payload limit of " + MAX_VALUE_LENGTH + " bytes");
     }
-    this.value = takeOwnership ? checkedValue : checkedValue.clone();
+    this.value = takeOwnership
+        ? checkedValue
+        : checkedValue.clone();
   }
 
   /**
    * Create an entry by transferring ownership of {@code value} to the immutable node.
    *
-   * <p>This is the allocation-free persistence seam for dictionary writers and deserializers that
-   * have just produced a fresh byte array. The caller must neither retain nor mutate the array after
-   * this call. Ordinary callers should use {@link #ValueDictionaryEntryNode(long, byte[])}, which
+   * <p>
+   * This is the allocation-free persistence seam for dictionary writers and deserializers that have
+   * just produced a fresh byte array. The caller must neither retain nor mutate the array after this
+   * call. Ordinary callers should use {@link #ValueDictionaryEntryNode(long, byte[])}, which
    * defensively copies its input.
    */
   public static ValueDictionaryEntryNode takeOwnership(final long nodeKey, final byte[] value) {
@@ -118,14 +122,13 @@ public final class ValueDictionaryEntryNode implements DataRecord {
   }
 
   /** Compare a caller-owned byte range to the stored bytes using unsigned byte ordering. */
-  public int compareCandidateUnsigned(final byte[] candidate, final int offset,
-      final int length) {
+  public int compareCandidateUnsigned(final byte[] candidate, final int offset, final int length) {
     requireNonNull(candidate, "candidate must not be null");
     Objects.checkFromIndexSize(offset, length, candidate.length);
     final int commonLength = Math.min(length, value.length);
     for (int index = 0; index < commonLength; index++) {
-      final int comparison = Integer.compare(Byte.toUnsignedInt(candidate[offset + index]),
-          Byte.toUnsignedInt(value[index]));
+      final int comparison =
+          Integer.compare(Byte.toUnsignedInt(candidate[offset + index]), Byte.toUnsignedInt(value[index]));
       if (comparison != 0) {
         return comparison;
       }

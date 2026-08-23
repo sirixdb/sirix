@@ -41,23 +41,25 @@ import static java.util.Objects.requireNonNull;
  * directory needs neither, because it is produced in one pass at the end of a build when the entry
  * count is already known exactly.
  *
- * <p>It is also far cheaper to write: at {@link #ENTRIES_PER_BLOCK} pairs per record, a
+ * <p>
+ * It is also far cheaper to write: at {@link #ENTRIES_PER_BLOCK} pairs per record, a
  * five-million-entry dictionary costs some tens of thousands of records instead of five million,
  * and a probe costs a binary search over blocks ({@code log2(blockCount)} record reads) plus a
  * binary search inside one — paid once per literal, never per row.
  *
- * <p>A hash match is <em>not</em> proof of equality. The probe must confirm the candidate by
- * reading the {@link ValueDictionaryEntryNode} the id names and comparing the bytes, which is why
- * ties on {@code valueHash} are kept adjacent and are all visited.
+ * <p>
+ * A hash match is <em>not</em> proof of equality. The probe must confirm the candidate by reading
+ * the {@link ValueDictionaryEntryNode} the id names and comparing the bytes, which is why ties on
+ * {@code valueHash} are kept adjacent and are all visited.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ValueDictionaryDirectoryNode implements DataRecord {
 
   /**
-   * Pairs per block. Each pair costs 12 bytes on the wire, so a full block is 1.5 KiB — small
-   * enough that a thousand of them still fit inside a record page's slotted-buffer ceiling, and
-   * large enough that the binary search over blocks stays short.
+   * Pairs per block. Each pair costs 12 bytes on the wire, so a full block is 1.5 KiB — small enough
+   * that a thousand of them still fit inside a record page's slotted-buffer ceiling, and large enough
+   * that the binary search over blocks stays short.
    */
   public static final int ENTRIES_PER_BLOCK = 128;
 

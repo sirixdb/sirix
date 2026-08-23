@@ -102,10 +102,11 @@ import java.util.Arrays;
  * <h2>Versioning &amp; storage placement</h2>
  *
  * A row group is not stored as one opaque value. Its zone-map descriptor, KEYS segment, and each
- * column's BODY / DICT / SET_COUNTS / STRING_BLOOM / optional DICT_HASHES segment occupy independent
- * composite-key slots in the projection's {@link io.sirix.page.HOTLeafPage} tree. A segment above the
- * inline threshold spills independently to the ordinary {@link io.sirix.page.OverflowPage}
- * mechanism, so one large dictionary does not force the other columns into its CoW unit.
+ * column's BODY / DICT / SET_COUNTS / STRING_BLOOM / optional DICT_HASHES segment occupy
+ * independent composite-key slots in the projection's {@link io.sirix.page.HOTLeafPage} tree. A
+ * segment above the inline threshold spills independently to the ordinary
+ * {@link io.sirix.page.OverflowPage} mechanism, so one large dictionary does not force the other
+ * columns into its CoW unit.
  *
  * <p>
  * Incremental maintenance observes the same boundaries:
@@ -147,8 +148,7 @@ public final class ProjectionIndexRowGroupPage {
   private static final int STRING_DICTIONARY_HASH_THRESHOLD = 8;
 
   /** A 2x table keeps the open-addressed lookup at or below 50% occupancy. */
-  private static final int INITIAL_STRING_DICTIONARY_HASH_CAPACITY =
-      INITIAL_STRING_DICTIONARY_CAPACITY << 1;
+  private static final int INITIAL_STRING_DICTIONARY_HASH_CAPACITY = INITIAL_STRING_DICTIONARY_CAPACITY << 1;
 
   /** Small first slab; geometric growth quickly reaches the page's steady-state high-water mark. */
   private static final int INITIAL_STRING_SLAB_CAPACITY = 4 * 1024;
@@ -200,29 +200,32 @@ public final class ProjectionIndexRowGroupPage {
   public static final byte COLUMN_KIND_STRING_SET = 4;
 
   /**
-   * A string column whose cells store ids into the resource-wide
-   * {@link GlobalValueDictionary} instead of into a per-leaf dictionary.
+   * A string column whose cells store ids into the resource-wide {@link GlobalValueDictionary}
+   * instead of into a per-leaf dictionary.
    *
-   * <p>{@link #COLUMN_KIND_STRING_DICT} is the right shape for a column with a few dozen distinct
-   * values and the wrong one for a column with millions. A per-leaf dictionary stores a recurring
-   * value once <em>per leaf</em> — hundreds of copies of the same string across a large resource —
-   * so the column's bytes come out roughly the size of the raw strings, and because nothing about a
-   * per-leaf id is comparable across leaves, group identity has to be recovered by hashing the
-   * bytes back out of every leaf's dictionary.
+   * <p>
+   * {@link #COLUMN_KIND_STRING_DICT} is the right shape for a column with a few dozen distinct values
+   * and the wrong one for a column with millions. A per-leaf dictionary stores a recurring value once
+   * <em>per leaf</em> — hundreds of copies of the same string across a large resource — so the
+   * column's bytes come out roughly the size of the raw strings, and because nothing about a per-leaf
+   * id is comparable across leaves, group identity has to be recovered by hashing the bytes back out
+   * of every leaf's dictionary.
    *
-   * <p>Here the id IS the identity, resource-wide. Grouping becomes an integer group-by, distinct
-   * counting a fold over integers, and equality an integer compare after one dictionary probe.
-   * There is no per-leaf dictionary and no dict-entry hash segment: both exist only to recover what
-   * the id already says.
+   * <p>
+   * Here the id IS the identity, resource-wide. Grouping becomes an integer group-by, distinct
+   * counting a fold over integers, and equality an integer compare after one dictionary probe. There
+   * is no per-leaf dictionary and no dict-entry hash segment: both exist only to recover what the id
+   * already says.
    *
-   * <p><b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b> — the cells are
-   * integers, zone-mapped and bit-packed exactly like any other integer column. That is deliberate
-   * and follows the precedent {@link #COLUMN_KIND_NUMERIC_DOUBLE} already set: every layout-level
-   * surface (zone maps, packing, presence, segment codecs) works unchanged, and only the sites that
-   * care what the integer MEANS need to know about the kind. {@link #isLongLaneKind} is the
-   * predicate layout sites test; {@link #isNumericKind} stays what it was, so nothing that treats a
-   * column as arithmetically numeric — a sum, an average, a min that must return a value rather
-   * than an id — can pick this kind up by accident.
+   * <p>
+   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b> — the cells are integers,
+   * zone-mapped and bit-packed exactly like any other integer column. That is deliberate and follows
+   * the precedent {@link #COLUMN_KIND_NUMERIC_DOUBLE} already set: every layout-level surface (zone
+   * maps, packing, presence, segment codecs) works unchanged, and only the sites that care what the
+   * integer MEANS need to know about the kind. {@link #isLongLaneKind} is the predicate layout sites
+   * test; {@link #isNumericKind} stays what it was, so nothing that treats a column as arithmetically
+   * numeric — a sum, an average, a min that must return a value rather than an id — can pick this
+   * kind up by accident.
    */
   public static final byte COLUMN_KIND_STRING_GLOBAL = 5;
 
@@ -235,15 +238,14 @@ public final class ProjectionIndexRowGroupPage {
    * {@code true} for every kind stored as one signed long per row — the two numeric kinds and
    * {@link #COLUMN_KIND_STRING_GLOBAL}.
    *
-   * <p>The predicate for LAYOUT sites only: anything that packs, unpacks, zone-maps, skips or
-   * copies cells without interpreting them. A site that interprets a cell as a number must keep
-   * using {@link #isNumericKind}, because a global string id is an integer that is not a quantity —
-   * summing it, averaging it or returning it as a minimum are all wrong answers rather than slow
-   * ones.
+   * <p>
+   * The predicate for LAYOUT sites only: anything that packs, unpacks, zone-maps, skips or copies
+   * cells without interpreting them. A site that interprets a cell as a number must keep using
+   * {@link #isNumericKind}, because a global string id is an integer that is not a quantity — summing
+   * it, averaging it or returning it as a minimum are all wrong answers rather than slow ones.
    */
   public static boolean isLongLaneKind(final byte kind) {
-    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE
-        || kind == COLUMN_KIND_STRING_GLOBAL;
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_STRING_GLOBAL;
   }
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
@@ -300,9 +302,9 @@ public final class ProjectionIndexRowGroupPage {
   private int orderLabelLength;
 
   /**
-   * Per-row document-order exception flags.  Stable node keys identify records but do not order
-   * them: rows marked here are located through the sparse exact locator, while unmarked rows form
-   * the strictly-increasing key backbone addressed by the leaf fences.
+   * Per-row document-order exception flags. Stable node keys identify records but do not order them:
+   * rows marked here are located through the sparse exact locator, while unmarked rows form the
+   * strictly-increasing key backbone addressed by the leaf fences.
    */
   private long[] orderExceptionBits;
 
@@ -329,16 +331,15 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Per-column dict-id values. Slot {@code c} valid iff
    * {@code columnKinds[c] == COLUMN_KIND_STRING_DICT}. Paired with either the build-time slab or the
-   * legacy {@link #stringDicts} representation.
-   * {@code int[MAX_ROWS]}.
+   * legacy {@link #stringDicts} representation. {@code int[MAX_ROWS]}.
    */
   private final int[][] stringDictIdCols;
 
   /**
    * Per-column legacy local string dictionary. Deserialised dictionaries and STRING_SET columns keep
-   * the historical null-terminated {@code byte[][]} representation. A newly-built scalar
-   * STRING_DICT column instead lives in {@link #stringDictSlabs}; this slot is normally null until
-   * the public compatibility accessor materialises a detached view.
+   * the historical null-terminated {@code byte[][]} representation. A newly-built scalar STRING_DICT
+   * column instead lives in {@link #stringDictSlabs}; this slot is normally null until the public
+   * compatibility accessor materialises a detached view.
    */
   private final byte[][][] stringDicts;
 
@@ -375,10 +376,10 @@ public final class ProjectionIndexRowGroupPage {
   private final boolean[] stringDictHashActive;
 
   /**
-   * Per-column resource-wide value dictionary for {@link #COLUMN_KIND_STRING_GLOBAL}. Slot
-   * {@code c} is non-null exactly when column {@code c} carries that kind; the builder owns the
-   * writers and shares one per column across every leaf, which is the whole point — a value
-   * interned in leaf 1 keeps its id in leaf 10000.
+   * Per-column resource-wide value dictionary for {@link #COLUMN_KIND_STRING_GLOBAL}. Slot {@code c}
+   * is non-null exactly when column {@code c} carries that kind; the builder owns the writers and
+   * shares one per column across every leaf, which is the whole point — a value interned in leaf 1
+   * keeps its id in leaf 10000.
    */
   private GlobalValueDictionaryEncoder[] globalDicts;
 
@@ -559,11 +560,11 @@ public final class ProjectionIndexRowGroupPage {
     final int replacementStart = orderLabelOffsets[row];
     final int required = Math.addExact(replacementStart, label.length);
     if (required > MAX_ORDER_LABEL_BYTES) {
-      throw new IllegalStateException("projection row group exceeds the bounded Dewey order-label lane of "
-          + MAX_ORDER_LABEL_BYTES + " bytes");
+      throw new IllegalStateException(
+          "projection row group exceeds the bounded Dewey order-label lane of " + MAX_ORDER_LABEL_BYTES + " bytes");
     }
-    if (row > 0 && compareOrderLabels(orderLabelBytes, orderLabelOffsets[row - 1], replacementStart,
-        label, 0, label.length) >= 0) {
+    if (row > 0 && compareOrderLabels(orderLabelBytes, orderLabelOffsets[row - 1], replacementStart, label, 0,
+        label.length) >= 0) {
       throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
     }
     ensureOrderLabelCapacity(required);
@@ -574,7 +575,9 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   public long[] orderExceptionBits() {
-    return hasOrderExceptions ? orderExceptionBits : null;
+    return hasOrderExceptions
+        ? orderExceptionBits
+        : null;
   }
 
   public boolean hasOrderExceptions() {
@@ -641,9 +644,10 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Historical {@code byte[][]} dictionary accessor.
    *
-   * <p>A slab-backed scalar dictionary is materialised at most once per live page generation. Each
-   * entry is detached from the page-owned slab, so retaining or mutating the returned compatibility
-   * view cannot corrupt codecs, scans, a later builder reset, or already-emitted output. Production
+   * <p>
+   * A slab-backed scalar dictionary is materialised at most once per live page generation. Each entry
+   * is detached from the page-owned slab, so retaining or mutating the returned compatibility view
+   * cannot corrupt codecs, scans, a later builder reset, or already-emitted output. Production
    * consumers use the range accessors below and never invoke this method.
    */
   public synchronized byte[][] stringDictionary(final int column) {
@@ -675,13 +679,17 @@ public final class ProjectionIndexRowGroupPage {
   public byte[] stringDictionaryEntryBacking(final int column, final int dictId) {
     checkDictionaryEntry(column, dictId);
     final byte[] slab = stringDictSlabs[column];
-    return slab != null ? slab : stringDicts[column][dictId];
+    return slab != null
+        ? slab
+        : stringDicts[column][dictId];
   }
 
   /** Start of one entry in {@link #stringDictionaryEntryBacking}. */
   public int stringDictionaryEntryOffset(final int column, final int dictId) {
     checkDictionaryEntry(column, dictId);
-    return stringDictSlabs[column] != null ? stringDictOffsets[column][dictId] : 0;
+    return stringDictSlabs[column] != null
+        ? stringDictOffsets[column][dictId]
+        : 0;
   }
 
   /** Byte length of one entry in {@link #stringDictionaryEntryBacking}. */
@@ -784,9 +792,8 @@ public final class ProjectionIndexRowGroupPage {
       final long lastRecordKey, final long[] recordKeys, final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
       final byte[][][] stringDicts, final long[][] presenceCols, final byte[] columnFlags) {
-    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
-        null, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols,
-        stringDicts, null, null, presenceCols, columnFlags);
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, null, columnMin, columnMax,
+        numericCols, booleanCols, stringDictIdCols, stringDicts, null, null, presenceCols, columnFlags);
   }
 
   /** As above, carrying {@link #COLUMN_KIND_STRING_SET} columns' counts and flat element runs. */
@@ -795,28 +802,27 @@ public final class ProjectionIndexRowGroupPage {
       final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
       final byte[][][] stringDicts, final int[][] setCountCols, final int[][] setElemCols, final long[][] presenceCols,
       final byte[] columnFlags) {
-    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
-        null, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols,
-        stringDicts, setCountCols, setElemCols, presenceCols, columnFlags);
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, null, columnMin, columnMax,
+        numericCols, booleanCols, stringDictIdCols, stringDicts, setCountCols, setElemCols, presenceCols, columnFlags);
   }
 
   /** Reassembly form carrying the persisted document-order exception bitmap from KEYS. */
   static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount, final long firstRecordKey,
-      final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits,
-      final long[] columnMin, final long[] columnMax, final long[][] numericCols, final long[][] booleanCols,
-      final int[][] stringDictIdCols, final byte[][][] stringDicts, final int[][] setCountCols,
-      final int[][] setElemCols, final long[][] presenceCols, final byte[] columnFlags) {
-    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, orderExceptionBits,
-        null, null, 0, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols, stringDicts,
-        setCountCols, setElemCols, presenceCols, columnFlags);
+      final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits, final long[] columnMin,
+      final long[] columnMax, final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
+      final byte[][][] stringDicts, final int[][] setCountCols, final int[][] setElemCols, final long[][] presenceCols,
+      final byte[] columnFlags) {
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, orderExceptionBits, null, null, 0,
+        columnMin, columnMax, numericCols, booleanCols, stringDictIdCols, stringDicts, setCountCols, setElemCols,
+        presenceCols, columnFlags);
   }
 
   static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount, final long firstRecordKey,
-      final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits,
-      final byte[] orderLabelBytes, final int[] orderLabelOffsets, final int orderLabelLength,
-      final long[] columnMin, final long[] columnMax, final long[][] numericCols, final long[][] booleanCols,
-      final int[][] stringDictIdCols, final byte[][][] stringDicts, final int[][] setCountCols,
-      final int[][] setElemCols, final long[][] presenceCols, final byte[] columnFlags) {
+      final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits, final byte[] orderLabelBytes,
+      final int[] orderLabelOffsets, final int orderLabelLength, final long[] columnMin, final long[] columnMax,
+      final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
+      final byte[][][] stringDicts, final int[][] setCountCols, final int[][] setElemCols, final long[][] presenceCols,
+      final byte[] columnFlags) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
@@ -863,8 +869,7 @@ public final class ProjectionIndexRowGroupPage {
   /** Fail-closed validation shared by raw and segmented V0 decoders. */
   static void validateOrderMetadata(final int rowCount, final long firstRecordKey, final long lastRecordKey,
       final long[] recordKeys, final long[] orderExceptionBits) {
-    if (rowCount < 0 || rowCount > MAX_ROWS
-        || (rowCount > 0 && (recordKeys == null || recordKeys.length < rowCount))) {
+    if (rowCount < 0 || rowCount > MAX_ROWS || (rowCount > 0 && (recordKeys == null || recordKeys.length < rowCount))) {
       throw new IllegalStateException("invalid projection KEYS row shape");
     }
     final int words = (rowCount + 63) >>> 6;
@@ -872,8 +877,7 @@ public final class ProjectionIndexRowGroupPage {
       if (orderExceptionBits.length < words) {
         throw new IllegalStateException("truncated projection order-exception bitmap");
       }
-      if (words > 0 && (rowCount & 63) != 0
-          && (orderExceptionBits[words - 1] & (-1L << (rowCount & 63))) != 0L) {
+      if (words > 0 && (rowCount & 63) != 0 && (orderExceptionBits[words - 1] & (-1L << (rowCount & 63))) != 0L) {
         throw new IllegalStateException("projection order-exception bitmap sets bits beyond rowCount");
       }
     }
@@ -886,8 +890,8 @@ public final class ProjectionIndexRowGroupPage {
       if (recordKey < 0) {
         throw new IllegalStateException("projection KEYS contains a negative document node key");
       }
-      final boolean exception = orderExceptionBits != null
-          && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0L;
+      final boolean exception =
+          orderExceptionBits != null && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0L;
       if (exception) {
         sawException = true;
         continue;
@@ -909,11 +913,9 @@ public final class ProjectionIndexRowGroupPage {
     }
   }
 
-  static void validateOrderLabels(final int rowCount, final byte[] bytes, final int[] offsets,
-      final int byteLength) {
+  static void validateOrderLabels(final int rowCount, final byte[] bytes, final int[] offsets, final int byteLength) {
     if (byteLength < 0 || byteLength > MAX_ORDER_LABEL_BYTES || bytes == null || byteLength > bytes.length
-        || offsets == null || offsets.length < rowCount + 1 || offsets[0] != 0
-        || offsets[rowCount] != byteLength) {
+        || offsets == null || offsets.length < rowCount + 1 || offsets[0] != 0 || offsets[rowCount] != byteLength) {
       throw new IllegalStateException("invalid projection Dewey order-label lane");
     }
     for (int row = 0; row < rowCount; row++) {
@@ -928,8 +930,8 @@ public final class ProjectionIndexRowGroupPage {
     }
   }
 
-  static int compareOrderLabels(final byte[] left, final int leftStart, final int leftEnd,
-      final byte[] right, final int rightStart, final int rightEnd) {
+  static int compareOrderLabels(final byte[] left, final int leftStart, final int leftEnd, final byte[] right,
+      final int rightStart, final int rightEnd) {
     final int length = Math.min(leftEnd - leftStart, rightEnd - rightStart);
     for (int index = 0; index < length; index++) {
       final int a = left[leftStart + index] & 0xFF;
@@ -965,8 +967,8 @@ public final class ProjectionIndexRowGroupPage {
 
   private void ensureOrderLabelCapacity(final int required) {
     if (required > MAX_ORDER_LABEL_BYTES) {
-      throw new IllegalStateException("projection row group exceeds the bounded Dewey order-label lane of "
-          + MAX_ORDER_LABEL_BYTES + " bytes");
+      throw new IllegalStateException(
+          "projection row group exceeds the bounded Dewey order-label lane of " + MAX_ORDER_LABEL_BYTES + " bytes");
     }
     if (orderLabelBytes == null) {
       orderLabelBytes = new byte[Math.max(4096, required)];
@@ -989,8 +991,7 @@ public final class ProjectionIndexRowGroupPage {
       orderLabelLength = 0;
     }
     validateOrderLabels(rowCount, orderLabelBytes, orderLabelOffsets, orderLabelLength);
-    final ByteBuffer offsets = ByteBuffer.allocate(Integer.BYTES * (rowCount + 2))
-        .order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer offsets = ByteBuffer.allocate(Integer.BYTES * (rowCount + 2)).order(ByteOrder.LITTLE_ENDIAN);
     offsets.putInt(orderLabelLength);
     for (int row = 0; row <= rowCount; row++) {
       offsets.putInt(orderLabelOffsets[row]);
@@ -1006,8 +1007,8 @@ public final class ProjectionIndexRowGroupPage {
 
   /**
    * Materialise row lanes, optionally including empty build-time dictionary storage. The raw
-   * deserialiser supplies complete legacy dictionaries immediately afterwards and passes false, so
-   * it does not allocate then discard a slab for every cold-opened scalar string column.
+   * deserialiser supplies complete legacy dictionaries immediately afterwards and passes false, so it
+   * does not allocate then discard a slab for every cold-opened scalar string column.
    */
   private void ensureCapacity(final boolean allocateBuilderDictionaries) {
     if (recordKeys == null) {
@@ -1020,7 +1021,7 @@ public final class ProjectionIndexRowGroupPage {
           // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
           // exactly like any other integer column.
           case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
-              numericCols[c] = new long[MAX_ROWS];
+            numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
@@ -1044,19 +1045,20 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * Return this builder-owned page to its empty state without releasing its primitive working
-   * arrays.
+   * Return this builder-owned page to its empty state without releasing its primitive working arrays.
    *
-   * <p>The builder calls this only after its synchronous borrowed-leaf callback returns
-   * successfully. Numeric values, record keys, ids and set counts are overwrite-only, so advancing
+   * <p>
+   * The builder calls this only after its synchronous borrowed-leaf callback returns successfully.
+   * Numeric values, record keys, ids and set counts are overwrite-only, so advancing
    * {@link #rowCount} from zero makes their old tails unreachable and they need no clearing. The
    * presence and boolean lanes are OR-written and therefore clear the words that were live in the
    * preceding generation. Scalar dictionaries clear their live size/offset/length metadata while
    * retaining the page-owned slab capacity; legacy/set dictionaries clear live entry references.
    * Primitive indexes and an expanded string-set id run remain at their high-water marks.
    *
-   * <p>Package-private by design: callers outside {@link ProjectionIndexBuilder} do not own the
-   * page exclusively and cannot prove that no borrowed accessor escaped.
+   * <p>
+   * Package-private by design: callers outside {@link ProjectionIndexBuilder} do not own the page
+   * exclusively and cannot prove that no borrowed accessor escaped.
    */
   void resetForBuilderReuse(final GlobalValueDictionaryEncoder[] dictionaries) {
     final int liveWordCount = (rowCount + 63) >>> 6;
@@ -1204,20 +1206,21 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Extractor-only scalar-string lane that preserves already-decoded semantic UTF-8 bytes.
    *
-   * <p>All scalar arrays are borrowed for this synchronous call. A local dictionary appends only a
+   * <p>
+   * All scalar arrays are borrowed for this synchronous call. A local dictionary appends only a
    * newly-distinct live slice to its page-owned slab; duplicates are compared in place and retain
-   * nothing. A global
-   * dictionary already copies newly-interned values into its arena. Returning {@code false} does not
-   * inspect the arrays, so the caller may retry the same row on a fresh leaf.
+   * nothing. A global dictionary already copies newly-interned values into its arena. Returning
+   * {@code false} does not inspect the arrays, so the caller may retry the same row on a fresh leaf.
    *
-   * <p>{@code stringSetValues} deliberately remains the legacy String lane. Set element order,
+   * <p>
+   * {@code stringSetValues} deliberately remains the legacy String lane. Set element order,
    * duplicates, null skipping and empty-set representation are therefore unchanged.
    */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final byte[][] stringUtf8Values, final String[][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
-    return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, null, stringSetValues,
-        present, unrepresentable, nonIntegral, nonDoubleSource);
+    return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, null, stringSetValues, present,
+        unrepresentable, nonIntegral, nonDoubleSource);
   }
 
   /**
@@ -1257,8 +1260,7 @@ public final class ProjectionIndexRowGroupPage {
       return false;
     }
     final boolean appended = appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values,
-        stringUtf8Lengths, stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource,
-        orderException);
+        stringUtf8Lengths, stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException);
     if (!appended) {
       throw new IllegalStateException("projection order-label preflight admitted a full row group");
     }
@@ -1269,15 +1271,17 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Append one extracted value to a one-column maintenance page.
    *
-   * <p>This is deliberately scalar-shaped instead of accepting the extractor's projection-width
-   * arrays.  A narrow update constructs one such page per dirty column, so {@link #ensureCapacity()}
-   * allocates exactly one value lane and one presence lane rather than allocating {@code MAX_ROWS}
-   * cells for every untouched projection column.</p>
+   * <p>
+   * This is deliberately scalar-shaped instead of accepting the extractor's projection-width arrays.
+   * A narrow update constructs one such page per dirty column, so {@link #ensureCapacity()} allocates
+   * exactly one value lane and one presence lane rather than allocating {@code MAX_ROWS} cells for
+   * every untouched projection column.
+   * </p>
    */
   boolean appendExtractedSingleColumnRow(final long recordKey, final long longValue, final boolean boolValue,
-      final byte[] stringUtf8Value, final int stringUtf8Length,
-      final String[] stringSetValues, final int stringSetLength, final boolean present,
-      final boolean unrepresentable, final boolean nonIntegral, final boolean nonDoubleSource) {
+      final byte[] stringUtf8Value, final int stringUtf8Length, final String[] stringSetValues,
+      final int stringSetLength, final boolean present, final boolean unrepresentable, final boolean nonIntegral,
+      final boolean nonDoubleSource) {
     if (columnCount != 1) {
       throw new IllegalStateException("single-column append requires a one-column page, got " + columnCount);
     }
@@ -1322,7 +1326,9 @@ public final class ProjectionIndexRowGroupPage {
         }
       }
       case COLUMN_KIND_STRING_GLOBAL -> {
-        final long id = clean ? internGlobalUtf8(0, stringUtf8Value, stringUtf8Length) : 0L;
+        final long id = clean
+            ? internGlobalUtf8(0, stringUtf8Value, stringUtf8Length)
+            : 0L;
         numericCols[0][row] = id;
         if (clean) {
           columnMin[0] = Math.min(columnMin[0], id);
@@ -1356,7 +1362,10 @@ public final class ProjectionIndexRowGroupPage {
     return true;
   }
 
-  /** Validate the complete extractor row before {@link #ensureCapacity} or any page/dictionary mutation. */
+  /**
+   * Validate the complete extractor row before {@link #ensureCapacity} or any page/dictionary
+   * mutation.
+   */
   private void validateExtractedUtf8Row(final long[] longValues, final boolean[] boolValues,
       final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
       final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
@@ -1487,7 +1496,9 @@ public final class ProjectionIndexRowGroupPage {
         // STRUCTURAL invariant of the leaf (the dictionary-union
         // count-distinct kernel depends on it), not a builder convention.
         case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = stringUtf8Values == null
-            ? appendString(c, clean ? stringValues[c] : "")
+            ? appendString(c, clean
+                ? stringValues[c]
+                : "")
             : clean
                 ? appendBorrowedStringUtf8(c, stringUtf8Values[c],
                     extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
@@ -1519,7 +1530,9 @@ public final class ProjectionIndexRowGroupPage {
     return true;
   }
 
-  /** Validate the legacy String entry point completely before the page or a global dictionary mutates. */
+  /**
+   * Validate the legacy String entry point completely before the page or a global dictionary mutates.
+   */
   private void validateLegacyRow(final long[] longValues, final boolean[] boolValues, final String[] stringValues,
       final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
@@ -1599,7 +1612,9 @@ public final class ProjectionIndexRowGroupPage {
     if (dictionary == null) {
       throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
     }
-    return dictionary.intern(value == null ? "" : value);
+    return dictionary.intern(value == null
+        ? ""
+        : value);
   }
 
   /** Intern semantic UTF-8 bytes without manufacturing an intermediate {@link String}. */
@@ -1617,15 +1632,18 @@ public final class ProjectionIndexRowGroupPage {
    * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_GLOBAL},
    * interning this leaf's dictionary entries into the resource-wide one.
    *
-   * <p>Exists because the cardinality that decides between the two kinds is only knowable after
-   * some rows have been seen. The builder buffers the leading leaves, measures, and then converts
-   * the ones it already built rather than walking the resource twice — the per-leaf dictionary it
-   * is converting from is exactly the set of distinct values it would otherwise have to re-derive.
+   * <p>
+   * Exists because the cardinality that decides between the two kinds is only knowable after some
+   * rows have been seen. The builder buffers the leading leaves, measures, and then converts the ones
+   * it already built rather than walking the resource twice — the per-leaf dictionary it is
+   * converting from is exactly the set of distinct values it would otherwise have to re-derive.
    *
-   * <p>Interning is per DICTIONARY ENTRY, not per row: a leaf's rows are then remapped by an array
+   * <p>
+   * Interning is per DICTIONARY ENTRY, not per row: a leaf's rows are then remapped by an array
    * lookup.
    *
-   * <p>Flips the column's KIND on this page. Each page holds its OWN copy of the kinds array (the
+   * <p>
+   * Flips the column's KIND on this page. Each page holds its OWN copy of the kinds array (the
    * constructor clones what it is handed), so this affects nothing else — the builder separately
    * flips the extractor's array so that later leaves are built as global from the start.
    *
@@ -1662,8 +1680,8 @@ public final class ProjectionIndexRowGroupPage {
         long global = localToGlobal[local];
         if (global == 0L) {
           final byte[] bytes = stringDictionaryEntryBacking(c, local);
-          global = dictionary.intern(bytes, stringDictionaryEntryOffset(c, local),
-              stringDictionaryEntryLength(c, local));
+          global =
+              dictionary.intern(bytes, stringDictionaryEntryOffset(c, local), stringDictionaryEntryLength(c, local));
           localToGlobal[local] = global;
         }
         converted[row] = global;
@@ -1927,10 +1945,11 @@ public final class ProjectionIndexRowGroupPage {
 
   private static int extractedUtf8Length(final int column, final byte[] value, final int[] lengths) {
     if (value == null) {
-      throw new IllegalStateException(
-          "extractor supplied null UTF-8 bytes for clean scalar string column " + column);
+      throw new IllegalStateException("extractor supplied null UTF-8 bytes for clean scalar string column " + column);
     }
-    final int length = lengths == null ? value.length : lengths[column];
+    final int length = lengths == null
+        ? value.length
+        : lengths[column];
     if (length < 0 || length > value.length) {
       throw new IllegalArgumentException("extractor supplied UTF-8 length " + length + " for column " + column
           + " backed by a " + value.length + "-byte array");
@@ -2110,8 +2129,9 @@ public final class ProjectionIndexRowGroupPage {
    * used only during commit.
    */
   public byte[] serialize() {
-    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys,
-        hasOrderExceptions ? orderExceptionBits : null);
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys, hasOrderExceptions
+        ? orderExceptionBits
+        : null);
     final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);
     header.putInt(rowCount);
@@ -2151,7 +2171,7 @@ public final class ProjectionIndexRowGroupPage {
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
-            writeLongs(baos, numericCols[c], rowCount);
+          writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {
           writeDictionary(baos, c);

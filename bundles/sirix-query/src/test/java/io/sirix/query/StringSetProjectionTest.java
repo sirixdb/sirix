@@ -160,9 +160,9 @@ final class StringSetProjectionTest {
         final JsonResourceSession session = database.beginResourceSession(RES)) {
       ProjectionIndexRegistry.clear();
       ProjectionIndexCatalog.clearCache();
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
-          new String[] {"[]"}, new String[] {"genres"});
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+              session.getMostRecentRevisionNumber(), new String[] {"[]"}, new String[] {"genres"});
       assertNotNull(handle);
       assertEquals(dramaBefore + 1, handle.setValueRowCount(1, "Drama"));
       assertEquals(comedyBefore - 1, handle.setValueRowCount(1, "Comedy"));

@@ -24,17 +24,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Round-trip tests for {@link ProjectionIndexRowGroupPage} — append rows via
- * the writer API, serialize, deserialize, and verify the reader sees the
- * same cells. Exercises all three column kinds in one page.
+ * Round-trip tests for {@link ProjectionIndexRowGroupPage} — append rows via the writer API,
+ * serialize, deserialize, and verify the reader sees the same cells. Exercises all three column
+ * kinds in one page.
  */
 final class ProjectionIndexRowGroupPageTest {
 
-  private static final byte[] KINDS_NUM_BOOL_STR = {
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-  };
+  private static final byte[] KINDS_NUM_BOOL_STR = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
   private static boolean appendNumericRow(final ProjectionIndexRowGroupPage page, final long recordKey,
       final long value, final boolean orderException) {
@@ -45,8 +42,7 @@ final class ProjectionIndexRowGroupPageTest {
   private static boolean appendNumericRow(final ProjectionIndexRowGroupPage page, final long recordKey,
       final long value, final byte[] orderLabel) {
     return page.appendExtractedUtf8Row(recordKey, new long[] {value}, new boolean[1], new byte[1][], new int[1],
-        new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false,
-        orderLabel);
+        new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false, orderLabel);
   }
 
   private static int orderMarkerOffset(final ProjectionIndexRowGroupPage page) {
@@ -74,8 +70,7 @@ final class ProjectionIndexRowGroupPageTest {
       ByteBuffer.wrap(orderLabel).putInt(row);
       final int rowsBeforeAppend = page.getRowCount();
       if (!appendNumericRow(page, row, row, orderLabel)) {
-        assertEquals(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES / orderLabel.length,
-            rowsBeforeAppend);
+        assertEquals(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES / orderLabel.length, rowsBeforeAppend);
         assertEquals(rowsBeforeAppend, page.getRowCount());
         fullPage = page;
         page = new ProjectionIndexRowGroupPage(kinds);
@@ -84,10 +79,8 @@ final class ProjectionIndexRowGroupPageTest {
     }
 
     assertNotNull(fullPage);
-    assertEquals(ProjectionIndexRowGroupPage.MAX_ROWS,
-        fullPage.getRowCount() + page.getRowCount());
-    assertEquals(fullPage.getRowCount(),
-        ProjectionIndexRowGroupPage.deserialize(fullPage.serialize()).getRowCount());
+    assertEquals(ProjectionIndexRowGroupPage.MAX_ROWS, fullPage.getRowCount() + page.getRowCount());
+    assertEquals(fullPage.getRowCount(), ProjectionIndexRowGroupPage.deserialize(fullPage.serialize()).getRowCount());
     assertEquals(page.getRowCount(), ProjectionIndexRowGroupPage.deserialize(page.serialize()).getRowCount());
   }
 
@@ -96,14 +89,16 @@ final class ProjectionIndexRowGroupPageTest {
     final byte[] kinds = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     for (int row = 0; row < ProjectionIndexRowGroupPage.MAX_ROWS - 1; row++) {
-      final byte[] orderLabel = new byte[row < 254 ? 257 : 256];
+      final byte[] orderLabel = new byte[row < 254
+          ? 257
+          : 256];
       ByteBuffer.wrap(orderLabel).putInt(row);
       assertTrue(appendNumericRow(page, row, row, orderLabel));
     }
 
     assertEquals(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES - 2, page.orderLabelLength());
-    assertFalse(appendNumericRow(page, ProjectionIndexRowGroupPage.MAX_ROWS,
-        ProjectionIndexRowGroupPage.MAX_ROWS, new byte[] {1}));
+    assertFalse(appendNumericRow(page, ProjectionIndexRowGroupPage.MAX_ROWS, ProjectionIndexRowGroupPage.MAX_ROWS,
+        new byte[] {1}));
     assertEquals(ProjectionIndexRowGroupPage.MAX_ROWS - 1, page.getRowCount());
   }
 
@@ -126,14 +121,14 @@ final class ProjectionIndexRowGroupPageTest {
     assertEquals(3, rt.getColumnCount());
     assertEquals(1000L, rt.firstRecordKey());
     assertEquals(1003L, rt.lastRecordKey());
-    assertArrayEquals(new long[] {1000, 1001, 1002, 1003},
-        java.util.Arrays.copyOf(rt.recordKeys(), 4));
+    assertArrayEquals(new long[] {1000, 1001, 1002, 1003}, java.util.Arrays.copyOf(rt.recordKeys(), 4));
 
     // Numeric column: values 40-43, min=40, max=43.
     assertEquals(40L, rt.columnMin(0));
     assertEquals(43L, rt.columnMax(0));
     final long[] numCol = rt.numericColumn(0);
-    for (int i = 0; i < 4; i++) assertEquals(40L + i, numCol[i], "row " + i);
+    for (int i = 0; i < 4; i++)
+      assertEquals(40L + i, numCol[i], "row " + i);
 
     // Boolean column: rows 0 and 2 are true, others false.
     final long[] bits = rt.booleanColumnBits(1);
@@ -186,9 +181,9 @@ final class ProjectionIndexRowGroupPageTest {
     final ProjectionRecordLocator.Accessor locator = mock(ProjectionRecordLocator.Accessor.class);
     when(locator.find(41L)).thenReturn(3);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexChangeListener.validateRewrittenRowGroup(page, 3, locator,
-            new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS)));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> ProjectionIndexChangeListener.validateRewrittenRowGroup(page, 3,
+            locator, new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS)));
 
     assertTrue(failure.getMessage().contains("occurs more than once"));
   }
@@ -204,9 +199,9 @@ final class ProjectionIndexRowGroupPageTest {
     // The rewrite did not insert/move key 41, but validation must still inspect it.
     when(locator.find(41L)).thenReturn(0);
 
-    final IllegalStateException failure = assertThrows(IllegalStateException.class,
-        () -> ProjectionIndexChangeListener.validateRewrittenRowGroup(page, 3, locator,
-            new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS)));
+    final IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> ProjectionIndexChangeListener.validateRewrittenRowGroup(page, 3,
+            locator, new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS)));
 
     assertTrue(failure.getMessage().contains("instead of rewritten leaf 3 row 1"));
   }
@@ -322,17 +317,15 @@ final class ProjectionIndexRowGroupPageTest {
       assertTrue(p.appendRow(i, nums, bools, strs), "row " + i);
     }
     assertFalse(p.appendRow(ProjectionIndexRowGroupPage.MAX_ROWS, nums, bools, strs));
-    assertFalse(p.appendExtractedUtf8Row(ProjectionIndexRowGroupPage.MAX_ROWS, nums, bools, null, null, null, null,
-        null, null), "a rejected row must not inspect or take ownership of its UTF-8 buffers");
+    assertFalse(
+        p.appendExtractedUtf8Row(ProjectionIndexRowGroupPage.MAX_ROWS, nums, bools, null, null, null, null, null, null),
+        "a rejected row must not inspect or take ownership of its UTF-8 buffers");
   }
 
   @Test
   void extractedUtf8LaneIsByteIdenticalToLegacyStrings() {
-    final byte[] kinds = {
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
-    };
+    final byte[] kinds = {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET};
     final ProjectionIndexRowGroupPage legacy = new ProjectionIndexRowGroupPage(kinds);
     final ProjectionIndexRowGroupPage raw = new ProjectionIndexRowGroupPage(kinds);
     final GlobalValueDictionaryWriter legacyGlobal = new GlobalValueDictionaryWriter();
@@ -345,41 +338,17 @@ final class ProjectionIndexRowGroupPageTest {
     final byte[] firstLocal = local.getBytes(StandardCharsets.UTF_8);
     final byte[] duplicateLocal = local.getBytes(StandardCharsets.UTF_8);
     final byte[] cleanEmpty = new byte[0];
-    final String[][] legacyScalars = {
-        {local, global, null},
-        {new String(local), new String(global), null},
-        {"", "", null},
-        {null, null, null},
-        {null, null, null}
-    };
-    final byte[][][] rawScalars = {
-        {firstLocal, global.getBytes(StandardCharsets.UTF_8), null},
-        {duplicateLocal, global.getBytes(StandardCharsets.UTF_8), null},
-        {cleanEmpty, new byte[0], null},
-        {null, null, null},
-        {null, null, null}
-    };
-    final String[][][] sets = {
-        {null, null, {"z", "a", "z", null}},
-        {null, null, new String[0]},
-        {null, null, {"", "β"}},
-        {null, null, null},
-        {null, null, {"ignored"}}
-    };
-    final boolean[][] present = {
-        {true, true, true},
-        {true, true, true},
-        {true, true, true},
-        {false, false, false},
-        {true, true, true}
-    };
-    final boolean[][] unrepresentable = {
-        {false, false, false},
-        {false, false, false},
-        {false, false, false},
-        {false, false, false},
-        {true, true, true}
-    };
+    final String[][] legacyScalars = {{local, global, null}, {new String(local), new String(global), null},
+        {"", "", null}, {null, null, null}, {null, null, null}};
+    final byte[][][] rawScalars = {{firstLocal, global.getBytes(StandardCharsets.UTF_8), null},
+        {duplicateLocal, global.getBytes(StandardCharsets.UTF_8), null}, {cleanEmpty, new byte[0], null},
+        {null, null, null}, {null, null, null}};
+    final String[][][] sets = {{null, null, {"z", "a", "z", null}}, {null, null, new String[0]},
+        {null, null, {"", "β"}}, {null, null, null}, {null, null, {"ignored"}}};
+    final boolean[][] present =
+        {{true, true, true}, {true, true, true}, {true, true, true}, {false, false, false}, {true, true, true}};
+    final boolean[][] unrepresentable = {{false, false, false}, {false, false, false}, {false, false, false},
+        {false, false, false}, {true, true, true}};
     final long[] longs = new long[kinds.length];
     final boolean[] bools = new boolean[kinds.length];
 
@@ -394,25 +363,19 @@ final class ProjectionIndexRowGroupPageTest {
         "the raw scalar lane must preserve the complete persisted representation");
     assertNotSame(firstLocal, raw.stringDictionary(0)[0],
         "a newly distinct local value must not retain borrowed extractor storage");
-    assertNotSame(cleanEmpty, raw.stringDictionary(0)[1],
-        "a clean empty value must not retain its caller-owned array");
+    assertNotSame(cleanEmpty, raw.stringDictionary(0)[1], "a clean empty value must not retain its caller-owned array");
     for (int i = 0; i < raw.stringDictionarySize(0); i++) {
-      assertNotSame(duplicateLocal, raw.stringDictionary(0)[i],
-          "a duplicate caller buffer must not be retained");
+      assertNotSame(duplicateLocal, raw.stringDictionary(0)[i], "a duplicate caller buffer must not be retained");
     }
-    assertArrayEquals(new int[] {0, 0, 1, 1, 1},
-        Arrays.copyOf(raw.stringDictIdColumn(0), raw.getRowCount()));
-    assertArrayEquals(new long[] {1L, 1L, 2L, 0L, 0L},
-        Arrays.copyOf(raw.numericColumn(1), raw.getRowCount()));
+    assertArrayEquals(new int[] {0, 0, 1, 1, 1}, Arrays.copyOf(raw.stringDictIdColumn(0), raw.getRowCount()));
+    assertArrayEquals(new long[] {1L, 1L, 2L, 0L, 0L}, Arrays.copyOf(raw.numericColumn(1), raw.getRowCount()));
     assertEquals(2, rawGlobal.entryCount(), "only distinct clean global values belong in the dictionary");
     assertEquals(legacyGlobal.entryCount(), rawGlobal.entryCount());
     assertArrayEquals(global.getBytes(StandardCharsets.UTF_8), rawGlobal.valueBytes(1));
     assertArrayEquals(new byte[0], rawGlobal.valueBytes(2));
-    assertArrayEquals(new int[] {3, 0, 2, 0, 0},
-        Arrays.copyOf(raw.stringSetCountColumn(2), raw.getRowCount()),
+    assertArrayEquals(new int[] {3, 0, 2, 0, 0}, Arrays.copyOf(raw.stringSetCountColumn(2), raw.getRowCount()),
         "STRING_SET order/count/null semantics must stay on the legacy lane");
-    assertArrayEquals(new int[] {0, 1, 0, 2, 3},
-        Arrays.copyOf(raw.stringSetIdColumn(2), raw.stringSetLength(2)));
+    assertArrayEquals(new int[] {0, 1, 0, 2, 3}, Arrays.copyOf(raw.stringSetIdColumn(2), raw.stringSetLength(2)));
     assertTrue(raw.columnUnrepresentable(0));
     assertTrue(raw.columnUnrepresentable(1));
     assertTrue(raw.columnUnrepresentable(2));
@@ -420,8 +383,8 @@ final class ProjectionIndexRowGroupPageTest {
 
   @Test
   void borrowedUtf8ScratchCopiesOnlyDistinctLiveSlices() {
-    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
     final byte[] scratch = new byte[64];
     final byte[][] values = {scratch};
     final int[] lengths = new int[1];
@@ -495,8 +458,7 @@ final class ProjectionIndexRowGroupPageTest {
       values[0] = distinct[dictId].getBytes(StandardCharsets.UTF_8);
       lengths[0] = values[0].length;
       assertTrue(page.appendExtractedUtf8Row(++row, longs, bools, values, lengths, null, null, null, null, null));
-      assertTrue(
-          cleanControl.appendExtractedUtf8Row(row, longs, bools, values, lengths, null, null, null, null, null));
+      assertTrue(cleanControl.appendExtractedUtf8Row(row, longs, bools, values, lengths, null, null, null, null, null));
     }
     assertArrayEquals(cleanControl.serialize(), page.serialize(),
         "a retained hash table must not expose entries from the preceding page generation");
@@ -504,8 +466,8 @@ final class ProjectionIndexRowGroupPageTest {
 
   @Test
   void resetReleasesAnOutlierScalarStringSlab() {
-    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT});
     final long[] longs = new long[1];
     final boolean[] bools = new boolean[1];
     final byte[][] values = {new byte[2 * 1024 * 1024]};
@@ -531,10 +493,8 @@ final class ProjectionIndexRowGroupPageTest {
 
   @Test
   void cleanScalarNullUtf8FailsLoudly() {
-    final byte[] kinds = {
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-    };
+    final byte[] kinds =
+        {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     final ProjectionIndexRowGroupPage cleanControl = new ProjectionIndexRowGroupPage(kinds);
     final GlobalValueDictionaryWriter pageGlobal = new GlobalValueDictionaryWriter();
@@ -548,21 +508,17 @@ final class ProjectionIndexRowGroupPageTest {
 
     final IllegalStateException thrown = assertThrows(IllegalStateException.class,
         () -> page.appendExtractedUtf8Row(1L, longs, bools,
-            new byte[][] {"must-not-be-interned".getBytes(StandardCharsets.UTF_8), null}, null, present,
-            representable, null, null));
+            new byte[][] {"must-not-be-interned".getBytes(StandardCharsets.UTF_8), null}, null, present, representable,
+            null, null));
 
     assertTrue(thrown.getMessage().contains("null UTF-8 bytes"), thrown.getMessage());
     assertEquals(0, page.getRowCount(), "the failed row must never become visible");
     assertEquals(0, pageGlobal.entryCount(), "prevalidation must run before an earlier global column interns");
 
-    final byte[][] validPageRow = {
-        "global-value".getBytes(StandardCharsets.UTF_8),
-        "local-value".getBytes(StandardCharsets.UTF_8)
-    };
-    final byte[][] validControlRow = {
-        "global-value".getBytes(StandardCharsets.UTF_8),
-        "local-value".getBytes(StandardCharsets.UTF_8)
-    };
+    final byte[][] validPageRow =
+        {"global-value".getBytes(StandardCharsets.UTF_8), "local-value".getBytes(StandardCharsets.UTF_8)};
+    final byte[][] validControlRow =
+        {"global-value".getBytes(StandardCharsets.UTF_8), "local-value".getBytes(StandardCharsets.UTF_8)};
     assertTrue(page.appendExtractedUtf8Row(2L, longs, bools, validPageRow, null, present, representable, null, null));
     assertTrue(cleanControl.appendExtractedUtf8Row(2L, longs, bools, validControlRow, null, present, representable,
         null, null));

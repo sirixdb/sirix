@@ -108,23 +108,24 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * that the growing-file {@code force(true)} forces, and the O_SYNC revision record write becomes
    * in-place (also journal-free). The dual beacons are already in-place FUA writes.
    *
-   * <p>On by default; disabling it restores the legacy grow+{@code force(true)} path. (For a file
-   * that has ALREADY run preallocated, the legacy path derives its append offset from the physical
-   * file size, so subsequent commits land after the existing zero tail — readable and consistent,
-   * but the padding becomes a permanent unreachable gap; the modes are only byte-identical for
-   * files that never ran preallocated.) The logical write frontier is derived from the durable
-   * revision graph
+   * <p>
+   * On by default; disabling it restores the legacy grow+{@code force(true)} path. (For a file that
+   * has ALREADY run preallocated, the legacy path derives its append offset from the physical file
+   * size, so subsequent commits land after the existing zero tail — readable and consistent, but the
+   * padding becomes a permanent unreachable gap; the modes are only byte-identical for files that
+   * never ran preallocated.) The logical write frontier is derived from the durable revision graph
    * (the last revision root, located via the uber beacon), NOT from the preallocation-inflated
    * physical file size. The zero-filled tail is PHYSICALLY allocated — that is the point: in-place
    * writes must never allocate fresh blocks — and it persists across sessions by design, because
-   * trimming it on close would require fresh allocation on every session cycle. Data-file growth
-   * does not force from the async snapshot worker: its metadata force is coalesced with the existing
+   * trimming it on close would require fresh allocation on every session cycle. Data-file growth does
+   * not force from the async snapshot worker: its metadata force is coalesced with the existing
    * write-ahead barrier before the uber beacons. Growth is adaptive (see
    * {@link #ensureDataCapacity}), so a small resource's at-rest padding stays proportional to its
    * size instead of paying the full {@link #preallocChunkBytes} cap up front.
    *
-   * <p>FILE_CHANNEL-only: the MEMORY_MAPPED backend constructs this writer too, but its readers
-   * only remap the file when the PHYSICAL size grew — in-place preallocated commits leave the size
+   * <p>
+   * FILE_CHANNEL-only: the MEMORY_MAPPED backend constructs this writer too, but its readers only
+   * remap the file when the PHYSICAL size grew — in-place preallocated commits leave the size
    * unchanged, so fresh readers would keep serving a mapping created before those commits (mmap
    * visibility of later {@code write()}s is unspecified). MM therefore passes
    * {@code preallocationSupported=false} and stays on the legacy grow path, whose per-commit size
@@ -136,21 +137,22 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * Upper bound in bytes for a single adaptive preallocation grow of the data file. Growth roughly
    * doubles the file per grow, from {@link #MIN_PREALLOC_CHUNK_BYTES} up to this cap — sustained
    * writers amortize allocation over many MiBs and coalesce its metadata force with the commit
-   * barrier, while the physically-allocated at-rest padding of a small resource stays proportional
-   * to its size.
+   * barrier, while the physically-allocated at-rest padding of a small resource stays proportional to
+   * its size.
    */
-  private final long preallocChunkBytes =
-      Long.getLong("sirix.commit.preallocChunkBytes", 8L * 1024 * 1024);
+  private final long preallocChunkBytes = Long.getLong("sirix.commit.preallocChunkBytes", 8L * 1024 * 1024);
 
-  /** Smallest adaptive preallocation grow of the data file (also the small-resource padding floor). */
+  /**
+   * Smallest adaptive preallocation grow of the data file (also the small-resource padding floor).
+   */
   private static final long MIN_PREALLOC_CHUNK_BYTES = 256L * 1024;
 
   /**
    * Fixed preallocation chunk for the revisions file, whose records are 32 bytes each
    * ({@code IOStorage.REVISIONS_FILE_RECORD_SIZE}) — 64 KiB covers 2,048 commits. The revisions
    * channel is opened O_DSYNC, so its zero-fill is synchronous write-through; keeping this chunk
-   * small keeps that stall negligible (reusing the data file's multi-MiB chunk here would
-   * preallocate hundreds of thousands of commits' worth through the sync channel).
+   * small keeps that stall negligible (reusing the data file's multi-MiB chunk here would preallocate
+   * hundreds of thousands of commits' worth through the sync channel).
    */
   private static final long REVISIONS_PREALLOC_CHUNK_BYTES = 64L * 1024;
 
@@ -161,14 +163,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * write-ahead ordering (page tail durable BEFORE the beacons) and the two-copy beacon redundancy
    * are preserved, so the durability contract is unchanged; only the I/O shape is cheaper. The two
    * beacons live in separate {@code BEACON_SLOT_BYTES} blocks, so a single torn block still leaves
-   * the other copy, and the write-ahead guarantees whichever copy survives names a durable tail.
-   * On by default (with {@code preallocatedCommit}); together the pair turns five device
-   * round-trips per durable commit into three (measurements: docs/COMPARISON_POSTGRES.md §0.1).
+   * the other copy, and the write-ahead guarantees whichever copy survives names a durable tail. On
+   * by default (with {@code preallocatedCommit}); together the pair turns five device round-trips per
+   * durable commit into three (measurements: docs/COMPARISON_POSTGRES.md §0.1).
    */
   private final boolean bufferedBeacons =
       Boolean.parseBoolean(System.getProperty("sirix.commit.bufferedBeacons", "true"));
 
-  /** Read-only zero block for {@link #allocateFileRange}; duplicated per use, never allocated per call. */
+  /**
+   * Read-only zero block for {@link #allocateFileRange}; duplicated per use, never allocated per
+   * call.
+   */
   private static final ByteBuffer ZERO_BLOCK = ByteBuffer.allocateDirect(1 << 20).asReadOnlyBuffer();
 
   /** Same XXH3 implementation as {@link PageHasher#DEFAULT_ALGORITHM}, for exact scratch ranges. */
@@ -176,7 +181,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private static final int FRAME_HASH_WINDOW_BYTES = 64 * 1024;
 
-  /** Logical write frontier of the data file (replaces {@code dataFileChannel.size()}); -1 = uninit. */
+  /**
+   * Logical write frontier of the data file (replaces {@code dataFileChannel.size()}); -1 = uninit.
+   */
   private long dataLogicalEnd = -1L;
   /** Physical preallocated end of the data file ({@code >= dataLogicalEnd}). */
   private long dataPreallocEnd = -1L;
@@ -186,9 +193,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private boolean frontiersInitialised;
 
   /**
-   * Allocation-free, opt-in counters used to attribute an async-flush epoch's file-growth tail.
-   * The flag is shared with {@code NodeStorageEngineWriter}'s HFT telemetry and is static-final so
-   * the grow path contains no counter or clock work when telemetry is disabled.
+   * Allocation-free, opt-in counters used to attribute an async-flush epoch's file-growth tail. The
+   * flag is shared with {@code NodeStorageEngineWriter}'s HFT telemetry and is static-final so the
+   * grow path contains no counter or clock work when telemetry is disabled.
    */
   private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
 
@@ -226,17 +233,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * record is written through a BUFFERED revisions channel (no O_SYNC device round-trip) and a
    * checksummed copy rides a {@link IOStorage#REVISION_RECORD_TAIL_LOG_CAPACITY}-entry ring — the
    * "tail-log" — in the last {@link IOStorage#REVISION_RECORD_TAIL_LOG_BYTES} bytes of BOTH
-   * uber-beacon slots' zero pad. The ring is written to the data file BEFORE the existing
-   * write-ahead {@code fdatasync} barrier, so the invariant "the revision's locator is durable
-   * before any beacon advertises it" is preserved exactly; only the separate synchronous revisions
-   * write disappears. Together with {@link #bufferedBeacons} a durable commit costs TWO device
-   * round-trips (write-ahead barrier + beacon flush) instead of three.
+   * uber-beacon slots' zero pad. The ring is written to the data file BEFORE the existing write-ahead
+   * {@code fdatasync} barrier, so the invariant "the revision's locator is durable before any beacon
+   * advertises it" is preserved exactly; only the separate synchronous revisions write disappears.
+   * Together with {@link #bufferedBeacons} a durable commit costs TWO device round-trips (write-ahead
+   * barrier + beacon flush) instead of three.
    *
-   * <p>Recovery reads the record from the revisions file as before; a record the crash lost is
-   * salvaged from the tail-log and healed back into the file
-   * ({@link FileChannelReader#getRevisionFileData(int, int)}). A ring entry may only be EVICTED
-   * (its 48-byte slot reused, {@code capacity} commits later) once its record is known durable —
-   * tracked per resource in {@link RevisionRecordDurability} and enforced with a synchronous
+   * <p>
+   * Recovery reads the record from the revisions file as before; a record the crash lost is salvaged
+   * from the tail-log and healed back into the file
+   * ({@link FileChannelReader#getRevisionFileData(int, int)}). A ring entry may only be EVICTED (its
+   * 48-byte slot reused, {@code capacity} commits later) once its record is known durable — tracked
+   * per resource in {@link RevisionRecordDurability} and enforced with a synchronous
    * {@code force(false)} that fires roughly once per {@code capacity} commits in the worst case.
    */
   private final boolean lazyRevisionRecords;
@@ -252,9 +260,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private RevisionRecordDurability durability;
 
   /**
-   * In-memory image of the beacon tail-log ring; {@code null} until first initialised (adopted
-   * from the predecessor writer or merged from the on-disk beacon slots). Nullness IS the
-   * initialised state — no separate flag can drift out of sync with it.
+   * In-memory image of the beacon tail-log ring; {@code null} until first initialised (adopted from
+   * the predecessor writer or merged from the on-disk beacon slots). Nullness IS the initialised
+   * state — no separate flag can drift out of sync with it.
    */
   private byte[] tailLog;
 
@@ -269,8 +277,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   /**
    * Whether the ring provably contains every live entry at init time (predecessor handoff, or the
-   * predecessor's entry visible on disk). When {@code false}, the beacon phase re-merges the
-   * on-disk slots before overwriting them — the depth-1 pipelined-async gap.
+   * predecessor's entry visible on disk). When {@code false}, the beacon phase re-merges the on-disk
+   * slots before overwriting them — the depth-1 pipelined-async gap.
    */
   private boolean ringCompleteAtInit;
 
@@ -286,7 +294,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * Temporary page serialization buffer.
    *
-   * <p>Pre-size to FLUSH_SIZE to avoid repeated grow/copy churn when serializing medium/large pages.
+   * <p>
+   * Pre-size to FLUSH_SIZE to avoid repeated grow/copy churn when serializing medium/large pages.
    */
   private final MemorySegmentBytesOut byteBufferBytes = MemorySegmentBytesOut.synchronousScratch(Writer.FLUSH_SIZE);
 
@@ -297,14 +306,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * @param revisionsOffsetFileChannel the channel to the file, which holds pointers to the revision
    *        root pages — MUST be opened with {@link java.nio.file.StandardOpenOption#DSYNC}: the
    *        32-byte revision record (and the one-time superblock) are written through it, and the
-   *        commit protocol relies on those writes being durable at write-return instead of paying
-   *        a separate fsync per commit
+   *        commit protocol relies on those writes being durable at write-return instead of paying a
+   *        separate fsync per commit
    * @param beaconDurableChannel a SECOND channel to the data file, opened with
    *        {@link java.nio.file.StandardOpenOption#DSYNC}, used ONLY for the two uber-page beacon
    *        slot writes. Write-through gives the dual-beacon ordering (secondary durable before the
    *        primary is even issued) and the commit acknowledge (primary durable at write-return)
-   *        without any explicit fsync — on NVMe these map to FUA writes, far cheaper than full
-   *        cache flushes. The bulk data channel stays buffered.
+   *        without any explicit fsync — on NVMe these map to FUA writes, far cheaper than full cache
+   *        flushes. The bulk data channel stays buffered.
    * @param serializationType the serialization type (for the transaction log or the data file)
    * @param pagePersister transforms in-memory pages into byte-arrays and back
    * @param cache the revision file data cache
@@ -315,37 +324,36 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    *        {@link IOStorage#preallocatedCommitsEnabled()} at the same instant it chose the channel
    *        open modes; the writer deliberately does NOT re-read the property, since a flip between
    *        two reads would pair channels with a mismatched durability protocol
-   * @param lazyRevisionRecords whether the owning backend opened the revisions channel BUFFERED
-   *        for the lazy-revision-record profile (see {@link #lazyRevisionRecords}); must be
-   *        {@code false} when that channel is write-through. Only honored together with the
-   *        preallocated profile
+   * @param lazyRevisionRecords whether the owning backend opened the revisions channel BUFFERED for
+   *        the lazy-revision-record profile (see {@link #lazyRevisionRecords}); must be {@code false}
+   *        when that channel is write-through. Only honored together with the preallocated profile
    * @param revisionsFilePath path of the revisions file, identity key for the durability state
    * @param resourceUuidMsb most significant resource-UUID half ({@code 0} = legacy, no UUID)
    * @param resourceUuidLsb least significant resource-UUID half ({@code 0} = legacy)
    * @param releaseAction callback for a writer borrowing the storage's SHARED channel triple:
    *        {@link #close()} runs it INSTEAD of closing the channels, so the storage can close the
-   *        pool once the last borrower is gone. {@code null} means this writer owns its channels
-   *        and closes them directly (recovery, test harnesses, {@code MMStorage})
+   *        pool once the last borrower is gone. {@code null} means this writer owns its channels and
+   *        closes them directly (recovery, test harnesses, {@code MMStorage})
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final FileChannel beaconDurableChannel, final SerializationType serializationType,
       final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
-      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
-      final boolean preallocatedCommit, final boolean lazyRevisionRecords, final Path revisionsFilePath,
-      final long resourceUuidMsb, final long resourceUuidLsb, final @Nullable Runnable releaseAction) {
-    this(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType, pagePersister,
-         cache, revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords, revisionsFilePath,
-         resourceUuidMsb, resourceUuidLsb, new DataAllocationDurability(), releaseAction);
+      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader, final boolean preallocatedCommit,
+      final boolean lazyRevisionRecords, final Path revisionsFilePath, final long resourceUuidMsb,
+      final long resourceUuidLsb, final @Nullable Runnable releaseAction) {
+    this(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType, pagePersister, cache,
+        revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords, revisionsFilePath, resourceUuidMsb,
+        resourceUuidLsb, new DataAllocationDurability(), releaseAction);
   }
 
   /** Constructor used by {@link FileChannelStorage}'s shared writer-channel pool. */
   FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final FileChannel beaconDurableChannel, final SerializationType serializationType,
       final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
-      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
-      final boolean preallocatedCommit, final boolean lazyRevisionRecords, final Path revisionsFilePath,
-      final long resourceUuidMsb, final long resourceUuidLsb,
-      final DataAllocationDurability dataAllocationDurability, final @Nullable Runnable releaseAction) {
+      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader, final boolean preallocatedCommit,
+      final boolean lazyRevisionRecords, final Path revisionsFilePath, final long resourceUuidMsb,
+      final long resourceUuidLsb, final DataAllocationDurability dataAllocationDurability,
+      final @Nullable Runnable releaseAction) {
     this.releaseAction = releaseAction;
     this.preallocatedCommit = preallocatedCommit;
     this.lazyRevisionRecords = lazyRevisionRecords && preallocatedCommit;
@@ -374,12 +382,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final FileChannel beaconDurableChannel, final SerializationType serializationType,
       final PagePersister pagePersister, final AsyncCache<Integer, RevisionFileData> cache,
-      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader,
-      final boolean preallocatedCommit, final boolean lazyRevisionRecords, final Path revisionsFilePath,
-      final long resourceUuidMsb, final long resourceUuidLsb) {
-    this(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType, pagePersister,
-         cache, revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords, revisionsFilePath,
-         resourceUuidMsb, resourceUuidLsb, null);
+      final RevisionIndexHolder revisionIndexHolder, final FileChannelReader reader, final boolean preallocatedCommit,
+      final boolean lazyRevisionRecords, final Path revisionsFilePath, final long resourceUuidMsb,
+      final long resourceUuidLsb) {
+    this(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType, pagePersister, cache,
+        revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords, revisionsFilePath, resourceUuidMsb,
+        resourceUuidLsb, null);
   }
 
   @Override
@@ -392,8 +400,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
             + " is older than the requested frontier");
       }
       final RevisionFileData revisionFileData = reader.getRevisionFileData(revision);
-      final ValidatedFrame frame = validateRevisionRootFrame(dataFileChannel, revisionFileData, revision,
-          fileSize, -1L, "truncateTo(" + revision + ")");
+      final ValidatedFrame frame = validateRevisionRootFrame(dataFileChannel, revisionFileData, revision, fileSize, -1L,
+          "truncateTo(" + revision + ")");
       final long newSize = frame.frameEnd();
 
       RevisionRecordDurability.invalidateFor(revisionsFilePath);
@@ -442,14 +450,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   /**
-   * After truncating to {@code revision}, both beacon slots must advertise exactly that
-   * revision. The crash this recovery handles (died between the secondary and primary beacon
-   * writes) leaves the SECONDARY advertising the truncated-away revision — harmless for the
-   * happy path (the primary wins), but until the next commit rewrote the slots, a primary
-   * corruption made fallback dereference the stale-forward secondary and the resource
-   * unopenable although every surviving revision was intact. Repair by copying the slot that
-   * matches the truncated-to revision over the one that doesn't (which also heals a torn
-   * primary right at recovery instead of at the next commit).
+   * After truncating to {@code revision}, both beacon slots must advertise exactly that revision. The
+   * crash this recovery handles (died between the secondary and primary beacon writes) leaves the
+   * SECONDARY advertising the truncated-away revision — harmless for the happy path (the primary
+   * wins), but until the next commit rewrote the slots, a primary corruption made fallback
+   * dereference the stale-forward secondary and the resource unopenable although every surviving
+   * revision was intact. Repair by copying the slot that matches the truncated-to revision over the
+   * one that doesn't (which also heals a torn primary right at recovery instead of at the next
+   * commit).
    */
   private void repairBeaconSlotsAfterTruncate(final int revision) throws IOException {
     final int primaryRevision = reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET);
@@ -503,7 +511,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   /**
    * Returns the data file's logical write frontier (the next append offset), lazily derived from the
-   * durable revision graph — NOT from {@code channel.size()}, which preallocation inflates with zeros.
+   * durable revision graph — NOT from {@code channel.size()}, which preallocation inflates with
+   * zeros.
    */
   private long dataFrontier() throws IOException {
     initFrontiersIfNeeded();
@@ -545,18 +554,19 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // Data frontier = end of the last revision root page = offset + OTHER_BEACON (4-byte length
       // prefix) + payload length, exactly as FileChannelReader/truncateTo frame it.
       final RevisionFileData revisionFileData = reader.getRevisionFileData(lastRevision);
-      dataLogicalEnd = validateRevisionRootFrame(dataFileChannel, revisionFileData, lastRevision,
-          dataPreallocEnd, -1L, "preallocated frontier").frameEnd();
+      dataLogicalEnd = validateRevisionRootFrame(dataFileChannel, revisionFileData, lastRevision, dataPreallocEnd, -1L,
+          "preallocated frontier").frameEnd();
     }
     frontiersInitialised = true;
   }
 
   /**
-   * Adopts the cached logical data frontier if it is CONSISTENT with the files as they are right
-   * now. The snapshot is taken as one immutable triple, so the checks below run against the same
-   * values that are adopted.
+   * Adopts the cached logical data frontier if it is CONSISTENT with the files as they are right now.
+   * The snapshot is taken as one immutable triple, so the checks below run against the same values
+   * that are adopted.
    *
-   * <p>Rejection is always safe — the caller falls back to deriving the frontier from the durable
+   * <p>
+   * Rejection is always safe — the caller falls back to deriving the frontier from the durable
    * revision graph. Accepting a WRONG frontier would not be: a too-small one overwrites live pages.
    * Hence three guards: the logical end must be a real data-region offset, it must not exceed the
    * preallocated end the storing writer recorded, and that preallocated end must still be backed by
@@ -572,8 +582,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     final long cachedRevisionRootOffset = cached[4];
     final long cachedRevisionRootHash = cached[5];
     if (cachedLogicalEnd < IOStorage.DATA_REGION_START || cachedLogicalEnd > cachedDataPreallocEnd
-        || cachedDataPreallocEnd > dataPreallocEnd || cachedRevision < 0
-        || durableBeaconRevision() != cachedRevision) {
+        || cachedDataPreallocEnd > dataPreallocEnd || cachedRevision < 0 || durableBeaconRevision() != cachedRevision) {
       return false;
     }
     final RevisionFileData revisionFileData = reader.getRevisionFileData(cachedRevision);
@@ -581,8 +590,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         || revisionFileData.pageHash() != cachedRevisionRootHash) {
       return false;
     }
-    validateRevisionRootFrame(dataFileChannel, revisionFileData, cachedRevision, dataPreallocEnd,
-        cachedLogicalEnd, "cached preallocated frontier");
+    validateRevisionRootFrame(dataFileChannel, revisionFileData, cachedRevision, dataPreallocEnd, cachedLogicalEnd,
+        "cached preallocated frontier");
     dataLogicalEnd = cachedLogicalEnd;
     return true;
   }
@@ -594,33 +603,31 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         : reader.beaconRevisionOrMinusOne(IOStorage.SECONDARY_BEACON_OFFSET);
   }
 
-  static ValidatedFrame validateRevisionRootFrame(final FileChannel channel,
-      final RevisionFileData revisionFileData, final int revision, final long fileSize,
-      final long expectedFrameEnd, final String context) throws IOException {
+  static ValidatedFrame validateRevisionRootFrame(final FileChannel channel, final RevisionFileData revisionFileData,
+      final int revision, final long fileSize, final long expectedFrameEnd, final String context) throws IOException {
     requireNonNull(channel, "channel");
     requireNonNull(revisionFileData, "revisionFileData");
     requireNonNull(context, "context");
     final long frameOffset = revisionFileData.offset();
-    if (revision < 0 || fileSize < IOStorage.DATA_REGION_START
-        || frameOffset < IOStorage.DATA_REGION_START
-        || frameOffset > fileSize - IOStorage.OTHER_BEACON
-        || revisionFileData.pageHash() == 0L) {
+    if (revision < 0 || fileSize < IOStorage.DATA_REGION_START || frameOffset < IOStorage.DATA_REGION_START
+        || frameOffset > fileSize - IOStorage.OTHER_BEACON || revisionFileData.pageHash() == 0L) {
       throw new SirixIOException(context + ": invalid revision-root identity for revision " + revision);
     }
-    final ByteBuffer lengthBuffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON)
-        .order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer lengthBuffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.LITTLE_ENDIAN);
     readFully(channel, lengthBuffer, frameOffset);
     lengthBuffer.flip();
     final int dataLength = lengthBuffer.getInt();
     if (dataLength <= 0) {
-      throw new SirixIOException(context + ": non-positive revision-root length " + dataLength
-          + " for revision " + revision);
+      throw new SirixIOException(
+          context + ": non-positive revision-root length " + dataLength + " for revision " + revision);
     }
     final long frameEnd = checkedFrameEnd(frameOffset, dataLength, context, revision);
     final long payloadOffset = frameOffset + IOStorage.OTHER_BEACON;
     if (frameEnd > fileSize || (expectedFrameEnd >= 0L && frameEnd != expectedFrameEnd)) {
       throw new SirixIOException(context + ": revision-root frame end " + frameEnd
-          + " is inconsistent with durable boundary " + (expectedFrameEnd >= 0L ? expectedFrameEnd : fileSize)
+          + " is inconsistent with durable boundary " + (expectedFrameEnd >= 0L
+              ? expectedFrameEnd
+              : fileSize)
           + " for revision " + revision);
     }
     final long actualHash;
@@ -636,8 +643,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return new ValidatedFrame(frameOffset, payloadOffset, frameEnd, dataLength);
   }
 
-  static long checkedFrameEnd(final long frameOffset, final int dataLength, final String context,
-      final int revision) {
+  static long checkedFrameEnd(final long frameOffset, final int dataLength, final String context, final int revision) {
     if (frameOffset < IOStorage.DATA_REGION_START || dataLength <= 0) {
       throw new SirixIOException(context + ": invalid revision-root frame metadata for revision " + revision);
     }
@@ -695,7 +701,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     private ChannelHashAccess(final ByteOrder order) {
       this.order = order;
-      this.reverse = order == ByteOrder.LITTLE_ENDIAN ? new ReverseChannelHashAccess(this) : null;
+      this.reverse = order == ByteOrder.LITTLE_ENDIAN
+          ? new ReverseChannelHashAccess(this)
+          : null;
     }
 
     @Override
@@ -740,9 +748,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * Ensure the data file is physically block-allocated to at least {@code needed} bytes.
    *
-   * <p>The allocation's metadata durability is deliberately coalesced into the next write-ahead
-   * barrier (or {@link #forceAll()}/{@link #close()}) instead of forcing inside an async snapshot
-   * rotation. Until that barrier succeeds, no durable uber-page beacon can reference these bytes.</p>
+   * <p>
+   * The allocation's metadata durability is deliberately coalesced into the next write-ahead barrier
+   * (or {@link #forceAll()}/{@link #close()}) instead of forcing inside an async snapshot rotation.
+   * Until that barrier succeeds, no durable uber-page beacon can reference these bytes.
+   * </p>
    */
   private void ensureDataCapacity(final long needed) throws IOException {
     if (needed > dataPreallocEnd) {
@@ -775,7 +785,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
-  /** Ensure the revisions file is physically (and durably) block-allocated to at least {@code needed} bytes. */
+  /**
+   * Ensure the revisions file is physically (and durably) block-allocated to at least {@code needed}
+   * bytes.
+   */
   private void ensureRevisionsCapacity(final long needed) throws IOException {
     if (needed > revisionsPreallocEnd) {
       final long target = Math.max(needed, revisionsPreallocEnd + REVISIONS_PREALLOC_CHUNK_BYTES);
@@ -788,12 +801,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   /**
-   * Physically allocate blocks in {@code [from, to)} by writing zeros. The caller owns the
-   * durability barrier: revisions growth forces immediately, while data growth is coalesced with
-   * the commit's existing write-ahead force after all reachable page-tail bytes have been written.
+   * Physically allocate blocks in {@code [from, to)} by writing zeros. The caller owns the durability
+   * barrier: revisions growth forces immediately, while data growth is coalesced with the commit's
+   * existing write-ahead force after all reachable page-tail bytes have been written.
    */
-  private static void allocateFileRange(final FileChannel channel, final long from, final long to)
-      throws IOException {
+  private static void allocateFileRange(final FileChannel channel, final long from, final long to) throws IOException {
     long off = from;
     while (off < to) {
       // duplicate() shares the one static zero block without allocating a fresh 1 MiB direct
@@ -809,8 +821,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   /**
-   * Forces the data file, upgrading an otherwise content-only barrier when preallocation metadata
-   * is still unforced. The dirty bit is cleared only after the force returns successfully.
+   * Forces the data file, upgrading an otherwise content-only barrier when preallocation metadata is
+   * still unforced. The dirty bit is cleared only after the force returns successfully.
    */
   private void forceDataFile(final boolean forceMetadata) throws IOException {
     dataAllocationDurability.force(dataFileChannel, forceMetadata);
@@ -990,8 +1002,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         // pageReference above) so the page body is integrity-checked on read; the checksum covers
         // it. Normalize an (astronomically unlikely) all-zero hash to a sentinel so the stored
         // field is never 0 — 0 is reserved to mean "legacy record, no hash".
-        final long storedPageHash =
-            IOStorage.normalizeRevisionRootPageHash(pageHash);
+        final long storedPageHash = IOStorage.normalizeRevisionRootPageHash(pageHash);
         final ByteBuffer buffer =
             ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
         buffer.putLong(offset);
@@ -1121,9 +1132,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // (the revision record lands at REVISIONS_RECORDS_START before this runs), presence is
       // probed via the magic bytes, not the file size.
       final long uuidMsb = resourceConfiguration.resourceUuid != null
-          ? resourceConfiguration.resourceUuid.getMostSignificantBits() : 0L;
+          ? resourceConfiguration.resourceUuid.getMostSignificantBits()
+          : 0L;
       final long uuidLsb = resourceConfiguration.resourceUuid != null
-          ? resourceConfiguration.resourceUuid.getLeastSignificantBits() : 0L;
+          ? resourceConfiguration.resourceUuid.getLeastSignificantBits()
+          : 0L;
       if (writeRevisionsSuperblockIfMissing(resourceConfiguration) && lazyRevisionRecords) {
         // One-time: the revisions channel is BUFFERED in this profile, and the superblock (file
         // identity) must be durable before the first beacon acknowledges anything — the tail-log
@@ -1144,7 +1157,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         // is touched, exactly the ordering the synchronous record write used to give. The
         // full-slot beacon writes later rewrite the identical bytes (the live ring is poked into
         // the slot images), so they cannot wipe it.
-        final int uberRevision = page instanceof UberPage uberPage ? uberPage.getRevisionNumber() : -1;
+        final int uberRevision = page instanceof UberPage uberPage
+            ? uberPage.getRevisionNumber()
+            : -1;
         if (uberRevision >= 0 && tailLog != null
             && tailLogEntryRevision(IOStorage.tailLogRingIndex(uberRevision)) == uberRevision) {
           if (!ringCompleteAtInit) {
@@ -1193,10 +1208,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // DSYNC-opened channel and are durable at write-return, well before any beacon advertises
       // the new revisionCount.
 
-      writePageReference(resourceConfiguration, pageReference, page, bufferedBytes,
-                         IOStorage.PRIMARY_BEACON_OFFSET);
-      writePageReference(resourceConfiguration, pageReference, page, bufferedBytes,
-                         IOStorage.SECONDARY_BEACON_OFFSET);
+      writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.PRIMARY_BEACON_OFFSET);
+      writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.SECONDARY_BEACON_OFFSET);
 
       if (lazyRevisionRecords && tailLog != null) {
         // The slot images just built end in ZERO pad — poke the live ring into both so the
@@ -1297,10 +1310,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   // ===== Revision-record tail log (lazy revision records) =====
 
   /**
-   * Stages the just-written record's checksummed copy in the in-memory ring. Runs the EVICTION
-   * GUARD first: the slot about to be reused may hold the only durable copy of a record written
-   * {@code capacity} commits ago — if that record is not yet known durable, one
-   * {@code force(false)} makes every buffered record durable before its salvage source dies.
+   * Stages the just-written record's checksummed copy in the in-memory ring. Runs the EVICTION GUARD
+   * first: the slot about to be reused may hold the only durable copy of a record written
+   * {@code capacity} commits ago — if that record is not yet known durable, one {@code force(false)}
+   * makes every buffered record durable before its salvage source dies.
    */
   private void stageTailLogEntry(final ResourceConfiguration resourceConfiguration, final int revision,
       final long offset, final long timestampMillis, final long recordChecksum, final long pageHash)
@@ -1322,8 +1335,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   /** Writes one entry into the in-memory ring at the given index. */
-  private void writeTailLogEntry(final int ringIndex, final int revision, final long offset,
-      final long timestampMillis, final long recordChecksum, final long pageHash) {
+  private void writeTailLogEntry(final int ringIndex, final int revision, final long offset, final long timestampMillis,
+      final long recordChecksum, final long pageHash) {
     final int base = ringIndex * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
     tailLogView.putInt(base, revision);
     tailLogView.putInt(base + Integer.BYTES, 0);
@@ -1336,13 +1349,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   /**
-   * First use in this writer: adopt the predecessor's ring (per-JVM handoff) or merge the
-   * surviving entries from BOTH on-disk beacon slots, purge entries of revisions at or above the
-   * one being committed (a rolled-back stale timeline — those records are dead), and self-heal any
-   * ring-window record the revisions file lost.
+   * First use in this writer: adopt the predecessor's ring (per-JVM handoff) or merge the surviving
+   * entries from BOTH on-disk beacon slots, purge entries of revisions at or above the one being
+   * committed (a rolled-back stale timeline — those records are dead), and self-heal any ring-window
+   * record the revisions file lost.
    */
-  private void ensureTailLogInitialised(final ResourceConfiguration resourceConfiguration,
-      final int currentRevision) throws IOException {
+  private void ensureTailLogInitialised(final ResourceConfiguration resourceConfiguration, final int currentRevision)
+      throws IOException {
     if (tailLog != null) {
       return;
     }
@@ -1371,8 +1384,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * Merges an on-disk slot's ring into the in-memory one: a checksum-valid disk entry replaces the
    * in-memory entry at its index when it names a NEWER revision. Entries above
-   * {@code maxRevisionInclusive} are ignored — they belong to a rolled-back timeline (or a
-   * concurrent successor, which persists its own superset image).
+   * {@code maxRevisionInclusive} are ignored — they belong to a rolled-back timeline (or a concurrent
+   * successor, which persists its own superset image).
    */
   private void mergeSlotTailLog(final long slotOffset, final long maxRevisionInclusive) {
     final ByteBuffer slot = reader.readBeaconSlot(slotOffset);
@@ -1400,7 +1413,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       return -1L;
     }
     final int base = ringIndex * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
-    return IOStorage.tailLogEntryValidAt(tailLogView, base) ? tailLogView.getInt(base) : -1L;
+    return IOStorage.tailLogEntryValidAt(tailLogView, base)
+        ? tailLogView.getInt(base)
+        : -1L;
   }
 
   /** Zeroes ring entries whose revision is at or above the given one (stale after a rollback). */
@@ -1415,10 +1430,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   /**
    * Rewrites (from the ring) every ring-window record the revisions file lost or tore. The ring's
-   * revisions are consecutive in the healthy case, so their records occupy ONE contiguous range —
-   * a single bulk pread verifies all of them. When the revisions file lost its SUPERBLOCK too, it
-   * is restored FIRST: records in a superblock-less file read as "non-empty with an all-zero
-   * header", which the validator rejects as corruption.
+   * revisions are consecutive in the healthy case, so their records occupy ONE contiguous range — a
+   * single bulk pread verifies all of them. When the revisions file lost its SUPERBLOCK too, it is
+   * restored FIRST: records in a superblock-less file read as "non-empty with an all-zero header",
+   * which the validator rejects as corruption.
    */
   private void healRingWindowRecords(final ResourceConfiguration resourceConfiguration) throws IOException {
     long minRevision = Long.MAX_VALUE;
@@ -1472,9 +1487,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           healedAny = true;
           writeRevisionsSuperblockIfMissing(resourceConfiguration);
         }
-        final ByteBuffer heal = ByteBuffer.wrap(tailLog,
-            i * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES + Long.BYTES,
-            IOStorage.REVISIONS_FILE_RECORD_SIZE).slice();
+        final ByteBuffer heal =
+            ByteBuffer.wrap(tailLog, i * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES + Long.BYTES,
+                IOStorage.REVISIONS_FILE_RECORD_SIZE).slice();
         final long recordOffset = IOStorage.revisionsFileOffset((int) entryRevision);
         writeFully(revisionsFileChannel, heal, recordOffset);
       }
@@ -1496,9 +1511,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       return false;
     }
     final long uuidMsb = resourceConfiguration.resourceUuid != null
-        ? resourceConfiguration.resourceUuid.getMostSignificantBits() : 0L;
+        ? resourceConfiguration.resourceUuid.getMostSignificantBits()
+        : 0L;
     final long uuidLsb = resourceConfiguration.resourceUuid != null
-        ? resourceConfiguration.resourceUuid.getLeastSignificantBits() : 0L;
+        ? resourceConfiguration.resourceUuid.getLeastSignificantBits()
+        : 0L;
     final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
     writeFully(revisionsFileChannel, sb, 0L);
     return true;
@@ -1507,8 +1524,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /** Persists the in-memory ring into BOTH beacon slots' reserved pad region. */
   private void persistTailLogToSlots() throws IOException {
     if (tailLogWriteBuffer == null) {
-      tailLogWriteBuffer = ByteBuffer.allocateDirect(IOStorage.REVISION_RECORD_TAIL_LOG_BYTES)
-                                     .order(ByteOrder.LITTLE_ENDIAN);
+      tailLogWriteBuffer =
+          ByteBuffer.allocateDirect(IOStorage.REVISION_RECORD_TAIL_LOG_BYTES).order(ByteOrder.LITTLE_ENDIAN);
     }
     tailLogWriteBuffer.clear();
     tailLogWriteBuffer.put(tailLog);
@@ -1585,11 +1602,13 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * Prepare an exact readable view for synchronous channel writes.
    *
-   * <p>The production append buffers use {@link MemorySegmentBytesOut}, whose per-instance view is
-   * reused across varying flush lengths and rebuilt only after its backing segment grows. Keeping
-   * the cache on the buffer—rather than this writer—also keeps foreground and background append
-   * ownership independent. Other {@link BytesOut} implementations retain the generic segment
-   * fallback and are explicitly limited to their logical write position.</p>
+   * <p>
+   * The production append buffers use {@link MemorySegmentBytesOut}, whose per-instance view is
+   * reused across varying flush lengths and rebuilt only after its backing segment grows. Keeping the
+   * cache on the buffer—rather than this writer—also keeps foreground and background append ownership
+   * independent. Other {@link BytesOut} implementations retain the generic segment fallback and are
+   * explicitly limited to their logical write position.
+   * </p>
    */
   static ByteBuffer readableByteBuffer(final BytesOut<?> bufferedBytes) {
     requireNonNull(bufferedBytes);
@@ -1619,8 +1638,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     while (buffer.hasRemaining()) {
       final int written = channel.write(buffer, writeOffset);
       if (written <= 0) {
-        throw new IOException("Positional file write made no progress at offset " + writeOffset
-            + " with " + buffer.remaining() + " bytes remaining");
+        throw new IOException("Positional file write made no progress at offset " + writeOffset + " with "
+            + buffer.remaining() + " bytes remaining");
       }
       HftBoundaryTelemetry.storageWrite(written);
       writeOffset += written;
@@ -1632,8 +1651,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     while (buffer.hasRemaining()) {
       final int read = readAt(channel, buffer, readOffset);
       if (read <= 0) {
-        throw new IOException("Positional file read made no progress at offset " + readOffset
-            + " with " + buffer.remaining() + " bytes remaining");
+        throw new IOException("Positional file read made no progress at offset " + readOffset + " with "
+            + buffer.remaining() + " bytes remaining");
       }
       readOffset += read;
     }

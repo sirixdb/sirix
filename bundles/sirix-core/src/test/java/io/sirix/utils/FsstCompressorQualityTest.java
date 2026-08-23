@@ -116,8 +116,7 @@ public final class FsstCompressorQualityTest {
         totalBytes += sample.length;
       }
     }
-    if (samples.size() < FSSTCompressor.MIN_SAMPLES_FOR_TABLE
-        || eligibleSamples < FSSTCompressor.MIN_SAMPLES_FOR_TABLE
+    if (samples.size() < FSSTCompressor.MIN_SAMPLES_FOR_TABLE || eligibleSamples < FSSTCompressor.MIN_SAMPLES_FOR_TABLE
         || totalBytes < FSSTCompressor.MIN_TOTAL_BYTES_FOR_TABLE) {
       return new byte[0];
     }
@@ -276,27 +275,26 @@ public final class FsstCompressorQualityTest {
     final byte[] expectedTableA = legacySymbolTable(a);
     final FSSTCompressor.Workspace workspace = new FSSTCompressor.Workspace();
     try {
-      final byte[] firstA = FSSTCompressor.buildSymbolTable(flatA.backing(), flatA.offsets(), flatA.lengths(), a.size(),
-          workspace);
+      final byte[] firstA =
+          FSSTCompressor.buildSymbolTable(flatA.backing(), flatA.offsets(), flatA.lengths(), a.size(), workspace);
       assertArrayEquals(expectedTableA, firstA, "flat training changed symbol codes or stable tie order");
       final byte[][] symbolsA = FSSTCompressor.parseSymbolTable(firstA);
       assertEquals(FSSTCompressor.isCompressionBeneficial(a, symbolsA, workspace),
           FSSTCompressor.isCompressionBeneficial(flatA.backing(), flatA.offsets(), flatA.lengths(), a.size(), symbolsA,
               workspace));
       final int entry = 37;
-      final byte[] encoded = FSSTCompressor.encode(flatA.backing(), flatA.offsets()[entry], flatA.lengths()[entry],
-          symbolsA, workspace);
+      final byte[] encoded =
+          FSSTCompressor.encode(flatA.backing(), flatA.offsets()[entry], flatA.lengths()[entry], symbolsA, workspace);
       assertArrayEquals(FSSTCompressor.encode(a.get(entry), symbolsA, workspace), encoded);
       final byte[] encodedSnapshot = encoded.clone();
       flatA.backing()[flatA.offsets()[entry]] ^= 0x5A;
       assertArrayEquals(encodedSnapshot, encoded, "encoded output must not alias the page-owned flat backing");
       flatA.backing()[flatA.offsets()[entry]] ^= 0x5A;
 
-      assertTrue(FSSTCompressor.buildSymbolTable(flatB.backing(), flatB.offsets(), flatB.lengths(), b.size(), workspace)
-          .length > 0);
-      assertThrows(IllegalArgumentException.class,
-          () -> FSSTCompressor.buildSymbolTable(flatA.backing(), new int[] {flatA.backing().length}, new int[] {1}, 1,
-              workspace));
+      assertTrue(FSSTCompressor.buildSymbolTable(flatB.backing(), flatB.offsets(), flatB.lengths(), b.size(),
+          workspace).length > 0);
+      assertThrows(IllegalArgumentException.class, () -> FSSTCompressor.buildSymbolTable(flatA.backing(),
+          new int[] {flatA.backing().length}, new int[] {1}, 1, workspace));
       assertArrayEquals(expectedTableA,
           FSSTCompressor.buildSymbolTable(flatA.backing(), flatA.offsets(), flatA.lengths(), a.size(), workspace),
           "B or a rejected range left dirty candidate/matcher state in the rebuilt A table");
@@ -326,8 +324,8 @@ public final class FsstCompressorQualityTest {
             }
           }
           // Repeated and equal-frequency islands exercise both multi-byte choices and stable ties.
-          final byte[] motif = ("/round-" + round + "/bucket-" + (sampleIndex % 8) + "/").getBytes(
-              StandardCharsets.UTF_8);
+          final byte[] motif =
+              ("/round-" + round + "/bucket-" + (sampleIndex % 8) + "/").getBytes(StandardCharsets.UTF_8);
           System.arraycopy(motif, 0, sample, 0, Math.min(motif.length, sample.length));
           samples.add(sample);
         }
@@ -360,7 +358,9 @@ public final class FsstCompressorQualityTest {
         try {
           start.await();
           for (int i = 0; i < 8; i++) {
-            final FlatCorpus corpus = i % 2 == 0 ? flatFirst : flatSecond;
+            final FlatCorpus corpus = i % 2 == 0
+                ? flatFirst
+                : flatSecond;
             FSSTCompressor.buildSymbolTable(corpus.backing(), corpus.offsets(), corpus.lengths(),
                 corpus.lengths().length, workspace);
           }
@@ -375,7 +375,9 @@ public final class FsstCompressorQualityTest {
         try {
           start.await();
           for (int i = 0; i < 8; i++) {
-            final FlatCorpus corpus = i % 2 == 0 ? flatSecond : flatFirst;
+            final FlatCorpus corpus = i % 2 == 0
+                ? flatSecond
+                : flatFirst;
             FSSTCompressor.buildSymbolTable(corpus.backing(), corpus.offsets(), corpus.lengths(),
                 corpus.lengths().length, workspace);
           }

@@ -58,20 +58,17 @@ final class ProjectionIndexXmlIntegrationTest {
   void buildsRowsFromNestedElementsAndAttributes() {
     final var database = XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       final String document = "<records><record id=\"1\"><name>A</name><score>7</score></record>"
           + "<record id=\"2\"><name>B</name><score>11</score></record></records>";
-      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document), InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards()
-          .build()
-          .call();
+      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
 
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx();
-         final var pathSummary = session.openPathSummary()) {
-      final IndexDef definition = IndexDefs.createProjectionIdxDef(
-          Path.parse("/records/record", PathParser.Type.XML),
+        final var rtx = session.beginNodeReadOnlyTrx();
+        final var pathSummary = session.openPathSummary()) {
+      final IndexDef definition = IndexDefs.createProjectionIdxDef(Path.parse("/records/record", PathParser.Type.XML),
           List.of(Path.parse("/records/record/@id", PathParser.Type.XML),
               Path.parse("/records/record/name", PathParser.Type.XML),
               Path.parse("/records/record/score", PathParser.Type.XML)),
@@ -82,24 +79,24 @@ final class ProjectionIndexXmlIntegrationTest {
       builder.build(rtx);
 
       assertEquals(2L, builder.rowsEmitted());
-      assertEquals(1L, ProjectionIndexScan.conjunctiveCount(leaves,
-          new ProjectionIndexScan.ColumnPredicate[] {
-              ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.EQ, 2L),
-              ProjectionIndexScan.ColumnPredicate.numeric(2, ProjectionIndexScan.Op.EQ, 11L)
-          }));
+      assertEquals(1L,
+          ProjectionIndexScan.conjunctiveCount(leaves,
+              new ProjectionIndexScan.ColumnPredicate[] {
+                  ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.EQ, 2L),
+                  ProjectionIndexScan.ColumnPredicate.numeric(2, ProjectionIndexScan.Op.EQ, 11L)}));
     }
   }
 
   @Test
   void repeatedScalarAndWildcardMatchesAreUnrepresentableInsteadOfLastWins() {
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/records/record", PathParser.Type.XML),
-        List.of(Path.parse("/records/record/score", PathParser.Type.XML),
-            Path.parse("/records/record/*", PathParser.Type.XML)),
-        List.of(Type.INT, Type.INT), 0, IndexDef.DbType.XML);
+    final IndexDef definition =
+        IndexDefs.createProjectionIdxDef(Path.parse("/records/record", PathParser.Type.XML),
+            List.of(Path.parse("/records/record/score", PathParser.Type.XML),
+                Path.parse("/records/record/*", PathParser.Type.XML)),
+            List.of(Type.INT, Type.INT), 0, IndexDef.DbType.XML);
 
-    final ProjectionIndexRowGroupPage page = buildSingleLeaf(
-        "<records><record><score>7</score><score>11</score></record></records>", definition);
+    final ProjectionIndexRowGroupPage page =
+        buildSingleLeaf("<records><record><score>7</score><score>11</score></record></records>", definition);
 
     assertEquals(1, page.getRowCount());
     assertTrue(page.columnUnrepresentable(0), "a repeated exact scalar must force generic fallback");
@@ -111,25 +108,19 @@ final class ProjectionIndexXmlIntegrationTest {
     final String disabled = "projection-xml-dewey-disabled";
     final Database<XmlResourceSession> database =
         XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
-    assertTrue(database.createResource(ResourceConfiguration.newBuilder(disabled)
-        .useDeweyIDs(false)
-        .build()));
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/records/record", PathParser.Type.XML),
-        List.of(Path.parse("/records/record/score", PathParser.Type.XML)),
-        List.of(Type.INT), 0, IndexDef.DbType.XML);
+    assertTrue(database.createResource(ResourceConfiguration.newBuilder(disabled).useDeweyIDs(false).build()));
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(Path.parse("/records/record", PathParser.Type.XML),
+        List.of(Path.parse("/records/record/score", PathParser.Type.XML)), List.of(Type.INT), 0, IndexDef.DbType.XML);
 
-    try (final var session = database.beginResourceSession(disabled);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(disabled); final var wtx = session.beginNodeTrx()) {
       assertFalse(session.getResourceConfig().areDeweyIDsStored);
       new XmlShredder.Builder(wtx,
-          XmlShredder.createStringReader("<records><record><score>1</score></record>"
-              + "<record><score>2</score></record></records>"),
+          XmlShredder.createStringReader(
+              "<records><record><score>1</score></record>" + "<record><score>2</score></record></records>"),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
 
-    try (final var session = database.beginResourceSession(disabled);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(disabled); final var wtx = session.beginNodeTrx()) {
       session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
       wtx.commit();
     }
@@ -137,17 +128,16 @@ final class ProjectionIndexXmlIntegrationTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
-    try (final var session = database.beginResourceSession(disabled);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+    try (final var session = database.beginResourceSession(disabled); final var rtx = session.beginNodeReadOnlyTrx()) {
       assertFalse(session.getResourceConfig().areDeweyIDsStored);
       final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
       assertNotNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
       assertTrue(controller.hasProjectionIndex());
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(
-          session, rtx.getRevisionNumber(), definition);
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.load(session, rtx.getRevisionNumber(), definition);
       assertNotNull(handle);
-      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, rtx.getRevisionNumber(), definition.getID(), handle.rowGroupCount()));
+      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(session,
+          rtx.getRevisionNumber(), definition.getID(), handle.rowGroupCount()));
       final long[] values = new long[2];
       int offset = 0;
       for (final byte[] payload : leaves) {
@@ -162,15 +152,14 @@ final class ProjectionIndexXmlIntegrationTest {
 
   @Test
   void xmlNumericSourceTypesNeverClaimFalsePureDoubleEvidence() {
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/records/record", PathParser.Type.XML),
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(Path.parse("/records/record", PathParser.Type.XML),
         List.of(Path.parse("/records/record/decimal", PathParser.Type.XML),
             Path.parse("/records/record/float", PathParser.Type.XML),
             Path.parse("/records/record/double", PathParser.Type.XML)),
         List.of(Type.DEC, Type.FLO, Type.DBL), 0, IndexDef.DbType.XML);
 
-    final ProjectionIndexRowGroupPage page = buildSingleLeaf(
-        "<records><record><decimal>9007199254740993</decimal><float>16777217</float>"
+    final ProjectionIndexRowGroupPage page =
+        buildSingleLeaf("<records><record><decimal>9007199254740993</decimal><float>16777217</float>"
             + "<double>1.5</double></record></records>", definition);
 
     assertTrue(page.columnUnrepresentable(0), "a lossy decimal-to-double conversion must decline value serving");
@@ -184,34 +173,30 @@ final class ProjectionIndexXmlIntegrationTest {
     final Database<XmlResourceSession> database =
         XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       new XmlShredder.Builder(wtx,
-          XmlShredder.createStringReader("<records><record><score>1</score></record>"
-              + "<record><score>2</score></record></records>"), InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards()
-          .build()
-          .call();
+          XmlShredder.createStringReader(
+              "<records><record><score>1</score></record>" + "<record><score>2</score></record></records>"),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
     final long firstRecordKey;
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       firstRecordKey = elementKey(rtx, "record", 0);
     }
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(firstRecordKey));
       wtx.insertElementAsLeftSibling(new QNm("record"))
-          .insertElementAsFirstChild(new QNm("score"))
-          .insertTextAsFirstChild("0");
+         .insertElementAsFirstChild(new QNm("score"))
+         .insertTextAsFirstChild("0");
       wtx.commit();
     }
 
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/records/record", PathParser.Type.XML),
-        List.of(Path.parse("/records/record/score", PathParser.Type.XML)),
-        List.of(Type.INT), 0, IndexDef.DbType.XML);
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(Path.parse("/records/record", PathParser.Type.XML),
+        List.of(Path.parse("/records/record/score", PathParser.Type.XML)), List.of(Type.INT), 0, IndexDef.DbType.XML);
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
       wtx.commit();
     }
@@ -226,20 +211,17 @@ final class ProjectionIndexXmlIntegrationTest {
     final Database<XmlResourceSession> database =
         XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     final String document = "<root><records><record><score>1</score><left/><right/></record>"
-        + "<record><score>2</score></record></records>"
-        + "<archive><record><score>9</score></record></archive></root>";
+        + "<record><score>2</score></record></records>" + "<archive><record><score>9</score></record></archive></root>";
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
-      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document), InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards()
-          .build()
-          .call();
+        final var wtx = session.beginNodeTrx()) {
+      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
 
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/root/records/record", PathParser.Type.XML),
-        List.of(Path.parse("/root/records/record/score", PathParser.Type.XML)),
-        List.of(Type.INT), 0, IndexDef.DbType.XML);
+    final IndexDef definition =
+        IndexDefs.createProjectionIdxDef(Path.parse("/root/records/record", PathParser.Type.XML),
+            List.of(Path.parse("/root/records/record/score", PathParser.Type.XML)), List.of(Type.INT), 0,
+            IndexDef.DbType.XML);
 
     final long recordsKey;
     final long archiveKey;
@@ -249,7 +231,7 @@ final class ProjectionIndexXmlIntegrationTest {
     final long leftKey;
     final long rightKey;
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       recordsKey = elementKey(rtx, "records", 0);
       firstRecordKey = elementKey(rtx, "record", 0);
       secondRecordKey = elementKey(rtx, "record", 1);
@@ -260,7 +242,7 @@ final class ProjectionIndexXmlIntegrationTest {
     }
 
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
       wtx.commit();
     }
@@ -272,7 +254,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
     // The record root stays in place, so an internal move is ordinary one-record maintenance.
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(rightKey));
       wtx.moveSubtreeToFirstChild(leftKey);
       wtx.commit();
@@ -282,7 +264,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
     // Existing root leaves the projection: remove its row from the source physical leaf.
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(archiveKey));
       wtx.moveSubtreeToFirstChild(firstRecordKey);
       wtx.commit();
@@ -292,7 +274,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
     // Outside→inside entry is inserted at its explicit first-child document position.
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(recordsKey));
       wtx.moveSubtreeToFirstChild(archivedRecordKey);
       wtx.commit();
@@ -302,7 +284,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
     // A same-root structural move retains identity and splices the row to the new first position.
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(recordsKey));
       wtx.moveSubtreeToFirstChild(secondRecordKey);
       wtx.commit();
@@ -310,31 +292,31 @@ final class ProjectionIndexXmlIntegrationTest {
     assertPersistedOrder(database, definition, 2L, 9L);
 
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(secondRecordKey));
       wtx.insertElementAsLeftSibling(new QNm("record"))
-          .insertElementAsFirstChild(new QNm("score"))
-          .insertTextAsFirstChild("0");
+         .insertElementAsFirstChild(new QNm("score"))
+         .insertTextAsFirstChild("0");
       wtx.commit();
     }
     assertPersistedOrder(database, definition, 0L, 2L, 9L);
 
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(secondRecordKey));
       wtx.insertElementAsRightSibling(new QNm("record"))
-          .insertElementAsFirstChild(new QNm("score"))
-          .insertTextAsFirstChild("5");
+         .insertElementAsFirstChild(new QNm("score"))
+         .insertTextAsFirstChild("5");
       wtx.commit();
     }
     assertPersistedOrder(database, definition, 0L, 2L, 5L, 9L);
 
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(archivedRecordKey));
       wtx.insertElementAsRightSibling(new QNm("record"))
-          .insertElementAsFirstChild(new QNm("score"))
-          .insertTextAsFirstChild("10");
+         .insertElementAsFirstChild(new QNm("score"))
+         .insertTextAsFirstChild("10");
       wtx.commit();
     }
     assertElementChildCount(database, recordsKey, 5L);
@@ -360,17 +342,15 @@ final class ProjectionIndexXmlIntegrationTest {
     final Database<XmlResourceSession> database =
         XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document.toString()),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
 
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/records/record", PathParser.Type.XML),
-        List.of(Path.parse("/records/record/score", PathParser.Type.XML)),
-        List.of(Type.INT), 0, IndexDef.DbType.XML);
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(Path.parse("/records/record", PathParser.Type.XML),
+        List.of(Path.parse("/records/record/score", PathParser.Type.XML)), List.of(Type.INT), 0, IndexDef.DbType.XML);
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
       wtx.commit();
     }
@@ -382,7 +362,7 @@ final class ProjectionIndexXmlIntegrationTest {
     final long finalFirstLeafRecordKey;
     final long tailRecordKey;
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       recordsKey = elementKey(rtx, "records", 0);
       finalFirstLeafRecordKey = elementKey(rtx, "record", ProjectionIndexRowGroupPage.MAX_ROWS - 1);
       firstSecondLeafRecordKey = elementKey(rtx, "record", ProjectionIndexRowGroupPage.MAX_ROWS);
@@ -396,15 +376,15 @@ final class ProjectionIndexXmlIntegrationTest {
 
     ProjectionIndexChangeListener.resetMaintenanceTelemetry();
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       assertTrue(wtx.moveTo(firstSecondLeafRecordKey));
       wtx.remove();
       assertTrue(wtx.moveTo(secondSecondLeafScoreTextKey));
       wtx.setValue("9000");
       assertTrue(wtx.moveTo(finalFirstLeafRecordKey));
       wtx.insertElementAsRightSibling(new QNm("record"))
-          .insertElementAsFirstChild(new QNm("score"))
-          .insertTextAsFirstChild("7777");
+         .insertElementAsFirstChild(new QNm("score"))
+         .insertTextAsFirstChild("7777");
       assertTrue(wtx.moveTo(recordsKey));
       wtx.moveSubtreeToFirstChild(tailRecordKey);
       wtx.commit();
@@ -429,21 +409,19 @@ final class ProjectionIndexXmlIntegrationTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
-    try (final Database<XmlResourceSession> reopened =
-             Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
+    try (final Database<XmlResourceSession> reopened = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
       assertPersistedOrder(reopened, definition, expected);
     }
   }
 
   @ParameterizedTest(name = "{0} preserves sibling projection maintenance across history")
   @EnumSource(VersioningType.class)
-  void siblingMaintenanceStaysIncrementalForEveryVersioningType(
-      final VersioningType versioningType) {
+  void siblingMaintenanceStaysIncrementalForEveryVersioningType(final VersioningType versioningType) {
     createVersionedResource(versioningType);
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        Path.parse("/root/records/record", PathParser.Type.XML),
-        List.of(Path.parse("/root/records/record/score", PathParser.Type.XML)),
-        List.of(Type.INT), 0, IndexDef.DbType.XML);
+    final IndexDef definition =
+        IndexDefs.createProjectionIdxDef(Path.parse("/root/records/record", PathParser.Type.XML),
+            List.of(Path.parse("/root/records/record/score", PathParser.Type.XML)), List.of(Type.INT), 0,
+            IndexDef.DbType.XML);
 
     final int baselineRevision;
     final int headRevision;
@@ -460,10 +438,9 @@ final class ProjectionIndexXmlIntegrationTest {
     final long middleRecordKey;
     final long tailRecordKey;
 
-    try (final Database<XmlResourceSession> database =
-             Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertEquals(versioningType, session.getResourceConfig().versioningType,
             "the parameterized resource must persist the requested versioning strategy");
         new XmlShredder.Builder(wtx,
@@ -472,14 +449,14 @@ final class ProjectionIndexXmlIntegrationTest {
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
         wtx.commit();
       }
       baselineRevision = mostRecentRevision(database, VERSIONED_RESOURCE);
 
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var rtx = session.beginNodeReadOnlyTrx(baselineRevision)) {
+          final var rtx = session.beginNodeReadOnlyTrx(baselineRevision)) {
         recordsKey = elementKey(rtx, "records", 0);
         firstRecordKey = elementKey(rtx, "record", 0);
         secondRecordKey = elementKey(rtx, "record", 1);
@@ -495,7 +472,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
       // A high stable key inserted at the head is represented as a sparse order exception.
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(firstRecordKey));
         wtx.insertElementAsLeftSibling(new QNm("record"));
         headRecordKey = wtx.getNodeKey();
@@ -508,7 +485,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
       // The middle insertion is a separate commit and must not renumber or rewrite the suffix.
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(firstRecordKey));
         wtx.insertElementAsRightSibling(new QNm("record"));
         middleRecordKey = wtx.getNodeKey();
@@ -521,7 +498,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
       // A genuine tail append extends the normal numeric backbone and needs no exact locator.
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(secondRecordKey));
         wtx.insertElementAsRightSibling(new QNm("record"));
         tailRecordKey = wtx.getNodeKey();
@@ -534,7 +511,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
       // A projected TEXT value update must patch the owning column without changing row identity/order.
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(firstScoreTextKey));
         wtx.setValue("11");
         wtx.commit();
@@ -545,7 +522,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
       // Removing the exceptional head row must tombstone its exact locator.
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(headRecordKey));
         wtx.remove();
         wtx.commit();
@@ -556,7 +533,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
       // Reorder an existing normal row to the head. Identity stays stable; its route becomes exact.
       try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+          final var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(recordsKey));
         wtx.moveSubtreeToFirstChild(secondRecordKey);
         wtx.commit();
@@ -586,8 +563,7 @@ final class ProjectionIndexXmlIntegrationTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
-    try (final Database<XmlResourceSession> reopened =
-             Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
+    try (final Database<XmlResourceSession> reopened = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
       assertCurrentLookupRoutes(reopened, definition, headRecordKey,
           new long[] {secondRecordKey, firstRecordKey, middleRecordKey, tailRecordKey},
           new boolean[] {true, false, true, false});
@@ -597,37 +573,33 @@ final class ProjectionIndexXmlIntegrationTest {
   }
 
   private static void createVersionedResource(final VersioningType versioningType) {
-    assertTrue(Databases.createXmlDatabase(
-        new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile())));
-    try (final Database<XmlResourceSession> database =
-             Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
+    assertTrue(Databases.createXmlDatabase(new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile())));
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder(VERSIONED_RESOURCE)
-          .storageType(StorageType.FILE_CHANNEL)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(true)
-          .buildPathStatistics(false)
-          .useDeweyIDs(true)
-          .versioningApproach(versioningType)
-          .maxNumberOfRevisionsToRestore(3)
-          .build()));
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .storeDiffs(false)
+                                                              .hashKind(HashType.NONE)
+                                                              .buildPathSummary(true)
+                                                              .buildPathStatistics(false)
+                                                              .useDeweyIDs(true)
+                                                              .versioningApproach(versioningType)
+                                                              .maxNumberOfRevisionsToRestore(3)
+                                                              .build()));
     }
   }
 
-  private static int mostRecentRevision(final Database<XmlResourceSession> database,
-      final String resource) {
+  private static int mostRecentRevision(final Database<XmlResourceSession> database, final String resource) {
     try (final var session = database.beginResourceSession(resource)) {
       return session.getMostRecentRevisionNumber();
     }
   }
 
-  private static void assertColdVersionedProjectionState(final VersioningType versioningType,
-      final IndexDef definition, final int revision, final long... expectedValues) {
+  private static void assertColdVersionedProjectionState(final VersioningType versioningType, final IndexDef definition,
+      final int revision, final long... expectedValues) {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
-    try (final Database<XmlResourceSession> reopened =
-             Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
+    try (final Database<XmlResourceSession> reopened = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
       assertVersionedProjectionState(reopened, versioningType, definition, revision, expectedValues);
     }
   }
@@ -637,7 +609,7 @@ final class ProjectionIndexXmlIntegrationTest {
       final long... expectedValues) {
     ProjectionIndexCatalog.clearCache();
     try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final var rtx = session.beginNodeReadOnlyTrx(revision)) {
       assertEquals(versioningType, session.getResourceConfig().versioningType,
           "the reopened resource must retain its requested versioning strategy");
       final long[] documentRecordKeys = assertVersionedTreeOrder(rtx, expectedValues);
@@ -645,8 +617,8 @@ final class ProjectionIndexXmlIntegrationTest {
       assertNotNull(handle, "the versioned XML projection must remain catalog-servable");
       final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(rtx.getStorageEngineReader(),
           definition.getID(), handle.rowGroupCount());
-      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, revision, definition.getID(), handle.rowGroupCount()));
+      final List<byte[]> leaves = handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, revision, definition.getID(), handle.rowGroupCount()));
       assertEquals(physicalOrder.length, leaves.size(),
           "the document-order fence chain must cover every live row group");
 
@@ -656,8 +628,7 @@ final class ProjectionIndexXmlIntegrationTest {
       long priorNormalKey = Long.MIN_VALUE;
       for (int leafIndex = 0; leafIndex < leaves.size(); leafIndex++) {
         final int physicalSlot = physicalOrder[leafIndex];
-        final ProjectionIndexRowGroupPage leaf =
-            ProjectionIndexRowGroupPage.deserialize(leaves.get(leafIndex));
+        final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.get(leafIndex));
         long firstNormalKey = Long.MAX_VALUE;
         long lastNormalKey = Long.MIN_VALUE;
         for (int row = 0; row < leaf.getRowCount(); row++) {
@@ -665,8 +636,8 @@ final class ProjectionIndexXmlIntegrationTest {
           final long recordKey = leaf.recordKeys()[row];
           actualValues[offset] = leaf.numericColumn(0)[row];
           actualRecordKeys[offset++] = recordKey;
-          final int locatedSlot = ProjectionRecordLocator.read(rtx.getStorageEngineReader(),
-              definition.getID(), recordKey);
+          final int locatedSlot =
+              ProjectionRecordLocator.read(rtx.getStorageEngineReader(), definition.getID(), recordKey);
           if (leaf.orderExceptionAt(row)) {
             assertEquals(physicalSlot, locatedSlot,
                 "an order-exception row must have an exact locator to its physical leaf");
@@ -687,15 +658,13 @@ final class ProjectionIndexXmlIntegrationTest {
             "the KEYS last fence must describe only this leaf's normal backbone");
       }
       assertEquals(expectedValues.length, offset, "the projection contains fewer rows than expected");
-      assertArrayEquals(expectedValues, actualValues,
-          "the versioned projection must match exact XML document order");
+      assertArrayEquals(expectedValues, actualValues, "the versioned projection must match exact XML document order");
       assertArrayEquals(documentRecordKeys, actualRecordKeys,
           "the persisted KEYS lane must match the XML record identities exactly once and in order");
     }
   }
 
-  private static long[] assertVersionedTreeOrder(final XmlNodeReadOnlyTrx rtx,
-      final long... expectedValues) {
+  private static long[] assertVersionedTreeOrder(final XmlNodeReadOnlyTrx rtx, final long... expectedValues) {
     final long[] recordKeys = new long[expectedValues.length];
     final long recordsKey = elementKey(rtx, "records", 0);
     assertTrue(rtx.moveTo(recordsKey));
@@ -721,33 +690,27 @@ final class ProjectionIndexXmlIntegrationTest {
     return recordKeys;
   }
 
-  private static void assertExceptionLocator(final Database<XmlResourceSession> database,
-      final IndexDef definition, final int revision, final long recordKey,
-      final boolean expectedException) {
+  private static void assertExceptionLocator(final Database<XmlResourceSession> database, final IndexDef definition,
+      final int revision, final long recordKey, final boolean expectedException) {
     try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final int slot = ProjectionRecordLocator.read(rtx.getStorageEngineReader(),
-          definition.getID(), recordKey);
-      assertEquals(expectedException, slot != 0,
-          "unexpected sparse-locator classification for record " + recordKey);
+        final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final int slot = ProjectionRecordLocator.read(rtx.getStorageEngineReader(), definition.getID(), recordKey);
+      assertEquals(expectedException, slot != 0, "unexpected sparse-locator classification for record " + recordKey);
     }
   }
 
-  private static void assertCurrentLookupRoutes(final Database<XmlResourceSession> database,
-      final IndexDef definition, final long deletedRecordKey, final long[] recordKeys,
-      final boolean[] expectedExceptions) {
+  private static void assertCurrentLookupRoutes(final Database<XmlResourceSession> database, final IndexDef definition,
+      final long deletedRecordKey, final long[] recordKeys, final boolean[] expectedExceptions) {
     assertEquals(recordKeys.length, expectedExceptions.length);
     try (final var session = database.beginResourceSession(VERSIONED_RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), definition.getID());
       final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(storage.getBlob(0L));
       assertNotNull(metadata, "the current projection metadata must remain readable after a cold reopen");
-      final ProjectionIndexFences.Accessor fences =
-          ProjectionIndexFences.open(storage, metadata.rowGroupCount());
+      final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, metadata.rowGroupCount());
       final ProjectionRecordLocator.Accessor locator = ProjectionRecordLocator.open(storage);
-      final ProjectionPersistedRecordLookup lookup =
-          new ProjectionPersistedRecordLookup(storage, fences, locator);
+      final ProjectionPersistedRecordLookup lookup = new ProjectionPersistedRecordLookup(storage, fences, locator);
       assertEquals(0, locator.find(deletedRecordKey), "the deleted exception locator must be tombstoned");
       assertEquals(ProjectionPersistedRecordLookup.ABSENT, lookup.find(deletedRecordKey),
           "a deleted record must be absent from both exact and normal lookup routes");
@@ -763,26 +726,26 @@ final class ProjectionIndexXmlIntegrationTest {
     }
   }
 
-  private static void assertElementParent(final Database<XmlResourceSession> database,
-      final long elementKey, final long expectedParentKey) {
+  private static void assertElementParent(final Database<XmlResourceSession> database, final long elementKey,
+      final long expectedParentKey) {
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveTo(elementKey));
       assertEquals(expectedParentKey, rtx.getParentKey());
     }
   }
 
-  private static void assertElementChildCount(final Database<XmlResourceSession> database,
-      final long elementKey, final long expectedChildCount) {
+  private static void assertElementChildCount(final Database<XmlResourceSession> database, final long elementKey,
+      final long expectedChildCount) {
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveTo(elementKey));
       assertEquals(expectedChildCount, rtx.getChildCount());
     }
   }
 
-  private static void assertPersistedOrder(final Database<XmlResourceSession> database,
-      final IndexDef definition, final long... expectedValues) {
+  private static void assertPersistedOrder(final Database<XmlResourceSession> database, final IndexDef definition,
+      final long... expectedValues) {
     final int revision;
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       revision = session.getMostRecentRevisionNumber();
@@ -790,21 +753,20 @@ final class ProjectionIndexXmlIntegrationTest {
     assertPersistedOrder(database, definition, revision, expectedValues);
   }
 
-  private static void assertPersistedOrder(final Database<XmlResourceSession> database,
-      final IndexDef definition, final int revision, final long... expectedValues) {
+  private static void assertPersistedOrder(final Database<XmlResourceSession> database, final IndexDef definition,
+      final int revision, final long... expectedValues) {
     ProjectionIndexCatalog.clearCache();
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(session, revision, definition);
       assertNotNull(handle, "the committed XML projection must remain catalog-servable");
-      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, revision, definition.getID(), handle.rowGroupCount()));
+      final List<byte[]> leaves = handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, revision, definition.getID(), handle.rowGroupCount()));
       final long[] actualValues = new long[expectedValues.length];
       int offset = 0;
       for (final byte[] leafBytes : leaves) {
         final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leafBytes);
         final int rowCount = leaf.getRowCount();
-        assertTrue(offset + rowCount <= actualValues.length,
-            "the projection contains more rows than expected");
+        assertTrue(offset + rowCount <= actualValues.length, "the projection contains more rows than expected");
         System.arraycopy(leaf.numericColumn(0), 0, actualValues, offset, rowCount);
         offset += rowCount;
       }
@@ -813,8 +775,7 @@ final class ProjectionIndexXmlIntegrationTest {
     }
   }
 
-  private static long elementKey(final XmlNodeReadOnlyTrx rtx, final String localName,
-      final int occurrence) {
+  private static long elementKey(final XmlNodeReadOnlyTrx rtx, final String localName, final int occurrence) {
     final long restoreKey = rtx.getNodeKey();
     try {
       rtx.moveToDocumentRoot();
@@ -837,16 +798,14 @@ final class ProjectionIndexXmlIntegrationTest {
   private ProjectionIndexRowGroupPage buildSingleLeaf(final String document, final IndexDef definition) {
     final var database = XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
-      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document), InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards()
-          .build()
-          .call();
+        final var wtx = session.beginNodeTrx()) {
+      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
 
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx();
-         final var pathSummary = session.openPathSummary()) {
+        final var rtx = session.beginNodeReadOnlyTrx();
+        final var pathSummary = session.openPathSummary()) {
       final List<byte[]> leaves = new ArrayList<>();
       final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(definition, pathSummary, leaves::add);
       builder.build(rtx);

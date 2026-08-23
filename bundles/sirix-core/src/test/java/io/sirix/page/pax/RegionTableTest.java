@@ -18,10 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for {@link RegionTable}. Covers round-trip of the empty scaffold
- * as well as the future-shape case where the table carries concrete region
- * payloads. The empty case is the only one exercised by Phase-1 writers; the
- * payload case protects the wire format against regressions from later tasks.
+ * Unit tests for {@link RegionTable}. Covers round-trip of the empty scaffold as well as the
+ * future-shape case where the table carries concrete region payloads. The empty case is the only
+ * one exercised by Phase-1 writers; the payload case protects the wire format against regressions
+ * from later tasks.
  */
 @DisplayName("RegionTable")
 final class RegionTableTest {
@@ -50,8 +50,7 @@ final class RegionTableTest {
     final byte[] wire = writeOne(RegionTable.KIND_STRING, payload);
     final int deferMask = RegionTable.maskOf(RegionTable.KIND_STRING);
 
-    final RegionTable deferred =
-        RegionTable.read(Bytes.wrapForRead(wire), RegionTable.ALL_KINDS, deferMask);
+    final RegionTable deferred = RegionTable.read(Bytes.wrapForRead(wire), RegionTable.ALL_KINDS, deferMask);
 
     // The region is present and counted...
     assertFalse(deferred.isEmpty());
@@ -63,9 +62,8 @@ final class RegionTableTest {
     // deliberately deferred, at the cache-admission call site that most wanted to stay cheap.
     final int retained = deferred.retainedBytes();
     assertTrue(retained > 0, "deferred wire bytes must be accounted for, not reported as zero");
-    assertTrue(retained < payload.length,
-               "retainedBytes() reported " + retained + " for a " + payload.length
-                   + "-byte payload that was stored compressed — it materialized the region");
+    assertTrue(retained < payload.length, "retainedBytes() reported " + retained + " for a " + payload.length
+        + "-byte payload that was stored compressed — it materialized the region");
 
     // And the deferral is still honoured: the payload decompresses correctly on first demand.
     assertArrayEquals(payload, PaxTestSegments.bytes(deferred.payload(RegionTable.KIND_STRING)));
@@ -78,8 +76,8 @@ final class RegionTableTest {
   @DisplayName("serializing a table with deferred regions fails loudly")
   void writingDeferredTableThrows() {
     final byte[] wire = writeOne(RegionTable.KIND_STRING, compressiblePayload());
-    final RegionTable deferred = RegionTable.read(Bytes.wrapForRead(wire), RegionTable.ALL_KINDS,
-                                                  RegionTable.maskOf(RegionTable.KIND_STRING));
+    final RegionTable deferred =
+        RegionTable.read(Bytes.wrapForRead(wire), RegionTable.ALL_KINDS, RegionTable.maskOf(RegionTable.KIND_STRING));
 
     // write() serializes payloads[], where a deferred region is absent — it would drop the region
     // and produce a page silently missing a column. Refuse instead.
@@ -119,8 +117,8 @@ final class RegionTableTest {
   @Test
   @DisplayName("populated table preserves payloads by kind")
   void populatedRoundTrip() {
-    final byte[] numberPayload = new byte[] { 1, 2, 3, 4, 5 };
-    final byte[] stringPayload = new byte[] { 9, 8, 7 };
+    final byte[] numberPayload = new byte[] {1, 2, 3, 4, 5};
+    final byte[] stringPayload = new byte[] {9, 8, 7};
 
     final RegionTable table = new RegionTable();
     table.set(RegionTable.KIND_NUMBER, numberPayload);
@@ -153,8 +151,7 @@ final class RegionTableTest {
     Arrays.fill(reusable, (byte) 0);
 
     assertEquals(4, table.payload(RegionTable.KIND_NUMBER_ZONEMAP).byteSize());
-    assertArrayEquals(new byte[] {9, 8, 7, 6},
-        PaxTestSegments.bytes(table.payload(RegionTable.KIND_NUMBER_ZONEMAP)));
+    assertArrayEquals(new byte[] {9, 8, 7, 6}, PaxTestSegments.bytes(table.payload(RegionTable.KIND_NUMBER_ZONEMAP)));
 
     table.set(RegionTable.KIND_NUMBER_ZONEMAP, null, 0);
     assertNull(table.payload(RegionTable.KIND_NUMBER_ZONEMAP));
@@ -166,14 +163,10 @@ final class RegionTableTest {
     final RegionTable table = new RegionTable();
     final byte[] payload = {1, 2, 3};
 
-    assertThrows(IllegalArgumentException.class,
-        () -> table.set(RegionTable.KIND_NUMBER, payload, -1));
-    assertThrows(IllegalArgumentException.class,
-        () -> table.set(RegionTable.KIND_NUMBER, payload, payload.length + 1));
-    assertThrows(IllegalArgumentException.class,
-        () -> table.set(RegionTable.KIND_NUMBER, null, 1));
-    assertThrows(IllegalArgumentException.class,
-        () -> table.set((byte) -1, payload, payload.length));
+    assertThrows(IllegalArgumentException.class, () -> table.set(RegionTable.KIND_NUMBER, payload, -1));
+    assertThrows(IllegalArgumentException.class, () -> table.set(RegionTable.KIND_NUMBER, payload, payload.length + 1));
+    assertThrows(IllegalArgumentException.class, () -> table.set(RegionTable.KIND_NUMBER, null, 1));
+    assertThrows(IllegalArgumentException.class, () -> table.set((byte) -1, payload, payload.length));
     assertThrows(IllegalArgumentException.class,
         () -> table.set((byte) RegionTable.KIND_COUNT, payload, payload.length));
     assertTrue(table.isEmpty(), "a rejected prefix must not publish a region");
@@ -214,7 +207,7 @@ final class RegionTableTest {
   @DisplayName("clearing via set(kind, null) removes the region")
   void clearingByNull() {
     final RegionTable table = new RegionTable();
-    table.set(RegionTable.KIND_NUMBER, new byte[] { 1 });
+    table.set(RegionTable.KIND_NUMBER, new byte[] {1});
     assertEquals(1, table.size());
     table.set(RegionTable.KIND_NUMBER, null);
     assertEquals(0, table.size());

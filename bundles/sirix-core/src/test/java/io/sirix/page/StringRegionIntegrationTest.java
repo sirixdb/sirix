@@ -30,14 +30,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * End-to-end test for {@link KeyValueLeafPage}'s lazy StringRegion build path.
- * Builds a page with several fused OBJECT_NAMED_STRING records (the on-disk
- * shape produced by Sirix when shredding {@code {"dept":"Eng","city":"NYC"}}),
- * then calls {@link KeyValueLeafPage#getStringRegionHeader()} and verifies the
- * region is built correctly with parent-grouped tags + dictionaries.
+ * End-to-end test for {@link KeyValueLeafPage}'s lazy StringRegion build path. Builds a page with
+ * several fused OBJECT_NAMED_STRING records (the on-disk shape produced by Sirix when shredding
+ * {@code {"dept":"Eng","city":"NYC"}}), then calls {@link KeyValueLeafPage#getStringRegionHeader()}
+ * and verifies the region is built correctly with parent-grouped tags + dictionaries.
  *
- * <p>Also verifies invalidation: writing a new OBJECT_NAMED_STRING on the page
- * must drop the cached region so the next read rebuilds.
+ * <p>
+ * Also verifies invalidation: writing a new OBJECT_NAMED_STRING on the page must drop the cached
+ * region so the next read rebuilds.
  */
 @DisplayName("StringRegion page integration")
 final class StringRegionIntegrationTest {
@@ -53,34 +53,25 @@ final class StringRegionIntegrationTest {
 
   @AfterEach
   void tearDown() {
-    if (arena != null) arena.close();
+    if (arena != null)
+      arena.close();
   }
 
   private KeyValueLeafPage createPage(final long recordPageKey) {
     return new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("testResource").build(), 1,
-        arena.allocate(SIXTYFOUR_KB), null);
+        new ResourceConfiguration.Builder("testResource").build(), 1, arena.allocate(SIXTYFOUR_KB), null);
   }
 
   /** Write a fused {@link ObjectNamedStringNode} at the slot derived from {@code nodeKey}. */
-  private void writeObjectNamedString(final KeyValueLeafPage page, final long nodeKey,
-      final int nameKey, final String value) {
+  private void writeObjectNamedString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
+      final String value) {
     final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
     final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // parentKey
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // rightSiblingKey
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // leftSiblingKey
-        nameKey,
-        /*pathNodeKey*/ -1L,
-        /*previousRevision*/ 0,
-        /*lastModifiedRevision*/ 0,
-        /*hash*/ 0L,
-        bytes,
-        HASH_FN,
-        (byte[]) null,
-        /*isCompressed*/ false,
-        /*fsstSymbolTable*/ null);
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(), // parentKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // rightSiblingKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // leftSiblingKey
+        nameKey, /* pathNodeKey */ -1L, /* previousRevision */ 0, /* lastModifiedRevision */ 0, /* hash */ 0L, bytes,
+        HASH_FN, (byte[]) null, /* isCompressed */ false, /* fsstSymbolTable */ null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
   }
@@ -90,7 +81,7 @@ final class StringRegionIntegrationTest {
   void buildsRegionFromSingleStringPair() {
     final KeyValueLeafPage page = createPage(0);
     final int deptNameKey = 7;
-    writeObjectNamedString(page, /*nodeKey*/ 0, deptNameKey, "Eng");
+    writeObjectNamedString(page, /* nodeKey */ 0, deptNameKey, "Eng");
 
     // Cache should be empty before first call.
     assertNull(page.getStringRegionPayload());
@@ -107,8 +98,7 @@ final class StringRegionIntegrationTest {
     assertEquals(0, dictId); // first (and only) dict entry
     final int off = StringRegion.decodeStringOffset(payload, h, 0, dictId);
     final int len = StringRegion.decodeStringLength(payload, h, 0, dictId);
-    assertEquals("Eng", new String(payload.asSlice(off, len).toArray(ValueLayout.JAVA_BYTE),
-                             StandardCharsets.UTF_8));
+    assertEquals("Eng", new String(payload.asSlice(off, len).toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8));
   }
 
   @Test
@@ -133,8 +123,7 @@ final class StringRegionIntegrationTest {
       final int dictId = StringRegion.decodeDictIdAt(payload, h, i);
       final int off = StringRegion.decodeStringOffset(payload, h, 0, dictId);
       final int len = StringRegion.decodeStringLength(payload, h, 0, dictId);
-      decoded[i] = new String(payload.asSlice(off, len).toArray(ValueLayout.JAVA_BYTE),
-                             StandardCharsets.UTF_8);
+      decoded[i] = new String(payload.asSlice(off, len).toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
     assertEquals("Eng", decoded[0]);
     assertEquals("Sales", decoded[1]);
@@ -182,8 +171,7 @@ final class StringRegionIntegrationTest {
 
     // Add another string value — should invalidate.
     writeObjectNamedString(page, 1, deptKey, "Sales");
-    assertNull(page.getStringRegionPayload(),
-        "writing a new OBJECT_NAMED_STRING should invalidate the cached region");
+    assertNull(page.getStringRegionPayload(), "writing a new OBJECT_NAMED_STRING should invalidate the cached region");
 
     final StringRegion.Header h2 = page.getStringRegionHeader();
     assertNotNull(h2);
@@ -214,20 +202,9 @@ final class StringRegionIntegrationTest {
   void storedStringScratchCopyContract() {
     final KeyValueLeafPage page = createPage(0);
     final byte[] stored = bytes("stored-fsst-form");
-    final ObjectNamedStringNode node = new ObjectNamedStringNode(0,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        7,
-        -1L,
-        0,
-        0,
-        0L,
-        stored,
-        HASH_FN,
-        (byte[]) null,
-        true,
-        null);
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(0, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 7, -1L, 0, 0, 0L, stored,
+        HASH_FN, (byte[]) null, true, null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, 0, 0);
 
@@ -247,8 +224,7 @@ final class StringRegionIntegrationTest {
     assertEquals(-1, page.copyFusedObjectNamedStringStoredBytes(1, exact));
     assertThrows(IndexOutOfBoundsException.class,
         () -> page.copyFusedObjectNamedStringStoredBytes(PageLayout.SLOT_COUNT, exact));
-    assertThrows(NullPointerException.class,
-        () -> page.copyFusedObjectNamedStringStoredBytes(0, null));
+    assertThrows(NullPointerException.class, () -> page.copyFusedObjectNamedStringStoredBytes(0, null));
   }
 
   @Test
@@ -300,8 +276,7 @@ final class StringRegionIntegrationTest {
 
       // false -> true: PageKind reuses the same per-thread path encoder and both wires reproduce A.
       name.reset();
-      final StringRegion.Encoder enabledAgain =
-          Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true));
+      final StringRegion.Encoder enabledAgain = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true));
       assertSame(path, enabledAgain);
       addSharedCandidateValue(name, enabledAgain, scratch, "same-value", false);
       addSharedCandidateValue(name, enabledAgain, scratch, "same-value", true);
@@ -315,8 +290,8 @@ final class StringRegionIntegrationTest {
     }
   }
 
-  private static void addNameCandidateValue(final StringRegion.Encoder name, final byte[] scratch,
-      final String value, final boolean compressed) {
+  private static void addNameCandidateValue(final StringRegion.Encoder name, final byte[] scratch, final String value,
+      final boolean compressed) {
     final byte[] source = bytes(value);
     final int offset = 7;
     System.arraycopy(source, 0, scratch, offset, source.length);
@@ -324,8 +299,8 @@ final class StringRegionIntegrationTest {
     Arrays.fill(scratch, (byte) 0x5a);
   }
 
-  private static void addSharedCandidateValue(final StringRegion.Encoder name,
-      final StringRegion.Encoder path, final byte[] scratch, final String value, final boolean compressed) {
+  private static void addSharedCandidateValue(final StringRegion.Encoder name, final StringRegion.Encoder path,
+      final byte[] scratch, final String value, final boolean compressed) {
     final byte[] source = bytes(value);
     final int offset = 7;
     System.arraycopy(source, 0, scratch, offset, source.length);

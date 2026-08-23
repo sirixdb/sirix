@@ -16,8 +16,8 @@ import io.sirix.query.scan.SirixVectorizedExecutor;
  * Projection-served COMPUTED-EXPRESSION AGGREGATE (gap item 2):
  * {@code sum|avg|min|max|count(for $r in P [where p] return <+/-/* tree>)} attempts
  * {@link SirixVectorizedExecutor#executeComputedAggregate} and, on any decline (gates,
- * exact-arithmetic overflow, transient trouble), evaluates the GENERIC function call
- * compiled alongside — serving can change cost, never answers.
+ * exact-arithmetic overflow, transient trouble), evaluates the GENERIC function call compiled
+ * alongside — serving can change cost, never answers.
  */
 public final class SirixComputedAggregateExpr implements Expr {
 
@@ -36,10 +36,9 @@ public final class SirixComputedAggregateExpr implements Expr {
   private final SourceRef sourceRef;
   private final Expr genericFallback;
 
-  public SirixComputedAggregateExpr(final SirixExecutorProvider executorProvider,
-      final String[] sourcePath, final PredicateNode predicateOrNull, final String func,
-      final String[] fields, final int[] code, final long[] consts,
-      final SourceRef sourceRef, final Expr genericFallback) {
+  public SirixComputedAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String func, final String[] fields, final int[] code,
+      final long[] consts, final SourceRef sourceRef, final Expr genericFallback) {
     this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -58,8 +57,8 @@ public final class SirixComputedAggregateExpr implements Expr {
       try (lease) {
         final SirixVectorizedExecutor executor = lease.executor();
         if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
-          final Sequence served = executor.executeComputedAggregate(sourcePath, predicateOrNull, func, fields, code,
-              consts);
+          final Sequence served =
+              executor.executeComputedAggregate(sourcePath, predicateOrNull, func, fields, code, consts);
           if (served != null) {
             return served;
           }

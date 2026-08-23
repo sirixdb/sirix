@@ -184,9 +184,9 @@ public final class FSSTCompressor {
    * Primitive, high-water-retained scratch for iterative table training.
    *
    * <p>
-   * A candidate is at most eight bytes, so a packed {@code long} plus its length is the complete
-   * key. The map deliberately reproduces fastutil's former {@code Object2IntOpenHashMap} layout:
-   * the same default logical capacity/load factor, {@link Arrays#hashCode(byte[])} value,
+   * A candidate is at most eight bytes, so a packed {@code long} plus its length is the complete key.
+   * The map deliberately reproduces fastutil's former {@code Object2IntOpenHashMap} layout: the same
+   * default logical capacity/load factor, {@link Arrays#hashCode(byte[])} value,
    * {@link HashCommon#mix(int)} probe, descending-slot rehash, and descending-slot iteration. That
    * layout is observable because Java's stable gain sort preserves map iteration order for ties.
    * Retaining two primitive banks and two merge-sort index arrays removes the per-token key/copy and
@@ -194,9 +194,9 @@ public final class FSSTCompressor {
    *
    * <p>
    * The hard distinct-candidate ceiling makes adversarial giant samples fail closed to raw storage
-   * instead of growing this reusable workspace until the JVM runs out of memory. The per-build
-   * limit is tightened further from the exact maximum number of token and adjacent-token proposals
-   * possible across the at-most {@link #MAX_SAMPLES_TO_ANALYZE} corpus entries.
+   * instead of growing this reusable workspace until the JVM runs out of memory. The per-build limit
+   * is tightened further from the exact maximum number of token and adjacent-token proposals possible
+   * across the at-most {@link #MAX_SAMPLES_TO_ANALYZE} corpus entries.
    */
   private static final class CandidateWorkspace {
     private static final float LOAD_FACTOR = 0.75f;
@@ -448,8 +448,7 @@ public final class FSSTCompressor {
         // At most one emitted-token proposal per input byte and one adjacent-token proposal after
         // the first token. Saturate at the hard ceiling; the map itself checks the actual distinct
         // count, so a long but repetitive corpus is still allowed to train.
-        proposals = Math.min(MAX_DISTINCT_CANDIDATES,
-            proposals + Math.max(1L, 2L * sample.length - 1L));
+        proposals = Math.min(MAX_DISTINCT_CANDIDATES, proposals + Math.max(1L, 2L * sample.length - 1L));
       }
       return (int) Math.max(256L, proposals);
     }
@@ -537,8 +536,8 @@ public final class FSSTCompressor {
       final int offset = offsets[i];
       final int length = lengths[i];
       if (rangeOutsideBacking(backing.length, offset, length)) {
-        throw new IllegalArgumentException("entry " + i + " range [" + offset + ", "
-            + ((long) offset + length) + ") outside a " + backing.length + "-byte backing");
+        throw new IllegalArgumentException("entry " + i + " range [" + offset + ", " + ((long) offset + length)
+            + ") outside a " + backing.length + "-byte backing");
       }
     }
   }
@@ -546,8 +545,8 @@ public final class FSSTCompressor {
   private static void validateRange(final byte[] backing, final int offset, final int length, final String label) {
     Objects.requireNonNull(backing, "backing must not be null");
     if (rangeOutsideBacking(backing.length, offset, length)) {
-      throw new IllegalArgumentException(label + " range [" + offset + ", " + ((long) offset + length)
-          + ") outside a " + backing.length + "-byte backing");
+      throw new IllegalArgumentException(label + " range [" + offset + ", " + ((long) offset + length) + ") outside a "
+          + backing.length + "-byte backing");
     }
   }
 
@@ -748,7 +747,9 @@ public final class FSSTCompressor {
     }
 
     final boolean borrowed = callerWorkspace == null;
-    final Workspace workspace = borrowed ? acquireWorkspace() : callerWorkspace;
+    final Workspace workspace = borrowed
+        ? acquireWorkspace()
+        : callerWorkspace;
     try {
       final int[] corpusEntries = workspace.flatCorpusEntries;
       int corpusSize = 0;
@@ -908,7 +909,10 @@ public final class FSSTCompressor {
     return true;
   }
 
-  /** Flat-range training twin of {@link #buildSymbolTableIteratively(List, SymbolMatcher, CandidateWorkspace)}. */
+  /**
+   * Flat-range training twin of
+   * {@link #buildSymbolTableIteratively(List, SymbolMatcher, CandidateWorkspace)}.
+   */
   private static boolean buildSymbolTableIteratively(final byte[] backing, final int[] offsets, final int[] lengths,
       final int[] corpusEntries, final int corpusSize, final SymbolMatcher matcher,
       final CandidateWorkspace candidates) {
@@ -943,8 +947,12 @@ public final class FSSTCompressor {
         int previousLength = 0;
         while (pos < end) {
           final long match = matcher.longestPackedMatch(backing, pos, end);
-          final int length = match >= 0 ? SymbolMatcher.matchLength(match) : 1;
-          if (!candidates.addTo(backing, pos, length, match >= 0 ? 2 * length - 1 : 1)) {
+          final int length = match >= 0
+              ? SymbolMatcher.matchLength(match)
+              : 1;
+          if (!candidates.addTo(backing, pos, length, match >= 0
+              ? 2 * length - 1
+              : 1)) {
             candidates.clear();
             matcher.clear();
             return false;
@@ -1128,8 +1136,8 @@ public final class FSSTCompressor {
    * Workspace-backed encode of one range in a flat dictionary backing. The returned array is fresh;
    * raw fallback copies only the live range and never aliases {@code input} or {@code workspace}.
    */
-  public static byte[] encode(final byte[] input, final int offset, final int length,
-      final byte[][] parsedSymbols, final Workspace workspace) {
+  public static byte[] encode(final byte[] input, final int offset, final int length, final byte[][] parsedSymbols,
+      final Workspace workspace) {
     Objects.requireNonNull(workspace, "workspace must not be null");
     validateRange(input, offset, length, "input");
     if (parsedSymbols == null || parsedSymbols.length == 0) {

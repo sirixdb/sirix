@@ -122,8 +122,8 @@ final class HOTIncrementalSplitSegmentRefTest {
     // owner lived in both halves — it does not: the cut splits the row-group range, so each half
     // must own part of the side map.
     assertTrue(countRefs(leftLeaves) > 0 && countRefs(rightLeaves) > 0,
-        "the split bit cuts the row-group range, so both halves must own references (left="
-            + countRefs(leftLeaves) + ", right=" + countRefs(rightLeaves) + ")");
+        "the split bit cuts the row-group range, so both halves must own references (left=" + countRefs(leftLeaves)
+            + ", right=" + countRefs(rightLeaves) + ")");
 
     source.close();
     closeAll(allLeaves);

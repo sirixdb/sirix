@@ -138,8 +138,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Maximum generation-scoped TIL entries frozen into one async-flush epoch.
    *
-   * <p>Snapshot pinning can remove structural entries before serialization, so this is a
-   * conservative upper bound on attempted KVL pages and matches one serializer window.</p>
+   * <p>
+   * Snapshot pinning can remove structural entries before serialization, so this is a conservative
+   * upper bound on attempted KVL pages and matches one serializer window.
+   * </p>
    */
   static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 16;
 
@@ -175,11 +177,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
    *
-   * <p>Name creation used to walk the revision-root reference and re-publish the same page on every
+   * <p>
+   * Name creation used to walk the revision-root reference and re-publish the same page on every
    * named node. A writer's top-level structural pages are transaction-private and survive a full
    * async epoch as pinned pages, but the cache is still cleared at every full rotation so it never
    * relies on that implementation detail. Pages reached through any other revision-root object are
-   * deliberately never cached here.</p>
+   * deliberately never cached here.
+   * </p>
    */
   private @Nullable NamePage currentNamePage;
 
@@ -189,9 +193,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile boolean isClosed;
 
   /**
-   * First failure after an in-memory structural mutation crossed its publication boundary. Unlike
-   * the async-flush latch, this describes a writer-thread page-graph failure. It is terminal for
-   * this writer; rollback replaces the writer instead of clearing the cause in place.
+   * First failure after an in-memory structural mutation crossed its publication boundary. Unlike the
+   * async-flush latch, this describes a writer-thread page-graph failure. It is terminal for this
+   * writer; rollback replaces the writer instead of clearing the cause in place.
    */
   private volatile @Nullable Throwable transactionRollbackOnlyCause;
 
@@ -355,9 +359,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Exact recent document-record locations used only by structural insert linkage.
    *
-   * <p>Entries retain primitive TIL identities rather than pages. The log remains the authority and
+   * <p>
+   * Entries retain primitive TIL identities rather than pages. The log remains the authority and
    * resolves an identity to its newest modified page, including same-generation replacement and
-   * dynamically pinned overflow pages.</p>
+   * dynamically pinned overflow pages.
+   * </p>
    */
   private final DocumentRecordLocationCache documentRecordLocationCache = new DocumentRecordLocationCache();
 
@@ -424,8 +430,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   static {
     try {
-      ASYNC_SNAPSHOT_WRITE_TASK_STATE = MethodHandles.lookup()
-          .findVarHandle(NodeStorageEngineWriter.class, "asyncSnapshotWriteTaskState", int.class);
+      ASYNC_SNAPSHOT_WRITE_TASK_STATE =
+          MethodHandles.lookup().findVarHandle(NodeStorageEngineWriter.class, "asyncSnapshotWriteTaskState", int.class);
     } catch (final ReflectiveOperationException e) {
       throw new ExceptionInInitializerError(e);
     }
@@ -435,9 +441,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final AsyncSnapshotWriteTask asyncSnapshotWriteTask = new AsyncSnapshotWriteTask();
 
   /**
-   * The throwable that killed a background snapshot flush, or the one that stopped a flush from
-   * being started. RETAINED, never consumed: it is the poison record, so every later request on
-   * this writer can name the ORIGINAL fault instead of the latch that outlived it.
+   * The throwable that killed a background snapshot flush, or the one that stopped a flush from being
+   * started. RETAINED, never consumed: it is the poison record, so every later request on this writer
+   * can name the ORIGINAL fault instead of the latch that outlived it.
    */
   private volatile Throwable asyncFlushError;
 
@@ -451,23 +457,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * replaces the pending page with a native view. The property is deliberately byte-based: a count
    * cap cannot bound projection segments, whose legal sizes span three orders of magnitude.
    */
-  private static final long MAX_STAGED_SIDE_PAGE_BYTES = positiveLongProperty(
-      "sirix.asyncFlush.sidePageBytes", 64L * 1024 * 1024);
+  private static final long MAX_STAGED_SIDE_PAGE_BYTES =
+      positiveLongProperty("sirix.asyncFlush.sidePageBytes", 64L * 1024 * 1024);
 
   /** Independent object-count bound for the smallest legal out-of-line projection segments. */
-  private static final int MAX_STAGED_SIDE_PAGE_COUNT = positiveIntProperty(
-      "sirix.asyncFlush.sidePageCount", 128 * 1024);
+  private static final int MAX_STAGED_SIDE_PAGE_COUNT =
+      positiveIntProperty("sirix.asyncFlush.sidePageCount", 128 * 1024);
 
   /** Expected page count for a 64 MiB batch of ClickBench projection segments. */
   private static final int INITIAL_SIDE_PAGE_BATCH_CAPACITY = 16 * 1024;
 
   /** Maximum live pinned slots examined by one foreground trie-spill epoch. */
-  private static final int PINNED_TRIE_SPILL_SCAN_BUDGET = positiveIntProperty(
-      "sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024);
+  private static final int PINNED_TRIE_SPILL_SCAN_BUDGET =
+      positiveIntProperty("sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024);
 
   /** Fixed number of exact trie-page tuples retained and serialized by one foreground epoch. */
-  private static final int PINNED_TRIE_SPILL_BATCH_CAPACITY = positiveIntProperty(
-      "sirix.asyncFlush.pinnedTrieSpillBatchCapacity", 64);
+  private static final int PINNED_TRIE_SPILL_BATCH_CAPACITY =
+      positiveIntProperty("sirix.asyncFlush.pinnedTrieSpillBatchCapacity", 64);
 
   /** Reused bounded capture/results buffer; its object arrays never grow with the transaction. */
   private final TransactionIntentLog.PinnedSpillBatch pinnedTrieSpillBatch =
@@ -491,7 +497,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private @Nullable KeyValueLeafPage secondCursorDurableReadPage;
 
-  /** Owner of the two fixed native side-payload reservoirs. Lazily allocated and explicitly closed. */
+  /**
+   * Owner of the two fixed native side-payload reservoirs. Lazily allocated and explicitly closed.
+   */
   private @Nullable Arena sidePagePayloadArena;
 
   /** Foreground-owned side pages being collected for the next async rotation. Lazily allocated. */
@@ -660,8 +668,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     /**
-     * Copy a producer page into the fixed native reservoir without advancing visible batch state.
-     * Any copy/view failure therefore leaves the live reference heap-backed and unstaged.
+     * Copy a producer page into the fixed native reservoir without advancing visible batch state. Any
+     * copy/view failure therefore leaves the live reference heap-backed and unstaged.
      */
     private OverflowPage copyToNative(final OverflowPage page) {
       final int payloadLength = page.dataLength();
@@ -697,12 +705,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     private void publishCompletedWrites() {
       for (int i = 0; i < size; i++) {
         if (diskOffsets[i] == Constants.NULL_ID_LONG) {
-          throw new SirixIOException("Immutable side-page batch entry " + i
-              + " has no disk offset — background write incomplete or failed");
+          throw new SirixIOException(
+              "Immutable side-page batch entry " + i + " has no disk offset — background write incomplete or failed");
         }
         if (references[i] == null || !references[i].hasPendingPageWrite()) {
-          throw new SirixIOException("Immutable side-page batch entry " + i
-              + " lost its pending-write identity before publication");
+          throw new SirixIOException(
+              "Immutable side-page batch entry " + i + " lost its pending-write identity before publication");
         }
       }
       for (int i = 0; i < size; i++) {
@@ -730,8 +738,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /** Maximum interval with no append-coordinator progress before the writer is poisoned. */
-  private static final long ASYNC_FLUSH_STALL_TIMEOUT_NANOS = TimeUnit.MILLISECONDS.toNanos(
-      positiveLongProperty("sirix.asyncFlush.stallTimeoutMillis", 120_000L));
+  private static final long ASYNC_FLUSH_STALL_TIMEOUT_NANOS =
+      TimeUnit.MILLISECONDS.toNanos(positiveLongProperty("sirix.asyncFlush.stallTimeoutMillis", 120_000L));
 
   /** Poll interval only while a foreground thread is already applying epoch backpressure. */
   private static final long ASYNC_FLUSH_PROGRESS_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(250L);
@@ -762,7 +770,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return flushPermit.availablePermits();
   }
 
-  /** Number of side-page references still owned by the active or frozen batch, for failure-path tests. */
+  /**
+   * Number of side-page references still owned by the active or frozen batch, for failure-path tests.
+   */
   int stagedSidePageCount() {
     final int activeCount = activeSidePages == null
         ? 0
@@ -773,7 +783,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return activeCount + snapshotCount;
   }
 
-  /** Native payload bytes occupied in the active or frozen side-page batch, for failure-path tests. */
+  /**
+   * Native payload bytes occupied in the active or frozen side-page batch, for failure-path tests.
+   */
   long stagedSidePagePayloadBytes() {
     final long activeBytes = activeSidePages == null
         ? 0L
@@ -787,8 +799,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Whether the exact batch visible to a trie-spill fault hook contains a HOT leaf.
    *
-   * <p>Package-private test observability only. The batch is valid during the before/after publish
-   * hook and cleared immediately when the foreground epoch leaves the spill method.</p>
+   * <p>
+   * Package-private test observability only. The batch is valid during the before/after publish hook
+   * and cleared immediately when the foreground epoch leaves the spill method.
+   * </p>
    */
   boolean currentPinnedTrieSpillBatchContainsHotLeaf() {
     for (int i = 0; i < pinnedTrieSpillBatch.size(); i++) {
@@ -801,13 +815,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Emit diagnostic counters only after all worker-owned state has been fenced. */
   private void printHftTelemetry() {
-    if (!HFT_TELEMETRY_ENABLED || hftTelemetryPrinted
-        || (hftStagedSidePages == 0L && hftCombinedEpochs == 0L && hftSideOnlyEpochs == 0L
-            && hftPinnedTrieSpillEpochs == 0L)) {
+    if (!HFT_TELEMETRY_ENABLED || hftTelemetryPrinted || (hftStagedSidePages == 0L && hftCombinedEpochs == 0L
+        && hftSideOnlyEpochs == 0L && hftPinnedTrieSpillEpochs == 0L)) {
       return;
     }
     hftTelemetryPrinted = true;
-    System.out.printf("# HFT_ASYNC_FLUSH combinedEpochs=%d sideOnlyEpochs=%d kvlPages=%d "
+    System.out.printf(
+        "# HFT_ASYNC_FLUSH combinedEpochs=%d sideOnlyEpochs=%d kvlPages=%d "
             + "kvlAttemptedPages=%d kvlPromotedPages=%d kvlAttemptedPagesMax=%d "
             + "sidePages=%d sideBytes=%d peakActiveSideBytes=%d permitAcquires=%d "
             + "permitWaitTotalNs=%d permitWaitMaxNs=%d rotationPermitAcquires=%d "
@@ -822,41 +836,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             + "pinnedTrieSpillEpochs=%d pinnedTrieSpillPages=%d pinnedTrieSpillBatchMax=%d "
             + "pinnedTrieLiveMax=%d pinnedTrieHighWater=%d%n",
         hftCombinedEpochs, hftSideOnlyEpochs, hftSnapshotKvlPages, hftSnapshotKvlAttemptedPages,
-        hftSnapshotKvlPromotedPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages,
-        hftStagedSideBytes, hftPeakActiveSideBytes,
-        hftPermitAcquires, hftPermitWaitNanos,
-        hftMaxPermitWaitNanos, hftRotationPermitAcquires, hftRotationPermitWaitNanos,
-        hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
-        hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos,
-        hftSubmitWaitCount, hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns,
-        hftStartFlushCount, hftStartFlushNanos, hftMaxStartFlushNanos,
-        hftForegroundFlushCount, hftForegroundFlushNanos, hftMaxForegroundFlushNanos,
-        hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos,
-        hftNativeReservoirCount, hftNativeReservoirBytes, hftKvlFrameCachePages,
-        hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
-        hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax,
-        hftPinnedTrieLiveMax, hftPinnedTrieHighWater);
+        hftSnapshotKvlPromotedPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages, hftStagedSideBytes,
+        hftPeakActiveSideBytes, hftPermitAcquires, hftPermitWaitNanos, hftMaxPermitWaitNanos, hftRotationPermitAcquires,
+        hftRotationPermitWaitNanos, hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
+        hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos, hftSubmitWaitCount,
+        hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns, hftStartFlushCount, hftStartFlushNanos,
+        hftMaxStartFlushNanos, hftForegroundFlushCount, hftForegroundFlushNanos, hftMaxForegroundFlushNanos,
+        hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos, hftNativeReservoirCount, hftNativeReservoirBytes,
+        hftKvlFrameCachePages, hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
+        hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax,
+        hftPinnedTrieHighWater);
     if (hftMaxWorkerEpochId != 0L) {
-      System.out.printf("# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
+      System.out.printf(
+          "# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
               + "serializeJoinWaitNs=%d kvlAppendNs=%d finalFlushNs=%d dataGrowCount=%d "
               + "dataGrowBytes=%d dataGrowNs=%d dataGrowExact=%b%n",
-          hftMaxWorkerEpochId, hftMaxWorkerEpochQueueWaitNanos, hftMaxWorkerNanos,
-          hftMaxWorkerEpochSideNanos, hftMaxWorkerEpochSerializeJoinWaitNanos,
-          hftMaxWorkerEpochKvlAppendNanos, hftMaxWorkerEpochFinalFlushNanos,
-          hftMaxWorkerEpochDataGrowCount, hftMaxWorkerEpochDataGrowBytes,
-          hftMaxWorkerEpochDataGrowNanos, hftMaxWorkerEpochDataGrowExact);
+          hftMaxWorkerEpochId, hftMaxWorkerEpochQueueWaitNanos, hftMaxWorkerNanos, hftMaxWorkerEpochSideNanos,
+          hftMaxWorkerEpochSerializeJoinWaitNanos, hftMaxWorkerEpochKvlAppendNanos, hftMaxWorkerEpochFinalFlushNanos,
+          hftMaxWorkerEpochDataGrowCount, hftMaxWorkerEpochDataGrowBytes, hftMaxWorkerEpochDataGrowNanos,
+          hftMaxWorkerEpochDataGrowExact);
     }
     if (hftMaxBlockedEpochId != 0L) {
-      System.out.printf("# HFT_ASYNC_MAX_BLOCKED epoch=%d waitKind=%s foregroundWaitNs=%d queueWaitNs=%d "
+      System.out.printf(
+          "# HFT_ASYNC_MAX_BLOCKED epoch=%d waitKind=%s foregroundWaitNs=%d queueWaitNs=%d "
               + "workerNs=%d sideNs=%d serializeJoinWaitNs=%d kvlAppendNs=%d finalFlushNs=%d "
               + "dataGrowCount=%d dataGrowBytes=%d dataGrowNs=%d dataGrowExact=%b%n",
-          hftMaxBlockedEpochId, hftMaxBlockedEpochRotation ? "rotation" : "drain",
-          hftMaxBlockedEpochForegroundWaitNanos, hftMaxBlockedEpochQueueWaitNanos,
-          hftMaxBlockedEpochWorkerNanos, hftMaxBlockedEpochSideNanos,
-          hftMaxBlockedEpochSerializeJoinWaitNanos, hftMaxBlockedEpochKvlAppendNanos,
-          hftMaxBlockedEpochFinalFlushNanos, hftMaxBlockedEpochDataGrowCount,
-          hftMaxBlockedEpochDataGrowBytes, hftMaxBlockedEpochDataGrowNanos,
-          hftMaxBlockedEpochDataGrowExact);
+          hftMaxBlockedEpochId, hftMaxBlockedEpochRotation
+              ? "rotation"
+              : "drain",
+          hftMaxBlockedEpochForegroundWaitNanos, hftMaxBlockedEpochQueueWaitNanos, hftMaxBlockedEpochWorkerNanos,
+          hftMaxBlockedEpochSideNanos, hftMaxBlockedEpochSerializeJoinWaitNanos, hftMaxBlockedEpochKvlAppendNanos,
+          hftMaxBlockedEpochFinalFlushNanos, hftMaxBlockedEpochDataGrowCount, hftMaxBlockedEpochDataGrowBytes,
+          hftMaxBlockedEpochDataGrowNanos, hftMaxBlockedEpochDataGrowExact);
     }
   }
 
@@ -1340,9 +1351,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Resolve the current writer revision's NamePage without repeating the PageReference/TIL walk.
-   * The caller must have already established that the requested root is
-   * {@link #newRevisionRootPage} by identity.
+   * Resolve the current writer revision's NamePage without repeating the PageReference/TIL walk. The
+   * caller must have already established that the requested root is {@link #newRevisionRootPage} by
+   * identity.
    */
   private NamePage currentNamePage() {
     NamePage page = currentNamePage;
@@ -1357,7 +1368,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /** Package-private lifecycle observation for focused cache tests. */
-  @Nullable NamePage cachedCurrentNamePageForTesting() {
+  @Nullable
+  NamePage cachedCurrentNamePageForTesting() {
     return currentNamePage;
   }
 
@@ -1458,9 +1470,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Preflight BEFORE marking the new ref pending. The caller already owns this incoming byte[];
     // if it would overflow the active budget, rotate the existing capped batch first. This bounds
     // writer-owned state to two capped buffers plus the one incoming payload being backpressured.
-    if (activeSidePages.size > 0
-        && (payloadLength > MAX_STAGED_SIDE_PAGE_BYTES - activeSidePages.payloadBytes
-            || activeSidePages.size >= MAX_STAGED_SIDE_PAGE_COUNT)) {
+    if (activeSidePages.size > 0 && (payloadLength > MAX_STAGED_SIDE_PAGE_BYTES - activeSidePages.payloadBytes
+        || activeSidePages.size >= MAX_STAGED_SIDE_PAGE_COUNT)) {
       flushStagedSidePagesOnly();
     }
 
@@ -1605,10 +1616,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Flush only immutable side pages, leaving the live TIL untouched.
    *
-   * <p>Projection bulk-load drains read records from the current TIL while they build row groups.
+   * <p>
+   * Projection bulk-load drains read records from the current TIL while they build row groups.
    * Rotating that log at a side-page budget crossing would make the remaining records unreadable.
    * This path applies backpressure through the SAME permit and uses the SAME append owner as a full
-   * epoch, but it neither snapshots nor cleans record pages.</p>
+   * epoch, but it neither snapshots nor cleans record pages.
+   * </p>
    */
   private void flushStagedSidePagesOnly() {
     startAsyncFlush(false);
@@ -1616,7 +1629,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Start either a combined KVL+side-page epoch or a side-page-only epoch. */
   private void startAsyncFlush(final boolean includeTransactionLog) {
-    final long started = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+    final long started = HFT_TELEMETRY_ENABLED
+        ? System.nanoTime()
+        : 0L;
     try {
       startAsyncFlushOwned(includeTransactionLog);
     } finally {
@@ -1638,10 +1653,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Backpressure is bounded. A dead executor/worker must poison this writer rather than park the
     // ingestion thread forever and hide the original failure behind rollback/close.
     if (!acquireFlushPermitUntilProgressStalls(true)) {
-      final SirixIOException timeout = asyncFlushFailure(
-          "Background snapshot flush made no progress for "
-              + TimeUnit.NANOSECONDS.toMillis(ASYNC_FLUSH_STALL_TIMEOUT_NANOS)
-              + " ms while starting the next epoch");
+      final SirixIOException timeout = asyncFlushFailure("Background snapshot flush made no progress for "
+          + TimeUnit.NANOSECONDS.toMillis(ASYNC_FLUSH_STALL_TIMEOUT_NANOS) + " ms while starting the next epoch");
       asyncFlushTimedOut = true;
       recordAsyncFlushFailure(timeout);
       cancelQueuedAsyncSnapshotWriteAfterTimeout();
@@ -1681,7 +1694,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       injectAsyncFlushFault("prepare");
 
-      final long admissionWaitStart = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+      final long admissionWaitStart = HFT_TELEMETRY_ENABLED
+          ? System.nanoTime()
+          : 0L;
       try {
         if (!SNAPSHOT_APPEND_EXECUTOR.acquireAdmissionUntilProgressStalls(ASYNC_FLUSH_STALL_TIMEOUT_NANOS)) {
           throw new SirixIOException("Snapshot append admission made no progress for "
@@ -1807,7 +1822,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void awaitPendingAsyncFlush() {
-    final long started = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+    final long started = HFT_TELEMETRY_ENABLED
+        ? System.nanoTime()
+        : 0L;
     try {
       awaitPendingAsyncFlushOwned();
     } finally {
@@ -1834,7 +1851,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     throwIfAsyncFlushFailed();
   }
 
-  /** Fence only a submitted worker; rollback/close use this without writing the uncommitted active tail. */
+  /**
+   * Fence only a submitted worker; rollback/close use this without writing the uncommitted active
+   * tail.
+   */
   private void awaitInFlightAsyncFlushOnly() {
     if (asyncFlushTimedOut) {
       throwIfAsyncFlushFailed();
@@ -1889,8 +1909,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (!asyncFlushInFlight) {
       return;
     }
-    if (!asyncSnapshotWriteComplete
-        || (asyncSnapshotIncludesLog && !log.isSnapshotFlushComplete())) {
+    if (!asyncSnapshotWriteComplete || (asyncSnapshotIncludesLog && !log.isSnapshotFlushComplete())) {
       final SirixIOException incomplete = new SirixIOException(
           "Background snapshot worker released ownership without positively completing the whole flushed epoch");
       recordAsyncFlushFailure(incomplete);
@@ -1912,12 +1931,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Serialize a fixed, bottom-up batch of cold pinned trie pages through shadow references.
    *
-   * <p>This method is called only by the foreground thread while it owns {@link #flushPermit},
-   * after publication of the prior KVL/side-page epoch. It deliberately calls the storage writer
-   * directly: invoking {@link Page#commit(StorageEngineWriter)} would recurse into children and
-   * mutate/close the live page before the batch tail was known to be flushed. Parents whose child
-   * is still claimed by any TIL generation are rejected now and become eligible in a later epoch
-   * after that child has been published.</p>
+   * <p>
+   * This method is called only by the foreground thread while it owns {@link #flushPermit}, after
+   * publication of the prior KVL/side-page epoch. It deliberately calls the storage writer directly:
+   * invoking {@link Page#commit(StorageEngineWriter)} would recurse into children and mutate/close
+   * the live page before the batch tail was known to be flushed. Parents whose child is still claimed
+   * by any TIL generation are rejected now and become eligible in a later epoch after that child has
+   * been published.
+   * </p>
    */
   private void spillEligiblePinnedTriePages() {
     if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites() || log.pinnedSize() == 0) {
@@ -1944,8 +1965,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         pinnedTrieSpillShadowReference.clearHash();
         pinnedTrieSpillShadowReference.setKey(Constants.NULL_ID_LONG);
         pinnedTrieSpillShadowReference.setPage(null);
-        writeUncommittedPage(resourceConfiguration, pinnedTrieSpillShadowReference,
-            pinnedTrieSpillBatch.pageAt(i), bufferBytes);
+        writeUncommittedPage(resourceConfiguration, pinnedTrieSpillShadowReference, pinnedTrieSpillBatch.pageAt(i),
+            bufferBytes);
         pinnedTrieSpillBatch.setWriteResult(i, pinnedTrieSpillShadowReference.getKey(),
             pinnedTrieSpillShadowReference.getHashAsLong(), pinnedTrieSpillShadowReference.hasHash());
       }
@@ -1984,8 +2005,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  private void writeUncommittedPage(final ResourceConfiguration resourceConfiguration,
-      final PageReference reference, final Page page, final BytesOut<?> bufferedBytes) {
+  private void writeUncommittedPage(final ResourceConfiguration resourceConfiguration, final PageReference reference,
+      final Page page, final BytesOut<?> bufferedBytes) {
     if (storagePageReaderWriter.supportsReclaimableUncommittedWrites()) {
       hasUncommittedReclaimableWrites = true;
     }
@@ -1999,7 +2020,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  /** Exact allow-list eligibility; capture already guarantees that {@code page} is the modified page. */
+  /**
+   * Exact allow-list eligibility; capture already guarantees that {@code page} is the modified page.
+   */
   static boolean isPinnedTrieSpillPageEligible(final Page page) {
     final Class<?> pageClass = page.getClass();
     if (pageClass == HOTLeafPage.class) {
@@ -2025,9 +2048,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Interrupt-deferred, progress-aware acquire of the flush permit. A large but healthy epoch can
-   * run longer than the stall window as long as its coordinator advances; a lost/dead worker cannot
-   * turn the next epoch, rollback, and close into three repeated multi-minute parks.
+   * Interrupt-deferred, progress-aware acquire of the flush permit. A large but healthy epoch can run
+   * longer than the stall window as long as its coordinator advances; a lost/dead worker cannot turn
+   * the next epoch, rollback, and close into three repeated multi-minute parks.
    *
    * @param rotationAcquire {@code true} while starting the next epoch (ingestion backpressure),
    *        {@code false} while explicitly draining an in-flight worker
@@ -2164,8 +2187,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * The exception reporting an async-flush failure, carrying the captured background throwable as
-   * its cause so the caller sees the real fault rather than the latch.
+   * The exception reporting an async-flush failure, carrying the captured background throwable as its
+   * cause so the caller sees the real fault rather than the latch.
    */
   private SirixIOException asyncFlushFailure(final String message) {
     final Throwable cause = asyncFlushError;
@@ -2180,9 +2203,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * are in flight at once (double buffering), so the transient draw on the shared segment-allocator
    * budget is bounded by {@code 2 × WINDOW} copies, each holding a pooled slotted segment
    * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. At the current 16-page
-   * window this permits at most 32 pooled copies plus their encodings. The double buffering keeps
-   * the flush pool's workers serializing while this thread appends; widening the window past the
-   * pool's appetite only inflates the footprint.
+   * window this permits at most 32 pooled copies plus their encodings. The double buffering keeps the
+   * flush pool's workers serializing while this thread appends; widening the window past the pool's
+   * appetite only inflates the footprint.
    */
   private static final int SNAPSHOT_FLUSH_WINDOW = MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
 
@@ -2218,8 +2241,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     @Override
     void cancelledByShutdown() {
-      if (ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(NodeStorageEngineWriter.this,
-          ASYNC_TASK_ENQUEUED, ASYNC_TASK_CANCELLED)) {
+      if (ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(NodeStorageEngineWriter.this, ASYNC_TASK_ENQUEUED,
+          ASYNC_TASK_CANCELLED)) {
         final RejectedExecutionException shutdown =
             new RejectedExecutionException("Snapshot append executor shut down before the task ran");
         recordAsyncFlushFailure(shutdown);
@@ -2280,8 +2303,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final long queueWaitNanos = HFT_TELEMETRY_ENABLED && hftActiveEpochSubmittedNanos != 0L
         ? Math.max(0L, workerStart - hftActiveEpochSubmittedNanos)
         : 0L;
-    final FileChannelWriter telemetryFileWriter = HFT_TELEMETRY_ENABLED
-        && storagePageReaderWriter instanceof FileChannelWriter fileChannelWriter
+    final FileChannelWriter telemetryFileWriter =
+        HFT_TELEMETRY_ENABLED && storagePageReaderWriter instanceof FileChannelWriter fileChannelWriter
             ? fileChannelWriter
             : null;
     final long dataGrowCountAtStart = telemetryFileWriter == null
@@ -2517,8 +2540,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
         hftWorkerRuns++;
         hftWorkerNanos += workerNanos;
-        hftMaxSnapshotKvlAttemptedPages = Math.max(
-            hftMaxSnapshotKvlAttemptedPages, attemptedKvlPagesInEpoch);
+        hftMaxSnapshotKvlAttemptedPages = Math.max(hftMaxSnapshotKvlAttemptedPages, attemptedKvlPagesInEpoch);
         if (workerNanos > hftMaxWorkerNanos) {
           hftMaxWorkerNanos = workerNanos;
           hftMaxWorkerEpochId = epochId;
@@ -2584,7 +2606,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     SNAPSHOT_APPEND_EXECUTOR.signalProgress();
   }
 
-  /** Append every frozen immutable side page and store only its offset in the foreground side-channel. */
+  /**
+   * Append every frozen immutable side page and store only its offset in the foreground side-channel.
+   */
   private void writeSnapshotSidePages(final ResourceConfiguration config, final PageReference shadowRef,
       final BytesOut<?> bgBuffer) {
     final SidePageBatch sidePages = snapshotSidePages;
@@ -2595,8 +2619,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final PageReference liveReference = sidePages.references[i];
       if (liveReference == null || !liveReference.hasPendingPageWrite()
           || !(liveReference.getPage() instanceof OverflowPage overflowPage)) {
-        throw new SirixIOException("Immutable side-page batch entry " + i
-            + " lost its resident OverflowPage before background serialization");
+        throw new SirixIOException(
+            "Immutable side-page batch entry " + i + " lost its resident OverflowPage before background serialization");
       }
       shadowRef.setKey(Constants.NULL_ID_LONG);
       shadowRef.clearHash();
@@ -2622,8 +2646,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private static final SnapshotAppendExecutor SNAPSHOT_APPEND_EXECUTOR = createSnapshotAppendExecutor();
 
-  private static final ThreadLocal<Boolean> SNAPSHOT_APPEND_WORKER =
-      ThreadLocal.withInitial(() -> Boolean.FALSE);
+  private static final ThreadLocal<Boolean> SNAPSHOT_APPEND_WORKER = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
   abstract static class AdmittedSnapshotAppendTask implements Runnable {
     private final AtomicInteger admissionOwned = new AtomicInteger();
@@ -2644,16 +2667,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     /**
      * Whether {@link SnapshotAppendExecutor#afterExecute(Runnable, Throwable)} owns the normal
-     * completion release. A persistent task that releases before publishing another reuse signal
-     * must override this: a stale {@code afterExecute} callback from epoch N could otherwise
-     * release the same task identity's newly armed admission for epoch N + 1.
+     * completion release. A persistent task that releases before publishing another reuse signal must
+     * override this: a stale {@code afterExecute} callback from epoch N could otherwise release the
+     * same task identity's newly armed admission for epoch N + 1.
      */
     boolean executorReleasesAdmission() {
       return true;
     }
 
-    void cancelledByShutdown() {
-    }
+    void cancelledByShutdown() {}
   }
 
   static final class SnapshotAppendExecutor extends ThreadPoolExecutor {
@@ -2663,17 +2685,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     private SnapshotAppendExecutor(final int parallelism, final int queueCapacity) {
       super(parallelism, parallelism, 0L, TimeUnit.MILLISECONDS,
           new ArrayBlockingQueue<>(Math.addExact(parallelism, queueCapacity)), runnable -> {
-        final Thread thread = new Thread(() -> {
-          SNAPSHOT_APPEND_WORKER.set(Boolean.TRUE);
-          try {
-            runnable.run();
-          } finally {
-            SNAPSHOT_APPEND_WORKER.remove();
-          }
-        }, "sirix-snapshot-append-" + SNAPSHOT_APPEND_THREAD_ID.incrementAndGet());
-        thread.setDaemon(true);
-        return thread;
-      }, new AbortPolicy());
+            final Thread thread = new Thread(() -> {
+              SNAPSHOT_APPEND_WORKER.set(Boolean.TRUE);
+              try {
+                runnable.run();
+              } finally {
+                SNAPSHOT_APPEND_WORKER.remove();
+              }
+            }, "sirix-snapshot-append-" + SNAPSHOT_APPEND_THREAD_ID.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+          }, new AbortPolicy());
       admissions = new Semaphore(parallelism + queueCapacity, true);
     }
 
@@ -2788,8 +2810,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private static SnapshotAppendExecutor createSnapshotAppendExecutor() {
     final int processors = Runtime.getRuntime().availableProcessors();
-    final int parallelism = positiveIntProperty("sirix.asyncFlush.appendParallelism",
-        Math.min(2, Math.max(1, processors / 4)));
+    final int parallelism =
+        positiveIntProperty("sirix.asyncFlush.appendParallelism", Math.min(2, Math.max(1, processors / 4)));
     // One queued epoch is enough burst absorption for the default two append lanes. Every extra
     // slot can retain a writer's frozen TIL plus up to 64 MiB of side payload while a slow device
     // occupies the workers, so a deep task-count queue is not an acceptable memory bound here.
@@ -2830,11 +2852,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Move an async snapshot copy's encoded cache into the native frame the copy already owns.
    *
-   * <p>This helper is package-private only for a wire-equivalence regression test. Its caller must
-   * own a disposable deep copy after serialization and after ruling out unresolved overflow
-   * references: the copy's logical slotted bytes are overwritten, so applying it to a transaction
-   * page would destroy rollback state. The append path uses only the exact encoded cache from this
-   * point onward and closes the copy immediately after the synchronous write consumes it.
+   * <p>
+   * This helper is package-private only for a wire-equivalence regression test. Its caller must own a
+   * disposable deep copy after serialization and after ruling out unresolved overflow references: the
+   * copy's logical slotted bytes are overwritten, so applying it to a transaction page would destroy
+   * rollback state. The append path uses only the exact encoded cache from this point onward and
+   * closes the copy immediately after the synchronous write consumes it.
    */
   static boolean relocateSnapshotCacheToDisposableFrame(final KeyValueLeafPage page) {
     requireNonNull(page);
@@ -2866,15 +2889,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Serialize one disposable snapshot copy and retain its identity bytes in the native frame it
    * already owns.
    *
-   * <p>The empty pipeline is the canonical ingestion path. Its pooled sink is borrowed, so the copy
-   * into the page frame must complete before {@link SerializationBufferPool#release} resets or closes
-   * that sink. {@link PageKind} deliberately leaves the cache unpublished for this policy and first
+   * <p>
+   * The empty pipeline is the canonical ingestion path. Its pooled sink is borrowed, so the copy into
+   * the page frame must complete before {@link SerializationBufferPool#release} resets or closes that
+   * sink. {@link PageKind} deliberately leaves the cache unpublished for this policy and first
    * finishes {@link KeyValueLeafPage#clearRecordsForGC()}, whose flyweight unbinds still read the
-   * logical frame. Only then is it safe to overwrite the disposable copy's frame.</p>
+   * logical frame. Only then is it safe to overwrite the disposable copy's frame.
+   * </p>
    *
-   * <p>Non-empty pipelines keep their existing owned-cache behavior. A cache that fits is relocated
+   * <p>
+   * Non-empty pipelines keep their existing owned-cache behavior. A cache that fits is relocated
    * while the pooled serializer is still scoped here; a non-fitting owned cache remains valid exactly
-   * as before.</p>
+   * as before.
+   * </p>
    *
    * @param resourceConfig resource serialization configuration
    * @param page caller-owned disposable deep copy
@@ -3744,20 +3771,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Prepare one live KVL page for final recursive commit.
    *
-   * <p>Configured handlers retain the parallel pre-serialization path: their encoded cache avoids
+   * <p>
+   * Configured handlers retain the parallel pre-serialization path: their encoded cache avoids
    * running the handler again during the sequential append. An empty pipeline has no transform to
-   * amortize and retaining its identity result creates one page-sized heap object per live tail
-   * page. For that case, this pass performs only the page preparation which benefits from parallel
-   * execution: materialize the frame, compress strings, discover/materialize overflow references,
-   * and release record objects. String compression must precede
+   * amortize and retaining its identity result creates one page-sized heap object per live tail page.
+   * For that case, this pass performs only the page preparation which benefits from parallel
+   * execution: materialize the frame, compress strings, discover/materialize overflow references, and
+   * release record objects. String compression must precede
    * {@link KeyValueLeafPage#addReferences(ResourceConfiguration)} so records which FSST can shrink
-   * are not prematurely diverted to overflow storage.</p>
+   * are not prematurely diverted to overflow storage.
+   * </p>
    *
-   * <p>Recursive commit subsequently calls {@code addReferences} idempotently, recursively appends
-   * every overflow page discovered here, and only then does the writer encode the owning leaf once
-   * into its reusable synchronous scratch. This avoids both a second wire/PAX/body encode and an
-   * owned identity copy. The logical frame is never repurposed, so an I/O failure still leaves
-   * rollback/retry state available.</p>
+   * <p>
+   * Recursive commit subsequently calls {@code addReferences} idempotently, recursively appends every
+   * overflow page discovered here, and only then does the writer encode the owning leaf once into its
+   * reusable synchronous scratch. This avoids both a second wire/PAX/body encode and an owned
+   * identity copy. The logical frame is never repurposed, so an I/O failure still leaves
+   * rollback/retry state available.
+   * </p>
    *
    * @return {@code true} when the page holds an encoded cache after preparation; {@code false}
    *         otherwise (including a configured handler that declined an unresolved-overflow page)
@@ -3827,7 +3858,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     optionalUser.ifPresent(newRevisionRootPage::setUser);
   }
 
-  /** Retain the first teardown failure and attach later failures without letting diagnostics replace it. */
+  /**
+   * Retain the first teardown failure and attach later failures without letting diagnostics replace
+   * it.
+   */
   private static Throwable retainFirstFailure(final @Nullable Throwable first, final Throwable next) {
     if (first == null) {
       return next;
@@ -3853,7 +3887,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return new SirixIOException(failure);
   }
 
-  /** Failure logging is best-effort and must never interrupt rollback cleanup under memory pressure. */
+  /**
+   * Failure logging is best-effort and must never interrupt rollback cleanup under memory pressure.
+   */
   private static void logRollbackFailure(final Throwable failure) {
     try {
       LOGGER.error("Rollback cleanup completed with failure", failure);
@@ -3862,7 +3898,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  /** Close diagnostics are best-effort; resource release and terminal flags always take precedence. */
+  /**
+   * Close diagnostics are best-effort; resource release and terminal flags always take precedence.
+   */
   private static void logCloseFailure(final String message, final Throwable failure) {
     try {
       LOGGER.error(message, failure);
@@ -3874,9 +3912,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Drop this resource's global page-cache entries before an aborted backend tail can be reused.
    *
-   * <p>A reclaimable backend starts the next writer at the prior durable frontier, so an abort
+   * <p>
+   * A reclaimable backend starts the next writer at the prior durable frontier, so an abort
    * intentionally overwrites every page appended ahead of the commit beacon. Any cache entry
-   * populated from those bytes must be gone before that reuse.</p>
+   * populated from those bytes must be gone before that reuse.
+   * </p>
    */
   private void invalidateCachesForAbortedUncommittedWrites() {
     if (!hasUncommittedReclaimableWrites) {
@@ -3907,8 +3947,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       asyncFailure = t;
     }
     if (asyncFlushWorkerRunning) {
-      final Throwable unfencedFailure = asyncFlushFailure(
-          "Rollback cannot tear down pages while the async flush worker is still running");
+      final Throwable unfencedFailure =
+          asyncFlushFailure("Rollback cannot tear down pages while the async flush worker is still running");
       if (asyncFailure != null && asyncFailure != unfencedFailure.getCause()) {
         retainFirstFailure(unfencedFailure, asyncFailure);
       }
@@ -3996,8 +4036,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       asyncFailure = t;
     }
     if (asyncFlushWorkerRunning) {
-      final Throwable unfencedFailure = asyncFlushFailure(
-          "Close cannot release pages or channels while the async flush worker is still running");
+      final Throwable unfencedFailure =
+          asyncFlushFailure("Close cannot release pages or channels while the async flush worker is still running");
       if (asyncFailure != null && asyncFailure != unfencedFailure.getCause()) {
         retainFirstFailure(unfencedFailure, asyncFailure);
       }
@@ -4119,8 +4159,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // lets a successor derive the last durable frontier and overwrite that tail while stale cache
     // entries are still addressable. If either barrier fails, retain the permit deliberately: a
     // wedged resource is fail-closed, whereas handing it to a successor can return wrong pages.
-    if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT
-        && !hasUncommittedReclaimableWrites && storageWriterClosed) {
+    if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT && !hasUncommittedReclaimableWrites
+        && storageWriterClosed) {
       try {
         storageEngineReader.resourceSession.closePageWriteTransaction(unboundTrxId, this);
       } catch (final Throwable t) {
@@ -4210,8 +4250,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /**
    * Cache/trie resolution after the tiny most-recent-page fast path misses. Kept out of
-   * {@link #getModifiedPageForRead} so C2 can inline its overwhelmingly common cache hit without
-   * also inlining this cold resolver's mutable-key lookup and keyed-trie traversal.
+   * {@link #getModifiedPageForRead} so C2 can inline its overwhelmingly common cache hit without also
+   * inlining this cold resolver's mutable-key lookup and keyed-trie traversal.
    */
   private ReadPageResolution resolvePageForRead(final long recordPageKey, final int indexNumber,
       final IndexType indexType, final int revision) {
@@ -4228,9 +4268,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final PageReference pageReference =
         storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
-    final PageReference reference =
-        storageEngineReader.getReferenceToLeafOfSubtree(pageReference, recordPageKey, indexNumber, indexType,
-            newRevisionRootPage);
+    final PageReference reference = storageEngineReader.getReferenceToLeafOfSubtree(pageReference, recordPageKey,
+        indexNumber, indexType, newRevisionRootPage);
     if (reference == null) {
       return readPageResolution;
     }
@@ -4247,8 +4286,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     if (resolved != null) {
       readPageResolution.setPageContainer(resolved);
-    } else if (firstUncommittedPageOffset != Long.MAX_VALUE
-        && reference.getKey() >= firstUncommittedPageOffset) {
+    } else if (firstUncommittedPageOffset != Long.MAX_VALUE && reference.getKey() >= firstUncommittedPageOffset) {
       readPageResolution.setDurableReference(reference);
     }
     return readPageResolution;
@@ -4347,8 +4385,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        pageContainer = createFreshRecordPage(recordPageKey, indexType,
-            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber());
+        pageContainer = createFreshRecordPage(recordPageKey, indexType, getResourceSession().getResourceConfig(),
+            storageEngineReader.getRevisionNumber());
         appendLogRecord(reference, pageContainer);
         return pageContainer;
       } else {
@@ -4394,15 +4432,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Create both writer-owned halves of a record page that has no persisted predecessor.
    *
-   * <p>{@link KeyValueLeafPage} owns and eagerly allocates its slotted frame. Its two memory
-   * parameters are compatibility inputs which the writer-owned constructor immediately releases
-   * before allocating that frame; supplying legacy 64 KiB buffers here therefore performed an
-   * allocate/release round trip per input without contributing any page storage. Dewey IDs are
-   * inline in the slotted frame, so the resource flag is preserved by the configuration rather than
-   * by a separate buffer.</p>
+   * <p>
+   * {@link KeyValueLeafPage} owns and eagerly allocates its slotted frame. Its two memory parameters
+   * are compatibility inputs which the writer-owned constructor immediately releases before
+   * allocating that frame; supplying legacy 64 KiB buffers here therefore performed an
+   * allocate/release round trip per input without contributing any page storage. Dewey IDs are inline
+   * in the slotted frame, so the resource flag is preserved by the configuration rather than by a
+   * separate buffer.
+   * </p>
    *
-   * <p>Construction is all-or-nothing: should the second page (or container publication) fail, every
-   * page whose frame was acquired here is closed before the failure escapes.</p>
+   * <p>
+   * Construction is all-or-nothing: should the second page (or container publication) fail, every
+   * page whose frame was acquired here is closed before the failure escapes.
+   * </p>
    */
   static PageContainer createFreshRecordPage(final long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber) {
@@ -4412,10 +4454,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     KeyValueLeafPage completePage = null;
     KeyValueLeafPage modifyPage = null;
     try {
-      completePage = new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber, null, null,
-          false);
-      modifyPage = new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber, null, null,
-          false);
+      completePage = new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber, null, null, false);
+      modifyPage = new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber, null, null, false);
       return PageContainer.getInstance(completePage, modifyPage);
     } catch (final RuntimeException | Error failure) {
       closeFreshPageAfterFailure(modifyPage, failure);
@@ -4427,9 +4467,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Best-effort cleanup which cannot replace a fresh-page construction failure.
    *
-   * <p>Kept package-private for a focused failure-path regression. Production calls it only after
+   * <p>
+   * Kept package-private for a focused failure-path regression. Production calls it only after
    * construction has already failed, so the successful fresh-page path carries no extra dispatch or
-   * allocation.</p>
+   * allocation.
+   * </p>
    */
   static void closeFreshPageAfterFailure(final @Nullable AutoCloseable page, final Throwable primaryFailure) {
     requireNonNull(primaryFailure);
@@ -4467,8 +4509,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.closeCurrentPageGuard();
     }
 
-    final boolean ownedFragments = firstUncommittedPageOffset != Long.MAX_VALUE
-        && reference.getKey() >= firstUncommittedPageOffset;
+    final boolean ownedFragments =
+        firstUncommittedPageOffset != Long.MAX_VALUE && reference.getKey() >= firstUncommittedPageOffset;
     final var result = ownedFragments
         ? storageEngineReader.getOwnedPageFragments(reference)
         : storageEngineReader.getPageFragments(reference);

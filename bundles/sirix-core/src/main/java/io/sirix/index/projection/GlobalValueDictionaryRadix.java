@@ -43,16 +43,17 @@ final class GlobalValueDictionaryRadix {
   /**
    * Allocation-free upper bound for the transient workspace retained while appending values.
    *
-   * <p>The exact persistent key count is computed by {@link #append} after it has inspected the
-   * immutable radix paths and is what gets reserved from {@link NamePage}.  This method runs before
-   * that inspection so a bounded writer can refuse before it allocates the planning maps.  It must
-   * therefore cover the worst legal shape for the supplied cardinalities: every addition may touch
-   * a different radix path, every old direct bucket that overflows can contribute its 128 existing
-   * candidates, and every collision insertion may copy a full balanced-tree path.  Arithmetic
+   * <p>
+   * The exact persistent key count is computed by {@link #append} after it has inspected the
+   * immutable radix paths and is what gets reserved from {@link NamePage}. This method runs before
+   * that inspection so a bounded writer can refuse before it allocates the planning maps. It must
+   * therefore cover the worst legal shape for the supplied cardinalities: every addition may touch a
+   * different radix path, every old direct bucket that overflows can contribute its 128 existing
+   * candidates, and every collision insertion may copy a full balanced-tree path. Arithmetic
    * saturates rather than wrapping a large dictionary into an artificially small reservation.
    */
-  static long reservationBytesForAppend(final int oldEntryCount, final int additionCount,
-      final long valueBytes, final int largestValueBytes) {
+  static long reservationBytesForAppend(final int oldEntryCount, final int additionCount, final long valueBytes,
+      final int largestValueBytes) {
     if (oldEntryCount < 0 || additionCount < 0 || valueBytes < 0 || largestValueBytes < 0
         || largestValueBytes > valueBytes || (additionCount == 0 && valueBytes != 0)) {
       throw new IllegalArgumentException("invalid value dictionary append cardinalities");
@@ -61,16 +62,15 @@ final class GlobalValueDictionaryRadix {
       return 0L;
     }
     final long additions = additionCount;
-    final long oldCandidates = Math.min((long) oldEntryCount,
-        saturatedMultiply(additions, MAX_BUCKET_ENTRIES));
+    final long oldCandidates = Math.min((long) oldEntryCount, saturatedMultiply(additions, MAX_BUCKET_ENTRIES));
     final long collisionCandidates = saturatedAdd(additions, oldCandidates);
     final long finalEntries = saturatedAdd(oldEntryCount, additions);
     final int balancedHeightBound = finalEntries <= 1L
         ? 1
         : Math.multiplyExact(2, Long.SIZE - Long.numberOfLeadingZeros(finalEntries));
     final int insertionHeightGrowth = Integer.SIZE - Integer.numberOfLeadingZeros(additionCount);
-    final long recordsPerCollisionInsert = saturatedAdd(
-        saturatedMultiply(2L, saturatedAdd(balancedHeightBound, insertionHeightGrowth + 1L)), 1L);
+    final long recordsPerCollisionInsert =
+        saturatedAdd(saturatedMultiply(2L, saturatedAdd(balancedHeightBound, insertionHeightGrowth + 1L)), 1L);
     final long collisionRecords = saturatedMultiply(collisionCandidates, recordsPerCollisionInsert);
 
     final long reverseBuckets = saturatedAdd((additions + 255L) >>> 8, 1L);
@@ -80,32 +80,28 @@ final class GlobalValueDictionaryRadix {
     recordCount = saturatedAdd(recordCount, saturatedMultiply(reverseBuckets, REVERSE_PATH_BYTES + 1L));
     recordCount = saturatedAdd(recordCount, collisionRecords);
 
-    final long radixNodes = saturatedAdd(
-        saturatedMultiply(additions, PRIMARY_PATH_BYTES + SECONDARY_PATH_BYTES),
+    final long radixNodes = saturatedAdd(saturatedMultiply(additions, PRIMARY_PATH_BYTES + SECONDARY_PATH_BYTES),
         saturatedMultiply(reverseBuckets, REVERSE_PATH_BYTES));
-    final long radixBytes = saturatedMultiply(radixNodes,
-        2L + Short.BYTES + 16L * (Byte.BYTES + Long.BYTES));
-    final long hashAndCollisionBytes = saturatedAdd(
-        saturatedMultiply(collisionCandidates, 3L * (2L * Integer.BYTES + 2L * Long.BYTES)),
-        saturatedMultiply(additions, 25L));
-    final long reverseBytes = saturatedAdd(saturatedMultiply(additions, Long.BYTES),
-        saturatedMultiply(reverseBuckets, 2L * Integer.BYTES));
+    final long radixBytes = saturatedMultiply(radixNodes, 2L + Short.BYTES + 16L * (Byte.BYTES + Long.BYTES));
+    final long hashAndCollisionBytes =
+        saturatedAdd(saturatedMultiply(collisionCandidates, 3L * (2L * Integer.BYTES + 2L * Long.BYTES)),
+            saturatedMultiply(additions, 25L));
+    final long reverseBytes =
+        saturatedAdd(saturatedMultiply(additions, Long.BYTES), saturatedMultiply(reverseBuckets, 2L * Integer.BYTES));
     final long entryBytes = saturatedAdd(valueBytes, saturatedMultiply(additions, Integer.BYTES));
-    final long encodedBytes = saturatedAdd(entryBytes,
-        saturatedAdd(radixBytes, saturatedAdd(hashAndCollisionBytes, reverseBytes)));
-    final long pageAndIntentLogBytes = saturatedMultiply(2L,
-        saturatedAdd(encodedBytes, saturatedMultiply(recordCount, RECORD_STRIDE)));
-    return saturatedAdd(pageAndIntentLogBytes,
-        saturatedAdd(saturatedMultiply(additions, 64L), largestValueBytes));
+    final long encodedBytes =
+        saturatedAdd(entryBytes, saturatedAdd(radixBytes, saturatedAdd(hashAndCollisionBytes, reverseBytes)));
+    final long pageAndIntentLogBytes =
+        saturatedMultiply(2L, saturatedAdd(encodedBytes, saturatedMultiply(recordCount, RECORD_STRIDE)));
+    return saturatedAdd(pageAndIntentLogBytes, saturatedAdd(saturatedMultiply(additions, 64L), largestValueBytes));
   }
 
   /**
-   * Test seam for the reverse plan's maximum-cardinality arithmetic.  Keeping this method purely
-   * arithmetic is intentional: a reverse append covers one dense id interval and therefore must
-   * not materialise an array or boxed set with one element per entry or bucket.
+   * Test seam for the reverse plan's maximum-cardinality arithmetic. Keeping this method purely
+   * arithmetic is intentional: a reverse append covers one dense id interval and therefore must not
+   * materialise an array or boxed set with one element per entry or bucket.
    */
-  static long denseReverseRecordCountForTest(final int oldEntryCount,
-      final int additionCount) {
+  static long denseReverseRecordCountForTest(final int oldEntryCount, final int additionCount) {
     if (oldEntryCount < 0 || additionCount < 0) {
       throw new IllegalArgumentException("dictionary entry counts must not be negative");
     }
@@ -113,8 +109,7 @@ final class GlobalValueDictionaryRadix {
       return 0L;
     }
     final int finalEntryCount = Math.addExact(oldEntryCount, additionCount);
-    final DenseRadixPlan plan = new DenseRadixPlan(oldEntryCount >>> 8,
-        (finalEntryCount - 1) >>> 8);
+    final DenseRadixPlan plan = new DenseRadixPlan(oldEntryCount >>> 8, (finalEntryCount - 1) >>> 8);
     return Math.addExact(plan.leafCount(), plan.nodeCount());
   }
 
@@ -150,9 +145,8 @@ final class GlobalValueDictionaryRadix {
     return Math.addExact(runStart, Math.multiplyExact(recordOffset, RECORD_STRIDE));
   }
 
-  static Roots append(final long oldForwardRoot, final long oldReverseRoot,
-      final int oldEntryCount, final GlobalValueDictionaryWriter additions,
-      final NamePage namePage, final DatabaseType databaseType,
+  static Roots append(final long oldForwardRoot, final long oldReverseRoot, final int oldEntryCount,
+      final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter writer, final TransactionIntentLog log) {
     if (additions.entryCount() == 0) {
       return new Roots(oldForwardRoot, oldReverseRoot);
@@ -161,32 +155,27 @@ final class GlobalValueDictionaryRadix {
 
     final TreeMap<Integer, IntList> additionsByPrimary = new TreeMap<>();
     for (int localId = 1; localId <= additions.entryCount(); localId++) {
-      additionsByPrimary.computeIfAbsent(hashBucket(additions.hashAt(localId)),
-          ignored -> new IntList()).add(localId);
+      additionsByPrimary.computeIfAbsent(hashBucket(additions.hashAt(localId)), ignored -> new IntList()).add(localId);
     }
     final int firstReverseBucket = oldEntryCount >>> 8;
     final int lastReverseBucket = (finalEntryCount - 1) >>> 8;
 
     long recordCount = additions.entryCount();
     for (final Map.Entry<Integer, IntList> entry : additionsByPrimary.entrySet()) {
-      final ForwardPlan plan = planForwardUpdate(oldForwardRoot, oldReverseRoot,
-          oldEntryCount, entry.getKey(), entry.getValue(), additions, namePage,
-          databaseType, writer);
-      prepareCollisionPlans(plan, oldReverseRoot, oldEntryCount, additions, namePage,
-          databaseType, writer);
+      final ForwardPlan plan = planForwardUpdate(oldForwardRoot, oldReverseRoot, oldEntryCount, entry.getKey(),
+          entry.getValue(), additions, namePage, databaseType, writer);
+      prepareCollisionPlans(plan, oldReverseRoot, oldEntryCount, additions, namePage, databaseType, writer);
       entry.getValue().forwardPlan = plan;
       recordCount = Math.addExact(recordCount, plan.newRecordCount());
       recordCount = Math.addExact(recordCount, plan.collisionRecordCount);
     }
     final RadixPlan forwardRadixPlan = RadixPlan.forBuckets(additionsByPrimary.keySet());
-    final DenseRadixPlan reverseRadixPlan = new DenseRadixPlan(firstReverseBucket,
-        lastReverseBucket);
+    final DenseRadixPlan reverseRadixPlan = new DenseRadixPlan(firstReverseBucket, lastReverseBucket);
     recordCount = Math.addExact(recordCount, forwardRadixPlan.nodeCount());
-    recordCount = Math.addExact(recordCount,
-        Math.addExact(reverseRadixPlan.leafCount(), reverseRadixPlan.nodeCount()));
+    recordCount = Math.addExact(recordCount, Math.addExact(reverseRadixPlan.leafCount(), reverseRadixPlan.nodeCount()));
 
-    additions.ensureAppendWorkspaceFitsBudget(estimateWorkspaceBytes(recordCount,
-        additionsByPrimary, forwardRadixPlan, reverseRadixPlan, additions));
+    additions.ensureAppendWorkspaceFitsBudget(
+        estimateWorkspaceBytes(recordCount, additionsByPrimary, forwardRadixPlan, reverseRadixPlan, additions));
     final long reserved = Math.multiplyExact(recordCount, RECORD_STRIDE);
     final long runStart = namePage.reserveProjectionValueDictionaryKeys(databaseType, reserved);
     final KeyCursor cursor = new KeyCursor(runStart, recordCount);
@@ -196,8 +185,8 @@ final class GlobalValueDictionaryRadix {
       if (entryKey != entryKeyForLocalId(runStart, localId)) {
         throw new IllegalStateException("value dictionary entry run is not dense");
       }
-      put(ValueDictionaryEntryNode.takeOwnership(entryKey, additions.valueBytes(localId)), namePage,
-          databaseType, writer, log);
+      put(ValueDictionaryEntryNode.takeOwnership(entryKey, additions.valueBytes(localId)), namePage, databaseType,
+          writer, log);
     }
 
     for (final IntList primaryGroup : additionsByPrimary.values()) {
@@ -208,8 +197,8 @@ final class GlobalValueDictionaryRadix {
         final long[] hashes = plan.direct.hashes();
         final int[] ids = plan.direct.ids();
         sortPairs(hashes, ids, 0, hashes.length - 1);
-        put(new ValueDictionaryHashBucketNode(bucketKey, plan.primaryBucket,
-            hashes, ids), namePage, databaseType, writer, log);
+        put(new ValueDictionaryHashBucketNode(bucketKey, plan.primaryBucket, hashes, ids), namePage, databaseType,
+            writer, log);
         newLeaf = bucketKey;
       } else {
         long secondaryRoot = plan.oldSecondaryRoot;
@@ -217,36 +206,32 @@ final class GlobalValueDictionaryRadix {
           final long secondaryHash = secondary.getKey();
           final int[] path = secondaryPath(secondaryHash);
           final CollisionTree collisionPlan = plan.collisionRoots.get(secondaryHash);
-          final long collisionRoot = writeCollisionPlan(collisionPlan, cursor, namePage,
-              databaseType, writer, log, 0);
-          secondaryRoot = replaceLeaf(secondaryRoot, ValueDictionaryRadixNode.FORWARD,
-              path, PRIMARY_PATH_BYTES, collisionRoot, cursor, namePage, databaseType,
-              writer, log);
+          final long collisionRoot = writeCollisionPlan(collisionPlan, cursor, namePage, databaseType, writer, log, 0);
+          secondaryRoot = replaceLeaf(secondaryRoot, ValueDictionaryRadixNode.FORWARD, path, PRIMARY_PATH_BYTES,
+              collisionRoot, cursor, namePage, databaseType, writer, log);
         }
         newLeaf = secondaryRoot;
       }
       primaryGroup.writtenLeafKey = newLeaf;
     }
-    final long forwardRoot = forwardRadixPlan.write(ValueDictionaryRadixNode.FORWARD,
-        oldForwardRoot, additionsByPrimary, cursor, namePage, databaseType, writer, log);
+    final long forwardRoot = forwardRadixPlan.write(ValueDictionaryRadixNode.FORWARD, oldForwardRoot,
+        additionsByPrimary, cursor, namePage, databaseType, writer, log);
 
     final long reverseLeafRunStart = cursor.peek();
     for (int bucket = firstReverseBucket;; bucket++) {
-      final int firstId = Math.toIntExact(Math.addExact(Math.multiplyExact((long) bucket,
-          ValueDictionaryValueBucketNode.VALUES_PER_BUCKET), 1L));
-      final int size = Math.min(ValueDictionaryValueBucketNode.VALUES_PER_BUCKET,
-          finalEntryCount - firstId + 1);
+      final int firstId = Math.toIntExact(
+          Math.addExact(Math.multiplyExact((long) bucket, ValueDictionaryValueBucketNode.VALUES_PER_BUCKET), 1L));
+      final int size = Math.min(ValueDictionaryValueBucketNode.VALUES_PER_BUCKET, finalEntryCount - firstId + 1);
       final long[] entryKeys = new long[size];
       final int[] path = reversePath(bucket);
-      final LeafResult oldLeaf = leafKey(oldReverseRoot, ValueDictionaryRadixNode.REVERSE,
-          path, 0, namePage, databaseType, writer);
+      final LeafResult oldLeaf =
+          leafKey(oldReverseRoot, ValueDictionaryRadixNode.REVERSE, path, 0, namePage, databaseType, writer);
       final int expectedOldSize = oldEntryCount < firstId
           ? 0
-          : Math.min(ValueDictionaryValueBucketNode.VALUES_PER_BUCKET,
-              oldEntryCount - firstId + 1);
+          : Math.min(ValueDictionaryValueBucketNode.VALUES_PER_BUCKET, oldEntryCount - firstId + 1);
       if (oldLeaf.key != 0) {
-        final ValueDictionaryValueBucketNode oldBucket = valueBucket(oldLeaf.key, bucket,
-            namePage, databaseType, writer);
+        final ValueDictionaryValueBucketNode oldBucket =
+            valueBucket(oldLeaf.key, bucket, namePage, databaseType, writer);
         if (oldBucket.size() != expectedOldSize) {
           throw new IllegalStateException("reverse bucket disagrees with dictionary cardinality");
         }
@@ -264,32 +249,28 @@ final class GlobalValueDictionaryRadix {
         id++;
       }
       final long bucketKey = cursor.next();
-      put(new ValueDictionaryValueBucketNode(bucketKey, firstId, entryKeys), namePage,
-          databaseType, writer, log);
+      put(new ValueDictionaryValueBucketNode(bucketKey, firstId, entryKeys), namePage, databaseType, writer, log);
       if (bucket == lastReverseBucket) {
         break;
       }
     }
-    final long reverseRoot = reverseRadixPlan.write(ValueDictionaryRadixNode.REVERSE,
-        oldReverseRoot, reverseLeafRunStart, cursor, namePage, databaseType, writer, log);
+    final long reverseRoot = reverseRadixPlan.write(ValueDictionaryRadixNode.REVERSE, oldReverseRoot,
+        reverseLeafRunStart, cursor, namePage, databaseType, writer, log);
     cursor.assertExhausted();
     return new Roots(forwardRoot, reverseRoot);
   }
 
-  private static ForwardPlan planForwardUpdate(final long oldForwardRoot,
-      final long oldReverseRoot, final int oldEntryCount, final int primaryBucket,
-      final IntList localIds, final GlobalValueDictionaryWriter additions,
-      final NamePage namePage, final DatabaseType databaseType,
+  private static ForwardPlan planForwardUpdate(final long oldForwardRoot, final long oldReverseRoot,
+      final int oldEntryCount, final int primaryBucket, final IntList localIds,
+      final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
-    final LeafResult oldLeaf = leafKey(oldForwardRoot, ValueDictionaryRadixNode.FORWARD,
-        primaryPath(primaryBucket), 0, namePage, databaseType, reader);
+    final LeafResult oldLeaf = leafKey(oldForwardRoot, ValueDictionaryRadixNode.FORWARD, primaryPath(primaryBucket), 0,
+        namePage, databaseType, reader);
     if (oldLeaf.key == 0) {
       if (localIds.size <= MAX_BUCKET_ENTRIES) {
-        return ForwardPlan.direct(primaryBucket,
-            Candidates.fromAdditions(localIds, oldEntryCount, additions));
+        return ForwardPlan.direct(primaryBucket, Candidates.fromAdditions(localIds, oldEntryCount, additions));
       }
-      return ForwardPlan.secondary(primaryBucket, 0L, true,
-          groupBySecondary(localIds, oldEntryCount, additions));
+      return ForwardPlan.secondary(primaryBucket, 0L, true, groupBySecondary(localIds, oldEntryCount, additions));
     }
     final DataRecord record = dictionaryRecord(oldLeaf.key, namePage, databaseType, reader);
     if (record instanceof ValueDictionaryHashBucketNode direct) {
@@ -302,13 +283,12 @@ final class GlobalValueDictionaryRadix {
       if ((long) oldCandidates.size() + added.size() <= MAX_BUCKET_ENTRIES) {
         return ForwardPlan.direct(primaryBucket, Candidates.concat(oldCandidates, added));
       }
-      final TreeMap<Long, Candidates> groups = groupExistingBySecondary(oldCandidates,
-          oldReverseRoot, namePage, databaseType, reader);
+      final TreeMap<Long, Candidates> groups =
+          groupExistingBySecondary(oldCandidates, oldReverseRoot, namePage, databaseType, reader);
       mergeSecondary(groups, groupBySecondary(localIds, oldEntryCount, additions));
       return ForwardPlan.secondary(primaryBucket, 0L, true, groups);
     }
-    if (record instanceof ValueDictionaryRadixNode radix
-        && radix.getIndexKind() == ValueDictionaryRadixNode.FORWARD
+    if (record instanceof ValueDictionaryRadixNode radix && radix.getIndexKind() == ValueDictionaryRadixNode.FORWARD
         && radix.getDepth() == PRIMARY_PATH_BYTES) {
       return ForwardPlan.secondary(primaryBucket, oldLeaf.key, false,
           groupBySecondary(localIds, oldEntryCount, additions));
@@ -316,81 +296,74 @@ final class GlobalValueDictionaryRadix {
     throw new IllegalStateException("invalid value dictionary primary leaf");
   }
 
-  static ProbeResult probe(final long forwardRootKey, final long reverseRootKey,
-      final int entryCount, final long primaryHash, final long secondaryHash, final byte[] utf8,
-      final int offset, final int length, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineReader reader) {
+  static ProbeResult probe(final long forwardRootKey, final long reverseRootKey, final int entryCount,
+      final long primaryHash, final long secondaryHash, final byte[] utf8, final int offset, final int length,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
     if (entryCount < 0) {
       throw new IllegalArgumentException("entryCount must not be negative");
     }
     final int primaryBucket = hashBucket(primaryHash);
-    final LeafResult primary = leafKey(forwardRootKey, ValueDictionaryRadixNode.FORWARD,
-        primaryPath(primaryBucket), 0, namePage, databaseType, reader);
+    final LeafResult primary = leafKey(forwardRootKey, ValueDictionaryRadixNode.FORWARD, primaryPath(primaryBucket), 0,
+        namePage, databaseType, reader);
     int units = primary.units;
     if (primary.key == 0) {
       return new ProbeResult(GlobalValueDictionary.ID_ABSENT, units);
     }
-    final DataRecord primaryRecord = dictionaryRecord(primary.key, namePage,
-        databaseType, reader);
+    final DataRecord primaryRecord = dictionaryRecord(primary.key, namePage, databaseType, reader);
     units++;
     if (primaryRecord instanceof ValueDictionaryHashBucketNode direct) {
       if (direct.getBucket() != primaryBucket || direct.getSecondaryDepth() != 0
           || direct.size() > MAX_BUCKET_ENTRIES) {
         throw new IllegalStateException("invalid direct value dictionary bucket");
       }
-      return probeBuckets(direct, reverseRootKey, primaryHash, utf8, offset, length,
-          units, entryCount, namePage, databaseType, reader);
+      return probeBuckets(direct, reverseRootKey, primaryHash, utf8, offset, length, units, entryCount, namePage,
+          databaseType, reader);
     }
     if (!(primaryRecord instanceof ValueDictionaryRadixNode radix)
-        || radix.getIndexKind() != ValueDictionaryRadixNode.FORWARD
-        || radix.getDepth() != PRIMARY_PATH_BYTES) {
+        || radix.getIndexKind() != ValueDictionaryRadixNode.FORWARD || radix.getDepth() != PRIMARY_PATH_BYTES) {
       throw new IllegalStateException("invalid value dictionary secondary root");
     }
     final int[] secondaryPath = secondaryPath(secondaryHash);
     long bucketKey = radix.childKey(secondaryPath[0]);
     for (int i = 1; i < secondaryPath.length && bucketKey != 0; i++) {
-      final ValueDictionaryRadixNode node = radixNode(bucketKey,
-          ValueDictionaryRadixNode.FORWARD, PRIMARY_PATH_BYTES + i,
-          namePage, databaseType, reader);
+      final ValueDictionaryRadixNode node = radixNode(bucketKey, ValueDictionaryRadixNode.FORWARD,
+          PRIMARY_PATH_BYTES + i, namePage, databaseType, reader);
       units++;
       bucketKey = node.childKey(secondaryPath[i]);
     }
     if (bucketKey != 0) {
       final DataRecord leaf = dictionaryRecord(bucketKey, namePage, databaseType, reader);
       if (leaf instanceof ValueDictionaryCollisionNode) {
-        return probeCollision(bucketKey, reverseRootKey, utf8, offset, length, units,
-            entryCount, namePage, databaseType, reader);
+        return probeCollision(bucketKey, reverseRootKey, utf8, offset, length, units, entryCount, namePage,
+            databaseType, reader);
       }
     }
-    final TraversalGuard bucketChainGuard = new TraversalGuard(bucketKey,
-        MAX_SECONDARY_BUCKET_CHAIN_LENGTH, "secondary bucket chain");
+    final TraversalGuard bucketChainGuard =
+        new TraversalGuard(bucketKey, MAX_SECONDARY_BUCKET_CHAIN_LENGTH, "secondary bucket chain");
     while (bucketKey != 0) {
       bucketChainGuard.visit(bucketKey);
-      final ValueDictionaryHashBucketNode bucket = hashBucket(bucketKey, primaryBucket,
-          SECONDARY_PATH_BYTES, secondaryHash, namePage, databaseType, reader);
+      final ValueDictionaryHashBucketNode bucket =
+          hashBucket(bucketKey, primaryBucket, SECONDARY_PATH_BYTES, secondaryHash, namePage, databaseType, reader);
       units++;
-      final ProbeResult result = probeBucket(bucket, reverseRootKey, primaryHash, utf8,
-          offset, length, units, entryCount, namePage, databaseType, reader);
-      if (result.id != GlobalValueDictionary.ID_ABSENT) return result;
+      final ProbeResult result = probeBucket(bucket, reverseRootKey, primaryHash, utf8, offset, length, units,
+          entryCount, namePage, databaseType, reader);
+      if (result.id != GlobalValueDictionary.ID_ABSENT)
+        return result;
       units = result.units;
       bucketKey = bucket.getNextBucketKey();
     }
     return new ProbeResult(GlobalValueDictionary.ID_ABSENT, units);
   }
 
-  private static ProbeResult probeCollision(long key, final long reverseRootKey,
-      final byte[] utf8, final int offset, final int length, int units,
-      final int entryCount, final NamePage namePage, final DatabaseType databaseType,
+  private static ProbeResult probeCollision(long key, final long reverseRootKey, final byte[] utf8, final int offset,
+      final int length, int units, final int entryCount, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
-    final TraversalGuard guard = new TraversalGuard(key, MAX_COLLISION_TREE_DEPTH,
-        "collision tree");
+    final TraversalGuard guard = new TraversalGuard(key, MAX_COLLISION_TREE_DEPTH, "collision tree");
     while (key != 0L) {
       guard.visit(key);
-      final ValueDictionaryCollisionNode node = collisionNode(key, entryCount, namePage,
-          databaseType, reader);
+      final ValueDictionaryCollisionNode node = collisionNode(key, entryCount, namePage, databaseType, reader);
       units++;
-      final EntryResult stored = entryResult(reverseRootKey, node.getId(), entryCount, namePage,
-          databaseType, reader);
+      final EntryResult stored = entryResult(reverseRootKey, node.getId(), entryCount, namePage, databaseType, reader);
       units = Math.addExact(units, stored.units());
       if (stored.entry() == null) {
         return new ProbeResult(GlobalValueDictionary.ID_UNKNOWN, units);
@@ -399,34 +372,36 @@ final class GlobalValueDictionaryRadix {
       if (comparison == 0) {
         return new ProbeResult(node.getId(), units);
       }
-      key = comparison < 0 ? node.getLeftKey() : node.getRightKey();
+      key = comparison < 0
+          ? node.getLeftKey()
+          : node.getRightKey();
     }
     return new ProbeResult(GlobalValueDictionary.ID_ABSENT, units);
   }
 
-  private static void prepareCollisionPlans(final ForwardPlan plan, final long oldReverseRoot,
-      final int oldEntryCount, final GlobalValueDictionaryWriter additions,
-      final NamePage namePage, final DatabaseType databaseType,
+  private static void prepareCollisionPlans(final ForwardPlan plan, final long oldReverseRoot, final int oldEntryCount,
+      final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
     if (plan.direct != null) {
       return;
     }
-    final CollisionPlanningContext context = new CollisionPlanningContext(oldReverseRoot,
-        oldEntryCount, additions, namePage, databaseType, reader);
+    final CollisionPlanningContext context =
+        new CollisionPlanningContext(oldReverseRoot, oldEntryCount, additions, namePage, databaseType, reader);
     long records = 0L;
     for (final Map.Entry<Long, Candidates> secondary : plan.secondary.entrySet()) {
       final long oldRoot = plan.rebuildSecondary
           ? 0L
-          : leafKey(plan.oldSecondaryRoot, ValueDictionaryRadixNode.FORWARD,
-              secondaryPath(secondary.getKey()), PRIMARY_PATH_BYTES, namePage,
-              databaseType, reader).key();
-      CollisionTree root = oldRoot == 0L ? null : new ExistingCollisionTree(oldRoot);
+          : leafKey(plan.oldSecondaryRoot, ValueDictionaryRadixNode.FORWARD, secondaryPath(secondary.getKey()),
+              PRIMARY_PATH_BYTES, namePage, databaseType, reader).key();
+      CollisionTree root = oldRoot == 0L
+          ? null
+          : new ExistingCollisionTree(oldRoot);
       final Candidates candidates = secondary.getValue();
       final long[] existingPath = new long[MAX_COLLISION_TREE_DEPTH];
       for (int index = 0; index < candidates.size(); index++) {
         final int id = candidates.idAt(index);
-        final byte[] exactValue = dictionaryValue(id, oldEntryCount, additions,
-            oldReverseRoot, namePage, databaseType, reader);
+        final byte[] exactValue =
+            dictionaryValue(id, oldEntryCount, additions, oldReverseRoot, namePage, databaseType, reader);
         root = insertCollisionPlan(root, id, exactValue, context, existingPath, 0);
       }
       records = Math.addExact(records, countPlannedCollisionRecords(root, 0));
@@ -436,9 +411,8 @@ final class GlobalValueDictionaryRadix {
   }
 
   private static byte[] dictionaryValue(final int id, final int oldEntryCount,
-      final GlobalValueDictionaryWriter additions, final long oldReverseRoot,
-      final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
+      final GlobalValueDictionaryWriter additions, final long oldReverseRoot, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
     if (id <= 0) {
       throw new IllegalArgumentException("dictionary id must be positive");
     }
@@ -452,9 +426,8 @@ final class GlobalValueDictionaryRadix {
     return additions.valueBytes(Math.subtractExact(id, oldEntryCount));
   }
 
-  private static CollisionTree insertCollisionPlan(final CollisionTree root, final int id,
-      final byte[] value, final CollisionPlanningContext context, final long[] existingPath,
-      final int depth) {
+  private static CollisionTree insertCollisionPlan(final CollisionTree root, final int id, final byte[] value,
+      final CollisionPlanningContext context, final long[] existingPath, final int depth) {
     if (root == null) {
       return new PlannedCollisionTree(id, null, null, 1);
     }
@@ -483,19 +456,17 @@ final class GlobalValueDictionaryRadix {
     final CollisionTree left;
     final CollisionTree right;
     if (comparison < 0) {
-      left = insertCollisionPlan(context.left(root), id, value, context, existingPath,
-          depth + 1);
+      left = insertCollisionPlan(context.left(root), id, value, context, existingPath, depth + 1);
       right = context.right(root);
     } else {
       left = context.left(root);
-      right = insertCollisionPlan(context.right(root), id, value, context, existingPath,
-          depth + 1);
+      right = insertCollisionPlan(context.right(root), id, value, context, existingPath, depth + 1);
     }
     return balanceCollisionPlan(rootId, left, right, context);
   }
 
-  private static CollisionTree balanceCollisionPlan(final int id, final CollisionTree left,
-      final CollisionTree right, final CollisionPlanningContext context) {
+  private static CollisionTree balanceCollisionPlan(final int id, final CollisionTree left, final CollisionTree right,
+      final CollisionPlanningContext context) {
     final int balance = context.height(left) - context.height(right);
     if (balance > 1) {
       context.validate(left);
@@ -503,10 +474,9 @@ final class GlobalValueDictionaryRadix {
       final CollisionTree leftRight = context.right(left);
       if (context.height(leftLeft) < context.height(leftRight)) {
         context.validate(leftRight);
-        final CollisionTree rotatedLeft = plannedCollision(context.id(left), leftLeft,
-            context.left(leftRight), context);
-        final CollisionTree rotatedRight = plannedCollision(id, context.right(leftRight),
-            right, context);
+        final CollisionTree rotatedLeft =
+            plannedCollision(context.id(left), leftLeft, context.left(leftRight), context);
+        final CollisionTree rotatedRight = plannedCollision(id, context.right(leftRight), right, context);
         return plannedCollision(context.id(leftRight), rotatedLeft, rotatedRight, context);
       }
       final CollisionTree rotatedRight = plannedCollision(id, leftRight, right, context);
@@ -518,10 +488,9 @@ final class GlobalValueDictionaryRadix {
       final CollisionTree rightRight = context.right(right);
       if (context.height(rightRight) < context.height(rightLeft)) {
         context.validate(rightLeft);
-        final CollisionTree rotatedLeft = plannedCollision(id, left,
-            context.left(rightLeft), context);
-        final CollisionTree rotatedRight = plannedCollision(context.id(right),
-            context.right(rightLeft), rightRight, context);
+        final CollisionTree rotatedLeft = plannedCollision(id, left, context.left(rightLeft), context);
+        final CollisionTree rotatedRight =
+            plannedCollision(context.id(right), context.right(rightLeft), rightRight, context);
         return plannedCollision(context.id(rightLeft), rotatedLeft, rotatedRight, context);
       }
       final CollisionTree rotatedLeft = plannedCollision(id, left, rightLeft, context);
@@ -530,8 +499,8 @@ final class GlobalValueDictionaryRadix {
     return plannedCollision(id, left, right, context);
   }
 
-  private static CollisionTree plannedCollision(final int id, final CollisionTree left,
-      final CollisionTree right, final CollisionPlanningContext context) {
+  private static CollisionTree plannedCollision(final int id, final CollisionTree left, final CollisionTree right,
+      final CollisionPlanningContext context) {
     final int height = Math.addExact(1, Math.max(context.height(left), context.height(right)));
     if (height > MAX_COLLISION_TREE_DEPTH) {
       throw new IllegalStateException("value dictionary collision tree exceeds its height bound");
@@ -547,15 +516,13 @@ final class GlobalValueDictionaryRadix {
       throw new IllegalStateException("planned collision tree exceeds its depth bound");
     }
     final PlannedCollisionTree planned = (PlannedCollisionTree) root;
-    return Math.addExact(1L, Math.addExact(
-        countPlannedCollisionRecords(planned.left, depth + 1),
+    return Math.addExact(1L, Math.addExact(countPlannedCollisionRecords(planned.left, depth + 1),
         countPlannedCollisionRecords(planned.right, depth + 1)));
   }
 
-  private static long writeCollisionPlan(final CollisionTree root, final KeyCursor cursor,
-      final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineWriter writer,
-      final TransactionIntentLog log, final int depth) {
+  private static long writeCollisionPlan(final CollisionTree root, final KeyCursor cursor, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineWriter writer, final TransactionIntentLog log,
+      final int depth) {
     if (root instanceof ExistingCollisionTree existing) {
       return existing.key;
     }
@@ -569,38 +536,32 @@ final class GlobalValueDictionaryRadix {
     if (planned.assignedKey != 0L) {
       return planned.assignedKey;
     }
-    final long leftKey = writeCollisionPlan(planned.left, cursor, namePage, databaseType,
-        writer, log, depth + 1);
-    final long rightKey = writeCollisionPlan(planned.right, cursor, namePage, databaseType,
-        writer, log, depth + 1);
+    final long leftKey = writeCollisionPlan(planned.left, cursor, namePage, databaseType, writer, log, depth + 1);
+    final long rightKey = writeCollisionPlan(planned.right, cursor, namePage, databaseType, writer, log, depth + 1);
     final long key = cursor.next();
-    put(new ValueDictionaryCollisionNode(key, planned.id, planned.height, leftKey, rightKey), namePage,
-        databaseType, writer, log);
+    put(new ValueDictionaryCollisionNode(key, planned.id, planned.height, leftKey, rightKey), namePage, databaseType,
+        writer, log);
     planned.assignedKey = key;
     return key;
   }
 
-  private static ProbeResult probeBuckets(final ValueDictionaryHashBucketNode bucket,
-      final long reverseRootKey, final long primaryHash, final byte[] utf8,
-      final int offset, final int length, final int units,
+  private static ProbeResult probeBuckets(final ValueDictionaryHashBucketNode bucket, final long reverseRootKey,
+      final long primaryHash, final byte[] utf8, final int offset, final int length, final int units,
       final int entryCount, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
-    return probeBucket(bucket, reverseRootKey, primaryHash, utf8, offset, length,
-        units, entryCount, namePage, databaseType, reader);
+    return probeBucket(bucket, reverseRootKey, primaryHash, utf8, offset, length, units, entryCount, namePage,
+        databaseType, reader);
   }
 
-  private static ProbeResult probeBucket(final ValueDictionaryHashBucketNode bucket,
-      final long reverseRootKey, final long primaryHash, final byte[] utf8,
-      final int offset, final int length, final int initialUnits,
+  private static ProbeResult probeBucket(final ValueDictionaryHashBucketNode bucket, final long reverseRootKey,
+      final long primaryHash, final byte[] utf8, final int offset, final int length, final int initialUnits,
       final int entryCount, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
     int units = initialUnits;
     int candidate = lowerBound(bucket, primaryHash);
-    while (candidate < bucket.size()
-        && Long.compareUnsigned(bucket.hashAt(candidate), primaryHash) == 0) {
+    while (candidate < bucket.size() && Long.compareUnsigned(bucket.hashAt(candidate), primaryHash) == 0) {
       final int candidateId = bucket.idAt(candidate);
-      final EntryResult stored = entryResult(reverseRootKey, candidateId, entryCount, namePage,
-          databaseType, reader);
+      final EntryResult stored = entryResult(reverseRootKey, candidateId, entryCount, namePage, databaseType, reader);
       units = Math.addExact(units, stored.units);
       if (stored.entry == null) {
         return new ProbeResult(GlobalValueDictionary.ID_UNKNOWN, units);
@@ -613,65 +574,64 @@ final class GlobalValueDictionaryRadix {
     return new ProbeResult(GlobalValueDictionary.ID_ABSENT, units);
   }
 
-  static byte[] value(final long reverseRootKey, final int id,
-      final NamePage namePage, final DatabaseType databaseType,
+  static byte[] value(final long reverseRootKey, final int id, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
     return valueResult(reverseRootKey, id, namePage, databaseType, reader).value;
   }
 
-  private static ValueResult valueResult(final long reverseRootKey, final int id,
-      final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
-    final EntryResult result = entryResult(reverseRootKey, id, Integer.MAX_VALUE, namePage,
-        databaseType, reader);
-    return new ValueResult(result.entry == null ? null : result.entry.getValue(), result.units);
+  private static ValueResult valueResult(final long reverseRootKey, final int id, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
+    final EntryResult result = entryResult(reverseRootKey, id, Integer.MAX_VALUE, namePage, databaseType, reader);
+    return new ValueResult(result.entry == null
+        ? null
+        : result.entry.getValue(), result.units);
   }
 
-  private static EntryResult entryResult(final long reverseRootKey, final int id,
-      final int maximumId, final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
-    if (reverseRootKey == 0 || id <= 0) return new EntryResult(null, 0);
+  private static EntryResult entryResult(final long reverseRootKey, final int id, final int maximumId,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+    if (reverseRootKey == 0 || id <= 0)
+      return new EntryResult(null, 0);
     if (id > maximumId) {
       throw new IllegalStateException("value dictionary entry id exceeds header cardinality");
     }
     final int bucket = (id - 1) >>> 8;
-    final LeafResult leaf = leafKey(reverseRootKey, ValueDictionaryRadixNode.REVERSE,
-        reversePath(bucket), 0, namePage, databaseType, reader);
-    if (leaf.key == 0) return new EntryResult(null, leaf.units);
-    final ValueDictionaryValueBucketNode values = valueBucket(leaf.key, bucket,
-        namePage, databaseType, reader);
+    final LeafResult leaf = leafKey(reverseRootKey, ValueDictionaryRadixNode.REVERSE, reversePath(bucket), 0, namePage,
+        databaseType, reader);
+    if (leaf.key == 0)
+      return new EntryResult(null, leaf.units);
+    final ValueDictionaryValueBucketNode values = valueBucket(leaf.key, bucket, namePage, databaseType, reader);
     if (id < values.getFirstId() || (long) id >= (long) values.getFirstId() + values.size()) {
       return new EntryResult(null, leaf.units + 1);
     }
-    final DataRecord record = dictionaryRecord(values.entryKey(id - values.getFirstId()),
-        namePage, databaseType, reader);
+    final DataRecord record =
+        dictionaryRecord(values.entryKey(id - values.getFirstId()), namePage, databaseType, reader);
     if (!(record instanceof ValueDictionaryEntryNode entry)) {
       throw new IllegalStateException("invalid value dictionary entry");
     }
     return new EntryResult(entry, leaf.units + 2);
   }
 
-  private static TreeMap<Long, Candidates> groupBySecondary(final IntList localIds,
-      final int oldEntryCount, final GlobalValueDictionaryWriter additions) {
+  private static TreeMap<Long, Candidates> groupBySecondary(final IntList localIds, final int oldEntryCount,
+      final GlobalValueDictionaryWriter additions) {
     final TreeMap<Long, Candidates> groups = unsignedLongMap();
     for (int i = 0; i < localIds.size; i++) {
       final int localId = localIds.values[i];
       groups.computeIfAbsent(additions.secondaryHashAt(localId), ignored -> new Candidates())
-          .add(additions.hashAt(localId), Math.addExact(oldEntryCount, localId));
+            .add(additions.hashAt(localId), Math.addExact(oldEntryCount, localId));
     }
     return groups;
   }
 
-  private static TreeMap<Long, Candidates> groupExistingBySecondary(
-      final Candidates existing, final long reverseRootKey, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineReader reader) {
+  private static TreeMap<Long, Candidates> groupExistingBySecondary(final Candidates existing,
+      final long reverseRootKey, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineReader reader) {
     final TreeMap<Long, Candidates> groups = unsignedLongMap();
     for (int i = 0; i < existing.size(); i++) {
       final byte[] value = value(reverseRootKey, existing.idAt(i), namePage, databaseType, reader);
-      if (value == null) throw new IllegalStateException("missing value dictionary reverse entry");
+      if (value == null)
+        throw new IllegalStateException("missing value dictionary reverse entry");
       final long secondary = GlobalValueDictionary.secondaryValueHash(value, 0, value.length);
-      groups.computeIfAbsent(secondary, ignored -> new Candidates())
-          .add(existing.hashAt(i), existing.idAt(i));
+      groups.computeIfAbsent(secondary, ignored -> new Candidates()).add(existing.hashAt(i), existing.idAt(i));
     }
     return groups;
   }
@@ -687,112 +647,99 @@ final class GlobalValueDictionaryRadix {
     return new TreeMap<>(Long::compareUnsigned);
   }
 
-  private static long replaceLeaf(final long oldRoot, final byte indexKind,
-      final int[] path, final int baseDepth, final long leafKey,
-      final KeyCursor cursor, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineWriter writer,
-      final TransactionIntentLog log) {
+  private static long replaceLeaf(final long oldRoot, final byte indexKind, final int[] path, final int baseDepth,
+      final long leafKey, final KeyCursor cursor, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineWriter writer, final TransactionIntentLog log) {
     final ValueDictionaryRadixNode[] oldNodes = new ValueDictionaryRadixNode[path.length];
     long key = oldRoot;
     for (int i = 0; i < path.length && key != 0; i++) {
-      final ValueDictionaryRadixNode node = radixNode(key, indexKind, baseDepth + i,
-          namePage, databaseType, writer);
+      final ValueDictionaryRadixNode node = radixNode(key, indexKind, baseDepth + i, namePage, databaseType, writer);
       oldNodes[i] = node;
       key = node.childKey(path[i]);
     }
     long child = leafKey;
     for (int i = path.length - 1; i >= 0; i--) {
       final long nodeKey = cursor.next();
-      put(replaceRadixChild(nodeKey, indexKind, (byte) (baseDepth + i),
-          oldNodes[i], path[i], child), namePage, databaseType, writer, log);
+      put(replaceRadixChild(nodeKey, indexKind, (byte) (baseDepth + i), oldNodes[i], path[i], child), namePage,
+          databaseType, writer, log);
       child = nodeKey;
     }
     return child;
   }
 
-  private static LeafResult leafKey(final long rootKey, final byte indexKind,
-      final int[] path, final int baseDepth, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineReader reader) {
+  private static LeafResult leafKey(final long rootKey, final byte indexKind, final int[] path, final int baseDepth,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
     long key = rootKey;
     int units = 0;
     for (int i = 0; i < path.length; i++) {
-      if (key == 0) return new LeafResult(0, units);
-      final ValueDictionaryRadixNode node = radixNode(key, indexKind, baseDepth + i,
-          namePage, databaseType, reader);
+      if (key == 0)
+        return new LeafResult(0, units);
+      final ValueDictionaryRadixNode node = radixNode(key, indexKind, baseDepth + i, namePage, databaseType, reader);
       units++;
       key = node.childKey(path[i]);
     }
     return new LeafResult(key, units);
   }
 
-  private static ValueDictionaryRadixNode radixNode(final long key,
-      final byte indexKind, final int depth, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineReader reader) {
+  private static ValueDictionaryRadixNode radixNode(final long key, final byte indexKind, final int depth,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
     final DataRecord record = dictionaryRecord(key, namePage, databaseType, reader);
-    if (!(record instanceof ValueDictionaryRadixNode node)
-        || node.getIndexKind() != indexKind || node.getDepth() != depth) {
+    if (!(record instanceof ValueDictionaryRadixNode node) || node.getIndexKind() != indexKind
+        || node.getDepth() != depth) {
       throw new IllegalStateException("invalid value dictionary radix path");
     }
     return node;
   }
 
-  private static ValueDictionaryHashBucketNode hashBucket(final long key,
-      final int primaryBucket, final int secondaryDepth, final long secondaryPrefix,
-      final NamePage namePage, final DatabaseType databaseType,
+  private static ValueDictionaryHashBucketNode hashBucket(final long key, final int primaryBucket,
+      final int secondaryDepth, final long secondaryPrefix, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineReader reader) {
     final DataRecord record = dictionaryRecord(key, namePage, databaseType, reader);
-    if (!(record instanceof ValueDictionaryHashBucketNode node)
-        || node.getBucket() != primaryBucket
-        || node.getSecondaryDepth() != secondaryDepth
-        || node.getSecondaryPrefix() != secondaryPrefix
+    if (!(record instanceof ValueDictionaryHashBucketNode node) || node.getBucket() != primaryBucket
+        || node.getSecondaryDepth() != secondaryDepth || node.getSecondaryPrefix() != secondaryPrefix
         || node.size() > MAX_BUCKET_ENTRIES) {
       throw new IllegalStateException("invalid value dictionary forward bucket");
     }
     return node;
   }
 
-  private static ValueDictionaryValueBucketNode valueBucket(final long key,
-      final int bucket, final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
+  private static ValueDictionaryValueBucketNode valueBucket(final long key, final int bucket, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
     final DataRecord record = dictionaryRecord(key, namePage, databaseType, reader);
-    if (!(record instanceof ValueDictionaryValueBucketNode node)
-        || ((node.getFirstId() - 1) >>> 8) != bucket) {
+    if (!(record instanceof ValueDictionaryValueBucketNode node) || ((node.getFirstId() - 1) >>> 8) != bucket) {
       throw new IllegalStateException("invalid value dictionary reverse bucket");
     }
     return node;
   }
 
-  private static DataRecord dictionaryRecord(final long key, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineReader reader) {
-    final DataRecord record = namePage.getProjectionValueDictionaryRecord(key,
-        databaseType, reader);
-    if (record == null) throw new IllegalStateException("missing value dictionary record " + key);
+  private static DataRecord dictionaryRecord(final long key, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineReader reader) {
+    final DataRecord record = namePage.getProjectionValueDictionaryRecord(key, databaseType, reader);
+    if (record == null)
+      throw new IllegalStateException("missing value dictionary record " + key);
     return record;
   }
 
-  private static ValueDictionaryCollisionNode collisionNode(final long key,
-      final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
+  private static ValueDictionaryCollisionNode collisionNode(final long key, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
     return collisionNode(key, Integer.MAX_VALUE, namePage, databaseType, reader);
   }
 
   private static ValueDictionaryCollisionNode collisionNode(final long key, final int maximumId,
-      final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
     final DataRecord record = dictionaryRecord(key, namePage, databaseType, reader);
     if (!(record instanceof ValueDictionaryCollisionNode node)) {
       throw new IllegalStateException("invalid value dictionary collision tree");
     }
-    if (node.getId() > maximumId || node.getHeight() > MAX_COLLISION_TREE_DEPTH
-        || node.getLeftKey() == key || node.getRightKey() == key) {
+    if (node.getId() > maximumId || node.getHeight() > MAX_COLLISION_TREE_DEPTH || node.getLeftKey() == key
+        || node.getRightKey() == key) {
       throw new IllegalStateException("corrupt value dictionary collision tree");
     }
     return node;
   }
 
-  private static void put(final DataRecord record, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineWriter writer,
-      final TransactionIntentLog log) {
+  private static void put(final DataRecord record, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineWriter writer, final TransactionIntentLog log) {
     namePage.putProjectionValueDictionaryRecord(record, databaseType, writer, log);
   }
 
@@ -821,7 +768,7 @@ final class GlobalValueDictionaryRadix {
   }
 
   private static int[] primaryPath(final int bucket) {
-    return new int[] { bucket >>> 16, bucket >>> 8 & 0xFF, bucket & 0xFF };
+    return new int[] {bucket >>> 16, bucket >>> 8 & 0xFF, bucket & 0xFF};
   }
 
   private static int[] secondaryPath(final long hash) {
@@ -836,24 +783,25 @@ final class GlobalValueDictionaryRadix {
     return primaryPath(bucket);
   }
 
-  private static int lowerBound(final ValueDictionaryHashBucketNode bucket,
-      final long wanted) {
+  private static int lowerBound(final ValueDictionaryHashBucketNode bucket, final long wanted) {
     int low = 0;
     int high = bucket.size();
     while (low < high) {
       final int middle = (low + high) >>> 1;
-      if (Long.compareUnsigned(bucket.hashAt(middle), wanted) < 0) low = middle + 1;
-      else high = middle;
+      if (Long.compareUnsigned(bucket.hashAt(middle), wanted) < 0)
+        low = middle + 1;
+      else
+        high = middle;
     }
     return low;
   }
 
-  private static int compareUnsigned(final byte[] left, final int leftOffset,
-      final int leftLength, final byte[] right) {
+  private static int compareUnsigned(final byte[] left, final int leftOffset, final int leftLength,
+      final byte[] right) {
     final int common = Math.min(leftLength, right.length);
     for (int index = 0; index < common; index++) {
-      final int comparison = Integer.compare(Byte.toUnsignedInt(left[leftOffset + index]),
-          Byte.toUnsignedInt(right[index]));
+      final int comparison =
+          Integer.compare(Byte.toUnsignedInt(left[leftOffset + index]), Byte.toUnsignedInt(right[index]));
       if (comparison != 0) {
         return comparison;
       }
@@ -861,15 +809,17 @@ final class GlobalValueDictionaryRadix {
     return Integer.compare(leftLength, right.length);
   }
 
-  private static void sortPairs(final long[] hashes, final int[] ids,
-      final int low, final int high) {
-    if (low >= high) return;
+  private static void sortPairs(final long[] hashes, final int[] ids, final int low, final int high) {
+    if (low >= high)
+      return;
     int left = low;
     int right = high;
     final long pivot = hashes[(low + high) >>> 1];
     while (left <= right) {
-      while (Long.compareUnsigned(hashes[left], pivot) < 0) left++;
-      while (Long.compareUnsigned(hashes[right], pivot) > 0) right--;
+      while (Long.compareUnsigned(hashes[left], pivot) < 0)
+        left++;
+      while (Long.compareUnsigned(hashes[right], pivot) > 0)
+        right--;
       if (left <= right) {
         final long hash = hashes[left];
         hashes[left] = hashes[right];
@@ -881,42 +831,40 @@ final class GlobalValueDictionaryRadix {
         right--;
       }
     }
-    if (low < right) sortPairs(hashes, ids, low, right);
-    if (left < high) sortPairs(hashes, ids, left, high);
+    if (low < right)
+      sortPairs(hashes, ids, low, right);
+    if (left < high)
+      sortPairs(hashes, ids, left, high);
   }
 
-  private static long estimateWorkspaceBytes(final long recordCount,
-      final TreeMap<Integer, IntList> primaryGroups, final RadixPlan forwardRadixPlan,
-      final DenseRadixPlan reverseRadixPlan, final GlobalValueDictionaryWriter additions) {
+  private static long estimateWorkspaceBytes(final long recordCount, final TreeMap<Integer, IntList> primaryGroups,
+      final RadixPlan forwardRadixPlan, final DenseRadixPlan reverseRadixPlan,
+      final GlobalValueDictionaryWriter additions) {
     long radixNodes = Math.addExact(forwardRadixPlan.nodeCount(), reverseRadixPlan.nodeCount());
     long hashBucketBytes = 0L;
     for (final IntList primaryGroup : primaryGroups.values()) {
       final ForwardPlan plan = primaryGroup.forwardPlan;
       if (plan.direct != null) {
-        hashBucketBytes = Math.addExact(hashBucketBytes,
-            25L + (long) plan.direct.size() * (Long.BYTES + Integer.BYTES));
+        hashBucketBytes =
+            Math.addExact(hashBucketBytes, 25L + (long) plan.direct.size() * (Long.BYTES + Integer.BYTES));
       } else {
         for (int ignored = 0; ignored < plan.secondary.size(); ignored++) {
           radixNodes = Math.addExact(radixNodes, SECONDARY_PATH_BYTES);
         }
         hashBucketBytes = Math.addExact(hashBucketBytes,
-            Math.multiplyExact(plan.collisionRecordCount,
-                2L * Integer.BYTES + 2L * Long.BYTES));
+            Math.multiplyExact(plan.collisionRecordCount, 2L * Integer.BYTES + 2L * Long.BYTES));
       }
     }
-    final long radixBytes = Math.multiplyExact(radixNodes,
-        2L + Short.BYTES + 16L * (Byte.BYTES + Long.BYTES));
-    final long reverseBytes = Math.addExact(
-        Math.multiplyExact((long) additions.entryCount(), Long.BYTES),
+    final long radixBytes = Math.multiplyExact(radixNodes, 2L + Short.BYTES + 16L * (Byte.BYTES + Long.BYTES));
+    final long reverseBytes = Math.addExact(Math.multiplyExact((long) additions.entryCount(), Long.BYTES),
         Math.multiplyExact(reverseRadixPlan.leafCount(), 2L * Integer.BYTES));
-    final long entryBytes = Math.addExact(additions.valueBytes(),
-        Math.multiplyExact((long) additions.entryCount(), Integer.BYTES));
-    final long encodedBytes = Math.addExact(entryBytes,
-        Math.addExact(radixBytes, Math.addExact(hashBucketBytes, reverseBytes)));
-    final long pageAndTilBytes = Math.multiplyExact(2L,
-        Math.addExact(encodedBytes, Math.multiplyExact(recordCount, RECORD_STRIDE)));
-    return Math.addExact(pageAndTilBytes,
-        Math.multiplyExact((long) additions.entryCount(), 64L));
+    final long entryBytes =
+        Math.addExact(additions.valueBytes(), Math.multiplyExact((long) additions.entryCount(), Integer.BYTES));
+    final long encodedBytes =
+        Math.addExact(entryBytes, Math.addExact(radixBytes, Math.addExact(hashBucketBytes, reverseBytes)));
+    final long pageAndTilBytes =
+        Math.multiplyExact(2L, Math.addExact(encodedBytes, Math.multiplyExact(recordCount, RECORD_STRIDE)));
+    return Math.addExact(pageAndTilBytes, Math.multiplyExact((long) additions.entryCount(), 64L));
   }
 
   private record LeafResult(long key, int units) {
@@ -954,8 +902,7 @@ final class GlobalValueDictionaryRadix {
     private final int height;
     private long assignedKey;
 
-    private PlannedCollisionTree(final int id, final CollisionTree left,
-        final CollisionTree right, final int height) {
+    private PlannedCollisionTree(final int id, final CollisionTree left, final CollisionTree right, final int height) {
       this.id = id;
       this.left = left;
       this.right = right;
@@ -973,8 +920,8 @@ final class GlobalValueDictionaryRadix {
     private final StorageEngineReader reader;
 
     private CollisionPlanningContext(final long oldReverseRoot, final int oldEntryCount,
-        final GlobalValueDictionaryWriter additions, final NamePage namePage,
-        final DatabaseType databaseType, final StorageEngineReader reader) {
+        final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
+        final StorageEngineReader reader) {
       this.oldReverseRoot = oldReverseRoot;
       this.oldEntryCount = oldEntryCount;
       finalEntryCount = Math.addExact(oldEntryCount, additions.entryCount());
@@ -1023,8 +970,7 @@ final class GlobalValueDictionaryRadix {
     private int compareCandidate(final byte[] candidate, final int storedId) {
       validateId(storedId);
       if (storedId <= oldEntryCount) {
-        final EntryResult stored = entryResult(oldReverseRoot, storedId, oldEntryCount,
-            namePage, databaseType, reader);
+        final EntryResult stored = entryResult(oldReverseRoot, storedId, oldEntryCount, namePage, databaseType, reader);
         if (stored.entry == null) {
           throw new IllegalStateException("missing value dictionary reverse entry " + storedId);
         }
@@ -1051,8 +997,7 @@ final class GlobalValueDictionaryRadix {
 
     private ValueDictionaryCollisionNode node(final ExistingCollisionTree existing) {
       if (existing.node == null) {
-        existing.node = collisionNode(existing.key, oldEntryCount, namePage, databaseType,
-            reader);
+        existing.node = collisionNode(existing.key, oldEntryCount, namePage, databaseType, reader);
       }
       return existing.node;
     }
@@ -1062,8 +1007,12 @@ final class GlobalValueDictionaryRadix {
         return;
       }
       final ValueDictionaryCollisionNode node = node(existing);
-      existing.left = node.getLeftKey() == 0L ? null : new ExistingCollisionTree(node.getLeftKey());
-      existing.right = node.getRightKey() == 0L ? null : new ExistingCollisionTree(node.getRightKey());
+      existing.left = node.getLeftKey() == 0L
+          ? null
+          : new ExistingCollisionTree(node.getLeftKey());
+      existing.right = node.getRightKey() == 0L
+          ? null
+          : new ExistingCollisionTree(node.getRightKey());
       existing.childrenLoaded = true;
     }
 
@@ -1083,8 +1032,7 @@ final class GlobalValueDictionaryRadix {
     private int sinceCheckpoint;
     private int visits;
 
-    private TraversalGuard(final long firstKey, final int maximumVisits,
-        final String structure) {
+    private TraversalGuard(final long firstKey, final int maximumVisits, final String structure) {
       this.maximumVisits = maximumVisits;
       this.structure = structure;
       checkpoint = firstKey;
@@ -1120,30 +1068,30 @@ final class GlobalValueDictionaryRadix {
     private final TreeMap<Long, CollisionTree> collisionRoots;
     private long collisionRecordCount;
 
-    private ForwardPlan(final int primaryBucket, final Candidates direct,
-        final long oldSecondaryRoot, final boolean rebuildSecondary,
-        final TreeMap<Long, Candidates> secondary) {
+    private ForwardPlan(final int primaryBucket, final Candidates direct, final long oldSecondaryRoot,
+        final boolean rebuildSecondary, final TreeMap<Long, Candidates> secondary) {
       this.primaryBucket = primaryBucket;
       this.direct = direct;
       this.oldSecondaryRoot = oldSecondaryRoot;
       this.rebuildSecondary = rebuildSecondary;
       this.secondary = secondary;
-      collisionRoots = secondary == null ? null : unsignedLongMap();
+      collisionRoots = secondary == null
+          ? null
+          : unsignedLongMap();
     }
 
-    private static ForwardPlan direct(final int primaryBucket,
-        final Candidates candidates) {
+    private static ForwardPlan direct(final int primaryBucket, final Candidates candidates) {
       return new ForwardPlan(primaryBucket, candidates, 0L, false, null);
     }
 
-    private static ForwardPlan secondary(final int primaryBucket,
-        final long oldSecondaryRoot, final boolean rebuild,
+    private static ForwardPlan secondary(final int primaryBucket, final long oldSecondaryRoot, final boolean rebuild,
         final TreeMap<Long, Candidates> groups) {
       return new ForwardPlan(primaryBucket, null, oldSecondaryRoot, rebuild, groups);
     }
 
     private long newRecordCount() {
-      if (direct != null) return 1L;
+      if (direct != null)
+        return 1L;
       long count = 0L;
       for (int ignored = 0; ignored < secondary.size(); ignored++) {
         count = Math.addExact(count, SECONDARY_PATH_BYTES);
@@ -1169,14 +1117,16 @@ final class GlobalValueDictionaryRadix {
     }
 
     private long nodeCount() {
-      return levelTwo.size == 0 ? 0L : (long) levelTwo.size + levelOne.size + 1L;
+      return levelTwo.size == 0
+          ? 0L
+          : (long) levelTwo.size + levelOne.size + 1L;
     }
 
-    private long write(final byte indexKind, final long oldRoot,
-        final TreeMap<Integer, IntList> primaryGroups, final KeyCursor cursor,
-        final NamePage namePage, final DatabaseType databaseType,
+    private long write(final byte indexKind, final long oldRoot, final TreeMap<Integer, IntList> primaryGroups,
+        final KeyCursor cursor, final NamePage namePage, final DatabaseType databaseType,
         final StorageEngineWriter writer, final TransactionIntentLog log) {
-      if (primaryGroups.isEmpty()) return oldRoot;
+      if (primaryGroups.isEmpty())
+        return oldRoot;
       final ValueDictionaryRadixNode oldRootNode = oldRoot == 0L
           ? null
           : radixNode(oldRoot, indexKind, 0, namePage, databaseType, writer);
@@ -1189,48 +1139,50 @@ final class GlobalValueDictionaryRadix {
         final int middle = prefix & 0xFF;
         if (high != cachedHigh) {
           cachedHigh = high;
-          final long oldLevelOneKey = oldRootNode == null ? 0L : oldRootNode.childKey(high);
+          final long oldLevelOneKey = oldRootNode == null
+              ? 0L
+              : oldRootNode.childKey(high);
           oldLevelOne = oldLevelOneKey == 0L
               ? null
               : radixNode(oldLevelOneKey, indexKind, 1, namePage, databaseType, writer);
         }
-        final long oldLevelTwoKey = oldLevelOne == null ? 0L : oldLevelOne.childKey(middle);
+        final long oldLevelTwoKey = oldLevelOne == null
+            ? 0L
+            : oldLevelOne.childKey(middle);
         ValueDictionaryRadixNode updated = oldLevelTwoKey == 0
             ? null
             : radixNode(oldLevelTwoKey, indexKind, 2, namePage, databaseType, writer);
         final int firstBucket = prefix << 8;
         final int lastBucket = firstBucket | 0xFF;
-        for (final Map.Entry<Integer, IntList> leaf : primaryGroups
-            .subMap(firstBucket, true, lastBucket, true).entrySet()) {
+        for (final Map.Entry<Integer, IntList> leaf : primaryGroups.subMap(firstBucket, true, lastBucket, true)
+                                                                   .entrySet()) {
           final long leafKey = leaf.getValue().writtenLeafKey;
           if (leafKey <= 0L) {
             throw new IllegalStateException("forward radix leaf was not written");
           }
-          updated = replaceRadixChild(1L, indexKind, (byte) 2, updated,
-              leaf.getKey() & 0xFF, leafKey);
+          updated = replaceRadixChild(1L, indexKind, (byte) 2, updated, leaf.getKey() & 0xFF, leafKey);
         }
         final long nodeKey = cursor.next();
-        put(copyRadixNode(nodeKey, updated),
-            namePage, databaseType, writer, log);
+        put(copyRadixNode(nodeKey, updated), namePage, databaseType, writer, log);
       }
       final long levelOneRunStart = cursor.peek();
       int levelTwoIndex = 0;
       for (int index = 0; index < levelOne.size; index++) {
         final int high = levelOne.values[index];
-        final long oldLevelOneKey = oldRootNode == null ? 0L : oldRootNode.childKey(high);
+        final long oldLevelOneKey = oldRootNode == null
+            ? 0L
+            : oldRootNode.childKey(high);
         ValueDictionaryRadixNode updated = oldLevelOneKey == 0
             ? null
             : radixNode(oldLevelOneKey, indexKind, 1, namePage, databaseType, writer);
-        while (levelTwoIndex < levelTwo.size
-            && (levelTwo.values[levelTwoIndex] >>> 8) == high) {
+        while (levelTwoIndex < levelTwo.size && (levelTwo.values[levelTwoIndex] >>> 8) == high) {
           final int prefix = levelTwo.values[levelTwoIndex];
-          updated = replaceRadixChild(1L, indexKind, (byte) 1, updated,
-              prefix & 0xFF, recordKeyAt(levelTwoRunStart, levelTwoIndex));
+          updated = replaceRadixChild(1L, indexKind, (byte) 1, updated, prefix & 0xFF,
+              recordKeyAt(levelTwoRunStart, levelTwoIndex));
           levelTwoIndex++;
         }
         final long nodeKey = cursor.next();
-        put(copyRadixNode(nodeKey, updated),
-            namePage, databaseType, writer, log);
+        put(copyRadixNode(nodeKey, updated), namePage, databaseType, writer, log);
       }
       if (levelTwoIndex != levelTwo.size) {
         throw new IllegalStateException("forward radix prefix plan was not consumed exactly");
@@ -1241,13 +1193,12 @@ final class GlobalValueDictionaryRadix {
       int levelOneIndex = 0;
       for (int index = 0; index < levelOne.size; index++) {
         final int high = levelOne.values[index];
-        updatedRoot = replaceRadixChild(1L, indexKind, (byte) 0, updatedRoot,
-            high, recordKeyAt(levelOneRunStart, levelOneIndex));
+        updatedRoot =
+            replaceRadixChild(1L, indexKind, (byte) 0, updatedRoot, high, recordKeyAt(levelOneRunStart, levelOneIndex));
         levelOneIndex++;
       }
       final long rootKey = cursor.next();
-      put(copyRadixNode(rootKey, updatedRoot),
-          namePage, databaseType, writer, log);
+      put(copyRadixNode(rootKey, updatedRoot), namePage, databaseType, writer, log);
       return rootKey;
     }
 
@@ -1262,8 +1213,7 @@ final class GlobalValueDictionaryRadix {
       }
 
       private void addSorted(final int value) {
-        if (value < 0 || value >= maximumSize
-            || size > 0 && value < values[size - 1]) {
+        if (value < 0 || value >= maximumSize || size > 0 && value < values[size - 1]) {
           throw new IllegalArgumentException("invalid ordered radix prefix");
         }
         if (size > 0 && value == values[size - 1]) {
@@ -1279,8 +1229,8 @@ final class GlobalValueDictionaryRadix {
 
   /**
    * Reverse ids occupy one dense interval, so their buckets and both radix-prefix levels do too.
-   * Representing those ranges as four integers avoids a {@code TreeSet<Integer>} node per bucket
-   * and lets every child key be derived from the exact reserved run.
+   * Representing those ranges as four integers avoids a {@code TreeSet<Integer>} node per bucket and
+   * lets every child key be derived from the exact reserved run.
    */
   private static final class DenseRadixPlan {
     private final int firstBucket;
@@ -1312,9 +1262,9 @@ final class GlobalValueDictionaryRadix {
       return Math.addExact(Math.addExact(levelTwoCount, levelOneCount), 1L);
     }
 
-    private long write(final byte indexKind, final long oldRoot, final long firstLeafKey,
-        final KeyCursor cursor, final NamePage namePage, final DatabaseType databaseType,
-        final StorageEngineWriter writer, final TransactionIntentLog log) {
+    private long write(final byte indexKind, final long oldRoot, final long firstLeafKey, final KeyCursor cursor,
+        final NamePage namePage, final DatabaseType databaseType, final StorageEngineWriter writer,
+        final TransactionIntentLog log) {
       if (firstLeafKey <= 0L) {
         throw new IllegalArgumentException("dense radix leaves must have positive keys");
       }
@@ -1329,7 +1279,9 @@ final class GlobalValueDictionaryRadix {
         final int high = prefix >>> 8;
         if (high != cachedHigh) {
           cachedHigh = high;
-          final long oldLevelOneKey = oldRootNode == null ? 0L : oldRootNode.childKey(high);
+          final long oldLevelOneKey = oldRootNode == null
+              ? 0L
+              : oldRootNode.childKey(high);
           oldLevelOne = oldLevelOneKey == 0L
               ? null
               : radixNode(oldLevelOneKey, indexKind, 1, namePage, databaseType, writer);
@@ -1346,15 +1298,13 @@ final class GlobalValueDictionaryRadix {
         final int first = Math.max(firstBucket, prefix << 8);
         final int last = Math.min(lastBucket, (prefix << 8) | 0xFF);
         for (int bucket = first;; bucket++) {
-          children[bucket & 0xFF] = recordKeyAt(firstLeafKey,
-              (long) bucket - firstBucket);
+          children[bucket & 0xFF] = recordKeyAt(firstLeafKey, (long) bucket - firstBucket);
           if (bucket == last) {
             break;
           }
         }
         final long nodeKey = cursor.next();
-        put(new ValueDictionaryRadixNode(nodeKey, indexKind, (byte) 2, children),
-            namePage, databaseType, writer, log);
+        put(new ValueDictionaryRadixNode(nodeKey, indexKind, (byte) 2, children), namePage, databaseType, writer, log);
         if (prefix == lastLevelTwo) {
           break;
         }
@@ -1362,7 +1312,9 @@ final class GlobalValueDictionaryRadix {
 
       final long levelOneRunStart = cursor.peek();
       for (int high = firstLevelOne;; high++) {
-        final long oldLevelOneKey = oldRootNode == null ? 0L : oldRootNode.childKey(high);
+        final long oldLevelOneKey = oldRootNode == null
+            ? 0L
+            : oldRootNode.childKey(high);
         final ValueDictionaryRadixNode prior = oldLevelOneKey == 0L
             ? null
             : radixNode(oldLevelOneKey, indexKind, 1, namePage, databaseType, writer);
@@ -1372,15 +1324,13 @@ final class GlobalValueDictionaryRadix {
         final int first = Math.max(firstLevelTwo, high << 8);
         final int last = Math.min(lastLevelTwo, (high << 8) | 0xFF);
         for (int prefix = first;; prefix++) {
-          children[prefix & 0xFF] = recordKeyAt(levelTwoRunStart,
-              (long) prefix - firstLevelTwo);
+          children[prefix & 0xFF] = recordKeyAt(levelTwoRunStart, (long) prefix - firstLevelTwo);
           if (prefix == last) {
             break;
           }
         }
         final long nodeKey = cursor.next();
-        put(new ValueDictionaryRadixNode(nodeKey, indexKind, (byte) 1, children),
-            namePage, databaseType, writer, log);
+        put(new ValueDictionaryRadixNode(nodeKey, indexKind, (byte) 1, children), namePage, databaseType, writer, log);
         if (high == lastLevelOne) {
           break;
         }
@@ -1390,27 +1340,29 @@ final class GlobalValueDictionaryRadix {
           ? new long[ValueDictionaryRadixNode.FANOUT]
           : oldRootNode.getChildKeys();
       for (int high = firstLevelOne;; high++) {
-        rootChildren[high] = recordKeyAt(levelOneRunStart,
-            (long) high - firstLevelOne);
+        rootChildren[high] = recordKeyAt(levelOneRunStart, (long) high - firstLevelOne);
         if (high == lastLevelOne) {
           break;
         }
       }
       final long rootKey = cursor.next();
-      put(new ValueDictionaryRadixNode(rootKey, indexKind, (byte) 0, rootChildren),
-          namePage, databaseType, writer, log);
+      put(new ValueDictionaryRadixNode(rootKey, indexKind, (byte) 0, rootChildren), namePage, databaseType, writer,
+          log);
       return rootKey;
     }
   }
 
-  private static ValueDictionaryRadixNode replaceRadixChild(final long nodeKey,
-      final byte indexKind, final byte depth, final ValueDictionaryRadixNode oldNode,
-      final int slot, final long childKey) {
+  private static ValueDictionaryRadixNode replaceRadixChild(final long nodeKey, final byte indexKind, final byte depth,
+      final ValueDictionaryRadixNode oldNode, final int slot, final long childKey) {
     if (slot < 0 || slot >= ValueDictionaryRadixNode.FANOUT || childKey <= 0) {
       throw new IllegalArgumentException("invalid sparse radix child");
     }
-    final byte[] oldSlots = oldNode == null ? new byte[0] : oldNode.getChildSlots();
-    final long[] oldKeys = oldNode == null ? new long[0] : oldNode.getSparseChildKeys();
+    final byte[] oldSlots = oldNode == null
+        ? new byte[0]
+        : oldNode.getChildSlots();
+    final long[] oldKeys = oldNode == null
+        ? new long[0]
+        : oldNode.getSparseChildKeys();
     int insertion = 0;
     while (insertion < oldSlots.length && Byte.toUnsignedInt(oldSlots[insertion]) < slot) {
       insertion++;
@@ -1431,13 +1383,12 @@ final class GlobalValueDictionaryRadix {
     return new ValueDictionaryRadixNode(nodeKey, indexKind, depth, slots, keys);
   }
 
-  private static ValueDictionaryRadixNode copyRadixNode(final long nodeKey,
-      final ValueDictionaryRadixNode source) {
+  private static ValueDictionaryRadixNode copyRadixNode(final long nodeKey, final ValueDictionaryRadixNode source) {
     if (source == null) {
       throw new IllegalStateException("sparse radix update produced no node");
     }
-    return new ValueDictionaryRadixNode(nodeKey, source.getIndexKind(), source.getDepth(),
-        source.getChildSlots(), source.getSparseChildKeys());
+    return new ValueDictionaryRadixNode(nodeKey, source.getIndexKind(), source.getDepth(), source.getChildSlots(),
+        source.getSparseChildKeys());
   }
 
   private static final class Candidates {
@@ -1456,8 +1407,8 @@ final class GlobalValueDictionaryRadix {
       size = ids.length;
     }
 
-    private static Candidates fromAdditions(final IntList localIds,
-        final int oldEntryCount, final GlobalValueDictionaryWriter additions) {
+    private static Candidates fromAdditions(final IntList localIds, final int oldEntryCount,
+        final GlobalValueDictionaryWriter additions) {
       final Candidates candidates = new Candidates();
       for (int i = 0; i < localIds.size; i++) {
         final int localId = localIds.values[i];
@@ -1467,8 +1418,7 @@ final class GlobalValueDictionaryRadix {
     }
 
     private static Candidates concat(final Candidates left, final Candidates right) {
-      final Candidates combined = new Candidates(
-          Arrays.copyOf(left.hashes, left.size + right.size),
+      final Candidates combined = new Candidates(Arrays.copyOf(left.hashes, left.size + right.size),
           Arrays.copyOf(left.ids, left.size + right.size));
       System.arraycopy(right.hashes, 0, combined.hashes, left.size, right.size);
       System.arraycopy(right.ids, 0, combined.ids, left.size, right.size);
@@ -1499,11 +1449,15 @@ final class GlobalValueDictionaryRadix {
     }
 
     private long[] hashes() {
-      return hashes.length == size ? hashes.clone() : Arrays.copyOf(hashes, size);
+      return hashes.length == size
+          ? hashes.clone()
+          : Arrays.copyOf(hashes, size);
     }
 
     private int[] ids() {
-      return ids.length == size ? ids.clone() : Arrays.copyOf(ids, size);
+      return ids.length == size
+          ? ids.clone()
+          : Arrays.copyOf(ids, size);
     }
   }
 
@@ -1514,7 +1468,8 @@ final class GlobalValueDictionaryRadix {
     private long writtenLeafKey;
 
     private void add(final int value) {
-      if (size == values.length) values = Arrays.copyOf(values, size << 1);
+      if (size == values.length)
+        values = Arrays.copyOf(values, size << 1);
       values[size++] = value;
     }
   }
@@ -1550,8 +1505,8 @@ final class GlobalValueDictionaryRadix {
 
     private void assertExhausted() {
       if (remainingRecords != 0L) {
-        throw new IllegalStateException("value dictionary append under-consumed its key reservation by "
-            + remainingRecords + " records");
+        throw new IllegalStateException(
+            "value dictionary append under-consumed its key reservation by " + remainingRecords + " records");
       }
     }
   }

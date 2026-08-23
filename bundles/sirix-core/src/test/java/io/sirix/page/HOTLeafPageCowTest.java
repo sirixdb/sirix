@@ -36,14 +36,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Slot-granular CoW correctness for {@link HOTLeafPage}: verifies that under non-FULL versioning
- * a single-entry mutation produces a sparse on-disk fragment, that the source leaf's persisted
- * bytes are unchanged across the mutation, and that round-tripping the sparse fragment through
- * the wire format preserves only the dirty entries.
+ * Slot-granular CoW correctness for {@link HOTLeafPage}: verifies that under non-FULL versioning a
+ * single-entry mutation produces a sparse on-disk fragment, that the source leaf's persisted bytes
+ * are unchanged across the mutation, and that round-tripping the sparse fragment through the wire
+ * format preserves only the dirty entries.
  *
- * <p>Cross-IndexType coverage uses {@link IndexType#PATH}, {@link IndexType#CAS},
+ * <p>
+ * Cross-IndexType coverage uses {@link IndexType#PATH}, {@link IndexType#CAS},
  * {@link IndexType#NAME}, {@link IndexType#PROJECTION} since all four go through the same
- * {@link HOTLeafPage} machinery; the exercise is to confirm dirty marking is uniform.</p>
+ * {@link HOTLeafPage} machinery; the exercise is to confirm dirty marking is uniform.
+ * </p>
  */
 final class HOTLeafPageCowTest {
 
@@ -105,8 +107,8 @@ final class HOTLeafPageCowTest {
     final HOTLeafPage source = newPopulatedLeaf(IndexType.PATH, 1);
     final HOTLeafPage failingFragment = mock(HOTLeafPage.class);
     final StorageEngineReader reader = mock(StorageEngineReader.class);
-    final PageReference reference = new PageReference().setKey(17L)
-        .setPageFragments(List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L)));
+    final PageReference reference =
+        new PageReference().setKey(17L).setPageFragments(List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L)));
     final List<HOTLeafPage> fragments = List.of(failingFragment);
     final AssertionError carryFailure = new AssertionError("injected carry-forward failure");
     final IllegalStateException releaseFailure = new IllegalStateException("injected fragment release failure");
@@ -139,8 +141,7 @@ final class HOTLeafPageCowTest {
       final HOTLeafPage cow = src.copy();
       try {
         assertTrue(cow.put(keyOf(99), valueOf(99))); // new key — inserts somewhere
-        assertEquals(1, cow.getDirtyEntryCount(),
-            "exactly one dirty entry expected after a single insert");
+        assertEquals(1, cow.getDirtyEntryCount(), "exactly one dirty entry expected after a single insert");
         assertTrue(cow.hasDirty());
       } finally {
         cow.close();
@@ -197,8 +198,7 @@ final class HOTLeafPageCowTest {
         final long sparseSize = sparseSink.writePosition();
 
         // Sparse fragment must be strictly smaller than baseline (it carries 1 entry vs 32).
-        assertTrue(sparseSize < baselineSize,
-            "sparse=" + sparseSize + " baseline=" + baselineSize);
+        assertTrue(sparseSize < baselineSize, "sparse=" + sparseSize + " baseline=" + baselineSize);
 
         // Round-trip the sparse fragment and confirm only the dirty entry is present.
         final BytesIn<?> source = sparseSink.bytesForRead();
@@ -206,8 +206,7 @@ final class HOTLeafPageCowTest {
         final HOTLeafPage deserialized =
             (HOTLeafPage) PageKind.HOT_LEAF_PAGE.deserializePage(config, source, SerializationType.DATA);
         try {
-          assertEquals(1, deserialized.getEntryCount(),
-              "deserialized sparse fragment must contain exactly 1 entry");
+          assertEquals(1, deserialized.getEntryCount(), "deserialized sparse fragment must contain exactly 1 entry");
           final int idx = deserialized.findEntry(keyOf(999));
           assertTrue(idx >= 0, "dirty key must be in the sparse fragment");
         } finally {
@@ -240,8 +239,7 @@ final class HOTLeafPageCowTest {
             (HOTLeafPage) PageKind.HOT_LEAF_PAGE.deserializePage(config, source, SerializationType.DATA);
         try {
           // FULL = every entry must round-trip (32 + 1 inserted = 33).
-          assertEquals(cow.getEntryCount(), deserialized.getEntryCount(),
-              "FULL strategy must emit every entry");
+          assertEquals(cow.getEntryCount(), deserialized.getEntryCount(), "FULL strategy must emit every entry");
           assertNotNull(deserialized.getCommonPrefix());
         } finally {
           deserialized.close();
@@ -366,8 +364,8 @@ final class HOTLeafPageCowTest {
     final HOTLeafPage complete = new HOTLeafPage(7L, 3, IndexType.PATH);
     HOTLeafPage modified = null;
     try {
-      assertTrue(newest.put(keyOf(10), valueOf(10)));   // key 10 re-emitted recently
-      assertTrue(middle.put(keyOf(20), valueOf(20)));   // key 20 re-emitted recently
+      assertTrue(newest.put(keyOf(10), valueOf(10))); // key 10 re-emitted recently
+      assertTrue(middle.put(keyOf(20), valueOf(20))); // key 20 re-emitted recently
       // Oldest fragment: 10 & 20 (shadowed by newer fragments), 30 & 40 (unique, still live),
       // 50 (deleted at this revision -> tombstone).
       assertTrue(oldest.put(keyOf(10), valueOf(10)));
@@ -375,12 +373,12 @@ final class HOTLeafPageCowTest {
       assertTrue(oldest.put(keyOf(30), valueOf(30)));
       assertTrue(oldest.put(keyOf(40), valueOf(40)));
       assertTrue(oldest.put(keyOf(50), valueOf(50)));
-      assertTrue(oldest.delete(keyOf(50)));             // 50 -> tombstone in the oldest fragment
+      assertTrue(oldest.delete(keyOf(50))); // 50 -> tombstone in the oldest fragment
 
-      for (final int k : new int[] {10, 20, 30, 40}) {  // live keys in the merged leaf (50 deleted)
+      for (final int k : new int[] {10, 20, 30, 40}) { // live keys in the merged leaf (50 deleted)
         assertTrue(complete.put(keyOf(k), valueOf(k)));
       }
-      modified = complete.copy();                        // mirrors the writer path: dirty cleared
+      modified = complete.copy(); // mirrors the writer path: dirty cleared
       assertFalse(modified.hasDirty());
 
       VersioningType.carryForwardAgingHOTEntries(java.util.List.of(newest, middle, oldest), modified);
@@ -420,8 +418,6 @@ final class HOTLeafPageCowTest {
   }
 
   private static ResourceConfiguration newConfig(final VersioningType versioningType) {
-    return new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE)
-        .versioningApproach(versioningType)
-        .build();
+    return new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).versioningApproach(versioningType).build();
   }
 }

@@ -214,13 +214,15 @@ public interface BytesOut<T> extends AutoCloseable {
   BytesIn<T> bytesForRead();
 
   /**
-   * Whether a page serializer may retain an owned copy when an empty byte-handler pipeline leaves
-   * the bytes unchanged.
+   * Whether a page serializer may retain an owned copy when an empty byte-handler pipeline leaves the
+   * bytes unchanged.
    *
-   * <p>The default is deliberately conservative: arbitrary sinks may be cleared or reused as soon
-   * as serialization returns, while a page's encoded cache can outlive that call. Reusable scratch
-   * sinks may return {@code false} only when their owner either consumes the written prefix
-   * synchronously or invokes serialization solely for its page-preparation side effects.</p>
+   * <p>
+   * The default is deliberately conservative: arbitrary sinks may be cleared or reused as soon as
+   * serialization returns, while a page's encoded cache can outlive that call. Reusable scratch sinks
+   * may return {@code false} only when their owner either consumes the written prefix synchronously
+   * or invokes serialization solely for its page-preparation side effects.
+   * </p>
    *
    * @return {@code true} when the serializer must publish an independently owned identity cache
    */

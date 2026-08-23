@@ -19,23 +19,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ProjectionIndexBuilderBorrowedSinkTest {
 
   private static final int SAMPLE_LEAVES = 16;
-  private static final byte[] KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
+  private static final byte[] KINDS =
+      {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
-  private static final byte[] REUSE_KINDS = {
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
-  };
+  private static final byte[] REUSE_KINDS =
+      {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET};
 
   @Test
   void sixteenPageSampleDrainsSynchronouslyAndMatchesTheRawAdapterByteForByte() {
     final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
     for (int i = 0; i < SAMPLE_LEAVES; i++) {
       final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
-      assertTrue(page.appendRow(10_000L + i, new long[] {i, 0L}, new boolean[2],
-          new String[] {"", "sample-" + i}));
+      assertTrue(page.appendRow(10_000L + i, new long[] {i, 0L}, new boolean[2], new String[] {"", "sample-" + i}));
       assertTrue(page.stringDictionaryIsSlabBacked(1));
       sample.add(page);
     }
@@ -77,8 +73,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     final byte[][] convertedWire = new byte[SAMPLE_LEAVES][];
     for (int i = 0; i < SAMPLE_LEAVES; i++) {
       final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
-      assertTrue(page.appendRow(20_000L + i, new long[] {i, 0L}, new boolean[2],
-          new String[] {"", "elected-" + i}));
+      assertTrue(page.appendRow(20_000L + i, new long[] {i, 0L}, new boolean[2], new String[] {"", "elected-" + i}));
       assertTrue(page.stringDictionaryIsSlabBacked(1), "every leading sample leaf must convert from slab ranges");
       page.convertStringDictColumnToGlobal(1, dictionary);
       assertFalse(page.stringDictionaryIsSlabBacked(1));
@@ -87,8 +82,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     }
 
     final int[] callbackIndex = {0};
-    final ProjectionIndexRowGroupPage reusable = ProjectionIndexBuilder.emitBorrowedSampleForReuse(sample,
-        dictionaries, page -> {
+    final ProjectionIndexRowGroupPage reusable =
+        ProjectionIndexBuilder.emitBorrowedSampleForReuse(sample, dictionaries, page -> {
           final int index = callbackIndex[0]++;
           assertSame(sample.get(index), page);
           assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, page.columnKind(1));
@@ -106,8 +101,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     assertEquals(0, reusable.getRowCount());
     assertEquals(Long.MAX_VALUE, reusable.firstRecordKey());
     assertEquals(Long.MIN_VALUE, reusable.lastRecordKey());
-    assertTrue(reusable.appendRow(30_000L, new long[] {7L, 0L}, new boolean[2],
-        new String[] {"", "after-sample"}), "the returned page must already be ready for its next leaf");
+    assertTrue(reusable.appendRow(30_000L, new long[] {7L, 0L}, new boolean[2], new String[] {"", "after-sample"}),
+        "the returned page must already be ready for its next leaf");
   }
 
   @Test
@@ -118,18 +113,17 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     for (int leafIndex = 0; leafIndex < SAMPLE_LEAVES; leafIndex++) {
       final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
       for (int value = 0; value < distinctValues; value++) {
-        assertTrue(page.appendRow(100_000L + (long) leafIndex * distinctValues + value,
-            new long[] {value, 0L}, new boolean[2], new String[] {"", "shared-" + value}));
+        assertTrue(page.appendRow(100_000L + (long) leafIndex * distinctValues + value, new long[] {value, 0L},
+            new boolean[2], new String[] {"", "shared-" + value}));
       }
       repeatedPerLeafDictionaryEntries += page.stringDictionarySize(1);
       sample.add(page);
     }
-    assertEquals(GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND,
-        repeatedPerLeafDictionaryEntries,
+    assertEquals(GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND, repeatedPerLeafDictionaryEntries,
         "the bounded sample must reach the interner's exact structural admission cap");
 
-    final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter(1, Long.MAX_VALUE,
-        GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
+    final GlobalValueDictionaryWriter dictionary =
+        new GlobalValueDictionaryWriter(1, Long.MAX_VALUE, GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
     try {
       ProjectionIndexBuilder.seedGlobalDictionaryFromSample(sample, 1, dictionary);
       assertEquals(distinctValues, dictionary.entryCount(),
@@ -152,8 +146,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
       sample.add(page);
     }
 
-    final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter(1, Long.MAX_VALUE,
-        GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
+    final GlobalValueDictionaryWriter dictionary =
+        new GlobalValueDictionaryWriter(1, Long.MAX_VALUE, GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
     try {
       ProjectionIndexBuilder.seedGlobalDictionaryFromSample(sample, 1, dictionary);
       assertEquals(GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND, dictionary.entryCount(),
@@ -170,12 +164,11 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
 
   @Test
   void autoHeadroomBoundaryReservesExactlyOneFullyDistinctLeaf() {
-    final int admissionCeiling = GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
-        - ProjectionIndexRowGroupPage.MAX_ROWS;
+    final int admissionCeiling =
+        GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND - ProjectionIndexRowGroupPage.MAX_ROWS;
     assertTrue(ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(admissionCeiling));
     assertFalse(ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(admissionCeiling + 1));
-    assertThrows(IllegalArgumentException.class,
-        () -> ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(-1));
+    assertThrows(IllegalArgumentException.class, () -> ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(-1));
   }
 
   @Test
@@ -185,8 +178,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     final byte[] before = page.serialize();
     final RuntimeException sinkFailure = new RuntimeException("sink failed");
 
-    final RuntimeException thrown = assertThrows(RuntimeException.class,
-        () -> ProjectionIndexBuilder.emitBorrowedLeafForReuse(page,
+    final RuntimeException thrown =
+        assertThrows(RuntimeException.class, () -> ProjectionIndexBuilder.emitBorrowedLeafForReuse(page,
             new GlobalValueDictionaryWriter[REUSE_KINDS.length], borrowed -> {
               assertSame(page, borrowed);
               assertArrayEquals(before, borrowed.serialize());
@@ -213,8 +206,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
         new ProjectionIndexColumnSegmentCodec.EncodedRowGroup[3];
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
         new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
-    final ProjectionIndexRowGroupPage afterFirst = ProjectionIndexBuilder.emitBorrowedLeafForReuse(page,
-        dictionaries, borrowed -> {
+    final ProjectionIndexRowGroupPage afterFirst =
+        ProjectionIndexBuilder.emitBorrowedLeafForReuse(page, dictionaries, borrowed -> {
           assertSame(page, borrowed);
           assertArrayEquals(expectedLarge.serialize(), borrowed.serialize());
           emitted[0] = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(borrowed, workspace);
@@ -225,8 +218,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     populateSmallRawShape(afterFirst);
     assertFalse(afterFirst.columnUnrepresentable(2), "sticky flags from the first generation must be cleared");
     assertFalse(afterFirst.columnNumericNonIntegral(0), "numeric provenance must be generation-local");
-    final ProjectionIndexRowGroupPage afterSecond = ProjectionIndexBuilder.emitBorrowedLeafForReuse(afterFirst,
-        dictionaries, borrowed -> {
+    final ProjectionIndexRowGroupPage afterSecond =
+        ProjectionIndexBuilder.emitBorrowedLeafForReuse(afterFirst, dictionaries, borrowed -> {
           assertSame(page, borrowed);
           assertArrayEquals(expectedSmall.serialize(), borrowed.serialize(),
               "short RAW leaf must not expose dirty FSST-generation tails");
@@ -235,8 +228,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     assertSame(page, afterSecond);
 
     populateLargeFsstShape(afterSecond);
-    final ProjectionIndexRowGroupPage afterThird = ProjectionIndexBuilder.emitBorrowedLeafForReuse(afterSecond,
-        dictionaries, borrowed -> {
+    final ProjectionIndexRowGroupPage afterThird =
+        ProjectionIndexBuilder.emitBorrowedLeafForReuse(afterSecond, dictionaries, borrowed -> {
           assertSame(page, borrowed);
           assertArrayEquals(expectedLarge.serialize(), borrowed.serialize(),
               "A/B/A reuse must restore the original wire representation exactly");
@@ -246,10 +239,10 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     assertEquals(0, afterThird.getRowCount());
 
     assertEncodedEquals(emitted[0], emitted[2], 2);
-    assertEquals(1, segmentOf(emitted[0], ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2))[
-        ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "large dictionary must use FSST");
-    assertEquals(0, segmentOf(emitted[1], ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2))[
-        ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "short dictionary must use RAW");
+    assertEquals(1, segmentOf(emitted[0], ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(
+        2))[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "large dictionary must use FSST");
+    assertEquals(0, segmentOf(emitted[1], ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(
+        2))[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "short dictionary must use RAW");
     assertArrayEquals(expectedSmall.serialize(),
         ProjectionIndexColumnSegmentCodec.assembleRaw(emitted[1].descriptor(), resolverOf(emitted[1])),
         "STRING_SET counts/elements and RAW scalar strings must cold-assemble byte-identically");
@@ -273,8 +266,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
           : new String[] {"Comedy", "Feature"};
       unrepresentable[2] = row == 17;
       nonIntegral[0] = row == 19;
-      assertTrue(page.appendRow(1_000_000L + row, longs, bools, strings, sets, present, unrepresentable,
-          nonIntegral, nonDoubleSource));
+      assertTrue(page.appendRow(1_000_000L + row, longs, bools, strings, sets, present, unrepresentable, nonIntegral,
+          nonDoubleSource));
       unrepresentable[2] = false;
       nonIntegral[0] = false;
     }
@@ -289,9 +282,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
       final String[] strings = {"", "", scalar[row], ""};
       final String[][] sets = new String[REUSE_KINDS.length][];
       sets[3] = setValues[row];
-      assertTrue(page.appendRow(9_000_000L + row, longs, bools, strings, sets,
-          new boolean[] {true, true, true, true}, new boolean[REUSE_KINDS.length],
-          new boolean[REUSE_KINDS.length], new boolean[REUSE_KINDS.length]));
+      assertTrue(page.appendRow(9_000_000L + row, longs, bools, strings, sets, new boolean[] {true, true, true, true},
+          new boolean[REUSE_KINDS.length], new boolean[REUSE_KINDS.length], new boolean[REUSE_KINDS.length]));
     }
   }
 

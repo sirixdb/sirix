@@ -49,8 +49,8 @@ import java.util.stream.Stream;
  * <ul>
  * <li>{@code -Dsirix.offheap.bytes} (default 24 GiB) — page buffer pool;</li>
  * <li>{@code -Dsirix.autoCommit.nodes} (default 1048576) — logical auto-commit threshold in nodes.
- * The async-flush import mode retains that logical threshold while bounding each storage-only
- * flush epoch to {@link AfterCommitState#MAX_ASYNC_FLUSH_NODE_COUNT} modifications;</li>
+ * The async-flush import mode retains that logical threshold while bounding each storage-only flush
+ * epoch to {@link AfterCommitState#MAX_ASYNC_FLUSH_NODE_COUNT} modifications;</li>
  * <li>{@code -DstorageType} (default FILE_CHANNEL for this benchmark) — selects the preallocated,
  * single-append-owner path that can release immutable projection payloads before the root commit.
  * MEMORY_MAPPED remains available explicitly, but its legacy physical-tail semantics cannot safely
@@ -118,8 +118,7 @@ public final class ClickBenchLoadMain {
 
   /** Resolve the effective HotSpot value, rather than trusting possibly duplicated JVM arguments. */
   private static long effectiveVmOption(final String option) {
-    final HotSpotDiagnosticMXBean diagnosticBean =
-        ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+    final HotSpotDiagnosticMXBean diagnosticBean = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
     if (diagnosticBean == null) {
       throw new IllegalStateException("The HFT gate requires the HotSpot diagnostic MXBean");
     }
@@ -191,10 +190,8 @@ public final class ClickBenchLoadMain {
     final HftRuntimeEvidence.Build hftBuild = hftTelemetry
         ? HftRuntimeEvidence.capture(ClickBenchLoadMain.class)
         : null;
-    final int pinnedTrieScanBudget = positiveIntProperty(
-        "sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024);
-    final int pinnedTrieBatchCapacity = positiveIntProperty(
-        "sirix.asyncFlush.pinnedTrieSpillBatchCapacity", 64);
+    final int pinnedTrieScanBudget = positiveIntProperty("sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024);
+    final int pinnedTrieBatchCapacity = positiveIntProperty("sirix.asyncFlush.pinnedTrieSpillBatchCapacity", 64);
     // Resolve these before HFT_MEASURE_START. Loading the management bean or SharedArenas class
     // inside the marked region would contaminate the very GC evidence the marker is meant to bind.
     final String hftConfiguration = hftTelemetry
@@ -204,17 +201,17 @@ public final class ClickBenchLoadMain {
                 + "initialHeapBytes=%d maxHeapBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s "
                 + "storage=%s projectionMode=%s expectedRows=%d pinnedTrieScanBudget=%d "
                 + "pinnedTrieBatchCapacity=%d versioningType=%s appendWorkers=%d appendQueueCapacity=%d",
-            System.getProperty("sirix.projection.globalDict", "auto").toLowerCase(Locale.ROOT),
-            autoCommit, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT,
-            SharedArenas.strategy().name().toLowerCase(Locale.ROOT),
+            System.getProperty("sirix.projection.globalDict", "auto").toLowerCase(Locale.ROOT), autoCommit,
+            AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT, SharedArenas.strategy().name().toLowerCase(Locale.ROOT),
             effectiveVmOption("MaxNewSize"), effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"),
-            effectiveVmOption("G1HeapRegionSize"),
-            hftBuild.gcLogging(), hftBuild.safepointLogging(), storageType,
+            effectiveVmOption("G1HeapRegionSize"), hftBuild.gcLogging(), hftBuild.safepointLogging(), storageType,
             projection
-                ? incrementalProjection ? "incremental" : "second-pass"
+                ? incrementalProjection
+                    ? "incremental"
+                    : "second-pass"
                 : "disabled",
-            sourceExpectedRows, pinnedTrieScanBudget, pinnedTrieBatchCapacity, versioningType,
-            appendWorkers(), positiveIntProperty("sirix.asyncFlush.appendQueueCapacity", 1))
+            sourceExpectedRows, pinnedTrieScanBudget, pinnedTrieBatchCapacity, versioningType, appendWorkers(),
+            positiveIntProperty("sirix.asyncFlush.appendQueueCapacity", 1))
         : null;
 
     Files.createDirectories(dbDir);
@@ -240,8 +237,8 @@ public final class ClickBenchLoadMain {
         // ingestion old-gen pressure. The end marker is emitted only after close + explicit sync.
         System.out.println("# HFT_MEASURE_START");
         if (hftConfiguration != null) {
-          System.out.println("# HFT_BUILD gitSha=" + hftBuild.gitSha()
-              + " artifactSha256=" + hftBuild.artifactSha256());
+          System.out.println(
+              "# HFT_BUILD gitSha=" + hftBuild.gitSha() + " artifactSha256=" + hftBuild.artifactSha256());
           System.out.println(hftConfiguration);
         }
         System.out.flush();
@@ -250,8 +247,7 @@ public final class ClickBenchLoadMain {
           store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonSource.parser(),
               ClickBenchProjection.spec(sourceExpectedRows), jsonSource.ldjson());
         } else {
-          store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonSource.parser(),
-              jsonSource.ldjson());
+          store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonSource.parser(), jsonSource.ldjson());
         }
       }
     }

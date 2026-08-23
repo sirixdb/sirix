@@ -35,14 +35,12 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public <V extends DataRecord> V createRecord(V record, IndexType indexType,
-      int index) {
+  public <V extends DataRecord> V createRecord(V record, IndexType indexType, int index) {
     return delegate().createRecord(record, indexType, index);
   }
 
   @Override
-  public <V extends DataRecord> V prepareRecordForModification(long recordKey,
-      IndexType indexType, int index) {
+  public <V extends DataRecord> V prepareRecordForModification(long recordKey, IndexType indexType, int index) {
     return delegate().prepareRecordForModification(recordKey, indexType, index);
   }
 
@@ -95,8 +93,7 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public UberPage commitWritePages(String commitMessage, Instant commitTimeStamp,
-      boolean isIntermediateCommit) {
+  public UberPage commitWritePages(String commitMessage, Instant commitTimeStamp, boolean isIntermediateCommit) {
     return delegate().commitWritePages(commitMessage, commitTimeStamp, isIntermediateCommit);
   }
 
@@ -136,8 +133,8 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public @Nullable KeyValueLeafPage getModifiedPageForRead(final long recordPageKey,
-      final IndexType indexType, final int index) {
+  public @Nullable KeyValueLeafPage getModifiedPageForRead(final long recordPageKey, final IndexType indexType,
+      final int index) {
     return delegate().getModifiedPageForRead(recordPageKey, indexType, index);
   }
 
@@ -147,8 +144,7 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public @Nullable DataRecord getDetachedRecordForRead(final KeyValueLeafPage page,
-      final long recordKey) {
+  public @Nullable DataRecord getDetachedRecordForRead(final KeyValueLeafPage page, final long recordKey) {
     return delegate().getDetachedRecordForRead(page, recordKey);
   }
 

@@ -39,14 +39,16 @@ public final class AppendSaturationProcess {
   }
 
   public static void main(final String[] args) throws Exception {
-    if (args.length != 2) throw new IllegalArgumentException("root and record count are required");
+    if (args.length != 2)
+      throw new IllegalArgumentException("root and record count are required");
     final Path root = Path.of(args[0]);
     final int records = Integer.parseInt(args[1]);
-    if (records <= 0) throw new IllegalArgumentException("record count must be positive");
+    if (records <= 0)
+      throw new IllegalArgumentException("record count must be positive");
     final int appendWorkers = Integer.getInteger("sirix.asyncFlush.appendParallelism", -1);
     final int queueCapacity = Integer.getInteger("sirix.asyncFlush.appendQueueCapacity", -1);
-    final VersioningType versioningType = VersioningType.valueOf(
-        System.getProperty("versioningType", VersioningType.FULL.name()));
+    final VersioningType versioningType =
+        VersioningType.valueOf(System.getProperty("versioningType", VersioningType.FULL.name()));
     if (appendWorkers != 1 || queueCapacity != 1) {
       throw new IllegalArgumentException("canonical append saturation requires p=1/q=1");
     }
@@ -58,12 +60,10 @@ public final class AppendSaturationProcess {
         : String.format(Locale.ROOT,
             "# HFT_SATURATION_CONFIG initialHeapBytes=%d maxHeapBytes=%d "
                 + "maxNewSizeBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s",
-            effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"),
-            effectiveVmOption("MaxNewSize"), effectiveVmOption("G1HeapRegionSize"),
-            build.gcLogging(), build.safepointLogging());
+            effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"), effectiveVmOption("MaxNewSize"),
+            effectiveVmOption("G1HeapRegionSize"), build.gcLogging(), build.safepointLogging());
     if (build != null) {
-      System.out.println("# HFT_BUILD gitSha=" + build.gitSha()
-          + " artifactSha256=" + build.artifactSha256());
+      System.out.println("# HFT_BUILD gitSha=" + build.gitSha() + " artifactSha256=" + build.artifactSha256());
     }
     final int resources = 4;
     final String dataset = PinnedTrieProjectionSpillColdReopenTest.dataset(records);
@@ -89,7 +89,8 @@ public final class AppendSaturationProcess {
         admissionAttempts.countDown();
         return;
       }
-      if (!"write".equals(site)) return;
+      if (!"write".equals(site))
+        return;
       if (!NodeStorageEngineWriter.isSnapshotAppendWorkerThread()) {
         ownershipFailure.compareAndSet(null, new AssertionError("append executed outside its worker"));
       }
@@ -114,12 +115,12 @@ public final class AppendSaturationProcess {
         loads.add(executor.submit(() -> {
           ready.countDown();
           start.await();
-          PinnedTrieProjectionSpillColdReopenTest.runProjectionLoad(location,
-              versioningType, records, dataset, 64);
+          PinnedTrieProjectionSpillColdReopenTest.runProjectionLoad(location, versioningType, records, dataset, 64);
           return null;
         }));
       }
-      if (!ready.await(30, TimeUnit.SECONDS)) throw new AssertionError("resource loads did not become ready");
+      if (!ready.await(30, TimeUnit.SECONDS))
+        throw new AssertionError("resource loads did not become ready");
       HftBoundaryTelemetry.reset();
       ProjectionIndexChangeListener.resetMaintenanceTelemetry();
       GlobalValueDictionary.resetProbeTelemetry();
@@ -129,7 +130,8 @@ public final class AppendSaturationProcess {
         System.out.println(hftConfiguration);
       }
       start.countDown();
-      if (!workerBlocked.await(30, TimeUnit.SECONDS)) throw new AssertionError("append worker was not occupied");
+      if (!workerBlocked.await(30, TimeUnit.SECONDS))
+        throw new AssertionError("append worker was not occupied");
       if (!admissionAttempts.await(30, TimeUnit.SECONDS)) {
         throw new AssertionError("all resource writers did not reach append admission");
       }
@@ -147,7 +149,8 @@ public final class AppendSaturationProcess {
       NodeStorageEngineWriter.asyncFlushFaultHook = null;
     }
 
-    if (ownershipFailure.get() != null) throw new AssertionError(ownershipFailure.get());
+    if (ownershipFailure.get() != null)
+      throw new AssertionError(ownershipFailure.get());
     if (NodeStorageEngineWriter.globalCallerAppendRuns() != 0L) {
       throw new AssertionError("append work ran on a caller thread");
     }
@@ -180,16 +183,18 @@ public final class AppendSaturationProcess {
     }
     awaitDrainedExecutor(appendWorkers, queueCapacity, drainedState);
 
-    System.out.printf("# HFT_APPEND_SATURATION versioningType=%s resources=%d records=%d appendWorkers=%d queueCapacity=%d "
+    System.out.printf(
+        "# HFT_APPEND_SATURATION versioningType=%s resources=%d records=%d appendWorkers=%d queueCapacity=%d "
             + "callerThreadAppendRuns=%d submitWaitCount=%d submitWaitTotalNs=%d submitWaitMaxNs=%d "
             + "saturatedActiveWorkers=%d saturatedQueuedTasks=%d saturatedAdmissionWaiters=%d "
             + "saturatedAvailableAdmissions=%d drainedActiveWorkers=%d drainedQueuedTasks=%d "
             + "drainedAdmissionWaiters=%d drainedAvailableAdmissions=%d coldReopens=%d%n",
-        versioningType, resources, records, appendWorkers, queueCapacity, NodeStorageEngineWriter.globalCallerAppendRuns(),
-        NodeStorageEngineWriter.globalSubmitWaitCount(), NodeStorageEngineWriter.globalSubmitWaitNanos(),
-        NodeStorageEngineWriter.globalSubmitWaitMaxNanos(), saturatedState.activeWorkers(), saturatedState.queuedTasks(),
-        saturatedState.admissionWaiters(), saturatedState.availableAdmissions(), drainedState.activeWorkers(),
-        drainedState.queuedTasks(), drainedState.admissionWaiters(), drainedState.availableAdmissions(), coldReopens);
+        versioningType, resources, records, appendWorkers, queueCapacity,
+        NodeStorageEngineWriter.globalCallerAppendRuns(), NodeStorageEngineWriter.globalSubmitWaitCount(),
+        NodeStorageEngineWriter.globalSubmitWaitNanos(), NodeStorageEngineWriter.globalSubmitWaitMaxNanos(),
+        saturatedState.activeWorkers(), saturatedState.queuedTasks(), saturatedState.admissionWaiters(),
+        saturatedState.availableAdmissions(), drainedState.activeWorkers(), drainedState.queuedTasks(),
+        drainedState.admissionWaiters(), drainedState.availableAdmissions(), coldReopens);
     System.out.println("# HFT_MEASURE_END");
   }
 
@@ -201,16 +206,14 @@ public final class AppendSaturationProcess {
     return Long.parseLong(bean.getVMOption(name).getValue());
   }
 
-  private static void awaitSaturatedExecutor(final int resources, final int appendWorkers,
-      final int queueCapacity, final ExecutorState state) throws InterruptedException {
+  private static void awaitSaturatedExecutor(final int resources, final int appendWorkers, final int queueCapacity,
+      final ExecutorState state) throws InterruptedException {
     final int requiredWaiters = resources - appendWorkers - queueCapacity;
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30L);
     do {
       state.capture();
-      if (state.activeWorkers() == appendWorkers
-          && state.queuedTasks() == queueCapacity
-          && state.admissionWaiters() >= requiredWaiters
-          && state.availableAdmissions() == 0) {
+      if (state.activeWorkers() == appendWorkers && state.queuedTasks() == queueCapacity
+          && state.admissionWaiters() >= requiredWaiters && state.availableAdmissions() == 0) {
         return;
       }
       Thread.sleep(1L);
@@ -218,15 +221,13 @@ public final class AppendSaturationProcess {
     throw new AssertionError("append executor did not become saturated: " + state);
   }
 
-  private static void awaitDrainedExecutor(final int appendWorkers, final int queueCapacity,
-      final ExecutorState state) throws InterruptedException {
+  private static void awaitDrainedExecutor(final int appendWorkers, final int queueCapacity, final ExecutorState state)
+      throws InterruptedException {
     final int admissionCapacity = Math.addExact(appendWorkers, queueCapacity);
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30L);
     do {
       state.capture();
-      if (state.activeWorkers() == 0
-          && state.queuedTasks() == 0
-          && state.admissionWaiters() == 0
+      if (state.activeWorkers() == 0 && state.queuedTasks() == 0 && state.admissionWaiters() == 0
           && state.availableAdmissions() == admissionCapacity) {
         return;
       }
@@ -267,8 +268,8 @@ public final class AppendSaturationProcess {
 
     @Override
     public String toString() {
-      return "ExecutorState[activeWorkers=" + activeWorkers + ", queuedTasks=" + queuedTasks
-          + ", admissionWaiters=" + admissionWaiters + ", availableAdmissions=" + availableAdmissions + ']';
+      return "ExecutorState[activeWorkers=" + activeWorkers + ", queuedTasks=" + queuedTasks + ", admissionWaiters="
+          + admissionWaiters + ", availableAdmissions=" + availableAdmissions + ']';
     }
   }
 }

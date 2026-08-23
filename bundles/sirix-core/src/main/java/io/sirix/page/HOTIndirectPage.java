@@ -1231,11 +1231,12 @@ public final class HOTIndirectPage implements Page {
   void writeChildIndex(final BytesOut<?> sink) {
     Objects.requireNonNull(sink);
     if (childIndex != null && childIndex.length != ZERO_CHILD_INDEX.length) {
-      throw new IllegalStateException(
-          "HOT indirect child-index length " + childIndex.length + " does not match wire length "
-              + ZERO_CHILD_INDEX.length);
+      throw new IllegalStateException("HOT indirect child-index length " + childIndex.length
+          + " does not match wire length " + ZERO_CHILD_INDEX.length);
     }
-    sink.write(childIndex == null ? ZERO_CHILD_INDEX : childIndex);
+    sink.write(childIndex == null
+        ? ZERO_CHILD_INDEX
+        : childIndex);
   }
 
   /**
@@ -1260,9 +1261,8 @@ public final class HOTIndirectPage implements Page {
       return;
     }
     if (extractionPositions.length != numExtractionBytes) {
-      throw new IllegalStateException(
-          "HOT indirect extraction-position count " + extractionPositions.length
-              + " does not match wire count " + numExtractionBytes);
+      throw new IllegalStateException("HOT indirect extraction-position count " + extractionPositions.length
+          + " does not match wire count " + numExtractionBytes);
     }
     sink.write(extractionPositions, 0, numExtractionBytes);
   }
@@ -1290,9 +1290,8 @@ public final class HOTIndirectPage implements Page {
       return;
     }
     if (extractionMasks.length != expectedMaskCount) {
-      throw new IllegalStateException(
-          "HOT indirect extraction-mask count " + extractionMasks.length
-              + " does not match wire count " + expectedMaskCount);
+      throw new IllegalStateException("HOT indirect extraction-mask count " + extractionMasks.length
+          + " does not match wire count " + expectedMaskCount);
     }
     for (int index = 0; index < expectedMaskCount; index++) {
       sink.writeLong(extractionMasks[index]);

@@ -76,8 +76,7 @@ class FrameSlotAllocatorTest {
   @Test
   void slotVersionsUseNonHumongousChunksWithAtomicBoundaryAccess() {
     final int length = 100_000;
-    final FrameSlotAllocator.ChunkedAtomicLongArray versions =
-        new FrameSlotAllocator.ChunkedAtomicLongArray(length);
+    final FrameSlotAllocator.ChunkedAtomicLongArray versions = new FrameSlotAllocator.ChunkedAtomicLongArray(length);
 
     assertEquals(length, versions.length());
     assertTrue(versions.chunkCount() > 1, "the regression must cross a backing-array boundary");

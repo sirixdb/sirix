@@ -48,12 +48,12 @@ import java.util.function.LongFunction;
  * pathNodeKey matches the projection's root path) into {@link ProjectionIndexRowGroupPage}s.
  * Completed leaves are delivered to the internal synchronous sink in append order so the caller can
  * stream them into the HOT backing tree without holding more than one leaf in memory. The public
- * {@code Consumer<byte[]>} surface is preserved by a serialising adapter; internal persistence paths
- * borrow the live page and encode detached column segments directly.
- * Stable record keys need not be monotone in document traversal order. The builder greedily keeps
- * every key greater than the last routing-backbone key on that backbone and marks every inversion as
- * a sparse order exception. Exception rows stay in document order and receive exact persistent
- * locators when their bounded row group is emitted.
+ * {@code Consumer<byte[]>} surface is preserved by a serialising adapter; internal persistence
+ * paths borrow the live page and encode detached column segments directly. Stable record keys need
+ * not be monotone in document traversal order. The builder greedily keeps every key greater than
+ * the last routing-backbone key on that backbone and marks every inversion as a sparse order
+ * exception. Exception rows stay in document order and receive exact persistent locators when their
+ * bounded row group is emitted.
  *
  * <h2>Traversal shape</h2> The builder is driven directly rather than via the node-visitor pattern
  * CAS/PATH/NAME indexes use — projection extraction needs to look at each matching record's
@@ -73,12 +73,13 @@ public final class ProjectionIndexBuilder {
   /**
    * Synchronous hand-off of a builder-owned row-group page.
    *
-   * <p>The callback borrows the page only for the duration of {@link #accept}. It must neither
-   * mutate the page nor retain the page or any array reachable through its accessors. Data that
-   * outlives the callback must be copied into independently owned output before the callback
-   * returns. In particular, {@link ProjectionIndexColumnSegmentCodec#encodeReferencedOnly(
-   * ProjectionIndexRowGroupPage, ProjectionIndexColumnSegmentCodec.EncodeWorkspace)} satisfies
-   * this contract: all of its published outputs are detached.
+   * <p>
+   * The callback borrows the page only for the duration of {@link #accept}. It must neither mutate
+   * the page nor retain the page or any array reachable through its accessors. Data that outlives the
+   * callback must be copied into independently owned output before the callback returns. In
+   * particular,
+   * {@link ProjectionIndexColumnSegmentCodec#encodeReferencedOnly( ProjectionIndexRowGroupPage, ProjectionIndexColumnSegmentCodec.EncodeWorkspace)}
+   * satisfies this contract: all of its published outputs are detached.
    */
   @FunctionalInterface
   interface BorrowedLeafSink {
@@ -131,8 +132,8 @@ public final class ProjectionIndexBuilder {
   private @Nullable LongFunction<SirixDeweyID> walkOrderLabelResolver;
 
   /**
-   * How many leading leaves are held back to measure string-column cardinality on. Sixteen leaves
-   * are a bounded 16,384-row decision drain and match the resource-wide interner's structural entry
+   * How many leading leaves are held back to measure string-column cardinality on. Sixteen leaves are
+   * a bounded 16,384-row decision drain and match the resource-wide interner's structural entry
    * ceiling. AUTO explicitly declines when exact seeding leaves less than one fully distinct row
    * group's headroom, before any page is converted, so the next small burst of novel values cannot
    * immediately abandon the projection. NEVER mode skips the sample entirely because its result is
@@ -145,9 +146,9 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Below this many dictionary entries in the sample, keep the per-leaf dictionaries whatever the
-   * deduplication factor says. A small dictionary is cheap per leaf, packs into a couple of bits
-   * per row, and materialises with no record read at all; the resource-wide machinery cannot repay
-   * itself against that.
+   * deduplication factor says. A small dictionary is cheap per leaf, packs into a couple of bits per
+   * row, and materialises with no record read at all; the resource-wide machinery cannot repay itself
+   * against that.
    */
   private static final int MIN_GLOBAL_DICTIONARY_ENTRIES =
       Integer.getInteger("sirix.projection.globalDict.minEntries", 4096);
@@ -155,11 +156,10 @@ public final class ProjectionIndexBuilder {
   /**
    * The per-leaf deduplication factor a column must fail to reach before it goes global — rows per
    * distinct value within a leaf. At 4, a 1024-row leaf holds at most 256 distinct values and the
-   * per-leaf dictionary is genuinely compressing; above that number of distinct values it is
-   * mostly storing each string once and adding an id per row on top.
+   * per-leaf dictionary is genuinely compressing; above that number of distinct values it is mostly
+   * storing each string once and adding an id per row on top.
    */
-  private static final int MIN_PER_LEAF_DEDUP_FACTOR =
-      Integer.getInteger("sirix.projection.globalDict.dedupFactor", 4);
+  private static final int MIN_PER_LEAF_DEDUP_FACTOR = Integer.getInteger("sirix.projection.globalDict.dedupFactor", 4);
 
   /** How the per-column choice between per-leaf and resource-wide dictionaries is made. */
   private enum GlobalDictionaryMode {
@@ -175,17 +175,19 @@ public final class ProjectionIndexBuilder {
    * {@code -Dsirix.projection.globalDict=auto|always|never}. Overridable so one corpus can be built
    * both ways and the two compared, which is the only way to show the encodings agree.
    *
-   * <p><b>Defaults to {@code auto}</b>, now that the executor consumes the kind: a global column's
-   * group key runs through the integer kernel, its ids feed a distinct fold directly, predicate
-   * literals resolve to ids once per query, and winners reverse-map in one batch. What {@code auto}
-   * does NOT do is force the encoding — the per-leaf dedup factor decides per column, so a column
-   * with a few dozen repeated labels keeps its per-leaf dictionary and every route it already had.
+   * <p>
+   * <b>Defaults to {@code auto}</b>, now that the executor consumes the kind: a global column's group
+   * key runs through the integer kernel, its ids feed a distinct fold directly, predicate literals
+   * resolve to ids once per query, and winners reverse-map in one batch. What {@code auto} does NOT
+   * do is force the encoding — the per-leaf dedup factor decides per column, so a column with a few
+   * dozen repeated labels keeps its per-leaf dictionary and every route it already had.
    *
-   * <p>{@code always} is a testing knob and nothing else. It forces the encoding onto columns the
+   * <p>
+   * {@code always} is a testing knob and nothing else. It forces the encoding onto columns the
    * heuristic would never choose it for, including low-cardinality ones, which is exactly what makes
-   * it useful for a differential — and also means it moves shapes that need STRING VALUES rather
-   * than identities (ordering by the key, substring and stringify transforms, composite keys) onto
-   * the generic pipeline. Those decline; they do not answer differently.
+   * it useful for a differential — and also means it moves shapes that need STRING VALUES rather than
+   * identities (ordering by the key, substring and stringify transforms, composite keys) onto the
+   * generic pipeline. Those decline; they do not answer differently.
    */
   /**
    * Aggregate ceiling for all resource-wide string dictionaries in one build or maintenance
@@ -193,10 +195,10 @@ public final class ProjectionIndexBuilder {
    *
    * <p>
    * Default {@code min(heap/8, 2 GiB)}. The heap fraction is what keeps it sane on a small JVM; the
-   * absolute cap is what keeps several elected columns from summing to the whole heap.  Build-time
+   * absolute cap is what keeps several elected columns from summing to the whole heap. Build-time
    * election shares this aggregate evenly across every string column that could go global (before
    * knowing which candidates AUTO will accept); maintenance shares it across the persisted global
-   * columns.  {@link Long#MAX_VALUE} explicitly disables the aggregate check for every share.
+   * columns. {@link Long#MAX_VALUE} explicitly disables the aggregate check for every share.
    * </p>
    */
   static long globalDictionaryBudgetBytes() {
@@ -226,10 +228,11 @@ public final class ProjectionIndexBuilder {
   /**
    * Columns reported by the latest successfully published build to complete its diagnostic handoff.
    *
-   * <p>Test observability, and load-bearing for one thing in particular: a differential that
-   * compares the two encodings proves nothing unless the "global" arm actually produced a global
-   * column, and nothing else about the outcome reveals whether it did. Concurrent builds report in
-   * atomic handoff order; callers needing a resource-specific answer must inspect its metadata.
+   * <p>
+   * Test observability, and load-bearing for one thing in particular: a differential that compares
+   * the two encodings proves nothing unless the "global" arm actually produced a global column, and
+   * nothing else about the outcome reveals whether it did. Concurrent builds report in atomic handoff
+   * order; callers needing a resource-specific answer must inspect its metadata.
    */
   private static final java.util.concurrent.atomic.AtomicInteger GLOBAL_DICTIONARY_COLUMNS =
       new java.util.concurrent.atomic.AtomicInteger();
@@ -239,7 +242,9 @@ public final class ProjectionIndexBuilder {
     return GLOBAL_DICTIONARY_COLUMNS.get();
   }
 
-  /** Dictionary policy resolved once for this build; system-property changes affect the next build. */
+  /**
+   * Dictionary policy resolved once for this build; system-property changes affect the next build.
+   */
   private final GlobalDictionaryMode globalDictionaryMode;
 
   /**
@@ -264,9 +269,9 @@ public final class ProjectionIndexBuilder {
    * Heap cost of ONE dictionary entry beyond its value bytes.
    *
    * <p>
-   * Derived, not guessed: {@code offsets} 8 B + {@code lengths} 4 B + primary and secondary hashes
-   * 16 B = 28 B of index per id, plus the open-addressed table's {@code tableHashes} 8 B and
-   * {@code tableIds} 4 B per SLOT.  The table is half full, so it holds two slots per entry — 24 B.
+   * Derived, not guessed: {@code offsets} 8 B + {@code lengths} 4 B + primary and secondary hashes 16
+   * B = 28 B of index per id, plus the open-addressed table's {@code tableHashes} 8 B and
+   * {@code tableIds} 4 B per SLOT. The table is half full, so it holds two slots per entry — 24 B.
    * Steady state is therefore 52 B; the writer separately accounts for growth peaks, radix output,
    * fixed arena-chunk slack and the chunk directory.
    * </p>
@@ -280,16 +285,16 @@ public final class ProjectionIndexBuilder {
    * The election needs it and cannot derive it: a streaming one-pass build sees the row count only
    * when the stream ends. With it, a column whose dictionary cannot fit is declined before any leaf
    * is written as global. Without it, the writer's runtime cap is the only protection and a corpus
-   * large enough will abandon its projection mid-build — correct, non-fatal, and measured as the
-   * row path.
+   * large enough will abandon its projection mid-build — correct, non-fatal, and measured as the row
+   * path.
    * </p>
    */
   private long expectedRows = -1L;
 
   /**
-   * Tell the build how many records to expect, so the global-dictionary election can decline a
-   * column that would not fit. Values {@code <= 0} mean "unknown" and disable the election-time
-   * check; the runtime cap still applies.
+   * Tell the build how many records to expect, so the global-dictionary election can decline a column
+   * that would not fit. Values {@code <= 0} mean "unknown" and disable the election-time check; the
+   * runtime cap still applies.
    *
    * @param rows the expected record count
    */
@@ -563,26 +568,23 @@ public final class ProjectionIndexBuilder {
    * caller's commit persists them.
    *
    * @param emptyRecordSetAllowed creation fails loudly when the root path resolves to no path class
-   *        (declaring an index over a non-existent record set is a caller error), while the
-   *        explicit recreation may persist a truthful empty projection
+   *        (declaring an index over a non-existent record set is a caller error), while the explicit
+   *        recreation may persist a truthful empty projection
    */
   public static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
       final boolean emptyRecordSetAllowed) {
-    buildAndPersist(indexDef, pathSummary, (NodeReadOnlyTrx) rtx, storageEngineWriter,
-        emptyRecordSetAllowed);
+    buildAndPersist(indexDef, pathSummary, (NodeReadOnlyTrx) rtx, storageEngineWriter, emptyRecordSetAllowed);
   }
 
   public static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final XmlNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
       final boolean emptyRecordSetAllowed) {
-    buildAndPersist(indexDef, pathSummary, (NodeReadOnlyTrx) rtx, storageEngineWriter,
-        emptyRecordSetAllowed);
+    buildAndPersist(indexDef, pathSummary, (NodeReadOnlyTrx) rtx, storageEngineWriter, emptyRecordSetAllowed);
   }
 
   private static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
-      final NodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
-      final boolean emptyRecordSetAllowed) {
+      final NodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter, final boolean emptyRecordSetAllowed) {
     final ProjectionIndexHOTStorage storage =
         ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
     // Explicit creation/recreation owns this complete index sub-tree. Reset it before emitting V0
@@ -596,12 +598,10 @@ public final class ProjectionIndexBuilder {
     structuralOrderDirectory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     final LongFunction<ImmutableNode> documentNodeLookup =
         nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-    final LongFunction<SirixDeweyID> orderLabelResolver =
-        recordKey -> structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup,
-            ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
+    final LongFunction<SirixDeweyID> orderLabelResolver = recordKey -> structuralOrderDirectory.fullLabel(recordKey,
+        documentNodeLookup, ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
     final int priorRowGroupCount = 0;
-    final ProjectionSetSummaryChunks.BuildAccumulator setSummaries =
-        new ProjectionSetSummaryChunks.BuildAccumulator();
+    final ProjectionSetSummaryChunks.BuildAccumulator setSummaries = new ProjectionSetSummaryChunks.BuildAccumulator();
     if (emptyRecordSetAllowed && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
       final byte[] columnKinds = new byte[fieldTypes.size()];
@@ -662,8 +662,7 @@ public final class ProjectionIndexBuilder {
           flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
       fenceWriter.finish(storage, priorRowGroupCount);
       finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), priorRowGroupCount,
-          rtx.getRevisionNumber(),
-          columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+          rtx.getRevisionNumber(), columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
       try {
@@ -681,15 +680,15 @@ public final class ProjectionIndexBuilder {
   /**
    * Persist every resource-wide dictionary the build produced and return their header keys.
    *
-   * <p>The in-memory intern tables are released as soon as their contents are on the page: they are
-   * the largest transient allocation of a build over a high-cardinality column, and nothing needs
-   * them once the records exist.
+   * <p>
+   * The in-memory intern tables are released as soon as their contents are on the page: they are the
+   * largest transient allocation of a build over a high-cardinality column, and nothing needs them
+   * once the records exist.
    *
    * @return per-column header node keys, {@code 0} where the column has no dictionary, or
    *         {@code null} when the build produced none at all
    */
-  static long @Nullable [] flushValueDictionaries(
-      final GlobalValueDictionaryWriter @Nullable [] dictionaries,
+  static long @Nullable [] flushValueDictionaries(final GlobalValueDictionaryWriter @Nullable [] dictionaries,
       final StorageEngineWriter storageEngineWriter) {
     if (dictionaries == null) {
       return null;
@@ -834,30 +833,25 @@ public final class ProjectionIndexBuilder {
    */
   static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
-      final int buildRevision, final byte[] columnKinds,
-      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
+      final int buildRevision, final byte[] columnKinds, final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
       final long @Nullable [] valueDictionaryHeaderKeys,
       final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
-    finishPersist(indexDef, storage, firstKeys.size(), firstKeys, lastKeys, priorRowGroupCount,
-        buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, streamingBloomChunks);
-  }
-
-  static void finishPersistWithStreamingFences(final IndexDef indexDef,
-      final ProjectionIndexHOTStorage storage, final int rowGroupCount,
-      final int priorRowGroupCount, final int buildRevision, final byte[] columnKinds,
-      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
-      final long @Nullable [] valueDictionaryHeaderKeys,
-      final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
-    finishPersist(indexDef, storage, rowGroupCount, null, null, priorRowGroupCount, buildRevision,
+    finishPersist(indexDef, storage, firstKeys.size(), firstKeys, lastKeys, priorRowGroupCount, buildRevision,
         columnKinds, setSummaries, valueDictionaryHeaderKeys, streamingBloomChunks);
   }
 
+  static void finishPersistWithStreamingFences(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
+      final int rowGroupCount, final int priorRowGroupCount, final int buildRevision, final byte[] columnKinds,
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries, final long @Nullable [] valueDictionaryHeaderKeys,
+      final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
+    finishPersist(indexDef, storage, rowGroupCount, null, null, priorRowGroupCount, buildRevision, columnKinds,
+        setSummaries, valueDictionaryHeaderKeys, streamingBloomChunks);
+  }
+
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
-      final int rowGroupCount, final @Nullable LongArrayList firstKeys,
-      final @Nullable LongArrayList lastKeys, final int priorRowGroupCount,
-      final int buildRevision, final byte[] columnKinds,
-      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
-      final long @Nullable [] valueDictionaryHeaderKeys,
+      final int rowGroupCount, final @Nullable LongArrayList firstKeys, final @Nullable LongArrayList lastKeys,
+      final int priorRowGroupCount, final int buildRevision, final byte[] columnKinds,
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries, final long @Nullable [] valueDictionaryHeaderKeys,
       final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
       storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
@@ -869,8 +863,7 @@ public final class ProjectionIndexBuilder {
     }
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
-    final Map<Integer, Map<String, Long>> persistedSetSummaries =
-        setSummaries.writeAll(storage, columnKinds);
+    final Map<Integer, Map<String, Long>> persistedSetSummaries = setSummaries.writeAll(storage, columnKinds);
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names, columnKinds,
         rowGroupCount, buildRevision, persistedSetSummaries, valueDictionaryHeaderKeys);
     // Fingerprint BLOCKS — the contiguous acceleration over the per-leaf segments just written.
@@ -939,8 +932,7 @@ public final class ProjectionIndexBuilder {
       final DescendantAxis axis = new DescendantAxis(rtx);
       while (axis.hasNext()) {
         axis.nextLong();
-        if (rtx.getKind() != NodeKind.ELEMENT
-            || !rootPathNodeKeys.contains(rtx.getPathNodeKey())) {
+        if (rtx.getKind() != NodeKind.ELEMENT || !rootPathNodeKeys.contains(rtx.getPathNodeKey())) {
           continue;
         }
         final long recordKey = rtx.getNodeKey();
@@ -1066,8 +1058,7 @@ public final class ProjectionIndexBuilder {
     return appendRecord(rtx, recordKey, nextOrderLabel());
   }
 
-  boolean appendRecord(final JsonNodeReadOnlyTrx rtx, final long recordKey,
-      final SirixDeweyID orderLabel) {
+  boolean appendRecord(final JsonNodeReadOnlyTrx rtx, final long recordKey, final SirixDeweyID orderLabel) {
     if (!streaming) {
       throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
     }
@@ -1084,8 +1075,7 @@ public final class ProjectionIndexBuilder {
     return appendRecord(rtx, recordKey, nextOrderLabel());
   }
 
-  boolean appendRecord(final XmlNodeReadOnlyTrx rtx, final long recordKey,
-      final SirixDeweyID orderLabel) {
+  boolean appendRecord(final XmlNodeReadOnlyTrx rtx, final long recordKey, final SirixDeweyID orderLabel) {
     if (!streaming) {
       throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
     }
@@ -1215,7 +1205,9 @@ public final class ProjectionIndexBuilder {
     final LongFunction<SirixDeweyID> resolver = orderLabelResolver != null
         ? orderLabelResolver
         : walkOrderLabelResolver;
-    return resolver == null ? nextOrderLabel() : resolver.apply(recordKey);
+    return resolver == null
+        ? nextOrderLabel()
+        : resolver.apply(recordKey);
   }
 
   /**
@@ -1227,14 +1219,12 @@ public final class ProjectionIndexBuilder {
     if (orderLabelResolver != null) {
       return;
     }
-    final ProjectionStructuralOrderDirectory.Accessor directory =
-        ProjectionStructuralOrderDirectory.inMemory();
+    final ProjectionStructuralOrderDirectory.Accessor directory = ProjectionStructuralOrderDirectory.inMemory();
     directory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     final StorageEngineReader reader = rtx.getStorageEngineReader();
-    final LongFunction<ImmutableNode> nodeLookup =
-        nodeKey -> reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-    walkOrderLabelResolver = recordKey -> directory.fullLabel(recordKey, nodeLookup,
-        ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
+    final LongFunction<ImmutableNode> nodeLookup = nodeKey -> reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+    walkOrderLabelResolver =
+        recordKey -> directory.fullLabel(recordKey, nodeLookup, ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
   }
 
   private void prepareLeafForOrderLabel(final byte[] orderLabel, final String databaseType) {
@@ -1242,17 +1232,17 @@ public final class ProjectionIndexBuilder {
       flushCurrentRowGroup();
       currentLeaf = newLeaf();
       if (!currentLeaf.canAppendOrderLabel(orderLabel)) {
-        throw new IllegalStateException("an empty projection row group rejected one " + databaseType
-            + " record order label");
+        throw new IllegalStateException(
+            "an empty projection row group rejected one " + databaseType + " record order label");
       }
     }
   }
 
-  private void appendExtractedRecord(final long recordKey, final SirixDeweyID orderLabel,
-      final byte[] orderLabelBytes, final String databaseType) {
+  private void appendExtractedRecord(final long recordKey, final SirixDeweyID orderLabel, final byte[] orderLabelBytes,
+      final String databaseType) {
     if (lastOrderLabel != null && lastOrderLabel.compareTo(orderLabel) >= 0) {
-      throw new IllegalStateException("projection " + databaseType
-          + " record order labels are not strictly increasing at record " + recordKey);
+      throw new IllegalStateException(
+          "projection " + databaseType + " record order labels are not strictly increasing at record " + recordKey);
     }
     final boolean orderException = isOrderException(recordKey);
     if (!extractor.appendTo(currentLeaf, recordKey, orderException, orderLabelBytes)) {
@@ -1276,7 +1266,9 @@ public final class ProjectionIndexBuilder {
     }
   }
 
-  /** Persist this emitted unit's sparse exact locators without retaining a build-wide exception map. */
+  /**
+   * Persist this emitted unit's sparse exact locators without retaining a build-wide exception map.
+   */
   static void persistOrderExceptionLocators(final ProjectionIndexRowGroupPage leaf, final int physicalSlot,
       final ProjectionRecordLocator.Accessor recordLocator) {
     Objects.requireNonNull(leaf, "leaf must not be null");
@@ -1317,8 +1309,7 @@ public final class ProjectionIndexBuilder {
     }
   }
 
-  long @Nullable [] flushStreamingDictionaryGeneration(
-      final StorageEngineWriter storageEngineWriter) {
+  long @Nullable [] flushStreamingDictionaryGeneration(final StorageEngineWriter storageEngineWriter) {
     if (!streaming) {
       throw new IllegalStateException("dictionary generations are only available to a streaming builder");
     }
@@ -1334,8 +1325,7 @@ public final class ProjectionIndexBuilder {
         continue;
       }
       if (encoder instanceof final GlobalValueDictionaryWriter initialGeneration) {
-        final StreamingGlobalDictionary streamingDictionary =
-            new StreamingGlobalDictionary(column, initialGeneration);
+        final StreamingGlobalDictionary streamingDictionary = new StreamingGlobalDictionary(column, initialGeneration);
         encoders[column] = streamingDictionary;
         if (globalDictionaries != null) {
           globalDictionaries[column] = null;
@@ -1343,8 +1333,8 @@ public final class ProjectionIndexBuilder {
         encoder = streamingDictionary;
       }
       if (!(encoder instanceof final StreamingGlobalDictionary dictionary)) {
-        throw new IllegalStateException("streaming global dictionary column " + column
-            + " has an unsupported encoder " + encoder.getClass().getName());
+        throw new IllegalStateException("streaming global dictionary column " + column + " has an unsupported encoder "
+            + encoder.getClass().getName());
       }
       dictionary.bind(storageEngineWriter);
       if (headerKeys == null) {
@@ -1367,8 +1357,7 @@ public final class ProjectionIndexBuilder {
     private @Nullable GlobalValueDictionaryWriter additions;
     private long persistentProbeCount;
 
-    StreamingGlobalDictionary(final int column,
-        final GlobalValueDictionaryWriter initialGeneration) {
+    StreamingGlobalDictionary(final int column, final GlobalValueDictionaryWriter initialGeneration) {
       this.column = column;
       this.budgetBytes = initialGeneration.budgetBytes();
       this.admissionPolicy = initialGeneration.admissionPolicy();
@@ -1378,8 +1367,8 @@ public final class ProjectionIndexBuilder {
     void bind(final StorageEngineWriter writer) {
       Objects.requireNonNull(writer, "writer must not be null");
       if (storageEngineWriter != null && storageEngineWriter != writer) {
-        throw new IllegalStateException("global dictionary column " + column
-            + " is already bound to another storage epoch");
+        throw new IllegalStateException(
+            "global dictionary column " + column + " is already bound to another storage epoch");
       }
       storageEngineWriter = writer;
       if (headerKey == 0) {
@@ -1387,8 +1376,8 @@ public final class ProjectionIndexBuilder {
       }
       final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, writer);
       if (header == null || !header.isDirectoryComplete()) {
-        throw new IllegalStateException("global dictionary column " + column
-            + " cannot read its durable generation header " + headerKey);
+        throw new IllegalStateException(
+            "global dictionary column " + column + " cannot read its durable generation header " + headerKey);
       }
       baseHeader = header;
       baseEntryCount = header.getEntryCount();
@@ -1397,8 +1386,8 @@ public final class ProjectionIndexBuilder {
     @Override
     public int intern(final String value) {
       Objects.requireNonNull(value, "value must not be null");
-      final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value,
-          GlobalValueDictionaryWriter.MAX_VALUE_BYTES);
+      final int encodedLength =
+          GlobalValueDictionaryEncoder.utf8LengthCapped(value, GlobalValueDictionaryWriter.MAX_VALUE_BYTES);
       if (encodedLength > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
         throw refuseOversizedValue(encodedLength);
       }
@@ -1411,8 +1400,8 @@ public final class ProjectionIndexBuilder {
       Objects.checkFromIndexSize(offset, length, source.length);
       final StorageEngineWriter writer = storageEngineWriter;
       if (writer == null) {
-        throw new IllegalStateException("global dictionary column " + column
-            + " is not bound to a streaming storage epoch");
+        throw new IllegalStateException(
+            "global dictionary column " + column + " is not bound to a streaming storage epoch");
       }
       if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
         throw refuseOversizedValue(length);
@@ -1436,8 +1425,8 @@ public final class ProjectionIndexBuilder {
           return existing;
         }
         if (existing == GlobalValueDictionary.ID_UNKNOWN) {
-          throw new IllegalStateException("global dictionary column " + column
-              + " cannot probe generation header " + headerKey);
+          throw new IllegalStateException(
+              "global dictionary column " + column + " cannot probe generation header " + headerKey);
         }
       }
       if (generation == null) {
@@ -1454,20 +1443,22 @@ public final class ProjectionIndexBuilder {
 
     /**
      * A value the V0 layout cannot hold is an ADMISSION decision, not an encoding fault: this
-     * dictionary is optional, so under {@link GlobalValueDictionaryWriter.AdmissionPolicy#DECLINE}
-     * the build must receive the typed decline, abandon the projection and let the LOAD COMPLETE.
-     * Throwing an untyped failure here instead killed a legal ingest over an optional index — the
-     * one outcome {@link GlobalDictionaryBudgetExceededException} exists to prevent. A forced
-     * dictionary still fails closed, because there is no per-leaf fallback to retreat to.
+     * dictionary is optional, so under {@link GlobalValueDictionaryWriter.AdmissionPolicy#DECLINE} the
+     * build must receive the typed decline, abandon the projection and let the LOAD COMPLETE. Throwing
+     * an untyped failure here instead killed a legal ingest over an optional index — the one outcome
+     * {@link GlobalDictionaryBudgetExceededException} exists to prevent. A forced dictionary still
+     * fails closed, because there is no per-leaf fallback to retreat to.
      */
     private RuntimeException refuseOversizedValue(final int length) {
       final GlobalValueDictionaryWriter generation = additions;
-      final long retainedBytes = generation == null ? 0L : generation.retainedBytes();
+      final long retainedBytes = generation == null
+          ? 0L
+          : generation.retainedBytes();
       final int admitted = generation == null
           ? baseEntryCount
           : Math.addExact(baseEntryCount, generation.entryCount());
-      return GlobalValueDictionaryWriter.oversizedValueRefusal(column, length, retainedBytes,
-          budgetBytes, admitted, admissionPolicy);
+      return GlobalValueDictionaryWriter.oversizedValueRefusal(column, length, retainedBytes, budgetBytes, admitted,
+          admissionPolicy);
     }
 
     long persistentProbeCount() {
@@ -1477,15 +1468,14 @@ public final class ProjectionIndexBuilder {
     long flush() {
       final StorageEngineWriter writer = storageEngineWriter;
       if (writer == null) {
-        throw new IllegalStateException("global dictionary column " + column
-            + " is not bound to a streaming storage epoch");
+        throw new IllegalStateException(
+            "global dictionary column " + column + " is not bound to a streaming storage epoch");
       }
       final GlobalValueDictionaryWriter generation = additions;
       try {
         if (generation == null || generation.entryCount() == 0) {
           if (headerKey == 0) {
-            throw new IllegalStateException("global dictionary column " + column
-                + " has no values or durable header");
+            throw new IllegalStateException("global dictionary column " + column + " has no values or durable header");
           }
           return headerKey;
         }
@@ -1496,8 +1486,7 @@ public final class ProjectionIndexBuilder {
         } else {
           final ValueDictionaryHeaderNode header = baseHeader;
           if (header == null) {
-            throw new IllegalStateException("global dictionary column " + column
-                + " has no base header for append");
+            throw new IllegalStateException("global dictionary column " + column + " has no base header for append");
           }
           generation.flushAppend(header, namePage, databaseType, writer, writer.getLog());
         }
@@ -1525,10 +1514,12 @@ public final class ProjectionIndexBuilder {
   /**
    * Release build-only state after a streaming load finishes or aborts.
    *
-   * <p>A {@link ProjectionBulkLoad} may remain reachable from a caller even after it has been removed
+   * <p>
+   * A {@link ProjectionBulkLoad} may remain reachable from a caller even after it has been removed
    * from the ACTIVE registry. Clearing the leading sample, reusable pages and dictionary intern
    * tables here prevents that harmless handle from retaining the build's largest transient
-   * allocations. Dictionary release is idempotent, including after a successful flush.</p>
+   * allocations. Dictionary release is idempotent, including after a successful flush.
+   * </p>
    */
   void releaseTransientState() {
     final GlobalValueDictionaryWriter[] dictionaries = globalDictionaries;
@@ -1586,9 +1577,10 @@ public final class ProjectionIndexBuilder {
   /**
    * Borrow one live page synchronously, then reset it only after the callback has returned.
    *
-   * <p>The ordering is the ownership proof: if the callback throws, execution never reaches the
-   * reset and the failing borrower sees an unchanged page. Package visibility supports focused
-   * failure-path coverage without exposing reuse through the public API.
+   * <p>
+   * The ordering is the ownership proof: if the callback throws, execution never reaches the reset
+   * and the failing borrower sees an unchanged page. Package visibility supports focused failure-path
+   * coverage without exposing reuse through the public API.
    */
   static ProjectionIndexRowGroupPage emitBorrowedLeafForReuse(final ProjectionIndexRowGroupPage leaf,
       final GlobalValueDictionaryEncoder[] dictionaries, final BorrowedLeafSink leafSink) {
@@ -1607,19 +1599,18 @@ public final class ProjectionIndexBuilder {
    * Which of the two shapes wins is a property of the DATA, not of the declared type: the same
    * {@code string} column is a handful of repeated labels in one resource and millions of distinct
    * identifiers in another. It cannot be known before rows are seen, and walking the resource twice
-   * to find out would double the build. So the build runs normally, the leading leaves are held
-   * back, and the per-leaf dictionaries they already contain ARE the measurement — converting them
+   * to find out would double the build. So the build runs normally, the leading leaves are held back,
+   * and the per-leaf dictionaries they already contain ARE the measurement — converting them
    * afterwards costs one intern per dictionary entry, not per row.
    *
    * <h2>The measurement</h2>
    *
    * Not the distinct ratio but the per-leaf DEDUPLICATION FACTOR: sampled rows divided by the total
    * size of the per-leaf dictionaries. That is the quantity the choice actually turns on. A per-leaf
-   * dictionary earns its keep by storing a recurring value once per leaf; when a leaf's dictionary
-   * is nearly as large as its row count the dictionary stores almost nothing twice, so it has
-   * become a second copy of the column plus an id per row. A global distinct ratio would not say
-   * this — a column can have a million distinct values resource-wide and still repeat heavily
-   * inside a leaf.
+   * dictionary earns its keep by storing a recurring value once per leaf; when a leaf's dictionary is
+   * nearly as large as its row count the dictionary stores almost nothing twice, so it has become a
+   * second copy of the column plus an id per row. A global distinct ratio would not say this — a
+   * column can have a million distinct values resource-wide and still repeat heavily inside a leaf.
    */
   private void decideDictionaryKindsAndDrainSample() {
     final byte[] kinds = extractor.columnKindsRef();
@@ -1628,7 +1619,8 @@ public final class ProjectionIndexBuilder {
     final long totalBudgetBytes = globalDictionaryBudgetBytes();
     int possibleGlobalColumns = 0;
     for (final byte kind : kinds) {
-      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) possibleGlobalColumns++;
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)
+        possibleGlobalColumns++;
     }
     final long budgetBytes = possibleGlobalColumns == 0 || totalBudgetBytes == Long.MAX_VALUE
         ? totalBudgetBytes
@@ -1637,11 +1629,9 @@ public final class ProjectionIndexBuilder {
     // refuse its own first value. Treat it as "no global dictionaries" rather than constructing
     // writers that fail on contact — a bound set too low is a decline, like every other bound here.
     final boolean budgetAdmitsAnyDictionary = budgetBytes >= GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES;
-    if (mode == GlobalDictionaryMode.ALWAYS && possibleGlobalColumns > 0
-        && !budgetAdmitsAnyDictionary) {
+    if (mode == GlobalDictionaryMode.ALWAYS && possibleGlobalColumns > 0 && !budgetAdmitsAnyDictionary) {
       throw new IllegalStateException("forced global dictionaries require at least "
-          + GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES + " B per string column, got "
-          + budgetBytes + " B");
+          + GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES + " B per string column, got " + budgetBytes + " B");
     }
     if (!budgetAdmitsAnyDictionary && PROJ_DIAG) {
       System.err.println("[proj] global dictionaries DISABLED: budget " + budgetBytes + " B is below the "
@@ -1663,15 +1653,14 @@ public final class ProjectionIndexBuilder {
         final int sampledLargestValueBytes = sampledMaximumValueBytes(c);
         if (sampledLargestValueBytes > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
           final String detail = "sampled UTF-8 value length " + sampledLargestValueBytes
-              + " exceeds the safe V0 limit of " + GlobalValueDictionaryWriter.MAX_VALUE_BYTES
-              + " bytes";
+              + " exceeds the safe V0 limit of " + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes";
           if (mode == GlobalDictionaryMode.ALWAYS) {
-            throw new IllegalStateException("forced global dictionary for column " + c
-                + " cannot be built safely: " + detail);
+            throw new IllegalStateException(
+                "forced global dictionary for column " + c + " cannot be built safely: " + detail);
           }
           if (PROJ_DIAG) {
-            System.err.println("[proj] global dictionary DECLINED for column " + c + ": "
-                + detail + " — column stays per-leaf DICT");
+            System.err.println(
+                "[proj] global dictionary DECLINED for column " + c + ": " + detail + " — column stays per-leaf DICT");
           }
           continue;
         }
@@ -1702,8 +1691,8 @@ public final class ProjectionIndexBuilder {
           if (projected > budgetBytes / 2) {
             if (PROJ_DIAG) {
               System.err.println("[proj] global dictionary DECLINED for column " + c + ": projected " + projected
-                  + " B (" + expectedRows + " rows x " + bytesPerEntry
-                  + " B/entry) exceeds half of the " + budgetBytes + " B budget — column stays per-leaf DICT");
+                  + " B (" + expectedRows + " rows x " + bytesPerEntry + " B/entry) exceeds half of the " + budgetBytes
+                  + " B budget — column stays per-leaf DICT");
             }
             continue;
           }
@@ -1719,14 +1708,13 @@ public final class ProjectionIndexBuilder {
           // second hash table or any per-row allocation, and its structural/budget preflight refuses
           // before a sampled leaf has been converted.
           seedGlobalDictionaryFromSample(sample, c, dictionary);
-          if (mode == GlobalDictionaryMode.AUTO
-              && !globalDictionarySampleHasHeadroom(dictionary.entryCount())) {
+          if (mode == GlobalDictionaryMode.AUTO && !globalDictionarySampleHasHeadroom(dictionary.entryCount())) {
             if (PROJ_DIAG) {
-              System.err.println("[proj] global dictionary DECLINED for column " + c + ": exact sample seeding "
-                  + "used " + dictionary.entryCount() + " of "
-                  + GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND + " safe entries, leaving fewer "
-                  + "than one full row group's " + MIN_GLOBAL_DICTIONARY_HEADROOM
-                  + "-entry headroom — column stays per-leaf DICT");
+              System.err.println(
+                  "[proj] global dictionary DECLINED for column " + c + ": exact sample seeding " + "used "
+                      + dictionary.entryCount() + " of " + GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
+                      + " safe entries, leaving fewer " + "than one full row group's " + MIN_GLOBAL_DICTIONARY_HEADROOM
+                      + "-entry headroom — column stays per-leaf DICT");
             }
             dictionary.release();
             continue;
@@ -1735,8 +1723,8 @@ public final class ProjectionIndexBuilder {
         } catch (final GlobalDictionaryBudgetExceededException declined) {
           dictionary.release();
           if (PROJ_DIAG) {
-            System.err.println("[proj] global dictionary DECLINED for column " + c + ": "
-                + declined.getMessage() + " — column stays per-leaf DICT");
+            System.err.println("[proj] global dictionary DECLINED for column " + c + ": " + declined.getMessage()
+                + " — column stays per-leaf DICT");
           }
         } catch (final RuntimeException | Error failure) {
           dictionary.release();
@@ -1783,8 +1771,8 @@ public final class ProjectionIndexBuilder {
    * aggregate-budget decline therefore leaves every sampled page in its original local-dictionary
    * representation.
    */
-  static void seedGlobalDictionaryFromSample(final List<ProjectionIndexRowGroupPage> sample,
-      final int column, final GlobalValueDictionaryWriter dictionary) {
+  static void seedGlobalDictionaryFromSample(final List<ProjectionIndexRowGroupPage> sample, final int column,
+      final GlobalValueDictionaryWriter dictionary) {
     final long[] referencedLocalIds = new long[(ProjectionIndexRowGroupPage.MAX_ROWS + Long.SIZE - 1) / Long.SIZE];
     for (int leafIndex = 0; leafIndex < sample.size(); leafIndex++) {
       final ProjectionIndexRowGroupPage leaf = sample.get(leafIndex);
@@ -1813,8 +1801,7 @@ public final class ProjectionIndexBuilder {
     if (entryCount < 0) {
       throw new IllegalArgumentException("entryCount must not be negative");
     }
-    return entryCount <= GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
-        - MIN_GLOBAL_DICTIONARY_HEADROOM;
+    return entryCount <= GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND - MIN_GLOBAL_DICTIONARY_HEADROOM;
   }
 
   /**
@@ -1832,9 +1819,9 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Drain the dictionary-election sample without reusing a page while any sample data is still
-   * needed. All leading leaves survive measurement, optional local-to-global conversion and
-   * their borrowed callbacks intact; only the final leaf is reset, and only after its callback
-   * returns successfully, to seed steady-state reuse.
+   * needed. All leading leaves survive measurement, optional local-to-global conversion and their
+   * borrowed callbacks intact; only the final leaf is reset, and only after its callback returns
+   * successfully, to seed steady-state reuse.
    *
    * @return the reset final sample leaf, or {@code null} for an empty sample
    */

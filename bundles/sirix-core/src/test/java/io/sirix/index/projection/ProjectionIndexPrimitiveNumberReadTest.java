@@ -70,8 +70,7 @@ final class ProjectionIndexPrimitiveNumberReadTest {
       ]
       """;
 
-  private static final List<String> FIELD_NAMES =
-      List.of("i", "l", "d", "bi", "bd", "id", "ld", "dl");
+  private static final List<String> FIELD_NAMES = List.of("i", "l", "d", "bi", "bd", "id", "ld", "dl");
   private static final List<Type> FIELD_TYPES =
       List.of(Type.LON, Type.LON, Type.DBL, Type.LON, Type.DBL, Type.DBL, Type.DBL, Type.LON);
 
@@ -94,12 +93,9 @@ final class ProjectionIndexPrimitiveNumberReadTest {
                                                    .useDeweyIDs(true)
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx();
-           var parser = JacksonJsonShredder.createStringParser(JSON)) {
-        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD)
-            .commitAfterwards()
-            .build()
-            .call();
+          var wtx = session.beginNodeTrx();
+          var parser = JacksonJsonShredder.createStringParser(JSON)) {
+        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
     }
     // Every assertion below starts from a cache-cold database reopen.
@@ -114,8 +110,8 @@ final class ProjectionIndexPrimitiveNumberReadTest {
   @Test
   void coldCursorReturnsIntegralTagsAndLeavesFallbackKindsUntouched() {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveToFirstChild(), "missing root array after cold reopen");
       assertTrue(rtx.moveToFirstChild(), "missing first record after cold reopen");
       assertTrue(rtx.moveToFirstChild(), "missing first fused field after cold reopen");
@@ -154,14 +150,12 @@ final class ProjectionIndexPrimitiveNumberReadTest {
   void loadTimeProjectionSupportsDeweyDisabledResource() throws Exception {
     final String disabled = "projection-dewey-disabled";
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder(disabled)
-          .useDeweyIDs(false)
-          .build()));
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder(disabled).useDeweyIDs(false).build()));
       final IndexDef definition = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
           List.of(parse("/[]/i", PathParser.Type.JSON)), List.of(Type.LON), 0, IndexDef.DbType.JSON);
       try (JsonResourceSession session = database.beginResourceSession(disabled);
-           var wtx = session.beginNodeTrx();
-           var parser = JacksonJsonShredder.createStringParser("[{\"i\":1}]")) {
+          var wtx = session.beginNodeTrx();
+          var parser = JacksonJsonShredder.createStringParser("[{\"i\":1}]")) {
         assertFalse(session.getResourceConfig().areDeweyIDsStored);
         final JsonIndexController controller =
             (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
@@ -175,16 +169,16 @@ final class ProjectionIndexPrimitiveNumberReadTest {
       ProjectionIndexCatalog.clearCache();
       Databases.clearGlobalCaches();
       try (JsonResourceSession session = database.beginResourceSession(disabled);
-           var rtx = session.beginNodeReadOnlyTrx()) {
+          var rtx = session.beginNodeReadOnlyTrx()) {
         assertFalse(session.getResourceConfig().areDeweyIDsStored);
         final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
         assertNotNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
         assertTrue(controller.hasProjectionIndex());
-        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(
-            session, rtx.getRevisionNumber(), definition);
+        final ProjectionIndexRegistry.Handle handle =
+            ProjectionIndexCatalog.load(session, rtx.getRevisionNumber(), definition);
         assertNotNull(handle);
-        final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-            session, rtx.getRevisionNumber(), definition.getID(), handle.rowGroupCount()));
+        final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(session,
+            rtx.getRevisionNumber(), definition.getID(), handle.rowGroupCount()));
         assertEquals(1, leaves.size());
         final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(leaves.getFirst());
         assertEquals(1, page.getRowCount());
@@ -229,15 +223,16 @@ final class ProjectionIndexPrimitiveNumberReadTest {
     assertFalse(page.columnPureDoubleSource(5));
     assertFalse(page.columnPureDoubleSource(6));
     for (int column = 0; column < FIELD_NAMES.size(); column++) {
-      assertFalse(page.columnUnrepresentable(column), "numeric column unexpectedly declined: " + FIELD_NAMES.get(column));
+      assertFalse(page.columnUnrepresentable(column),
+          "numeric column unexpectedly declined: " + FIELD_NAMES.get(column));
     }
   }
 
   private BuildResult buildProjection(final boolean forceBoxedFallback) {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeReadOnlyTrx delegate = session.beginNodeReadOnlyTrx();
-         var pathSummary = session.openPathSummary()) {
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeReadOnlyTrx delegate = session.beginNodeReadOnlyTrx();
+        var pathSummary = session.openPathSummary()) {
       final int[] boxedNumberReads = new int[1];
       final JsonNodeReadOnlyTrx cursor = new ForwardingJsonNodeReadOnlyTrx() {
         @Override
@@ -264,11 +259,9 @@ final class ProjectionIndexPrimitiveNumberReadTest {
         }
       };
 
-      final var fields = FIELD_NAMES.stream()
-                                    .map(name -> parse("/[]/" + name, PathParser.Type.JSON))
-                                    .toList();
-      final IndexDef def = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON), fields,
-          FIELD_TYPES, 0, IndexDef.DbType.JSON);
+      final var fields = FIELD_NAMES.stream().map(name -> parse("/[]/" + name, PathParser.Type.JSON)).toList();
+      final IndexDef def = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON), fields, FIELD_TYPES, 0,
+          IndexDef.DbType.JSON);
       final List<byte[]> leaves = new ArrayList<>();
       new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(cursor);
       assertEquals(1, leaves.size());

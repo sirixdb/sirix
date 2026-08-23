@@ -20,22 +20,23 @@ import java.lang.invoke.VarHandle;
  *
  * <p>
  * The accumulator block layout is byte-for-byte {@link ProjectionIndexByteScan#newGroupAggAcc}'s —
- * {@code [count, firstSeen, then per aggregate column: presentCount, sum, min, max]} — which is what
- * lets the selection, order plans and emission read a dense slot exactly as they read a
+ * {@code [count, firstSeen, then per aggregate column: presentCount, sum, min, max]} — which is
+ * what lets the selection, order plans and emission read a dense slot exactly as they read a
  * {@link NumericGroupAggTable} stripe or a standalone accumulator.
  *
- * <h2>Sizing</h2> The table costs {@code entryCount × slotWidth × 8} bytes whatever the group count,
- * so it is the LIVE DENSITY of the id space that decides whether it is a good trade. It is affordable
- * exactly when the dictionary is small relative to the aggregate width; the caller gates on
- * {@link #bytesFor} against a byte budget and falls back to the hash tables when it does not fit.
- * There is no growth path: a table that fits at construction fits for the whole scan.
+ * <h2>Sizing</h2> The table costs {@code entryCount × slotWidth × 8} bytes whatever the group
+ * count, so it is the LIVE DENSITY of the id space that decides whether it is a good trade. It is
+ * affordable exactly when the dictionary is small relative to the aggregate width; the caller gates
+ * on {@link #bytesFor} against a byte budget and falls back to the hash tables when it does not
+ * fit. There is no growth path: a table that fits at construction fits for the whole scan.
  *
  * <h2>Concurrency</h2> Slots are SHARED across the scan's workers, so every lane update is atomic.
  * {@code count}, {@code presentCount} and {@code sum} accumulate with {@code getAndAdd}; the
  * monotone lanes ({@code firstSeen}, {@code min}, {@code max}) read plainly and only pay a
- * compare-and-exchange when the row actually improves the lane — the common case is one load and one
- * branch. A monotone lane's plain read can only be STALE IN THE LOSING DIRECTION (a min lane never
- * grows), so the read either skips correctly or loses the exchange and retries with the witness.
+ * compare-and-exchange when the row actually improves the lane — the common case is one load and
+ * one branch. A monotone lane's plain read can only be STALE IN THE LOSING DIRECTION (a min lane
+ * never grows), so the read either skips correctly or loses the exchange and retries with the
+ * witness.
  */
 public final class DenseGlobalGroupAggTable {
 
@@ -143,7 +144,8 @@ public final class DenseGlobalGroupAggTable {
   /**
    * @param aggColumns aggregate columns per group ({@code slotWidth = 2 + 4 * aggColumns})
    * @param maxId highest id the dictionary can issue; ids run {@code 1..maxId}
-   * @param sumExactMask which columns' SUM lanes the query reads (see {@link NumericGroupAggTable#sumsExact})
+   * @param sumExactMask which columns' SUM lanes the query reads (see
+   *        {@link NumericGroupAggTable#sumsExact})
    * @param foldCountLane whether anything reads the {@code count} lane (see {@link #foldCountLane})
    * @throws IllegalArgumentException if the arguments are out of range or the table cannot be
    *         addressed as one array — the caller must have gated on {@link #bytesFor} first
@@ -163,8 +165,8 @@ public final class DenseGlobalGroupAggTable {
     this.maxId = maxId;
     final long length = (long) slotWidth * maxId;
     if (length > MAX_ARRAY_LENGTH) {
-      throw new IllegalArgumentException("dense group table of " + maxId + " ids needs " + length
-          + " lanes, which exceeds one array");
+      throw new IllegalArgumentException(
+          "dense group table of " + maxId + " ids needs " + length + " lanes, which exceeds one array");
     }
     this.lanes = new long[(int) length];
     this.zeroSlot = ProjectionIndexByteScan.newGroupAggAcc(aggColumns, Long.MAX_VALUE);
@@ -185,7 +187,9 @@ public final class DenseGlobalGroupAggTable {
     return maxId;
   }
 
-  /** This table's {@link NumericGroupAggTable#sumsExact} mask — the kernel folds under the same rule. */
+  /**
+   * This table's {@link NumericGroupAggTable#sumsExact} mask — the kernel folds under the same rule.
+   */
   public long sumExactMask() {
     return sumExactMask;
   }

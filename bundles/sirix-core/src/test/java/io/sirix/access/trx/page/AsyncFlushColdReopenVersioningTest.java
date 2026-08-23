@@ -75,8 +75,7 @@ final class AsyncFlushColdReopenVersioningTest {
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(AUTO_FLUSH_THRESHOLD,
-                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(AUTO_FLUSH_THRESHOLD, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int i = 0; i < INSERTED_RECORDS; i++) {
           wtx.moveTo(arrayNodeKey);
@@ -91,8 +90,8 @@ final class AsyncFlushColdReopenVersioningTest {
     NodeStorageEngineWriter.asyncFlushFaultHook = null;
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveToFirstChild());
       assertEquals(INSERTED_RECORDS, rtx.getChildCount());
       assertTrue(rtx.moveToFirstChild());
@@ -100,8 +99,8 @@ final class AsyncFlushColdReopenVersioningTest {
       // process-local caches: parent metadata alone can report the right child count even when a
       // structural spill persisted an unreadable or stale record-page path.
       for (int expected = INSERTED_RECORDS - 1; expected >= 0; expected--) {
-        assertEquals("spill-value-" + expected, rtx.getValue(), "value at array position "
-            + (INSERTED_RECORDS - 1 - expected));
+        assertEquals("spill-value-" + expected, rtx.getValue(),
+            "value at array position " + (INSERTED_RECORDS - 1 - expected));
         if (expected > 0) {
           assertTrue(rtx.moveToRightSibling(), "missing array value " + (expected - 1));
         }
@@ -122,7 +121,7 @@ final class AsyncFlushColdReopenVersioningTest {
       createVersionedResource(database, versioningType);
       final long arrayNodeKey;
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         updatedNodeKey = wtx.insertStringValueAsFirstChild("before-update").getNodeKey();
         assertTrue(wtx.moveTo(arrayNodeKey));
@@ -131,8 +130,7 @@ final class AsyncFlushColdReopenVersioningTest {
       }
 
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         assertTrue(wtx.moveTo(updatedNodeKey));
         wtx.setStringValue("after-update");
         assertTrue(wtx.moveTo(deletedNodeKey));
@@ -157,8 +155,8 @@ final class AsyncFlushColdReopenVersioningTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveTo(insertedNodeKey));
       assertEquals("inserted", rtx.getValue());
       assertTrue(rtx.moveTo(updatedNodeKey));
@@ -177,7 +175,7 @@ final class AsyncFlushColdReopenVersioningTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       createVersionedResource(database, versioningType);
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         ((InternalNodeTrx<?>) wtx).setBulkInsertion(true);
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int i = 0; i < (4 * Constants.NDP_NODE_COUNT); i++) {
@@ -185,8 +183,7 @@ final class AsyncFlushColdReopenVersioningTest {
           final long nodeKey = wtx.insertStringValueAsFirstChild("fixture-" + i).getNodeKey();
           final long pageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
           final int slotOffset = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
-          if (pageKey >= 1 && pageKey <= durablePageNodeKeys.length
-              && slotOffset == Constants.NDP_NODE_COUNT / 2) {
+          if (pageKey >= 1 && pageKey <= durablePageNodeKeys.length && slotOffset == Constants.NDP_NODE_COUNT / 2) {
             durablePageNodeKeys[(int) pageKey - 1] = nodeKey;
           }
         }
@@ -198,8 +195,7 @@ final class AsyncFlushColdReopenVersioningTest {
       }
 
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         for (int i = 0; i < durablePageNodeKeys.length; i++) {
           assertTrue(wtx.moveTo(durablePageNodeKeys[i]));
           wtx.setStringValue("durable-" + i);
@@ -219,8 +215,8 @@ final class AsyncFlushColdReopenVersioningTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       for (int i = 0; i < durablePageNodeKeys.length; i++) {
         assertTrue(rtx.moveTo(durablePageNodeKeys[i]));
         assertEquals("durable-" + i, rtx.getValue());
@@ -239,15 +235,14 @@ final class AsyncFlushColdReopenVersioningTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       createVersionedResource(database, versioningType);
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         valueNodeKey = wtx.insertStringValueAsFirstChild("base").getNodeKey();
         wtx.commit();
       }
 
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         assertTrue(wtx.moveTo(valueNodeKey));
         wtx.setStringValue("aborted");
         final var writer = wtx.getStorageEngineWriter();
@@ -289,8 +284,8 @@ final class AsyncFlushColdReopenVersioningTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveTo(valueNodeKey));
       assertEquals("successor", rtx.getValue());
     }
@@ -311,23 +306,21 @@ final class AsyncFlushColdReopenVersioningTest {
         }
       };
       try {
-        insertHashedArray(database, RESOURCE, AUTO_FLUSH_THRESHOLD,
-            AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+        insertHashedArray(database, RESOURCE, AUTO_FLUSH_THRESHOLD, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
       } finally {
         NodeStorageEngineWriter.asyncFlushFaultHook = null;
       }
-      assertTrue(storageEpochs.get() > 1,
-          "the fixture must cross multiple storage-only epoch boundaries");
+      assertTrue(storageEpochs.get() > 1, "the fixture must cross multiple storage-only epoch boundaries");
 
       insertHashedArray(database, REFERENCE_RESOURCE, Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN);
     }
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession asyncSession = database.beginResourceSession(RESOURCE);
-         final JsonResourceSession referenceSession = database.beginResourceSession(REFERENCE_RESOURCE);
-         final JsonNodeReadOnlyTrx asyncRtx = asyncSession.beginNodeReadOnlyTrx();
-         final JsonNodeReadOnlyTrx referenceRtx = referenceSession.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession asyncSession = database.beginResourceSession(RESOURCE);
+        final JsonResourceSession referenceSession = database.beginResourceSession(REFERENCE_RESOURCE);
+        final JsonNodeReadOnlyTrx asyncRtx = asyncSession.beginNodeReadOnlyTrx();
+        final JsonNodeReadOnlyTrx referenceRtx = referenceSession.beginNodeReadOnlyTrx()) {
       assertEquals(HASHED_RECORDS + 1L, asyncRtx.getDescendantCount(),
           "the document-root count must span every storage-only epoch");
       assertEquals(referenceRtx.getDescendantCount(), asyncRtx.getDescendantCount());
@@ -342,8 +335,7 @@ final class AsyncFlushColdReopenVersioningTest {
     }
   }
 
-  private static void createRollingResource(final Database<JsonResourceSession> database,
-      final String resourceName) {
+  private static void createRollingResource(final Database<JsonResourceSession> database, final String resourceName) {
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .storeDiffs(false)
                                                  .hashKind(HashType.ROLLING)
@@ -372,8 +364,7 @@ final class AsyncFlushColdReopenVersioningTest {
     writer.awaitPendingAsyncFlush();
   }
 
-  private static PageReference currentDocumentPageReference(final StorageEngineWriter writer,
-      final long nodeKey) {
+  private static PageReference currentDocumentPageReference(final StorageEngineWriter writer, final long nodeKey) {
     final NodeStorageEngineReader reader = (NodeStorageEngineReader) writer.getStorageEngineReader();
     final var revisionRoot = writer.getActualRevisionRootPage();
     final PageReference documentRoot = reader.getPageReference(revisionRoot, IndexType.DOCUMENT, -1);
@@ -385,8 +376,7 @@ final class AsyncFlushColdReopenVersioningTest {
     return reference;
   }
 
-  private static void cachePageFragments(final NodeStorageEngineReader reader,
-      final PageReference reference) {
+  private static void cachePageFragments(final NodeStorageEngineReader reader, final PageReference reference) {
     final var fragments = reader.getPageFragments(reference);
     try {
       assertFalse(fragments.pages().isEmpty());
@@ -397,10 +387,10 @@ final class AsyncFlushColdReopenVersioningTest {
     }
   }
 
-  private static void insertHashedArray(final Database<JsonResourceSession> database,
-      final String resourceName, final int flushThreshold, final AfterCommitState afterCommitState) {
+  private static void insertHashedArray(final Database<JsonResourceSession> database, final String resourceName,
+      final int flushThreshold, final AfterCommitState afterCommitState) {
     try (final JsonResourceSession session = database.beginResourceSession(resourceName);
-         final JsonNodeTrx wtx = session.beginNodeTrx(flushThreshold, afterCommitState)) {
+        final JsonNodeTrx wtx = session.beginNodeTrx(flushThreshold, afterCommitState)) {
       ((InternalNodeTrx<?>) wtx).setBulkInsertion(true);
       final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
       for (int i = 0; i < HASHED_RECORDS; i++) {

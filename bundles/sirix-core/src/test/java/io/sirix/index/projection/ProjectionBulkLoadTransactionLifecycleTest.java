@@ -59,8 +59,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
       assertFalse(ProjectionBulkLoad.anyActive(), "rollback leaked an ACTIVE projection owner");
 
       final JsonIndexController reboundController = controller(session, wtx.getRevisionNumber());
-      final ProjectionBulkLoad retry =
-          reboundController.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
+      final ProjectionBulkLoad retry = reboundController.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
       assertNotSame(first, retry);
       assertSame(retry, ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER, wtx));
 
@@ -142,10 +141,8 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void anUnrelatedWriteTransactionCannotResolveOrAbortTheOwner() {
-    final var ownerDatabase =
-        JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-    final var unrelatedDatabase =
-        JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH2.getFile());
+    final var ownerDatabase = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final var unrelatedDatabase = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH2.getFile());
     try (final var ownerSession = ownerDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
         final var unrelatedSession = unrelatedDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
         final var ownerWtx = ownerSession.beginNodeTrx();
@@ -153,15 +150,14 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
       final IndexDef indexDef = projectionDefinition();
       final String ownerResourceKey = ownerSession.getResourceConfig().getResource().toString();
       final ProjectionBulkLoad owner =
-          controller(ownerSession, ownerWtx.getRevisionNumber())
-              .createProjectionIndexAtLoadStart(indexDef, ownerWtx, -1L);
+          controller(ownerSession, ownerWtx.getRevisionNumber()).createProjectionIndexAtLoadStart(indexDef, ownerWtx,
+              -1L);
 
       // Pass the owner's exact registry key deliberately: the owner-token check, not merely a
       // different resource lookup, must reject this transaction.
       assertNull(ProjectionBulkLoad.active(ownerResourceKey, INDEX_NUMBER, unrelatedWtx));
 
-      final JsonIndexController unrelatedController =
-          controller(unrelatedSession, unrelatedWtx.getRevisionNumber());
+      final JsonIndexController unrelatedController = controller(unrelatedSession, unrelatedWtx.getRevisionNumber());
       unrelatedController.createIndexListeners(Set.of(indexDef), unrelatedWtx);
       unrelatedController.applyPendingIndexMaintenance(false);
       unrelatedWtx.close();
@@ -184,8 +180,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
       final IndexDef indexDef = projectionDefinition();
       final String resourceKey = session.getResourceConfig().getResource().toString();
       final JsonIndexController controller = controller(session, wtx.getRevisionNumber());
-      final ProjectionBulkLoad load =
-          controller.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
+      final ProjectionBulkLoad load = controller.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
 
       assertSame(load, ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER, wtx));
       controller.dropIndexes(Set.of(indexDef), wtx);
@@ -201,8 +196,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   private static IndexDef projectionDefinition() {
     return IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-        List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
-        IndexDef.DbType.JSON);
+        List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);
   }
 
   private static JsonIndexController controller(final io.sirix.api.json.JsonResourceSession session,

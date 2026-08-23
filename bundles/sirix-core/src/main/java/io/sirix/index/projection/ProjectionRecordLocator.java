@@ -10,19 +10,20 @@ import org.jspecify.annotations.Nullable;
  * Sparse exact locator for projection records whose stable node key is not part of the monotone
  * document-order routing backbone.
  *
- * <p>The key mapping is a bijection from Sirix's non-negative document node keys onto the negative
+ * <p>
+ * The key mapping is a bijection from Sirix's non-negative document node keys onto the negative
  * signed-long half: {@code Long.MIN_VALUE | recordKey}. Existing projection slot families are all
  * non-negative, so the namespaces cannot alias. The five-byte raw value is
  * {@code [formatVersion=0][physicalSlot int LE]}; it is stored directly in the HOT leaf and never
- * allocates a blob/overflow page.</p>
+ * allocates a blob/overflow page.
+ * </p>
  */
 final class ProjectionRecordLocator {
 
   private static final byte FORMAT_VERSION = 0;
   private static final int VALUE_BYTES = 1 + Integer.BYTES;
 
-  private ProjectionRecordLocator() {
-  }
+  private ProjectionRecordLocator() {}
 
   static long slotKey(final long recordKey) {
     if (recordKey < 0) {
@@ -55,8 +56,7 @@ final class ProjectionRecordLocator {
       return 0;
     }
     if (value.length != VALUE_BYTES || value[0] != FORMAT_VERSION) {
-      throw new IllegalStateException("projection record locator " + recordKey
-          + " has malformed/future value bytes");
+      throw new IllegalStateException("projection record locator " + recordKey + " has malformed/future value bytes");
     }
     final int physicalSlot = ProjectionIndexRowGroupCodec.getIntLE(value, 1);
     checkPhysicalSlot(physicalSlot);

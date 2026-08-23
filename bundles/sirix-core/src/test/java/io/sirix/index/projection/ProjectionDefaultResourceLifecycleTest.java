@@ -54,16 +54,13 @@ final class ProjectionDefaultResourceLifecycleTest {
   }
 
   @ParameterizedTest(name = "{0} maintains a default Dewey-disabled projection")
-  @EnumSource(value = VersioningType.class,
-      names = {"FULL", "DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
-  void insertUpdateDeleteMoveAndColdReopenWorkWithoutStoredDeweyIds(
-      final VersioningType versioningType) throws Exception {
+  @EnumSource(value = VersioningType.class, names = {"FULL", "DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
+  void insertUpdateDeleteMoveAndColdReopenWorkWithoutStoredDeweyIds(final VersioningType versioningType)
+      throws Exception {
     final Path databasePath = temporaryDirectory.resolve(versioningType.name().toLowerCase());
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
-    final IndexDef definition = IndexDefs.createProjectionIdxDef(
-        parse("/records/[]", PathParser.Type.JSON),
-        List.of(parse("/records/[]/score", PathParser.Type.JSON)),
-        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(parse("/records/[]", PathParser.Type.JSON),
+        List.of(parse("/records/[]/score", PathParser.Type.JSON)), List.of(Type.LON), 0, IndexDef.DbType.JSON);
 
     final int indexRevision;
     final int insertRevision;
@@ -72,27 +69,22 @@ final class ProjectionDefaultResourceLifecycleTest {
     final int moveRevision;
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storageType(StorageType.FILE_CHANNEL)
-          .hashKind(HashType.NONE)
-          .storeDiffs(false)
-          .buildPathSummary(true)
-          .versioningApproach(versioningType)
-          .maxNumberOfRevisionsToRestore(10)
-          .build()));
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .hashKind(HashType.NONE)
+                                                              .storeDiffs(false)
+                                                              .buildPathSummary(true)
+                                                              .versioningApproach(versioningType)
+                                                              .maxNumberOfRevisionsToRestore(10)
+                                                              .build()));
 
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx();
-           var parser = JacksonJsonShredder.createStringParser(
-               "{\"records\":[{\"score\":1},{\"score\":2}]}")) {
+          var wtx = session.beginNodeTrx();
+          var parser = JacksonJsonShredder.createStringParser("{\"records\":[{\"score\":1},{\"score\":2}]}")) {
         assertFalse(session.getResourceConfig().areDeweyIDsStored);
-        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD)
-            .commitAfterwards()
-            .build()
-            .call();
+        new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
 
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
         assertFalse(session.getResourceConfig().areDeweyIDsStored);
         session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
         wtx.commit();
@@ -105,7 +97,7 @@ final class ProjectionDefaultResourceLifecycleTest {
       final long secondRecordKey;
       final long firstScoreKey;
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(indexRevision)) {
+          JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(indexRevision)) {
         recordsKey = namedArrayKey(rtx, "records");
         assertTrue(rtx.moveTo(recordsKey));
         assertTrue(rtx.moveToFirstChild());
@@ -116,8 +108,7 @@ final class ProjectionDefaultResourceLifecycleTest {
       }
 
       ProjectionIndexChangeListener.resetMaintenanceTelemetry();
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(recordsKey));
         wtx.insertObjectAsFirstChild();
         wtx.insertObjectRecordAsFirstChild("score", new NumberValue(0));
@@ -126,8 +117,7 @@ final class ProjectionDefaultResourceLifecycleTest {
       insertRevision = mostRecentRevision(database);
       assertProjectionState(database, versioningType, definition, insertRevision, 0L, 1L, 2L);
 
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(firstScoreKey));
         assertTrue(wtx.isNumberValue());
         wtx.setNumberValue(11L);
@@ -136,8 +126,7 @@ final class ProjectionDefaultResourceLifecycleTest {
       updateRevision = mostRecentRevision(database);
       assertProjectionState(database, versioningType, definition, updateRevision, 0L, 11L, 2L);
 
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(secondRecordKey));
         wtx.remove();
         wtx.commit();
@@ -145,8 +134,7 @@ final class ProjectionDefaultResourceLifecycleTest {
       deleteRevision = mostRecentRevision(database);
       assertProjectionState(database, versioningType, definition, deleteRevision, 0L, 11L);
 
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           var wtx = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE); var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveTo(recordsKey));
         wtx.moveSubtreeToFirstChild(firstRecordKey);
         wtx.commit();
@@ -180,13 +168,13 @@ final class ProjectionDefaultResourceLifecycleTest {
       final long... expectedValues) {
     ProjectionIndexCatalog.clearCache();
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       assertFalse(session.getResourceConfig().areDeweyIDsStored);
       assertEquals(versioningType, session.getResourceConfig().versioningType);
       final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(session, revision, definition);
       assertNotNull(handle);
-      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, revision, definition.getID(), handle.rowGroupCount()));
+      final List<byte[]> leaves = handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, revision, definition.getID(), handle.rowGroupCount()));
       final List<Long> values = new ArrayList<>(expectedValues.length);
       for (final byte[] payload : leaves) {
         final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(payload);
@@ -205,14 +193,13 @@ final class ProjectionDefaultResourceLifecycleTest {
       final Axis descendants = new DescendantAxis(rtx);
       while (descendants.hasNext()) {
         descendants.nextLong();
-        if (rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY
-            && name.equals(rtx.getName().getLocalName())) {
+        if (rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY && name.equals(rtx.getName().getLocalName())) {
           return rtx.getNodeKey();
         }
         if (rtx.getKind() == NodeKind.ARRAY) {
           final long arrayKey = rtx.getNodeKey();
-          final boolean named = rtx.moveToParent() && rtx.getKind().playsObjectKeyRole()
-              && name.equals(rtx.getName().getLocalName());
+          final boolean named =
+              rtx.moveToParent() && rtx.getKind().playsObjectKeyRole() && name.equals(rtx.getName().getLocalName());
           rtx.moveTo(arrayKey);
           if (named) {
             return arrayKey;
@@ -225,8 +212,7 @@ final class ProjectionDefaultResourceLifecycleTest {
     }
   }
 
-  private static long namedNumberKey(final JsonNodeReadOnlyTrx rtx, final String name,
-      final int occurrence) {
+  private static long namedNumberKey(final JsonNodeReadOnlyTrx rtx, final String name, final int occurrence) {
     final long restore = rtx.getNodeKey();
     try {
       rtx.moveToDocumentRoot();
@@ -239,8 +225,7 @@ final class ProjectionDefaultResourceLifecycleTest {
         }
         final long numberKey = rtx.getNodeKey();
         final boolean named = name.equals(rtx.getName().getLocalName())
-            || rtx.moveToParent() && rtx.getKind().playsObjectKeyRole()
-                && name.equals(rtx.getName().getLocalName());
+            || rtx.moveToParent() && rtx.getKind().playsObjectKeyRole() && name.equals(rtx.getName().getLocalName());
         rtx.moveTo(numberKey);
         if (named && seen++ == occurrence) {
           return numberKey;

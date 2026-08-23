@@ -34,8 +34,8 @@ final class FileChannelWriterFrontierValidationTest {
     try (FileChannel channel = frame(payload.length, payload)) {
       final RevisionFileData identity = identity(payload, IOStorage.DATA_REGION_START);
 
-      final FileChannelWriter.ValidatedFrame frame = FileChannelWriter.validateRevisionRootFrame(
-          channel, identity, 7, channel.size(), channel.size(), "warm frontier");
+      final FileChannelWriter.ValidatedFrame frame = FileChannelWriter.validateRevisionRootFrame(channel, identity, 7,
+          channel.size(), channel.size(), "warm frontier");
 
       assertEquals(channel.size(), frame.frameEnd());
       assertEquals(payload.length, frame.dataLength());
@@ -45,37 +45,36 @@ final class FileChannelWriterFrontierValidationTest {
   @Test
   void rejectsZeroOversizedAndHashMismatchedFrames() throws Exception {
     try (FileChannel zero = frame(0, new byte[0])) {
-      assertThrows(SirixIOException.class, () -> FileChannelWriter.validateRevisionRootFrame(
-          zero, new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L),
-          1, zero.size(), -1L, "zero"));
+      assertThrows(SirixIOException.class, () -> FileChannelWriter.validateRevisionRootFrame(zero,
+          new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L), 1, zero.size(), -1L, "zero"));
     }
 
     try (FileChannel oversized = frame(Integer.MAX_VALUE, new byte[] {1})) {
-      assertThrows(SirixIOException.class, () -> FileChannelWriter.validateRevisionRootFrame(
-          oversized, new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L),
-          1, oversized.size(), -1L, "oversized"));
+      assertThrows(SirixIOException.class, () -> FileChannelWriter.validateRevisionRootFrame(oversized,
+          new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L), 1, oversized.size(), -1L, "oversized"));
     }
 
     final byte[] payload = payload(4096);
     try (FileChannel mismatch = frame(payload.length, payload)) {
-      assertThrows(SirixIOException.class, () -> FileChannelWriter.validateRevisionRootFrame(
-          mismatch, new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L),
-          1, mismatch.size(), -1L, "hash mismatch"));
-      assertThrows(SirixIOException.class, () -> FileChannelWriter.validateRevisionRootFrame(
-          mismatch, identity(payload, IOStorage.DATA_REGION_START),
-          1, mismatch.size(), mismatch.size() - 1L, "warm-cache mismatch"));
+      assertThrows(SirixIOException.class,
+          () -> FileChannelWriter.validateRevisionRootFrame(mismatch,
+              new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L), 1, mismatch.size(), -1L,
+              "hash mismatch"));
+      assertThrows(SirixIOException.class,
+          () -> FileChannelWriter.validateRevisionRootFrame(mismatch, identity(payload, IOStorage.DATA_REGION_START), 1,
+              mismatch.size(), mismatch.size() - 1L, "warm-cache mismatch"));
     }
   }
 
   @Test
   void rejectsFrameEndOverflowBeforeAnyDestructiveAction() {
-    assertThrows(SirixIOException.class, () -> FileChannelWriter.checkedFrameEnd(
-        Long.MAX_VALUE - IOStorage.OTHER_BEACON, 1, "overflow", 3));
+    assertThrows(SirixIOException.class,
+        () -> FileChannelWriter.checkedFrameEnd(Long.MAX_VALUE - IOStorage.OTHER_BEACON, 1, "overflow", 3));
   }
 
   private FileChannel frame(final int declaredLength, final byte[] payload) throws Exception {
-    final FileChannel channel = FileChannel.open(temporaryDirectory.resolve("frame-" + System.nanoTime()),
-        CREATE, TRUNCATE_EXISTING, READ, WRITE);
+    final FileChannel channel = FileChannel.open(temporaryDirectory.resolve("frame-" + System.nanoTime()), CREATE,
+        TRUNCATE_EXISTING, READ, WRITE);
     channel.position(IOStorage.DATA_REGION_START);
     final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
     header.putInt(declaredLength).flip();

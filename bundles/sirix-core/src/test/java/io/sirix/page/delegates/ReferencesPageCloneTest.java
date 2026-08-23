@@ -20,9 +20,9 @@ import static org.junit.Assert.assertNull;
  * {@link BitmapReferencesPage} and {@link FullReferencesPage} (issue #1079).
  * <p>
  * Every reference must be routed through the {@link PageReference} copy constructor: a manual
- * field-by-field copy dropped the page-fragment hash, aliased the fragment
- * list, and eagerly copied the swizzled in-memory page pointer (which can go stale and be read
- * after free through recycled frames).
+ * field-by-field copy dropped the page-fragment hash, aliased the fragment list, and eagerly copied
+ * the swizzled in-memory page pointer (which can go stale and be read after free through recycled
+ * frames).
  */
 public final class ReferencesPageCloneTest {
 
@@ -65,8 +65,7 @@ public final class ReferencesPageCloneTest {
 
     // (b) The fragment list must be equal but must not alias the source list.
     assertEquals("page fragments must be equal", source.getPageFragments(), clone.getPageFragments());
-    assertNotSame("page fragments must not alias the source list", source.getPageFragments(),
-        clone.getPageFragments());
+    assertNotSame("page fragments must not alias the source list", source.getPageFragments(), clone.getPageFragments());
 
     // (c) The swizzled page pointer must NOT be copied when the reference is resolvable via a
     // persistent key (pre-fix: the raw pointer was copied and could be read after free).
@@ -105,8 +104,7 @@ public final class ReferencesPageCloneTest {
   public void testFullReferencesPageCloneConstructor() {
     // A FullReferencesPage is only constructible from an existing page; an empty bitmap page
     // yields an all-null full page to which the source reference is added directly.
-    final FullReferencesPage source =
-        new FullReferencesPage(new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT));
+    final FullReferencesPage source = new FullReferencesPage(new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT));
     final PageReference sourceReference = source.getOrCreateReference(5);
     assertNotNull(sourceReference);
     configureSourceReference(sourceReference);

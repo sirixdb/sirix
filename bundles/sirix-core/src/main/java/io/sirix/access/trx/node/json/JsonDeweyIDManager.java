@@ -69,8 +69,7 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
       id = parentId.getNewChildID();
     }
 
-    final StructNode root =
-        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final StructNode root = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
     persistUpdatedRecord(root);
 
@@ -79,8 +78,7 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
 
       long previousNodeKey = nodeTrx.getNodeKey();
 
-      final var axis =
-          LevelOrderAxis.newBuilder(nodeTrx).includeSelf().build();
+      final var axis = LevelOrderAxis.newBuilder(nodeTrx).includeSelf().build();
       while (axis.hasNext()) {
         axis.nextLong();
         final SirixDeweyID deweyID;

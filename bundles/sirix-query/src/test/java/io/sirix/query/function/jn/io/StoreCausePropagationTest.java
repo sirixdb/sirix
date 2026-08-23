@@ -27,15 +27,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@code jn:store} must surface the failure that actually aborted the ingestion.
  *
- * <p>The motivating case is a background snapshot flush that poisons the writer: the foreground
- * commit reports it as {@code SirixIOException("Async commit failed", backgroundThrowable)}, which
- * is the shape this test injects at the store boundary. Both wrapping layers inside {@link Store}
- * used to discard that throwable - the inner one built a message-only {@link QueryException} and
- * the outer one bound to the {@code (QNm, Object)} constructor, which renders the throwable into
- * the message instead of attaching it - so the real fault never reached any report and the failure
- * was undiagnosable.
+ * <p>
+ * The motivating case is a background snapshot flush that poisons the writer: the foreground commit
+ * reports it as {@code SirixIOException("Async commit failed", backgroundThrowable)}, which is the
+ * shape this test injects at the store boundary. Both wrapping layers inside {@link Store} used to
+ * discard that throwable - the inner one built a message-only {@link QueryException} and the outer
+ * one bound to the {@code (QNm, Object)} constructor, which renders the throwable into the message
+ * instead of attaching it - so the real fault never reached any report and the failure was
+ * undiagnosable.
  *
- * <p>The assertions walk {@link Throwable#getCause()} transitively and compare by identity. They
+ * <p>
+ * The assertions walk {@link Throwable#getCause()} transitively and compare by identity. They
  * deliberately do not look at message text: a message can carry a rendered throwable while the
  * cause chain is empty, which is exactly the defect under test.
  */
@@ -50,19 +52,17 @@ final class StoreCausePropagationTest {
 
   /** The single-fragment {@code jn:store} arity, which creates the collection if it is absent. */
   private static Sequence[] storeArguments() {
-    return new Sequence[] { new Str(COLLECTION), new Str(RESOURCE), new Str("{\"a\":1}") };
+    return new Sequence[] {new Str(COLLECTION), new Str(RESOURCE), new Str("{\"a\":1}")};
   }
 
   @Test
   void theBackgroundThrowableBehindAFailedAsyncCommitReachesTheCallerAsACause() {
-    final IllegalStateException background =
-        new IllegalStateException("snapshot append failed on the flush worker");
+    final IllegalStateException background = new IllegalStateException("snapshot append failed on the flush worker");
     final SirixIOException asyncCommitFailure = new SirixIOException("Async commit failed", background);
     final FailingJsonDBStore store = new FailingJsonDBStore(asyncCommitFailure);
 
-    final QueryException thrown = assertThrows(QueryException.class,
-        () -> new Store(true).execute(NO_STATIC_CONTEXT, SirixQueryContext.createWithJsonStore(store),
-            storeArguments()));
+    final QueryException thrown = assertThrows(QueryException.class, () -> new Store(true).execute(NO_STATIC_CONTEXT,
+        SirixQueryContext.createWithJsonStore(store), storeArguments()));
 
     assertNotNull(thrown.getCause(), "jn:store must attach a cause, not render the failure into its message");
     assertTrue(causeChainContains(thrown, asyncCommitFailure),
@@ -80,9 +80,8 @@ final class StoreCausePropagationTest {
     final SirixIOException storageFailure = new SirixIOException("could not append to the data file");
     final FailingJsonDBStore store = new FailingJsonDBStore(storageFailure);
 
-    final QueryException thrown = assertThrows(QueryException.class,
-        () -> new Store(true).execute(NO_STATIC_CONTEXT, SirixQueryContext.createWithJsonStore(store),
-            storeArguments()));
+    final QueryException thrown = assertThrows(QueryException.class, () -> new Store(true).execute(NO_STATIC_CONTEXT,
+        SirixQueryContext.createWithJsonStore(store), storeArguments()));
 
     assertSame(storageFailure, deepestCause(thrown),
         "the storage failure must be the root of the reported cause chain");

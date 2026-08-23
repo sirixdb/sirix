@@ -16,8 +16,8 @@ public final class ValueDictionaryValueBucketNode implements DataRecord {
   private final long[] entryKeys;
 
   public ValueDictionaryValueBucketNode(final long nodeKey, final int firstId, final long[] entryKeys) {
-    if (nodeKey <= 0 || firstId <= 0 || ((firstId - 1) & (VALUES_PER_BUCKET - 1)) != 0
-        || entryKeys == null || entryKeys.length == 0 || entryKeys.length > VALUES_PER_BUCKET) {
+    if (nodeKey <= 0 || firstId <= 0 || ((firstId - 1) & (VALUES_PER_BUCKET - 1)) != 0 || entryKeys == null
+        || entryKeys.length == 0 || entryKeys.length > VALUES_PER_BUCKET) {
       throw new IllegalArgumentException("invalid value dictionary value bucket");
     }
     for (final long entryKey : entryKeys) {

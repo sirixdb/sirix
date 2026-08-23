@@ -93,12 +93,14 @@ public final class ObjectKeyNameKeyRegion {
   /**
    * Encode into caller-owned reusable storage.
    *
-   * <p>The returned prefix is valid only until the caller reuses {@code out}. A caller retaining the
+   * <p>
+   * The returned prefix is valid only until the caller reuses {@code out}. A caller retaining the
    * payload must copy it before then; {@link RegionTable#set(byte, byte[], int)} does exactly that.
    * The method allocates only on the first call made by a thread, when its dictionary/bitmap scratch
    * is initialized.
    *
-   * @return bytes written, or {@link #ENCODE_FAILED} when more than 255 distinct name keys are present
+   * @return bytes written, or {@link #ENCODE_FAILED} when more than 255 distinct name keys are
+   *         present
    */
   public static int encodeInto(final int[] nameKeys, final int[] slots, final int count, final byte[] out) {
     if (nameKeys == null || slots == null || out == null) {

@@ -59,7 +59,7 @@ final class AsyncFlushHftPhaseTelemetryTest {
                                                    .build());
 
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(256, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(256, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         measuredWriter = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int index = 0; index < 5_000; index++) {
@@ -83,13 +83,12 @@ final class AsyncFlushHftPhaseTelemetryTest {
     assertTrue(longField(measuredWriter, "hftMaxWorkerEpochKvlAppendNanos") > 0L);
     assertTrue(longField(measuredWriter, "hftMaxWorkerEpochFinalFlushNanos") > 0L);
     assertTrue(longField(measuredWriter, "hftMaxBlockedEpochForegroundWaitNanos") > 0L);
-    assertTrue(longField(measuredWriter, "hftMaxSnapshotKvlAttemptedPages")
-        <= NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT);
-    assertEquals(longField(measuredWriter, "hftCombinedEpochs"),
-        longField(measuredWriter, "hftForegroundFlushCount"));
+    assertTrue(longField(measuredWriter,
+        "hftMaxSnapshotKvlAttemptedPages") <= NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT);
+    assertEquals(longField(measuredWriter, "hftCombinedEpochs"), longField(measuredWriter, "hftForegroundFlushCount"));
     assertTrue(longField(measuredWriter, "hftMaxForegroundFlushNanos") > 0L);
-    assertTrue(longField(measuredWriter, "hftForegroundFlushNanos")
-        >= longField(measuredWriter, "hftMaxForegroundFlushNanos"));
+    assertTrue(longField(measuredWriter, "hftForegroundFlushNanos") >= longField(measuredWriter,
+        "hftMaxForegroundFlushNanos"));
     assertTrue(booleanField(measuredWriter, "hftMaxWorkerEpochDataGrowExact"));
     assertTrue(booleanField(measuredWriter, "hftMaxBlockedEpochDataGrowExact"));
   }
@@ -128,7 +127,7 @@ final class AsyncFlushHftPhaseTelemetryTest {
                                                    .build());
 
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(flushThreshold, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(flushThreshold, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int index = 0; index < insertedRecords; index++) {
           wtx.moveTo(arrayNodeKey);

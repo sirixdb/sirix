@@ -199,18 +199,15 @@ public final class JsonResourceCopy implements Callable<Void> {
         try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision)) {
           // Validate the raw sidecar once, but do not hydrate jsonFragment operations into full
           // strings: replay copies those subtrees directly from rtxOnRevision and must stay bounded.
-          final var updateOperationsFile = readResourceSession.getResourceConfig()
-                                                              .getResource()
-                                                              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                                              .resolve("diffFromRev" + (revision - 1) + "toRev"
-                                                                  + revision + ".json");
+          final var updateOperationsFile =
+              readResourceSession.getResourceConfig()
+                                 .getResource()
+                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                 .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json");
           final JsonObject sidecar;
           try {
-            sidecar = JsonDiffSidecar.read(updateOperationsFile,
-                readResourceSession.getResourceConfig().getName(),
-                revision - 1,
-                revision,
-                readResourceSession.getResourceConfig().areDeweyIDsStored);
+            sidecar = JsonDiffSidecar.read(updateOperationsFile, readResourceSession.getResourceConfig().getName(),
+                revision - 1, revision, readResourceSession.getResourceConfig().areDeweyIDsStored);
           } catch (final IOException e) {
             throw new UncheckedIOException(e);
           }
@@ -305,10 +302,10 @@ public final class JsonResourceCopy implements Callable<Void> {
   }
 
   /**
-   * Apply the source revision's value at the current wtx cursor (which is on a record playing
-   * the OBJECT_KEY role — fused
-   * {@code OBJECT_NAMED_*}). Handles every value kind the JSON schema can hold, including the
-   * fused {@code OBJECT_NAMED_*} kinds the source may emit when fusion is enabled.
+   * Apply the source revision's value at the current wtx cursor (which is on a record playing the
+   * OBJECT_KEY role — fused {@code OBJECT_NAMED_*}). Handles every value kind the JSON schema can
+   * hold, including the fused {@code OBJECT_NAMED_*} kinds the source may emit when fusion is
+   * enabled.
    */
   private void replaceObjectRecordFromSource(final JsonNodeReadOnlyTrx rtxOnRevision) {
     switch (rtxOnRevision.getKind()) {
@@ -317,12 +314,11 @@ public final class JsonResourceCopy implements Callable<Void> {
       case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
         wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
       case NULL_VALUE, OBJECT_NAMED_NULL -> wtx.replaceObjectRecordValue(NullValue.INSTANCE);
-      case STRING_VALUE, OBJECT_NAMED_STRING ->
-        wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
+      case STRING_VALUE, OBJECT_NAMED_STRING -> wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
       case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
         wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
-      default -> throw new IllegalStateException(
-          "Unsupported object-record replacement kind: " + rtxOnRevision.getKind());
+      default ->
+        throw new IllegalStateException("Unsupported object-record replacement kind: " + rtxOnRevision.getKind());
     }
   }
 
@@ -491,8 +487,8 @@ public final class JsonResourceCopy implements Callable<Void> {
         }
         break;
       // (Phase 4: legacy OBJECT_KEY case removed — fused records 48-53 carry the field
-      //  name + inline value/sub-tree on a single slot, handled by the OBJECT_NAMED_*
-      //  cases below.)
+      // name + inline value/sub-tree on a single slot, handled by the OBJECT_NAMED_*
+      // cases below.)
       case BOOLEAN_VALUE:
         if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
           wtx.insertBooleanValueAsFirstChild(rtx.getBooleanValue());
@@ -575,8 +571,7 @@ public final class JsonResourceCopy implements Callable<Void> {
             ? wtx.getKind()
             : wtx.getParentKind();
         final boolean anchorAcceptsNamedField =
-            anchorKind == NodeKind.OBJECT
-                || anchorKind == NodeKind.OBJECT_NAMED_OBJECT;
+            anchorKind == NodeKind.OBJECT || anchorKind == NodeKind.OBJECT_NAMED_OBJECT;
 
         if (!anchorAcceptsNamedField) {
           if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {

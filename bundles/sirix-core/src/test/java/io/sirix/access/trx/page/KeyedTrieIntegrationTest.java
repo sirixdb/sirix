@@ -30,10 +30,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * {@link StorageEngineReader} and {@link StorageEngineWriter} interfaces, verifying:
  * </p>
  * <ul>
- *   <li>Trie navigation correctly resolves page references for stored records</li>
- *   <li>Multi-revision trie growth and Copy-on-Write semantics</li>
- *   <li>Record retrieval after writes exercise the full trie path</li>
- *   <li>Historical revision isolation — old data readable after new commits</li>
+ * <li>Trie navigation correctly resolves page references for stored records</li>
+ * <li>Multi-revision trie growth and Copy-on-Write semantics</li>
+ * <li>Record retrieval after writes exercise the full trie path</li>
+ * <li>Historical revision isolation — old data readable after new commits</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -217,8 +217,7 @@ final class KeyedTrieIntegrationTest {
       try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(3)) {
         final RevisionRootPage revRoot = reader.getActualRevisionRootPage();
         final long maxNodeKeyRev3 = revRoot.getMaxNodeKeyInDocumentIndex();
-        assert maxNodeKeyRev3 > maxNodeKeyRev1 :
-            "Max node key must increase after additional commits";
+        assert maxNodeKeyRev3 > maxNodeKeyRev1 : "Max node key must increase after additional commits";
       }
 
       // Verify revision 1 data is still intact (CoW isolation).
@@ -251,14 +250,12 @@ final class KeyedTrieIntegrationTest {
         // DOCUMENT index.
         final PageReference docRef = concreteReader.getPageReference(revRoot, IndexType.DOCUMENT, -1);
         assertNotNull(docRef, "DOCUMENT index root reference must exist");
-        final PageReference docLeaf =
-            reader.getReferenceToLeafOfSubtree(docRef, 0, -1, IndexType.DOCUMENT, revRoot);
+        final PageReference docLeaf = reader.getReferenceToLeafOfSubtree(docRef, 0, -1, IndexType.DOCUMENT, revRoot);
         assertNotNull(docLeaf, "DOCUMENT index leaf must be reachable");
 
         // PATH_SUMMARY index (only if path summary is enabled in the resource config).
         if (resourceSession.getResourceConfig().withPathSummary) {
-          final PageReference pathSummaryRef =
-              concreteReader.getPageReference(revRoot, IndexType.PATH_SUMMARY, 0);
+          final PageReference pathSummaryRef = concreteReader.getPageReference(revRoot, IndexType.PATH_SUMMARY, 0);
           assertNotNull(pathSummaryRef, "PATH_SUMMARY index root reference must exist");
         }
       }
@@ -283,8 +280,7 @@ final class KeyedTrieIntegrationTest {
         final RevisionRootPage revRoot = reader.getActualRevisionRootPage();
 
         // Verify trie height has grown (should be > 1 with 2000+ records).
-        final int trieLevel =
-            reader.getCurrentMaxIndirectPageTreeLevel(IndexType.DOCUMENT, -1, revRoot);
+        final int trieLevel = reader.getCurrentMaxIndirectPageTreeLevel(IndexType.DOCUMENT, -1, revRoot);
         assert trieLevel >= 1 : "Trie must have at least 1 level for 2000+ records";
 
         // Verify a record near the end is retrievable through the trie.
@@ -335,15 +331,13 @@ final class KeyedTrieIntegrationTest {
       // Revision 1 should still have same max key.
       try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(1)) {
         final long maxKeyRev1Check = reader.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
-        assertEquals(maxKeyRev1, maxKeyRev1Check,
-            "Revision 1 max node key must be unchanged after new commits");
+        assertEquals(maxKeyRev1, maxKeyRev1Check, "Revision 1 max node key must be unchanged after new commits");
       }
 
       // Revision 2 should have more records.
       try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(2)) {
         final long maxKeyRev2 = reader.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
-        assert maxKeyRev2 > maxKeyRev1 :
-            "Revision 2 must have higher max node key than revision 1";
+        assert maxKeyRev2 > maxKeyRev1 : "Revision 2 must have higher max node key than revision 1";
 
         // All revision 2 records should be readable.
         for (long key = 0; key <= maxKeyRev1; key++) {
@@ -374,8 +368,7 @@ final class KeyedTrieIntegrationTest {
       for (int rev = 1; rev <= numRevisions + 1; rev++) {
         try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(rev)) {
           final DataRecord record = reader.getRecord(1, IndexType.DOCUMENT, -1);
-          assertNotNull(record,
-              "Record with key 1 must be readable in revision " + rev);
+          assertNotNull(record, "Record with key 1 must be readable in revision " + rev);
         }
       }
     }

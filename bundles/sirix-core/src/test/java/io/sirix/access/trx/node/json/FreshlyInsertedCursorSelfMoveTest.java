@@ -44,8 +44,8 @@ final class FreshlyInsertedCursorSelfMoveTest {
   @Test
   void approvedSelfMoveAndDirectMoveBothResetLogicalCursorState() throws ReflectiveOperationException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
       final long objectKey = trx.insertObjectAsFirstChild().getNodeKey();
       final AbstractNodeReadOnlyTrx<?, ?, ?> delegate = delegate(trx);
 
@@ -67,25 +67,24 @@ final class FreshlyInsertedCursorSelfMoveTest {
   @Test
   void mutationSequenceRejectsAPreviouslyMarkedCursor() throws ReflectiveOperationException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
       trx.insertObjectAsFirstChild();
-      final long fieldKey =
-          trx.insertObjectRecordAsFirstChild("value", new NumberValue(1)).getNodeKey();
+      final long fieldKey = trx.insertObjectRecordAsFirstChild("value", new NumberValue(1)).getNodeKey();
 
       assertEquals(fieldKey, readLong(AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorNodeKey"));
       assertEquals(readLong(AbstractNodeTrxImpl.class, trx, "mutationSequence"),
           readLong(AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorMutationSequence"));
 
       trx.setNumberValue(2);
-      assertTrue(readLong(AbstractNodeTrxImpl.class, trx, "mutationSequence")
-              > readLong(AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorMutationSequence"),
+      assertTrue(
+          readLong(AbstractNodeTrxImpl.class, trx, "mutationSequence") > readLong(AbstractNodeTrxImpl.class, trx,
+              "freshlyInsertedCursorMutationSequence"),
           "a later mutation must invalidate the insertion epoch recorded by the marker");
 
       assertTrue(trx.moveTo(fieldKey));
       assertEquals(2, trx.getNumberValue().intValue());
-      assertEquals(NO_FRESH_CURSOR,
-          readLong(AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorNodeKey"),
+      assertEquals(NO_FRESH_CURSOR, readLong(AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorNodeKey"),
           "the rejected one-shot marker must still be consumed");
       trx.commit();
     }
@@ -94,11 +93,10 @@ final class FreshlyInsertedCursorSelfMoveTest {
   @Test
   void forwardedAwayAndBackNavigationLeavesAReusablePhysicalBinding() throws ReflectiveOperationException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
       final long objectKey = trx.insertObjectAsFirstChild().getNodeKey();
-      final long fieldKey =
-          trx.insertObjectRecordAsFirstChild("value", new NumberValue(1)).getNodeKey();
+      final long fieldKey = trx.insertObjectRecordAsFirstChild("value", new NumberValue(1)).getNodeKey();
 
       // These forwarding methods navigate on the delegate and deliberately do not consume the
       // wrapper's marker. Returning through the normal delegate path rebinds the marked node.
@@ -119,16 +117,15 @@ final class FreshlyInsertedCursorSelfMoveTest {
   @Test
   void rollbackWriterReplacementRejectsTheAbortedNodeMarker() throws ReflectiveOperationException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
       final long objectKey = trx.insertObjectAsFirstChild().getNodeKey();
       trx.commit();
       assertTrue(trx.moveTo(objectKey));
 
-      final long abortedFieldKey =
-          trx.insertObjectRecordAsFirstChild("aborted", new NumberValue(1)).getNodeKey();
-      final StorageEngineWriter markedWriter = (StorageEngineWriter) readObject(
-          AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorWriter");
+      final long abortedFieldKey = trx.insertObjectRecordAsFirstChild("aborted", new NumberValue(1)).getNodeKey();
+      final StorageEngineWriter markedWriter =
+          (StorageEngineWriter) readObject(AbstractNodeTrxImpl.class, trx, "freshlyInsertedCursorWriter");
 
       trx.rollback();
       assertNotSame(markedWriter, readObject(AbstractNodeTrxImpl.class, trx, "storageEngineWriter"),
@@ -140,11 +137,10 @@ final class FreshlyInsertedCursorSelfMoveTest {
   }
 
   @Test
-  void freshAllocationBindPreservesSameKindNodesAcrossDocumentPageBoundary()
-      throws ReflectiveOperationException {
+  void freshAllocationBindPreservesSameKindNodesAcrossDocumentPageBoundary() throws ReflectiveOperationException {
     final int nodeCount = 1_030;
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final long arrayKey;
       try (final var trx = session.beginNodeTrx()) {
         arrayKey = trx.insertArrayAsFirstChild().getNodeKey();
@@ -158,8 +154,8 @@ final class FreshlyInsertedCursorSelfMoveTest {
             final long insertedKey = trx.getNodeKey();
             final InternalNodeReadOnlyTrx<?> delegate =
                 (InternalNodeReadOnlyTrx<?>) ((JsonNodeTrxImpl) trx).nodeReadOnlyTrxDelegate();
-            final StorageEngineWriter writer = (StorageEngineWriter) readObject(
-                AbstractNodeTrxImpl.class, trx, "storageEngineWriter");
+            final StorageEngineWriter writer =
+                (StorageEngineWriter) readObject(AbstractNodeTrxImpl.class, trx, "storageEngineWriter");
             assertFalse(delegate.tryMoveToLastAllocatedDocumentNode(writer, insertedKey - 1),
                 "a different expected key must not adopt the writer's latest slot");
             assertEquals(insertedKey, delegate.getNodeKey(),
@@ -191,9 +187,9 @@ final class FreshlyInsertedCursorSelfMoveTest {
     final String resource = "fresh-allocation-fsst";
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(resource)
-          .hashKind(HashType.NONE)
-          .stringCompressionType(StringCompressionType.FSST)
-          .build());
+                                                   .hashKind(HashType.NONE)
+                                                   .stringCompressionType(StringCompressionType.FSST)
+                                                   .build());
       try (final var session = database.beginResourceSession(resource)) {
         try (final var trx = session.beginNodeTrx()) {
           trx.insertArrayAsFirstChild();
@@ -222,8 +218,7 @@ final class FreshlyInsertedCursorSelfMoveTest {
   }
 
   private static String compressibleString(final int index) {
-    return "tenant/region/common-prefix/common-prefix/common-prefix/metric/" + index
-        + "/common-suffix/common-suffix";
+    return "tenant/region/common-prefix/common-prefix/common-prefix/metric/" + index + "/common-suffix/common-suffix";
   }
 
   private static AbstractNodeReadOnlyTrx<?, ?, ?> delegate(final Object trx) {

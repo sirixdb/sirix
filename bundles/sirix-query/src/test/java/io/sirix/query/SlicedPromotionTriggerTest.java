@@ -38,8 +38,8 @@ import java.io.PrintWriter;
  * for every threshold at or above two; {@code StringDistinctGroupServingTest} loops up to forty
  * times until promotion lands, so it tolerates any trigger point at all. Either the policy's
  * conditions or its counter's semantics could therefore be changed — for instance ticking only on
- * serves that actually took the sliced route, which is a strict subset of arrivals — and the trigger
- * would move with no test going red. This test is the witness for that number.
+ * serves that actually took the sliced route, which is a strict subset of arrivals — and the
+ * trigger would move with no test going red. This test is the witness for that number.
  *
  * <p>
  * What it does NOT witness, stated so nobody reads more into a green run than is there: ticking on
@@ -49,10 +49,10 @@ import java.io.PrintWriter;
  * retiring the promotion policy for that handle for good.
  *
  * <p>
- * The observable is the route itself: {@link SirixVectorizedExecutor#groupAggSlicedServedCount()} is
- * ticked inside the sliced kernels, so a query that promoted reports zero even though it is still
- * served from the projection and still answers identically — which is exactly why byte equality
- * cannot see this and a counter must.
+ * The observable is the route itself: {@link SirixVectorizedExecutor#groupAggSlicedServedCount()}
+ * is ticked inside the sliced kernels, so a query that promoted reports zero even though it is
+ * still served from the projection and still answers identically — which is exactly why byte
+ * equality cannot see this and a counter must.
  */
 public final class SlicedPromotionTriggerTest extends AbstractJsonTest {
 
@@ -116,7 +116,8 @@ public final class SlicedPromotionTriggerTest extends AbstractJsonTest {
             return {"g": $g, "c": $c, "total": sum($r.age), "hi": max($r.age)}, 1, 3)
         """;
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -146,7 +147,9 @@ public final class SlicedPromotionTriggerTest extends AbstractJsonTest {
               "run " + run + " must stay SERVED from the projection — promotion changes the route, "
                   + "never whether the projection answers");
           final long slicedThisRun = SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore;
-          Assertions.assertEquals(run <= SLICED_PROMOTE_AFTER ? 1L : 0L, slicedThisRun,
+          Assertions.assertEquals(run <= SLICED_PROMOTE_AFTER
+              ? 1L
+              : 0L, slicedThisRun,
               run <= SLICED_PROMOTE_AFTER
                   ? "run " + run + " is arrival " + (run + 1) + " of at most " + (SLICED_PROMOTE_AFTER + 1)
                       + " before the promotion lands, so it must still be served from column slices"
@@ -170,8 +173,8 @@ public final class SlicedPromotionTriggerTest extends AbstractJsonTest {
    */
   private static void awaitMaterialized(final JsonResourceSession session, final String resourceKey,
       final int revision) {
-    final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey,
-        revision, new String[] {"[]"}, new String[] {"grp", "age"});
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey, revision,
+        new String[] {"[]"}, new String[] {"grp", "age"});
     if (handle == null) {
       return;
     }
@@ -185,8 +188,8 @@ public final class SlicedPromotionTriggerTest extends AbstractJsonTest {
     }
   }
 
-  private static String evaluateQuery(final SirixCompileChain chain, final SirixQueryContext ctx,
-      final String queryStr) throws IOException {
+  private static String evaluateQuery(final SirixCompileChain chain, final SirixQueryContext ctx, final String queryStr)
+      throws IOException {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
         final PrintWriter printWriter = new PrintWriter(out)) {
       new Query(chain, queryStr).serialize(ctx, printWriter);

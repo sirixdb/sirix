@@ -35,13 +35,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * End-to-end regression for a complete projection HOT split dump in the middle of a fragment chain.
  *
- * <p>No page, page key, page reference, fragment list, or transaction-log entry is fabricated by
- * this test. All three revisions use the public
+ * <p>
+ * No page, page key, page reference, fragment list, or transaction-log entry is fabricated by this
+ * test. All three revisions use the public
  * {@link ProjectionIndexHOTStorage#putColumnSegmentSlot(long, byte[])} production path: revision 1
  * fills a leaf and then branches an outlier into a second leaf, revision 2 inserts a missing slot
- * into the full non-root leaf so it splits, and revision 3 updates a retained slot. The split reuses
- * the left reference and page key, so the resulting durable history is
- * sparse r3 -&gt; complete r2 -&gt; complete r1 under one page reference.</p>
+ * into the full non-root leaf so it splits, and revision 3 updates a retained slot. The split
+ * reuses the left reference and page key, so the resulting durable history is sparse r3 -&gt;
+ * complete r2 -&gt; complete r1 under one page reference.
+ * </p>
  */
 @DisplayName("Projection HOT complete-dump fragment boundary")
 final class HOTCompleteDumpFragmentBoundaryTest {
@@ -65,9 +67,9 @@ final class HOTCompleteDumpFragmentBoundaryTest {
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .versioningApproach(versioningType)
-          .maxNumberOfRevisionsToRestore(3)
-          .build());
+                                                   .versioningApproach(versioningType)
+                                                   .maxNumberOfRevisionsToRestore(3)
+                                                   .build());
 
       writeInitialIndirectTree(database);
       insertIntoFullNonRootLeaf(database);
@@ -126,8 +128,8 @@ final class HOTCompleteDumpFragmentBoundaryTest {
   private static void insertIntoFullNonRootLeaf(final Database<JsonResourceSession> database) {
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0)
-          .putColumnSegmentSlot(SPLIT_INSERTED_KEY, SMALL_SEGMENT);
+      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).putColumnSegmentSlot(SPLIT_INSERTED_KEY,
+          SMALL_SEGMENT);
       wtx.commit();
     }
   }
@@ -157,8 +159,8 @@ final class HOTCompleteDumpFragmentBoundaryTest {
   private static void updateRetainedLeftLeaf(final Database<JsonResourceSession> database) {
     try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0)
-          .putColumnSegmentSlot(RETAINED_LEFT_KEY, UPDATED_SEGMENT);
+      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).putColumnSegmentSlot(RETAINED_LEFT_KEY,
+          UPDATED_SEGMENT);
       wtx.commit();
     }
   }

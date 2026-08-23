@@ -43,12 +43,12 @@ import java.util.stream.Stream;
  *
  * <p>
  * The two routes share the extraction engine and the leaf machinery but reach them differently: the
- * post-pass build walks a complete resource in one transaction, while the load-time build is fed one
- * record at a time by change notifications, across as many auto-commits as the shred fires, against a
- * path summary that is still growing. Any of those differences could quietly change what lands on
- * disk — a stale field-path resolution alone would turn present columns into absent ones — so this
- * test compares the two stores BYTE FOR BYTE rather than only checking that both answer the same
- * questions.
+ * post-pass build walks a complete resource in one transaction, while the load-time build is fed
+ * one record at a time by change notifications, across as many auto-commits as the shred fires,
+ * against a path summary that is still growing. Any of those differences could quietly change what
+ * lands on disk — a stale field-path resolution alone would turn present columns into absent ones —
+ * so this test compares the two stores BYTE FOR BYTE rather than only checking that both answer the
+ * same questions.
  *
  * <p>
  * The corpus deliberately crosses several row-group boundaries and fires several auto-commits, and
@@ -183,7 +183,8 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
       }
       new Query(chain,
           "let $doc := jn:doc('coll','res.jn')\n" + "let $stats := jn:create-projection-index($doc, '" + ROOT_PATH
-              + "',\n    (" + paths + "),\n    (" + types + "))\nreturn {\"revision\": sdb:commit($doc)}").evaluate(ctx);
+              + "',\n    (" + paths + "),\n    (" + types + "))\nreturn {\"revision\": sdb:commit($doc)}").evaluate(
+                  ctx);
     }
   }
 
@@ -210,9 +211,8 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
         final JsonResourceSession session = database.beginResourceSession("res.jn");
         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
-      final ProjectionIndexMetadata meta =
-          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER,
-              0L));
+      final ProjectionIndexMetadata meta = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
       Assertions.assertNotNull(meta, "projection metadata must be present for " + dbName);
       Assertions.assertFalse(meta.isStale(), "projection of " + dbName + " must not be tombstoned");
       final List<byte[]> rowGroups = new ArrayList<>(meta.rowGroupCount());
@@ -264,9 +264,9 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
       final Snapshot incremental = snapshot("incremental-never");
       final Snapshot postPass = snapshot("postpass-never");
       assertEquivalent(incremental, postPass);
-      Assertions.assertEquals((RECORDS + ProjectionIndexRowGroupPage.MAX_ROWS - 1)
-              / ProjectionIndexRowGroupPage.MAX_ROWS, incremental.rowGroupCount(),
-          "NEVER mode must persist every row across several immediately emitted leaves");
+      Assertions.assertEquals(
+          (RECORDS + ProjectionIndexRowGroupPage.MAX_ROWS - 1) / ProjectionIndexRowGroupPage.MAX_ROWS,
+          incremental.rowGroupCount(), "NEVER mode must persist every row across several immediately emitted leaves");
       Assertions.assertEquals(0, ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
           "a successfully completed NEVER build must publish a zero global-column diagnostic");
       ProjectionIndexRegistry.clear();
@@ -312,20 +312,16 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
         """;
     try (final BasicJsonDBStore store = openStore("nested-columns");
         final JsonReader reader = new JsonReader(new StringReader(json))) {
-      store.create("coll", "res.jn", reader,
-          new ProjectionSpec("/root/bla/blubb",
-              List.of("/root/bla/blubb/b/a/c", "/root/bla/blubb/c/d"),
-              List.of("long", "long")));
+      store.create("coll", "res.jn", reader, new ProjectionSpec("/root/bla/blubb",
+          List.of("/root/bla/blubb/b/a/c", "/root/bla/blubb/c/d"), List.of("long", "long")));
     }
 
     final Snapshot snapshot = snapshot("nested-columns");
     Assertions.assertEquals(1, snapshot.rowGroupCount(), "the exact object root must produce one row group");
     final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(snapshot.rowGroups().get(0));
     Assertions.assertEquals(1, leaf.getRowCount(), "the exact object root denotes one projected row");
-    Assertions.assertTrue((leaf.presenceColumnBits(0)[0] & 1L) != 0,
-        "the deeper b/a/c descendant must be present");
-    Assertions.assertTrue((leaf.presenceColumnBits(1)[0] & 1L) != 0,
-        "the shallower c/d descendant must be present");
+    Assertions.assertTrue((leaf.presenceColumnBits(0)[0] & 1L) != 0, "the deeper b/a/c descendant must be present");
+    Assertions.assertTrue((leaf.presenceColumnBits(1)[0] & 1L) != 0, "the shallower c/d descendant must be present");
     Assertions.assertEquals(17L, leaf.numericColumn(0)[0]);
     Assertions.assertEquals(23L, leaf.numericColumn(1)[0]);
   }
@@ -346,8 +342,7 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
           }
         }) {
       final DocumentException translated = Assertions.assertThrows(DocumentException.class,
-          () -> store.create("coll", "res.jn", reader,
-              new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES)));
+          () -> store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES)));
       Assertions.assertSame(injected, translated.getCause(),
           "DocumentException must retain the exact load failure, not only its nested cause");
       Assertions.assertEquals(1, translated.getCause().getSuppressed().length);
@@ -367,8 +362,7 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
     try (final BasicJsonDBStore store = openStore("retry");
         final JsonReader reader = new JsonReader(new StringReader(malformed))) {
       Assertions.assertThrows(RuntimeException.class,
-          () -> store.create("coll", "res.jn", reader,
-              new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES)));
+          () -> store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES)));
     }
     Assertions.assertTrue(ProjectionBulkLoad.activeKeys().isEmpty(),
         "a failed parser must retire the exact bulk load it armed");
@@ -389,16 +383,18 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
         final JsonResourceSession session = database.beginResourceSession("res.jn");
         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
-      final ProjectionIndexMetadata meta =
-          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER,
-              0L));
+      final ProjectionIndexMetadata meta = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
       Assertions.assertNotNull(meta);
       Assertions.assertFalse(meta.isStale(), "the retry must replace its tombstone");
       Assertions.assertEquals(1, meta.rowGroupCount());
     }
   }
 
-  /** Evaluate {@code queryBody} over the named database's resource and return the single atomic result. */
+  /**
+   * Evaluate {@code queryBody} over the named database's resource and return the single atomic
+   * result.
+   */
   private String queryOne(final String dbName, final String queryBody) {
     try (final BasicJsonDBStore store = openStore(dbName);
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
@@ -449,9 +445,10 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
 
     // Field-to-record association, not just field presence: a cursor left on the wrong node would
     // attach a record's fields to its neighbour, which per-field counts alone would not notice.
-    Assertions.assertEquals("1", queryOne("incremental",
-        "count(for $r in $d[] where $r.name = 'employee-4999' and $r.note = 'n" + (4999 % NOTE_BUCKETS)
-            + "' and $r.age = " + ageOf(4999) + " return 1)"),
+    Assertions.assertEquals("1",
+        queryOne("incremental",
+            "count(for $r in $d[] where $r.name = 'employee-4999' and $r.note = 'n" + (4999 % NOTE_BUCKETS)
+                + "' and $r.age = " + ageOf(4999) + " return 1)"),
         "the last record's projected and unprojected fields must belong to the same record");
   }
 

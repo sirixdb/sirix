@@ -2643,7 +2643,8 @@ public final class ProjectionIndexByteScan {
                 if (countOnly) {
                   zero[0]++;
                 } else if (distinctBlock < 0) {
-                  foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen, sumExactMask);
+                  foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen,
+                      sumExactMask);
                 } else {
                   foldRowDistinct(zero, 0, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
                       distinctSetFor(distinctOut, 0L), budget, w, bit, rowIdx, aggStrlen, strlenCpLen, cdOff, cdLen,
@@ -2668,7 +2669,8 @@ public final class ProjectionIndexByteScan {
           if (countOnly) {
             slotArr[base]++;
           } else if (distinctBlock < 0) {
-            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen, sumExactMask);
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen,
+                sumExactMask);
           } else {
             foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock, dset, budget, w,
                 bit, rowIdx, aggStrlen, strlenCpLen, cdOff, cdLen, cdHashes, sumExactMask);
@@ -4552,8 +4554,8 @@ public final class ProjectionIndexByteScan {
   /** End of KEYS in the raw V0 leaf; NONE is the allocation-free one-byte common case. */
   private static int columnStreamStart(final byte[] payload, final int rowCount, final int columnCount) {
     final long markerOffsetLong = 24L + columnCount + (long) rowCount * Long.BYTES;
-    if (rowCount < 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS || columnCount < 0
-        || markerOffsetLong < 0 || markerOffsetLong >= payload.length) {
+    if (rowCount < 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS || columnCount < 0 || markerOffsetLong < 0
+        || markerOffsetLong >= payload.length) {
       throw new IllegalStateException("truncated projection KEYS stream");
     }
     final int markerOffset = (int) markerOffsetLong;
@@ -4566,8 +4568,7 @@ public final class ProjectionIndexByteScan {
     } else {
       throw new IllegalStateException("unknown projection order-exception kind " + kind);
     }
-    final long offsetsEnd = orderLabelsOffset + Integer.BYTES
-        + Math.multiplyExact((long) rowCount + 1L, Integer.BYTES);
+    final long offsetsEnd = orderLabelsOffset + Integer.BYTES + Math.multiplyExact((long) rowCount + 1L, Integer.BYTES);
     if (offsetsEnd > payload.length) {
       throw new IllegalStateException("truncated projection Dewey order-label metadata");
     }
@@ -4577,8 +4578,8 @@ public final class ProjectionIndexByteScan {
       throw new IllegalStateException("invalid projection Dewey order-label byte length " + labelByteLength);
     }
     final int firstOffset = getIntLE(payload, (int) orderLabelsOffset + Integer.BYTES);
-    final int finalOffset = getIntLE(payload,
-        (int) orderLabelsOffset + Integer.BYTES + Math.multiplyExact(rowCount, Integer.BYTES));
+    final int finalOffset =
+        getIntLE(payload, (int) orderLabelsOffset + Integer.BYTES + Math.multiplyExact(rowCount, Integer.BYTES));
     if (firstOffset != 0 || finalOffset != labelByteLength) {
       throw new IllegalStateException("invalid projection Dewey order-label offsets");
     }

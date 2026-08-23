@@ -114,7 +114,8 @@ public final class HftBoundaryTelemetry {
       long nativeReleases, long asyncSubmissions, long asyncCompletions) {
 
     public long operations() {
-      return Math.addExact(Math.addExact(Math.addExact(Math.addExact(storageReads, storageWrites),
+      return Math.addExact(
+          Math.addExact(Math.addExact(Math.addExact(storageReads, storageWrites),
               Math.addExact(allocatorAllocations, allocatorReleases)), Math.addExact(tilReads, tilWrites)),
           Math.addExact(Math.addExact(nativeAllocations, nativeReleases),
               Math.addExact(asyncSubmissions, asyncCompletions)));

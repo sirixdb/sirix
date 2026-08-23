@@ -15,20 +15,23 @@ import java.util.Arrays;
  *
  * <h2>The problem it solves</h2>
  *
- * <p>{@link NumberRegion} already stores per-tag zone maps, and a range predicate already uses them
- * to answer a whole page without comparing a single value. But those zone maps live in the number
+ * <p>
+ * {@link NumberRegion} already stores per-tag zone maps, and a range predicate already uses them to
+ * answer a whole page without comparing a single value. But those zone maps live in the number
  * region's <em>header</em>, and the number region is LZ77-compressed on the wire. So reading them
  * meant decompressing the very payload the zone map exists to avoid reading. The pruning was real;
  * it just arrived one step too late to save the expensive part.
  *
- * <p>That is exactly backwards for the case pruning matters most in — a cold or larger-than-memory
+ * <p>
+ * That is exactly backwards for the case pruning matters most in — a cold or larger-than-memory
  * working set, where the cost of a page is dominated by fetching and decompressing it rather than
  * by scanning it. A predicate that can rule a page out ought to cost a couple of comparisons
  * against header longs and nothing else.
  *
- * <p>So the zone maps get their own region: small, always stored raw, and written first. A scan
- * reads this one and leaves {@link RegionTable#KIND_NUMBER} on the wire, decompressing it only on
- * the pages it could not decide. It is the same trick {@link StringDictSketch} plays for string
+ * <p>
+ * So the zone maps get their own region: small, always stored raw, and written first. A scan reads
+ * this one and leaves {@link RegionTable#KIND_NUMBER} on the wire, decompressing it only on the
+ * pages it could not decide. It is the same trick {@link StringDictSketch} plays for string
  * equality, where a Bloom filter over the dictionary settles most pages without the dictionary
  * being decompressed at all.
  *
@@ -46,21 +49,24 @@ import java.util.Arrays;
  * long[dictSize] tagMax
  * </pre>
  *
- * <p>No {@code tagStart}: it addresses into the value bytes, and a caller that has got as far as
+ * <p>
+ * No {@code tagStart}: it addresses into the value bytes, and a caller that has got as far as
  * needing an offset has already decided to materialize the number region, where the real header
  * carries it. This region holds only what a pruning decision needs, because every byte of it is
  * stored uncompressed and is read on pages that turn out not to need it.
  *
- * <p>At 22 bytes of header plus 24 per tag, a page with three numeric fields spends 94 bytes to
+ * <p>
+ * At 22 bytes of header plus 24 per tag, a page with three numeric fields spends 94 bytes to
  * potentially skip decompressing a payload measured in kilobytes.
  *
  * <h2>Compatibility</h2>
  *
- * <p>Both directions are safe without a format version bump. A reader that predates this region
- * sees a kind ordinal at or above its own {@code KIND_COUNT} and steps over it by its length
- * prefix, which is the same path it takes for any region it was not asked for. A reader that knows
- * this region and meets a page written without one simply finds it absent and falls back to the
- * number region's own zone maps — the behaviour it had before this class existed.
+ * <p>
+ * Both directions are safe without a format version bump. A reader that predates this region sees a
+ * kind ordinal at or above its own {@code KIND_COUNT} and steps over it by its length prefix, which
+ * is the same path it takes for any region it was not asked for. A reader that knows this region
+ * and meets a page written without one simply finds it absent and falls back to the number region's
+ * own zone maps — the behaviour it had before this class existed.
  */
 public final class NumberZoneMapRegion {
 
@@ -79,14 +85,11 @@ public final class NumberZoneMapRegion {
   /** Bytes each tag contributes: dict + count + min + max. */
   private static final int BYTES_PER_TAG = 4 + 4 + 8 + 8;
 
-  private static final VarHandle INT_LE =
-      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
 
-  private static final VarHandle LONG_LE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle LONG_LE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
-  private NumberZoneMapRegion() {
-  }
+  private NumberZoneMapRegion() {}
 
   /** Parsed zone-map region. Reused across pages to keep the scan allocation-free. */
   public static final class Header {
@@ -98,10 +101,10 @@ public final class NumberZoneMapRegion {
     /** Highest value anywhere on the page. */
     public long valueMax;
     public int dictSize;
-    public int[] dict;      // length >= dictSize
-    public int[] tagCount;  // length >= dictSize
-    public long[] tagMin;   // length >= dictSize
-    public long[] tagMax;   // length >= dictSize
+    public int[] dict; // length >= dictSize
+    public int[] tagCount; // length >= dictSize
+    public long[] tagMin; // length >= dictSize
+    public long[] tagMax; // length >= dictSize
 
     /**
      * Parse {@code payload} into this instance.
@@ -128,8 +131,7 @@ public final class NumberZoneMapRegion {
       final long readMin = in.readLong();
       final long readMax = in.readLong();
       final int readDictSize = in.readInt();
-      if (readDictSize < 0
-          || payload.byteSize() < (long) FIXED_BYTES + (long) readDictSize * BYTES_PER_TAG) {
+      if (readDictSize < 0 || payload.byteSize() < (long) FIXED_BYTES + (long) readDictSize * BYTES_PER_TAG) {
         return null;
       }
       version = readVersion;
@@ -160,10 +162,11 @@ public final class NumberZoneMapRegion {
   /**
    * Local tag id for a tag value, or {@code -1} when this page carries no such tag.
    *
-   * <p>The tag value is interpreted per {@link Header#tagKind}, and callers must probe with a key
-   * from the matching space: a nameKey against a path-tagged dictionary can collide on an unrelated
-   * int, and a collision here would not merely fail to prune — it would prune against the bounds of
-   * a different column.
+   * <p>
+   * The tag value is interpreted per {@link Header#tagKind}, and callers must probe with a key from
+   * the matching space: a nameKey against a path-tagged dictionary can collide on an unrelated int,
+   * and a collision here would not merely fail to prune — it would prune against the bounds of a
+   * different column.
    */
   public static int lookupTag(final Header h, final int tag) {
     if (h == null) {
@@ -198,14 +201,17 @@ public final class NumberZoneMapRegion {
         ? retainedScratch
         : new byte[encodedLength];
     final int written = encodeInto(source, scratch);
-    return written == ENCODE_FAILED ? null : Arrays.copyOf(scratch, written);
+    return written == ENCODE_FAILED
+        ? null
+        : Arrays.copyOf(scratch, written);
   }
 
   /**
    * Encode into caller-owned reusable storage.
    *
-   * <p>The returned prefix is valid only until {@code out} is reused. A retaining caller must copy
-   * it first; {@link RegionTable#set(byte, byte[], int)} performs that copy synchronously.
+   * <p>
+   * The returned prefix is valid only until {@code out} is reused. A retaining caller must copy it
+   * first; {@link RegionTable#set(byte, byte[], int)} performs that copy synchronously.
    *
    * @return bytes written, or {@link #ENCODE_FAILED} when the source carries no per-tag zone map
    */
@@ -264,15 +270,17 @@ public final class NumberZoneMapRegion {
 
   private static void requireArrayLength(final String name, final int[] values, final int length) {
     if (values == null || values.length < length) {
-      throw new IllegalArgumentException(name + " has length " + (values == null ? 0 : values.length)
-          + ", expected at least " + length);
+      throw new IllegalArgumentException(name + " has length " + (values == null
+          ? 0
+          : values.length) + ", expected at least " + length);
     }
   }
 
   private static void requireArrayLength(final String name, final long[] values, final int length) {
     if (values == null || values.length < length) {
-      throw new IllegalArgumentException(name + " has length " + (values == null ? 0 : values.length)
-          + ", expected at least " + length);
+      throw new IllegalArgumentException(name + " has length " + (values == null
+          ? 0
+          : values.length) + ", expected at least " + length);
     }
   }
 

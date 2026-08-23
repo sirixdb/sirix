@@ -49,23 +49,24 @@ public final class DiffTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   /**
-   * Fusion-mode flag. When {@code -Dsirix.json.fuseNamedPrimitives=true}, the
-   * shredder collapses {@code "name":primitive} object fields into a single fused
-   * record, which removes one node per such field and shifts subsequent nodeKeys
-   * downward. The diff serializer prints raw nodeKeys, so any test that compares
-   * a serialized diff against a fixture file with literal nodeKeys must strip
+   * Fusion-mode flag. When {@code -Dsirix.json.fuseNamedPrimitives=true}, the shredder collapses
+   * {@code "name":primitive} object fields into a single fused record, which removes one node per
+   * such field and shifts subsequent nodeKeys downward. The diff serializer prints raw nodeKeys, so
+   * any test that compares a serialized diff against a fixture file with literal nodeKeys must strip
    * the integer values before comparing in fused mode.
    */
   private static final boolean FUSED_NAMED_PRIMITIVES = true;
 
-  /** Matches {@code "nodeKey":<int>}, {@code "oldNodeKey":<int>}, {@code "newNodeKey":<int>}, {@code "insertPositionNodeKey":<int>}. */
-  private static final Pattern NODE_KEY_NUMERIC = Pattern.compile(
-      "(\"(?:nodeKey|oldNodeKey|newNodeKey|insertPositionNodeKey)\"\\s*:\\s*)(-?\\d+)");
+  /**
+   * Matches {@code "nodeKey":<int>}, {@code "oldNodeKey":<int>}, {@code "newNodeKey":<int>},
+   * {@code "insertPositionNodeKey":<int>}.
+   */
+  private static final Pattern NODE_KEY_NUMERIC =
+      Pattern.compile("(\"(?:nodeKey|oldNodeKey|newNodeKey|insertPositionNodeKey)\"\\s*:\\s*)(-?\\d+)");
 
   /**
-   * Strips integer nodeKey values when the fusion flag is enabled so a single
-   * fixture file can match both legacy and fused outputs whose only difference
-   * is downward-shifted nodeKey integers.
+   * Strips integer nodeKey values when the fusion flag is enabled so a single fixture file can match
+   * both legacy and fused outputs whose only difference is downward-shifted nodeKey integers.
    */
   private static String normalize(final String s) {
     if (s == null || !FUSED_NAMED_PRIMITIVES) {
@@ -93,26 +94,26 @@ public final class DiffTest {
     try (final var resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = resourceSession.beginNodeTrx()) {
       // iter#32 P2 fusion key map (initial doc, see JsonDocumentCreator.JSON):
-      //   1=outer OBJ, 2=foo OBJ_NAMED_ARR, 3=str "bar", 4=null, 5=num 2.33,
-      //   6=bar OBJ_NAMED_OBJ, 7=hello OBJ_NAMED_STR, 8=helloo OBJ_NAMED_BOOL,
-      //   9=baz OBJ_NAMED_STR, 10=tada OBJ_NAMED_ARR, 11=tada[0] OBJ,
-      //   12=tada[0].foo OBJ_NAMED_STR, 13=tada[1] OBJ, 14=tada[1].baz OBJ_NAMED_BOOL,
-      //   15=tada[2] str "boo", 16=tada[3] empty OBJ, 17=tada[4] empty ARR.
+      // 1=outer OBJ, 2=foo OBJ_NAMED_ARR, 3=str "bar", 4=null, 5=num 2.33,
+      // 6=bar OBJ_NAMED_OBJ, 7=hello OBJ_NAMED_STR, 8=helloo OBJ_NAMED_BOOL,
+      // 9=baz OBJ_NAMED_STR, 10=tada OBJ_NAMED_ARR, 11=tada[0] OBJ,
+      // 12=tada[0].foo OBJ_NAMED_STR, 13=tada[1] OBJ, 14=tada[1].baz OBJ_NAMED_BOOL,
+      // 15=tada[2] str "boo", 16=tada[3] empty OBJ, 17=tada[4] empty ARR.
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
-      wtx.moveTo(4);  // legacy 5 → fused 4 (NULL_VALUE foo[1])
+      wtx.moveTo(4); // legacy 5 → fused 4 (NULL_VALUE foo[1])
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"));
-      wtx.moveTo(4);  // still NULL_VALUE
+      wtx.moveTo(4); // still NULL_VALUE
       wtx.remove();
-      wtx.moveTo(3);  // legacy 4 → fused 3 (STRING_VALUE foo[0]="bar")
+      wtx.moveTo(3); // legacy 4 → fused 3 (STRING_VALUE foo[0]="bar")
       wtx.insertBooleanValueAsRightSibling(true);
       wtx.setBooleanValue(false);
-      wtx.moveTo(5);  // legacy 6 → fused 5 (NUMBER_VALUE 2.33)
+      wtx.moveTo(5); // legacy 6 → fused 5 (NUMBER_VALUE 2.33)
       wtx.setNumberValue(1.2);
-      wtx.moveTo(7);  // legacy 9 → fused 7 (hello OBJ_NAMED_STR)
+      wtx.moveTo(7); // legacy 9 → fused 7 (hello OBJ_NAMED_STR)
       wtx.remove();
-      wtx.moveTo(9);  // legacy 13 → fused 9 (baz OBJ_NAMED_STR)
+      wtx.moveTo(9); // legacy 13 → fused 9 (baz OBJ_NAMED_STR)
       wtx.remove();
       wtx.moveTo(10); // legacy 15 → fused 10 (tada OBJ_NAMED_ARR)
       wtx.setObjectKeyName("tadaa");
@@ -141,7 +142,8 @@ public final class DiffTest {
       try (final var out = new ByteArrayOutputStream()) {
         new Query(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
-        assertEquals(normalize(Files.readString(JSON.resolve("diff.json"), StandardCharsets.UTF_8)), normalize(content));
+        assertEquals(normalize(Files.readString(JSON.resolve("diff.json"), StandardCharsets.UTF_8)),
+            normalize(content));
 
         final var diffs = JsonParser.parseString(content).getAsJsonObject().getAsJsonArray("diffs");
         assertEquals("{\"tadaaa\":\"todooo\"}",
@@ -161,8 +163,7 @@ public final class DiffTest {
       try (final var out = new ByteArrayOutputStream()) {
         new Query(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
-        assertEquals(
-            normalize(Files.readString(JSON.resolve("diff-with-startnodekey.json"), StandardCharsets.UTF_8)),
+        assertEquals(normalize(Files.readString(JSON.resolve("diff-with-startnodekey.json"), StandardCharsets.UTF_8)),
             normalize(content));
       }
 
@@ -176,8 +177,7 @@ public final class DiffTest {
       try (final var out = new ByteArrayOutputStream()) {
         new Query(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = out.toString(StandardCharsets.UTF_8);
-        assertEquals(
-            normalize(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8)),
+        assertEquals(normalize(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8)),
             normalize(content));
       }
     }
@@ -221,11 +221,9 @@ public final class DiffTest {
       assertExactDecimal("1.234567890123456789012345678901E+100", actualArray, 6);
       assertExactDecimal("1E+309", actualArray, 7);
       assertExactDecimal("1E-400", actualArray, 8);
-      assertEquals("huge exponents must remain compact instead of expanding to a giant string",
-          "1E+1000000000",
+      assertEquals("huge exponents must remain compact instead of expanding to a giant string", "1E+1000000000",
           actualArray.get(9).getAsString());
-      assertEquals("the exactly representable exponent-form negative zero keeps double semantics",
-          "-0",
+      assertEquals("the exactly representable exponent-form negative zero keeps double semantics", "-0",
           actualArray.get(10).getAsString());
 
       // Parsing the serialized result through the same strict bridge proves that the output is
@@ -236,27 +234,10 @@ public final class DiffTest {
 
   @Test
   public void jsonBridgeRejectsNonStrictIncompleteOrUnicodeCorruptJson() {
-    final var invalidInputs = List.of("",
-        " \r\n\t",
-        "{} {}",
-        "{\"a\":1} trailing",
-        "{unquoted:1}",
-        "{'singleQuoted':1}",
-        "{\"a\":01}",
-        "{\"a\":NaN}",
-        "{\"a\":Infinity}",
-        "{\"a\":1,}",
-        "{\"a\":/* comment */1}",
-        "{\"a\":\"\\x\"}",
-        "\"literal\nnewline\"",
-        "{",
-        "[1,",
-        "\"unterminated",
-        "1e",
-        "tru",
-        "1e2147483649",
-        "\"\\uD800\"",
-        "{\"\\uDC00\":1}");
+    final var invalidInputs = List.of("", " \r\n\t", "{} {}", "{\"a\":1} trailing", "{unquoted:1}",
+        "{'singleQuoted':1}", "{\"a\":01}", "{\"a\":NaN}", "{\"a\":Infinity}", "{\"a\":1,}", "{\"a\":/* comment */1}",
+        "{\"a\":\"\\x\"}", "\"literal\nnewline\"", "{", "[1,", "\"unterminated", "1e", "tru", "1e2147483649",
+        "\"\\uD800\"", "{\"\\uDC00\":1}");
 
     for (final String input : invalidInputs) {
       assertStrictParseFailure(input);
@@ -266,10 +247,9 @@ public final class DiffTest {
 
   @Test
   public void jsonBridgePreservesSirixNumericTypesAndObjectOrder() {
-    final var values = (DArray) Diff.parseJsonToBrackitItem("[2147483647,2147483648,"
-        + "99999999999999999,9223372036854775807,0.123456789012345678901234567890,"
-        + "1e0,6.02e23,-0e0,9007199254740993e0,5e-324,1e-325,1e309,"
-        + "1.234567890123456789012345678901e100]");
+    final var values = (DArray) Diff.parseJsonToBrackitItem(
+        "[2147483647,2147483648," + "99999999999999999,9223372036854775807,0.123456789012345678901234567890,"
+            + "1e0,6.02e23,-0e0,9007199254740993e0,5e-324,1e-325,1e309," + "1.234567890123456789012345678901e100]");
 
     assertTrue(values.at(0) instanceof Int32);
     assertTrue(values.at(1) instanceof Int64);
@@ -279,26 +259,21 @@ public final class DiffTest {
     assertTrue(values.at(5) instanceof Dbl);
     assertTrue(values.at(6) instanceof Dbl);
     assertTrue(values.at(7) instanceof Dbl);
-    assertEquals(Double.doubleToRawLongBits(-0.0d),
-        Double.doubleToRawLongBits(((Dbl) values.at(7)).doubleValue()));
+    assertEquals(Double.doubleToRawLongBits(-0.0d), Double.doubleToRawLongBits(((Dbl) values.at(7)).doubleValue()));
     for (int index = 8; index < values.len(); index++) {
       assertTrue("lossy/underflowing/overflowing exponent at index " + index + " must remain exact decimal",
           values.at(index) instanceof Dec);
     }
-    assertEquals(0,
-        new BigDecimal("9007199254740993e0").compareTo(((Dec) values.at(8)).decimalValue()));
+    assertEquals(0, new BigDecimal("9007199254740993e0").compareTo(((Dec) values.at(8)).decimalValue()));
     assertEquals(0, new BigDecimal("5e-324").compareTo(((Dec) values.at(9)).decimalValue()));
     assertEquals(0, new BigDecimal("1e-325").compareTo(((Dec) values.at(10)).decimalValue()));
     assertEquals(0, new BigDecimal("1e309").compareTo(((Dec) values.at(11)).decimalValue()));
     assertEquals("xs:decimal string semantics must retain the ordinary non-exponent lexical form",
-        new BigDecimal("1e309").toPlainString(),
-        ((Dec) values.at(11)).stringValue());
-    assertEquals("JSON serialization may use compact exponent notation without changing stringValue()",
-        "1E+309",
+        new BigDecimal("1e309").toPlainString(), ((Dec) values.at(11)).stringValue());
+    assertEquals("JSON serialization may use compact exponent notation without changing stringValue()", "1E+309",
         values.at(11).toString());
     assertEquals(0,
-        new BigDecimal("1.234567890123456789012345678901e100")
-            .compareTo(((Dec) values.at(12)).decimalValue()));
+        new BigDecimal("1.234567890123456789012345678901e100").compareTo(((Dec) values.at(12)).decimalValue()));
 
     final var ordered = (CompactObject) Diff.parseJsonToBrackitItem("{\"z\":0,\"a:b\":1,\"\":2,\"m\":3}");
     assertEquals("z", ordered.name(0).stringValue());
@@ -312,8 +287,7 @@ public final class DiffTest {
   }
 
   private static void assertExactDecimal(final String expected, final JsonArray values, final int index) {
-    assertEquals("numeric value at array index " + index + " must be exact",
-        0,
+    assertEquals("numeric value at array index " + index + " must be exact", 0,
         new BigDecimal(expected).compareTo(values.get(index).getAsBigDecimal()));
   }
 
@@ -327,11 +301,10 @@ public final class DiffTest {
   }
 
   /**
-   * The dewey-ID fast path of {@code jn:diff} reads the pre-computed update-operations file. A
-   * crash while that file was written (after the storage commit was already durable) may leave a
-   * torn/garbage file behind — the fast path must detect that and fall back to computing the
-   * diff, instead of failing on (or serving) the garbage. Mirrors the REST {@code DiffHandler}
-   * behavior.
+   * The dewey-ID fast path of {@code jn:diff} reads the pre-computed update-operations file. A crash
+   * while that file was written (after the storage commit was already durable) may leave a
+   * torn/garbage file behind — the fast path must detect that and fall back to computing the diff,
+   * instead of failing on (or serving) the garbage. Mirrors the REST {@code DiffHandler} behavior.
    */
   @Test
   public void test_whenUpdateOperationsFileIsTorn_thenFallBackToComputedDiff() throws IOException {
@@ -352,8 +325,7 @@ public final class DiffTest {
                                             .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                             .resolve("diffFromRev1toRev2.json");
     }
-    assertTrue("pre-computed update-operations file must exist after the commit",
-               Files.exists(updateOperationsFile));
+    assertTrue("pre-computed update-operations file must exist after the commit", Files.exists(updateOperationsFile));
     final var writtenSidecar = JsonParser.parseString(Files.readString(updateOperationsFile)).getAsJsonObject();
     JsonDiffIntegrity.validate(writtenSidecar);
     assertEquals(1, writtenSidecar.get(JsonDiffIntegrity.OPERATION_COUNT_FIELD).getAsInt());
@@ -367,8 +339,8 @@ public final class DiffTest {
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var databaseName = PATHS.PATH1.getFile().getName(PATHS.PATH1.getFile().getNameCount() - 1).toString();
       final var query = "jn:diff('" + databaseName + "','" + JsonTestHelper.RESOURCE + "',1,2)";
-      final var validPrefix = "{\"database\":\"" + databaseName + "\",\"resource\":\""
-          + JsonTestHelper.RESOURCE + "\",\"old-revision\":1,\"new-revision\":2,\"diffs\":";
+      final var validPrefix = "{\"database\":\"" + databaseName + "\",\"resource\":\"" + JsonTestHelper.RESOURCE
+          + "\",\"old-revision\":1,\"new-revision\":2,\"diffs\":";
 
       final var invalidFiles = List.of(
           // Torn/truncated durable write.
@@ -386,8 +358,7 @@ public final class DiffTest {
           withIntegrity(validPrefix + "[{\"bogus\":{}}]}"),
           withIntegrity(validPrefix + "[{\"update\":{\"deweyID\":\"1.17.9\",\"depth\":2}}]}"),
           withIntegrity(validPrefix + "[{\"update\":{\"nodeKey\":7,\"name\":\"renamed\","
-              + "\"type\":\"bogus\",\"value\":\"invalid\",\"deweyID\":\"1.17.33.17\","
-              + "\"depth\":3}}]}"),
+              + "\"type\":\"bogus\",\"value\":\"invalid\",\"deweyID\":\"1.17.33.17\"," + "\"depth\":3}}]}"),
           withIntegrity(validPrefix + "[{\"insert\":{\"nodeKey\":9223372036854775807,"
               + "\"insertPositionNodeKey\":1,\"insertPosition\":\"asFirstChild\","
               + "\"deweyID\":\"1.17.9\",\"depth\":2,\"type\":\"jsonFragment\"}}]}"),
@@ -410,8 +381,7 @@ public final class DiffTest {
           assertEquals(2, diffObject.get("new-revision").getAsInt());
           final var diffs = diffObject.getAsJsonArray("diffs");
           assertEquals("exactly one update operation (the inserted record)", 1, diffs.size());
-          assertTrue("the single update operation must be an insert",
-              diffs.get(0).getAsJsonObject().has("insert"));
+          assertTrue("the single update operation must be an insert", diffs.get(0).getAsJsonObject().has("insert"));
         }
       }
     }
@@ -441,9 +411,9 @@ public final class DiffTest {
       wtx.commit();
 
       final Path sidecarPath = resourceSession.getResourceConfig()
-                                                .getResource()
-                                                .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                                .resolve("diffFromRev1toRev2.json");
+                                              .getResource()
+                                              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                              .resolve("diffFromRev1toRev2.json");
       final JsonObject sidecar = JsonParser.parseString(Files.readString(sidecarPath)).getAsJsonObject();
       for (final var operation : sidecar.getAsJsonArray("diffs")) {
         if (operation.getAsJsonObject().has("delete")) {
@@ -454,8 +424,9 @@ public final class DiffTest {
       Files.writeString(sidecarPath, sidecar.toString(), StandardCharsets.UTF_8);
     }
 
-    try (final var store =
-             BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
         final var ctx = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store);
         final var out = new ByteArrayOutputStream()) {
@@ -463,9 +434,8 @@ public final class DiffTest {
       final var query = "jn:diff('" + databaseName + "','" + JsonTestHelper.RESOURCE + "',1,2,9)";
       new Query(chain, query).serialize(ctx, new PrintStream(out));
 
-      final JsonArray diffs = JsonParser.parseString(out.toString(StandardCharsets.UTF_8))
-                                        .getAsJsonObject()
-                                        .getAsJsonArray("diffs");
+      final JsonArray diffs =
+          JsonParser.parseString(out.toString(StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonArray("diffs");
       assertEquals(1, diffs.size());
       final JsonObject delete = diffs.get(0).getAsJsonObject().getAsJsonObject("delete");
       assertEquals(9, delete.get("nodeKey").getAsLong());
@@ -503,8 +473,9 @@ public final class DiffTest {
       Files.writeString(sidecarPath, sidecar.toString(), StandardCharsets.UTF_8);
     }
 
-    try (final var store =
-             BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
         final var ctx = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store);
         final var out = new ByteArrayOutputStream()) {
@@ -512,9 +483,8 @@ public final class DiffTest {
       final var query = "jn:diff('" + databaseName + "','" + JsonTestHelper.RESOURCE + "',1,2)";
       new Query(chain, query).serialize(ctx, new PrintStream(out));
 
-      final var diffs = JsonParser.parseString(out.toString(StandardCharsets.UTF_8))
-                                  .getAsJsonObject()
-                                  .getAsJsonArray("diffs");
+      final var diffs =
+          JsonParser.parseString(out.toString(StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonArray("diffs");
       assertEquals(1, diffs.size());
       final var replace = diffs.get(0).getAsJsonObject().getAsJsonObject("replace");
       assertTrue(replace.has("newNodeKey"));

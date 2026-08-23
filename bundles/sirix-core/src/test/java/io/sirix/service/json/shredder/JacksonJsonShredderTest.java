@@ -135,7 +135,7 @@ public final class JacksonJsonShredderTest {
   public void freshlyInsertedSelfMoveKeepsCursorAndNavigationSemantics() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx()) {
+        final var trx = manager.beginNodeTrx()) {
       final long objectKey = trx.insertObjectAsFirstChild().getNodeKey();
 
       // The exact redundant move emitted by the streaming shredder: the insert contract already
@@ -154,8 +154,7 @@ public final class JacksonJsonShredderTest {
       assertEquals(NodeKind.OBJECT_NAMED_NUMBER, trx.getKind());
 
       assertTrue(trx.moveToParent());
-      final long secondFieldKey =
-          trx.insertObjectRecordAsLastChild("second", new NumberValue(2)).getNodeKey();
+      final long secondFieldKey = trx.insertObjectRecordAsLastChild("second", new NumberValue(2)).getNodeKey();
 
       // Fused primitives use the Option-B leaf model: the value is inline, and the insertion
       // still leaves the public cursor on the fused record for the next shredder self-move.

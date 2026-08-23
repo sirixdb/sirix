@@ -58,8 +58,7 @@ final class AsyncFlushLogBoundaryTest {
 
   @Test
   void rejectsNegativeLiveEntryCount() {
-    assertThrows(IllegalArgumentException.class,
-        () -> NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(-1));
+    assertThrows(IllegalArgumentException.class, () -> NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(-1));
   }
 
   @Test
@@ -83,8 +82,7 @@ final class AsyncFlushLogBoundaryTest {
                                                    .build());
 
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final TransactionIntentLog log = writer.getLog();
@@ -97,11 +95,10 @@ final class AsyncFlushLogBoundaryTest {
         // production safe-point predicate initiated that epoch.
         long pageKey = 1_000_000L;
         while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT) {
-          final KeyValueLeafPage page =
-              new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config, writer.getRevisionNumber(),
-                                   null, null, false);
-          final PageReference reference = new PageReference().setDatabaseId(config.getDatabaseId())
-                                                             .setResourceId(config.getID());
+          final KeyValueLeafPage page = new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config,
+              writer.getRevisionNumber(), null, null, false);
+          final PageReference reference =
+              new PageReference().setDatabaseId(config.getDatabaseId()).setResourceId(config.getID());
           log.put(reference, PageContainer.getInstance(page, page));
         }
 
@@ -112,17 +109,15 @@ final class AsyncFlushLogBoundaryTest {
         assertTrue(wtx.moveTo(arrayNodeKey));
         wtx.insertStringValueAsFirstChild("trigger");
 
-        assertEquals(1, flushes.get(),
-            "the production live-TIL predicate must rotate before the next mutation");
+        assertEquals(1, flushes.get(), "the production live-TIL predicate must rotate before the next mutation");
         assertEquals(1, log.getCurrentGeneration());
 
         writer.awaitPendingAsyncFlush();
         while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT - 1) {
-          final KeyValueLeafPage page =
-              new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config, writer.getRevisionNumber(),
-                                   null, null, false);
-          final PageReference reference = new PageReference().setDatabaseId(config.getDatabaseId())
-                                                             .setResourceId(config.getID());
+          final KeyValueLeafPage page = new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config,
+              writer.getRevisionNumber(), null, null, false);
+          final PageReference reference =
+              new PageReference().setDatabaseId(config.getDatabaseId()).setResourceId(config.getID());
           log.put(reference, PageContainer.getInstance(page, page));
         }
 
@@ -132,11 +127,10 @@ final class AsyncFlushLogBoundaryTest {
         assertEquals(1, flushes.get(), "15 entries must not rotate the second epoch");
 
         while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT) {
-          final KeyValueLeafPage page =
-              new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config, writer.getRevisionNumber(),
-                                   null, null, false);
-          final PageReference reference = new PageReference().setDatabaseId(config.getDatabaseId())
-                                                             .setResourceId(config.getID());
+          final KeyValueLeafPage page = new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config,
+              writer.getRevisionNumber(), null, null, false);
+          final PageReference reference =
+              new PageReference().setDatabaseId(config.getDatabaseId()).setResourceId(config.getID());
           log.put(reference, PageContainer.getInstance(page, page));
         }
         assertTrue(wtx.moveTo(arrayNodeKey));
@@ -149,8 +143,8 @@ final class AsyncFlushLogBoundaryTest {
 
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.moveToFirstChild());
       assertEquals(3, rtx.getChildCount());
       assertTrue(rtx.moveToFirstChild());

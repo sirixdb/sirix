@@ -24,28 +24,26 @@ import java.util.Set;
 
 /**
  * <p>
- * Function for dropping projection indexes from a stored document — the
- * projection sibling of {@code jn:drop-valid-time-index}. If successful,
- * this function returns the document node. Supported signatures:
+ * Function for dropping projection indexes from a stored document — the projection sibling of
+ * {@code jn:drop-valid-time-index}. If successful, this function returns the document node.
+ * Supported signatures:
  * </p>
  * <ul>
- * <li><code>jn:drop-projection-index($doc as json-item()) as json-item()</code>
- * — drops ALL projection indexes on the resource.</li>
+ * <li><code>jn:drop-projection-index($doc as json-item()) as json-item()</code> — drops ALL
+ * projection indexes on the resource.</li>
  * <li><code>jn:drop-projection-index($doc as json-item(), $idx-no as xs:int)
- * as json-item()</code> — drops the projection index with the given id
- * (see {@code jn:find-projection-index}).</li>
+ * as json-item()</code> — drops the projection index with the given id (see
+ * {@code jn:find-projection-index}).</li>
  * </ul>
  *
- * <p>The definition is removed from the catalogue and each dropped
- * projection's persisted metadata slot is overwritten with a stale
- * tombstone. The tombstone is REQUIRED for correctness, not hygiene: after
- * the drop no change listener maintains the sub-tree, so a later
- * re-creation reusing the id could otherwise mistake the leftover columns
- * for fresh ones even though records changed in between. Both writes ride
- * the session's write transaction — call {@code sdb:commit($doc)} to
- * persist. Revisions committed BEFORE the drop keep their catalogue entry
- * and payloads, so time-travel queries at those revisions continue to be
- * served by the projection.
+ * <p>
+ * The definition is removed from the catalogue and each dropped projection's persisted metadata
+ * slot is overwritten with a stale tombstone. The tombstone is REQUIRED for correctness, not
+ * hygiene: after the drop no change listener maintains the sub-tree, so a later re-creation reusing
+ * the id could otherwise mistake the leftover columns for fresh ones even though records changed in
+ * between. Both writes ride the session's write transaction — call {@code sdb:commit($doc)} to
+ * persist. Revisions committed BEFORE the drop keep their catalogue entry and payloads, so
+ * time-travel queries at those revisions continue to be served by the projection.
  *
  * @author Johannes Lichtenberger
  */
@@ -82,10 +80,11 @@ public final class DropProjectionIndex extends AbstractFunction {
         wtx.revertTo(rtx.getRevisionNumber());
       }
 
-      final JsonIndexController controller =
-          wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
+      final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
-      final Integer requestedId = args.length == 2 && args[1] != null ? ((Int32) args[1]).intValue() : null;
+      final Integer requestedId = args.length == 2 && args[1] != null
+          ? ((Int32) args[1]).intValue()
+          : null;
 
       final Set<IndexDef> toDrop = new LinkedHashSet<>();
       for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
@@ -98,13 +97,13 @@ public final class DropProjectionIndex extends AbstractFunction {
       }
 
       if (requestedId != null && toDrop.isEmpty()) {
-        throw new QueryException(new QNm(
-            "No PROJECTION index with id " + requestedId + " found on the resource."));
+        throw new QueryException(new QNm("No PROJECTION index with id " + requestedId + " found on the resource."));
       }
 
       dropAll(toDrop, controller, wtx);
       // Hand a wtx we opened to the caller ONLY when it now carries pending changes: closing it then
-      // would discard the drop that was just asked for. With nothing to drop — `jn:drop-projection-index($doc)`
+      // would discard the drop that was just asked for. With nothing to drop —
+      // `jn:drop-projection-index($doc)`
       // on a resource that has no projection index — there is nothing for the caller to commit, so
       // leaving it open would strand the resource's single writer permit on a successful no-op.
       committedToCaller = !toDrop.isEmpty();
@@ -117,8 +116,7 @@ public final class DropProjectionIndex extends AbstractFunction {
     return document;
   }
 
-  private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller,
-      final JsonNodeTrx wtx) {
+  private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller, final JsonNodeTrx wtx) {
     if (!toDrop.isEmpty()) {
       wtx.awaitPendingAsyncCommit();
       controller.dropIndexes(toDrop, wtx);

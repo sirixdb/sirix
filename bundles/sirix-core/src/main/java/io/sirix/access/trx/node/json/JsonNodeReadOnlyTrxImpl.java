@@ -109,11 +109,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
     final var diffTuples = new ArrayList<JsonObject>();
 
     try {
-      final var jsonObject = JsonDiffSidecar.read(updateOperationsFile,
-          resourceSession.getResourceConfig().getName(),
-          revisionNumber - 1,
-          revisionNumber,
-          resourceSession.getResourceConfig().areDeweyIDsStored);
+      final var jsonObject = JsonDiffSidecar.read(updateOperationsFile, resourceSession.getResourceConfig().getName(),
+          revisionNumber - 1, revisionNumber, resourceSession.getResourceConfig().areDeweyIDsStored);
       final var diffs = jsonObject.getAsJsonArray("diffs");
 
       diffs.forEach(serializeJsonFragmentIfNeeded(diffTuples));

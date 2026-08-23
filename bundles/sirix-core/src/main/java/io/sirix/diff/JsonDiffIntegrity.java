@@ -12,16 +12,20 @@ import java.util.HexFormat;
 /**
  * Integrity metadata for the internal per-revision JSON diff sidecar.
  *
- * <p>The sidecar is a rebuildable cache, not authoritative database state. A strict schema check
+ * <p>
+ * The sidecar is a rebuildable cache, not authoritative database state. A strict schema check
  * catches malformed operations but cannot distinguish a legitimate subset from a syntactically
  * valid file that lost one or more operations. Version, count, and a SHA-256 digest over the
  * semantic {@code diffs} tree let readers reject that case and use an authoritative fallback (or
- * fail before applying a partial revision copy).</p>
+ * fail before applying a partial revision copy).
+ * </p>
  *
- * <p>The digest is fed directly from the Gson tree without materializing a second JSON string or
- * byte array. Strings are length-prefixed UTF-16 code units; arrays and objects include type tags,
+ * <p>
+ * The digest is fed directly from the Gson tree without materializing a second JSON string or byte
+ * array. Strings are length-prefixed UTF-16 code units; arrays and objects include type tags,
  * sizes, names, values, and insertion order. Both writer and strict reader use the same canonical
- * representation, independent of insignificant JSON whitespace.</p>
+ * representation, independent of insignificant JSON whitespace.
+ * </p>
  */
 public final class JsonDiffIntegrity {
 
@@ -58,8 +62,7 @@ public final class JsonDiffIntegrity {
     }
 
     final JsonElement digestElement = document.get(OPERATIONS_DIGEST_FIELD);
-    if (digestElement == null || !digestElement.isJsonPrimitive()
-        || !digestElement.getAsJsonPrimitive().isString()) {
+    if (digestElement == null || !digestElement.isJsonPrimitive() || !digestElement.getAsJsonPrimitive().isString()) {
       throw new IllegalStateException("JSON diff sidecar digest is missing or malformed");
     }
     final String expected = digestElement.getAsString();

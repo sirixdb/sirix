@@ -16,16 +16,17 @@ import java.util.List;
  * pending. It is the working template for reference-bearing values (#1076). Two producers:
  *
  * <ul>
- *   <li>{@link KeyValueLeafPage} spills a record that does not fit the slotted page heap here;</li>
- *   <li>the projection index stores a <em>referenced</em> column segment here (the segments a
- *       {@link io.sirix.index.projection.RowGroupDescriptor} does not inline — see
- *       {@code docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md} §3.1a). It replaced the
- *       near-identical bespoke {@code ProjectionSegmentPage}: same immutable bytes, same
- *       throwing structural accessors, same {@code [id][ver+flags][int len][data]} wire form.</li>
+ * <li>{@link KeyValueLeafPage} spills a record that does not fit the slotted page heap here;</li>
+ * <li>the projection index stores a <em>referenced</em> column segment here (the segments a
+ * {@link io.sirix.index.projection.RowGroupDescriptor} does not inline — see
+ * {@code docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md} §3.1a). It replaced the near-identical
+ * bespoke {@code ProjectionSegmentPage}: same immutable bytes, same throwing structural accessors,
+ * same {@code [id][ver+flags][int len][data]} wire form.</li>
  * </ul>
  *
- * <p>Leaf of the commit recursion: the structural accessors throw; the storage-engine writer's
- * commit branch writes it directly and assigns its offset key. Offset identity, no fragment chain
+ * <p>
+ * Leaf of the commit recursion: the structural accessors throw; the storage-engine writer's commit
+ * branch writes it directly and assigns its offset key. Offset identity, no fragment chain
  * (whole-page last-writer-wins); an unchanged page is shared across revisions by carrying its
  * resolved {@link PageReference} forward. Integrity for projection segments is the owning
  * descriptor's per-segment {@code byteLen} + XXH3-64 hash (these pages carry no checksum).
@@ -54,14 +55,16 @@ public final class OverflowPage implements Page {
   /**
    * Constructor.
    *
-   * <p>Deliberately imposes NO upper bound on {@code data}. A node record spills here whenever it
+   * <p>
+   * Deliberately imposes NO upper bound on {@code data}. A node record spills here whenever it
    * exceeds {@link io.sirix.settings.Constants}' slot threshold, and that threshold is a spill
    * trigger, not a ceiling — a single large string or binary value legitimately produces an
-   * arbitrarily large overflow page. A size cap here would reject valid user data at commit time
-   * and, worse, make already-committed pages of that size unreadable. Producers with a genuine
-   * domain limit enforce it themselves (see {@code RowGroupDescriptor.MAX_SEGMENT_BYTES} for the
-   * projection index); the reader guards against a <em>corrupt</em> stored length by bounding it
-   * against the bytes actually remaining in the source, which can never reject an intact page.</p>
+   * arbitrarily large overflow page. A size cap here would reject valid user data at commit time and,
+   * worse, make already-committed pages of that size unreadable. Producers with a genuine domain
+   * limit enforce it themselves (see {@code RowGroupDescriptor.MAX_SEGMENT_BYTES} for the projection
+   * index); the reader guards against a <em>corrupt</em> stored length by bounding it against the
+   * bytes actually remaining in the source, which can never reject an intact page.
+   * </p>
    *
    * @param data data to be stored as byte array
    * @throws IllegalArgumentException if {@code data} is null
@@ -79,10 +82,12 @@ public final class OverflowPage implements Page {
   /**
    * Construct an immutable view into a transaction-owned native payload reservoir.
    *
-   * <p>The segment must be read-only and remain alive until the owning page reference is either
-   * published or cancelled. The side-page append pipeline uses this representation so encoded
-   * segment arrays can die in eden immediately instead of surviving several young collections and
-   * becoming dead old-generation garbage. The reservoir itself is fixed-size and reused.</p>
+   * <p>
+   * The segment must be read-only and remain alive until the owning page reference is either
+   * published or cancelled. The side-page append pipeline uses this representation so encoded segment
+   * arrays can die in eden immediately instead of surviving several young collections and becoming
+   * dead old-generation garbage. The reservoir itself is fixed-size and reused.
+   * </p>
    *
    * @param data shared read-only reservoir
    * @param offset first payload byte in {@code data}
@@ -100,9 +105,8 @@ public final class OverflowPage implements Page {
     }
     final long capacity = data.byteSize();
     if (offset < 0L || length < 0 || offset > capacity || length > capacity - offset) {
-      throw new IllegalArgumentException(
-          "overflow page native range is outside its segment: offset=" + offset + ", length=" + length
-              + ", capacity=" + capacity);
+      throw new IllegalArgumentException("overflow page native range is outside its segment: offset=" + offset
+          + ", length=" + length + ", capacity=" + capacity);
     }
     heapData = null;
     nativeData = data;
@@ -147,9 +151,11 @@ public final class OverflowPage implements Page {
   /**
    * Get this payload as a byte array.
    *
-   * <p>A heap-backed page returns its immutable producer array as before. A staged native page
-   * returns a copy; same-transaction projection reads are deliberately uncommon and must not turn
-   * the fixed native reservoir back into transaction-long heap retention.</p>
+   * <p>
+   * A heap-backed page returns its immutable producer array as before. A staged native page returns a
+   * copy; same-transaction projection reads are deliberately uncommon and must not turn the fixed
+   * native reservoir back into transaction-long heap retention.
+   * </p>
    */
   public byte[] getDataBytes() {
     if (heapData != null) {
@@ -178,9 +184,8 @@ public final class OverflowPage implements Page {
     }
     final long capacity = target.byteSize();
     if (targetOffset < 0L || targetOffset > capacity || dataLength > capacity - targetOffset) {
-      throw new IllegalArgumentException(
-          "overflow page copy range is outside its target: offset=" + targetOffset + ", length=" + dataLength
-              + ", capacity=" + capacity);
+      throw new IllegalArgumentException("overflow page copy range is outside its target: offset=" + targetOffset
+          + ", length=" + dataLength + ", capacity=" + capacity);
     }
     if (heapData != null) {
       MemorySegment.copy(heapData, 0, target, ValueLayout.JAVA_BYTE, targetOffset, dataLength);

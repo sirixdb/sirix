@@ -25,28 +25,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Pins the invariant {@code AbstractJsonDBArray.at(int)} now carries:
  *
  * <p>
- * <b>{@code at()} NEVER materializes the element list — at any index, in any access order, under any
- * interleaving.</b> Only an explicit {@link io.brackit.query.jdm.json.Array#values()} does. Every test
- * here asserts that first and its element values second, because a wrong element fails loudly while an
- * unnoticed materialization only shows up as a heap that will not fit a corpus.
+ * <b>{@code at()} NEVER materializes the element list — at any index, in any access order, under
+ * any interleaving.</b> Only an explicit {@link io.brackit.query.jdm.json.Array#values()} does.
+ * Every test here asserts that first and its element values second, because a wrong element fails
+ * loudly while an unnoticed materialization only shows up as a heap that will not fit a corpus.
  *
  * <p>
  * This is not a hypothetical concurrency worry, it is the shape of a real query. brackit binds one
  * array item per variable, so {@code let $doc := jn:doc(...)} puts THAT object into every tuple of
- * the pipeline — including the tuples an operator spills. Deciding whether a spilled column is copied
- * or held by reference is done by RENDERING it under a 64 KiB cap
+ * the pipeline — including the tuples an operator spills. Deciding whether a spilled column is
+ * copied or held by reference is done by RENDERING it under a 64 KiB cap
  * ({@code TupleSerializer.serializeToJson}), and the renderer walks an array with the very same
  * {@code len()}/{@code at(i)} protocol the array unbox uses ({@code StringSerializer}). So spilling
- * one tuple starts a second walk from index 0 across the array the {@code for} loop is streaming, and
- * abandons it a hundred-odd elements in.
+ * one tuple starts a second walk from index 0 across the array the {@code for} loop is streaming,
+ * and abandons it a hundred-odd elements in.
  *
  * <p>
- * With a single anchor that was fatal: the streaming walk came back to an anchor it had not set, took
- * the "random access" branch, and materialized every element into a list cached for the life of the
- * query. Measured on a 100 M-element corpus: 99,999,968 live items, 4.8 GB, {@code OutOfMemoryError}
- * — while the diagnostic proved no sibling hop had ever failed, which is what the fallback was
- * believed to be for. The observed anchor when it fired was 134, i.e. exactly where 64 KiB of
- * rendered records runs out.
+ * With a single anchor that was fatal: the streaming walk came back to an anchor it had not set,
+ * took the "random access" branch, and materialized every element into a list cached for the life
+ * of the query. Measured on a 100 M-element corpus: 99,999,968 live items, 4.8 GB,
+ * {@code OutOfMemoryError} — while the diagnostic proved no sibling hop had ever failed, which is
+ * what the fallback was believed to be for. The observed anchor when it fired was 134, i.e. exactly
+ * where 64 KiB of rendered records runs out.
  */
 final class JsonDBArrayInterleavedWalkTest {
 
@@ -115,10 +115,9 @@ final class JsonDBArrayInterleavedWalkTest {
   private static void assertNothingWasMaterialized(final AbstractJsonDBArray<?> array,
       final long materializationsBefore) throws Exception {
     assertNull(valuesFieldOf(array),
-               "at() must never leave a materialized element list behind — a list of the array's own "
-                   + "size, retained for the lifetime of the query, is the 4.8 GB failure this pins");
-    assertEquals(materializationsBefore, AbstractJsonDBArray.materializations(),
-                 "no element list may be built at all");
+        "at() must never leave a materialized element list behind — a list of the array's own "
+            + "size, retained for the lifetime of the query, is the 4.8 GB failure this pins");
+    assertEquals(materializationsBefore, AbstractJsonDBArray.materializations(), "no element list may be built at all");
   }
 
   /**
@@ -150,12 +149,10 @@ final class JsonDBArrayInterleavedWalkTest {
     }
 
     @Override
-    public void flush() {
-    }
+    public void flush() {}
 
     @Override
-    public void close() {
-    }
+    public void close() {}
   }
 
   private static int elementAt(final JsonDBArray array, final int index) {
@@ -193,7 +190,7 @@ final class JsonDBArrayInterleavedWalkTest {
     // Two walks, so two starts that cannot be served by a hop; every other one of the 1134 accesses
     // is a single sibling hop off one of the two anchors. Three would mean the anchors thrash.
     assertEquals(2L, AbstractJsonDBArray.positionalReanchors() - reanchorsBefore,
-                 "each walk may pay one positional re-anchor to start, and not one more");
+        "each walk may pay one positional re-anchor to start, and not one more");
   }
 
   @Test
@@ -239,7 +236,7 @@ final class JsonDBArrayInterleavedWalkTest {
       assertEquals(i, elementAt(array, i), "descending access must be exact at " + i);
     }
     // A shuffle of jumps in both directions.
-    for (final int i : new int[] { 0, 599, 1, 598, 300, 42, 599, 0, 301 }) {
+    for (final int i : new int[] {0, 599, 1, 598, 300, 42, 599, 0, 301}) {
       assertEquals(i, elementAt(array, i), "jumping access must be exact at " + i);
     }
 

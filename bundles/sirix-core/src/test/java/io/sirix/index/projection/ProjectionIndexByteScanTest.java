@@ -41,15 +41,15 @@ final class ProjectionIndexByteScanTest {
   }
 
   private static byte[] buildOrderMetadataLeaf(final boolean dense) {
-    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
     final long[] keys = dense
         ? new long[] {2L, 100L, 5L, 8L}
         : new long[] {2L, 5L, 8L, 11L};
     for (int row = 0; row < keys.length; row++) {
-      assertTrue(page.appendExtractedUtf8Row(keys[row], new long[] {10L + row * 10L}, new boolean[1],
-          new byte[1][], new int[1], new String[1][], new boolean[] {true}, new boolean[1], new boolean[1],
-          new boolean[1], dense && row == 1));
+      assertTrue(page.appendExtractedUtf8Row(keys[row], new long[] {10L + row * 10L}, new boolean[1], new byte[1][],
+          new int[1], new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1],
+          dense && row == 1));
     }
     return page.serialize();
   }

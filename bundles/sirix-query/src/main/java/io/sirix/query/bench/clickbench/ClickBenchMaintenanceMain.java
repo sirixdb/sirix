@@ -44,7 +44,9 @@ public final class ClickBenchMaintenanceMain {
     final Path root = Path.of(args[0]);
     final long baseRows = positiveLong(args[1], "baseRows");
     final int dirtyRecords = positiveInt(args[2], "dirtyRecords");
-    final int autoCommitNodes = args.length == 4 ? positiveInt(args[3], "autoCommitNodes") : 16_384;
+    final int autoCommitNodes = args.length == 4
+        ? positiveInt(args[3], "autoCommitNodes")
+        : 16_384;
     if (dirtyRecords < 100_001 || dirtyRecords > baseRows) {
       throw new IllegalArgumentException("dirtyRecords must be in [100001, baseRows]");
     }
@@ -64,8 +66,7 @@ public final class ClickBenchMaintenanceMain {
     ProjectionIndexChangeListener.resetMaintenanceTelemetry();
     GlobalValueDictionary.resetProbeTelemetry();
     System.out.println("# HFT_MEASURE_START");
-    System.out.println("# HFT_BUILD gitSha=" + hftBuild.gitSha()
-        + " artifactSha256=" + hftBuild.artifactSha256());
+    System.out.println("# HFT_BUILD gitSha=" + hftBuild.gitSha() + " artifactSha256=" + hftBuild.artifactSha256());
     System.out.println(config);
     System.out.flush();
 
@@ -91,14 +92,18 @@ public final class ClickBenchMaintenanceMain {
     final HftBoundaryTelemetry.Snapshot maintenanceBoundaries = HftBoundaryTelemetry.snapshot();
     final VerificationEvidence evidence = verifyColdState(databasePath, fixture, baseRows, dirtyRecords);
     ProjectionIndexChangeListener.printMaintenanceTelemetry(maintenanceBoundaries);
-    System.out.printf(Locale.ROOT, "# HFT_PROJECTION_EVIDENCE revisionsVerified=%d historicalRevisions=%d "
+    System.out.printf(Locale.ROOT,
+        "# HFT_PROJECTION_EVIDENCE revisionsVerified=%d historicalRevisions=%d "
             + "oracleRows=%d servedRows=%d oracleMatches=%d servedMatches=%d servedRevisions=%d "
-            + "stableAnchors=%d stableIds=%d "
-            + "successorSegments=%d introductionRevision=%d maxProbeUnits=%d%n",
+            + "stableAnchors=%d stableIds=%d " + "successorSegments=%d introductionRevision=%d maxProbeUnits=%d%n",
         evidence.revisionsVerified(), evidence.revisionsVerified() - 1, evidence.oracleRows(), evidence.servedRows(),
-        evidence.oracleMatches(), evidence.servedMatches(), evidence.servedRevisions(),
-        evidence.stableAnchors() ? 1 : 0, evidence.stableIds() ? 1 : 0, evidence.successorSegments(),
-        evidence.introductionRevision(), GlobalValueDictionary.maxProbeUnits());
+        evidence.oracleMatches(), evidence.servedMatches(), evidence.servedRevisions(), evidence.stableAnchors()
+            ? 1
+            : 0,
+        evidence.stableIds()
+            ? 1
+            : 0,
+        evidence.successorSegments(), evidence.introductionRevision(), GlobalValueDictionary.maxProbeUnits());
     System.out.println("# HFT_MEASURE_END");
     System.out.flush();
   }
@@ -145,8 +150,8 @@ public final class ClickBenchMaintenanceMain {
         throw new IllegalStateException("AUTO-global fixture has no different value to update to an existing id");
       }
       final long anchor = metadata.valueDictionaryHeaderKey(column);
-      final int oldId = GlobalValueDictionary.probe(anchor, oldValue.getBytes(StandardCharsets.UTF_8),
-          rtx.getStorageEngineReader());
+      final int oldId =
+          GlobalValueDictionary.probe(anchor, oldValue.getBytes(StandardCharsets.UTF_8), rtx.getStorageEngineReader());
       if (anchor <= 0 || oldId <= 0) {
         throw new IllegalStateException("global dictionary fixture has no stable anchor/id");
       }
@@ -198,9 +203,11 @@ public final class ClickBenchMaintenanceMain {
           if (firstNewId > 0 && introductionRevision == 0) {
             introductionRevision = revision;
           }
-          final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(fixture.anchor(),
-              rtx.getStorageEngineReader());
-          final int successorSegments = header == null ? 0 : header.getGeneration();
+          final ValueDictionaryHeaderNode header =
+              GlobalValueDictionary.header(fixture.anchor(), rtx.getStorageEngineReader());
+          final int successorSegments = header == null
+              ? 0
+              : header.getGeneration();
           maximumSuccessorSegments = Math.max(maximumSuccessorSegments, successorSegments);
           if (revision == latestRevision) {
             final int lastNewId = GlobalValueDictionary.probe(fixture.anchor(),
@@ -224,8 +231,8 @@ public final class ClickBenchMaintenanceMain {
           }
           final String firstNewValue = "sirix-maintenance-0";
           final String lastNewValue = "sirix-maintenance-" + (dirtyRecords - 1);
-          final RevisionOracle oracle = fieldOracle(rtx, fixture.fieldName(), fixture.oldValue(),
-              firstNewValue, lastNewValue);
+          final RevisionOracle oracle =
+              fieldOracle(rtx, fixture.fieldName(), fixture.oldValue(), firstNewValue, lastNewValue);
           final long servedBefore = SirixVectorizedExecutor.projectionCountsServed();
           final Sequence count = executor.executeAggregate(null, new String[] {"[]"}, "count", fixture.fieldName());
           if (!(count instanceof final Int64 value) || value.longValue() != oracle.rows()) {
@@ -234,17 +241,17 @@ public final class ClickBenchMaintenanceMain {
           final long matches = servedPredicateCount(executor, fixture.fieldName(), fixture.oldValue())
               + servedPredicateCount(executor, fixture.fieldName(), firstNewValue)
               + servedPredicateCount(executor, fixture.fieldName(), lastNewValue);
-          if (matches != oracle.matches()
-              || SirixVectorizedExecutor.projectionCountsServed() - servedBefore < 3L) {
-            throw new IllegalStateException("projection predicates differ from the record oracle at revision "
-                + revision);
+          if (matches != oracle.matches() || SirixVectorizedExecutor.projectionCountsServed() - servedBefore < 3L) {
+            throw new IllegalStateException(
+                "projection predicates differ from the record oracle at revision " + revision);
           }
           oracleRows += oracle.rows();
           servedRows += value.longValue();
           oracleMatches += oracle.matches();
           servedMatches += matches;
           servedRevisions++;
-          System.out.printf(Locale.ROOT, "# HFT_PROJECTION_REVISION revision=%d oracleRows=%d servedRows=%d "
+          System.out.printf(Locale.ROOT,
+              "# HFT_PROJECTION_REVISION revision=%d oracleRows=%d servedRows=%d "
                   + "oracleMatches=%d servedMatches=%d anchor=%d oldId=%d newId=%d successorSegments=%d%n",
               revision, oracle.rows(), value.longValue(), oracle.matches(), matches,
               metadata.valueDictionaryHeaderKey(fixture.column()), oldId, firstNewId, successorSegments);
@@ -295,8 +302,8 @@ public final class ClickBenchMaintenanceMain {
 
   private static long servedPredicateCount(final SirixVectorizedExecutor executor, final String fieldName,
       final String value) {
-    final Sequence count = executor.executePredicateCount(null, new String[] {"[]"},
-        new PredicateNode.StrEq(fieldName, value));
+    final Sequence count =
+        executor.executePredicateCount(null, new String[] {"[]"}, new PredicateNode.StrEq(fieldName, value));
     if (!(count instanceof final Int64 matches)) {
       throw new IllegalStateException("projection declined equality for " + fieldName);
     }
@@ -304,8 +311,8 @@ public final class ClickBenchMaintenanceMain {
   }
 
   private static ProjectionIndexMetadata readMetadata(final JsonNodeReadOnlyTrx rtx) {
-    final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(
-        ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), 0, 0L));
+    final ProjectionIndexMetadata metadata =
+        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), 0, 0L));
     if (metadata == null || metadata.isStale()) {
       throw new IllegalStateException("ClickBench projection metadata is absent or stale");
     }
@@ -333,16 +340,15 @@ public final class ClickBenchMaintenanceMain {
             + "pinnedTrieBatchCapacity=%d versioningType=%s appendWorkers=%d appendQueueCapacity=%d",
         autoCommitNodes, SharedArenas.strategy().name().toLowerCase(Locale.ROOT), effectiveVmOption("MaxNewSize"),
         effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"), effectiveVmOption("G1HeapRegionSize"),
-        hftBuild.gcLogging(),
-        hftBuild.safepointLogging(), baseRows,
+        hftBuild.gcLogging(), hftBuild.safepointLogging(), baseRows,
         Integer.getInteger("sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024),
         Integer.getInteger("sirix.asyncFlush.pinnedTrieSpillBatchCapacity", 64), fixture.versioningType(),
         appendWorkers(), positiveProperty("sirix.asyncFlush.appendQueueCapacity", 1));
   }
 
   private static long effectiveVmOption(final String name) {
-    return Long.parseLong(ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class)
-        .getVMOption(name).getValue());
+    return Long.parseLong(
+        ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class).getVMOption(name).getValue());
   }
 
   private static int appendWorkers() {
@@ -374,13 +380,13 @@ public final class ClickBenchMaintenanceMain {
     return parsed;
   }
 
-  private record DictionaryFixture(String fieldName, int column, long anchor, String oldValue,
-      int oldId, int existingValueUpdateIndex, String versioningType, int baselineRevision) {
+  private record DictionaryFixture(String fieldName, int column, long anchor, String oldValue, int oldId,
+      int existingValueUpdateIndex, String versioningType, int baselineRevision) {
   }
 
-  private record VerificationEvidence(int revisionsVerified, long oracleRows, long servedRows,
-      long oracleMatches, long servedMatches, int servedRevisions, boolean stableAnchors, boolean stableIds,
-      int successorSegments, int introductionRevision) {
+  private record VerificationEvidence(int revisionsVerified, long oracleRows, long servedRows, long oracleMatches,
+      long servedMatches, int servedRevisions, boolean stableAnchors, boolean stableIds, int successorSegments,
+      int introductionRevision) {
   }
 
   private record RevisionOracle(long rows, long matches) {

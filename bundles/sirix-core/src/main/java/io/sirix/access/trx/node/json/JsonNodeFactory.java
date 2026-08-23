@@ -31,8 +31,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param pathNodeKey the path node key
    */
-  ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
-      SirixDeweyID id);
+  ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNode}.
@@ -52,11 +51,11 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
-  StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
-      boolean isCompressed, SirixDeweyID id);
+  StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value, boolean isCompressed,
+      SirixDeweyID id);
 
-  StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey,
-      byte[] value, int valueOff, int valueLen, boolean isCompressed, SirixDeweyID id);
+  StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value, int valueOff,
+      int valueLen, boolean isCompressed, SirixDeweyID id);
 
   /**
    * Create a {@link BooleanNode}.
@@ -77,8 +76,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param value the number value
    */
-  NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value,
-      SirixDeweyID id);
+  NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value, SirixDeweyID id);
 
   /**
    * Create a {@link NullNode}.
@@ -92,30 +90,32 @@ public interface JsonNodeFactory extends NodeFactory {
   /**
    * Create a {@link ObjectNamedBooleanNode} — fused OBJECT_KEY + BOOLEAN value.
    *
-   * @param parentKey   parent node key
-   * @param leftSibKey  left sibling key
+   * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param pathNodeKey path node key of node
-   * @param name        the name of the key
-   * @param value       the boolean value
+   * @param name the name of the key
+   * @param value the boolean value
    */
-  ObjectNamedBooleanNode createJsonObjectNamedBooleanNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, boolean value, SirixDeweyID id);
+  ObjectNamedBooleanNode createJsonObjectNamedBooleanNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, boolean value, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNamedNumberNode} — fused OBJECT_KEY + NUMBER value.
    */
-  ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, Number value, SirixDeweyID id);
+  ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, Number value, SirixDeweyID id);
 
   /**
    * Create a fused object-named number from an {@code int}.
    *
-   * <p>The default preserves source compatibility for third-party factory implementations. The
-   * production factory overrides it with an allocation-free writer.</p>
+   * <p>
+   * The default preserves source compatibility for third-party factory implementations. The
+   * production factory overrides it with an allocation-free writer.
+   * </p>
    */
-  default ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, int value, SirixDeweyID id) {
+  default ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, int value, SirixDeweyID id) {
     return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
         Integer.valueOf(value), id);
   }
@@ -123,54 +123,57 @@ public interface JsonNodeFactory extends NodeFactory {
   /**
    * Create a fused object-named number from a {@code long}.
    *
-   * <p>The default preserves source compatibility for third-party factory implementations. The
-   * production factory overrides it with an allocation-free writer.</p>
+   * <p>
+   * The default preserves source compatibility for third-party factory implementations. The
+   * production factory overrides it with an allocation-free writer.
+   * </p>
    */
-  default ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, long value, SirixDeweyID id) {
-    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
-        Long.valueOf(value), id);
+  default ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, long value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, Long.valueOf(value),
+        id);
   }
 
   /**
    * Create a {@link ObjectNamedStringNode} — fused OBJECT_KEY + STRING value.
    */
-  ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, byte[] value, SirixDeweyID id);
+  ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, byte[] value, SirixDeweyID id);
 
   /**
-   * Create a {@link ObjectNamedStringNode} — fused OBJECT_KEY + STRING value
-   * accepting a slice of a (possibly reusable) UTF-8 buffer.
+   * Create a {@link ObjectNamedStringNode} — fused OBJECT_KEY + STRING value accepting a slice of a
+   * (possibly reusable) UTF-8 buffer.
    */
-  ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name,
-      byte[] value, int off, int len, SirixDeweyID id);
+  ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, byte[] value, int off, int len, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNamedNullNode} — fused OBJECT_KEY + NULL value.
    */
-  ObjectNamedNullNode createJsonObjectNamedNullNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, SirixDeweyID id);
+  ObjectNamedNullNode createJsonObjectNamedNullNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
+      String name, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNamedObjectNode} — fused OBJECT_KEY + nested OBJECT.
    *
-   * <p><b>Phase 1 stub</b>: implementation throws {@link UnsupportedOperationException}.
-   * Phase 2 will provide a real implementation that emits a single fused record
-   * (kindId 52) and pre-computes the {@code pathNodeKey} via the path-summary writer.
+   * <p>
+   * <b>Phase 1 stub</b>: implementation throws {@link UnsupportedOperationException}. Phase 2 will
+   * provide a real implementation that emits a single fused record (kindId 52) and pre-computes the
+   * {@code pathNodeKey} via the path-summary writer.
    */
-  ObjectNamedObjectNode createJsonObjectNamedObjectNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, SirixDeweyID id);
+  ObjectNamedObjectNode createJsonObjectNamedObjectNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNamedArrayNode} — fused OBJECT_KEY + nested ARRAY.
    *
-   * <p><b>Phase 1 stub</b>: implementation throws {@link UnsupportedOperationException}.
-   * Phase 2 will provide a real implementation that emits a single fused record
-   * (kindId 53) and pre-computes the {@code pathNodeKey} via the path-summary writer.
+   * <p>
+   * <b>Phase 1 stub</b>: implementation throws {@link UnsupportedOperationException}. Phase 2 will
+   * provide a real implementation that emits a single fused record (kindId 53) and pre-computes the
+   * {@code pathNodeKey} via the path-summary writer.
    */
-  ObjectNamedArrayNode createJsonObjectNamedArrayNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, SirixDeweyID id);
+  ObjectNamedArrayNode createJsonObjectNamedArrayNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, SirixDeweyID id);
 
   /**
    * Create a {@link DeweyIDNode}.

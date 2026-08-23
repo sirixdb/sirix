@@ -112,8 +112,7 @@ public final class BitmapReferencesPage implements Page {
    * @param in input stream to read from
    * @param type the serialization type
    */
-  public BitmapReferencesPage(final int referenceCount, final BytesIn<?> in,
-      final SerializationType type) {
+  public BitmapReferencesPage(final int referenceCount, final BytesIn<?> in, final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
     bitmap = tuple.getBitmap();
@@ -169,7 +168,9 @@ public final class BitmapReferencesPage implements Page {
   }
 
   public @Nullable PageReference referenceAtOffset(final int offset) {
-    return bitmap.get(offset) ? references.get(index(offset)) : null;
+    return bitmap.get(offset)
+        ? references.get(index(offset))
+        : null;
   }
 
   @Override

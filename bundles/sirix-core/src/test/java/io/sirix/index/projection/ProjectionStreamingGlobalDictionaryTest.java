@@ -46,20 +46,16 @@ final class ProjectionStreamingGlobalDictionaryTest {
   @EnumSource(VersioningType.class)
   void generationsKeepGlobalIdsAcrossAsyncEpochsAndColdReopen(final VersioningType versioningType) {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .useDeweyIDs(true)
-          .versioningApproach(versioningType)
-          .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).versioningApproach(versioningType).build());
     }
     final ProjectionIndexBuilder.StreamingGlobalDictionary dictionary =
-        new ProjectionIndexBuilder.StreamingGlobalDictionary(0,
-            new GlobalValueDictionaryWriter(0, Long.MAX_VALUE,
-                GlobalValueDictionaryWriter.AdmissionPolicy.FAIL_CLOSED));
+        new ProjectionIndexBuilder.StreamingGlobalDictionary(0, new GlobalValueDictionaryWriter(0, Long.MAX_VALUE,
+            GlobalValueDictionaryWriter.AdmissionPolicy.FAIL_CLOSED));
     final long headerKey;
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
-             AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
       assertEquals(versioningType, session.getResourceConfig().versioningType);
       wtx.insertObjectAsFirstChild();
       final StorageEngineWriter storage = wtx.getStorageEngineWriter();
@@ -101,11 +97,11 @@ final class ProjectionStreamingGlobalDictionaryTest {
     }
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexChangeListener.MaintenanceGlobalDictionary maintenanceDictionary =
-          new ProjectionIndexChangeListener.MaintenanceGlobalDictionary(0, headerKey,
-              wtx.getStorageEngineWriter(), Long.MAX_VALUE);
+          new ProjectionIndexChangeListener.MaintenanceGlobalDictionary(0, headerKey, wtx.getStorageEngineWriter(),
+              Long.MAX_VALUE);
       try {
         for (int repeat = 0; repeat < 256; repeat++) {
           assertEquals(1, maintenanceDictionary.intern("alpha"));
@@ -119,10 +115,9 @@ final class ProjectionStreamingGlobalDictionaryTest {
 
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
-         JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-      final ValueDictionaryHeaderNode header =
-          GlobalValueDictionary.header(headerKey, rtx.getStorageEngineReader());
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, rtx.getStorageEngineReader());
       assertNotNull(header);
       assertEquals(4, header.getEntryCount());
       assertEquals(2, header.getGeneration());

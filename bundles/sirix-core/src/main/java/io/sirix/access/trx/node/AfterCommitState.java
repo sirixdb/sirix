@@ -4,19 +4,19 @@ public enum AfterCommitState {
   KEEP_OPEN,
 
   /**
-   * Async TIL rotation mode. Intermediate auto-commits rotate the TIL via O(1) array swap
-   * and flush KVL pages to disk in the background. No intermediate revisions are created —
-   * only the final explicit {@code commit()} creates a revision.
+   * Async TIL rotation mode. Intermediate auto-commits rotate the TIL via O(1) array swap and flush
+   * KVL pages to disk in the background. No intermediate revisions are created — only the final
+   * explicit {@code commit()} creates a revision.
    *
-   * <p>Requirements:
+   * <p>
+   * Requirements:
    * <ul>
-   *   <li>Backend must be FILE_CHANNEL or MEMORY_MAPPED. Both append through
-   *       {@code FileChannelWriter}, and a write transaction's internal storage reads go
-   *       through {@code FileChannelReader} on both backends, so the background page flush
-   *       is backend-agnostic; memory-mapped read segments (read-only sessions) only ever
-   *       resolve pages referenced by a published revision, which the final synchronous
-   *       commit orders after all background writes.</li>
-   *   <li>Only threshold-based auto-commit supported (timed auto-commit not allowed)</li>
+   * <li>Backend must be FILE_CHANNEL or MEMORY_MAPPED. Both append through {@code FileChannelWriter},
+   * and a write transaction's internal storage reads go through {@code FileChannelReader} on both
+   * backends, so the background page flush is backend-agnostic; memory-mapped read segments
+   * (read-only sessions) only ever resolve pages referenced by a published revision, which the final
+   * synchronous commit orders after all background writes.</li>
+   * <li>Only threshold-based auto-commit supported (timed auto-commit not allowed)</li>
    * </ul>
    */
   KEEP_OPEN_ASYNC_FLUSH,
@@ -30,10 +30,12 @@ public enum AfterCommitState {
    * (durable-before-visible). Depth-1 pipeline: the next epoch's phase 1 waits for the previous
    * epoch's hardening. A hardening failure poisons the transaction terminally.
    *
-   * <p>See {@code docs/ASYNC_COMMIT_DESIGN.md}. Requirements: FILE_CHANNEL backend only
-   * (stricter than {@link #KEEP_OPEN_ASYNC_FLUSH}, which also allows MEMORY_MAPPED —
-   * mid-transaction revision publication is not yet validated against concurrently
-   * remapping memory-mapped readers), count-based auto-commit only.</p>
+   * <p>
+   * See {@code docs/ASYNC_COMMIT_DESIGN.md}. Requirements: FILE_CHANNEL backend only (stricter than
+   * {@link #KEEP_OPEN_ASYNC_FLUSH}, which also allows MEMORY_MAPPED — mid-transaction revision
+   * publication is not yet validated against concurrently remapping memory-mapped readers),
+   * count-based auto-commit only.
+   * </p>
    */
   KEEP_OPEN_ASYNC_COMMIT,
 
@@ -42,9 +44,11 @@ public enum AfterCommitState {
   /**
    * Maximum number of completed node modifications in one async-flush storage epoch.
    *
-   * <p>The storage writer can rotate earlier when its transaction-intent log reaches its direct
+   * <p>
+   * The storage writer can rotate earlier when its transaction-intent log reaches its direct
    * page-work bound. This second bound limits foreground index/projection maintenance even when a
-   * workload modifies relatively few storage pages.</p>
+   * workload modifies relatively few storage pages.
+   * </p>
    */
   public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 14;
 }

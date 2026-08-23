@@ -43,21 +43,21 @@ import java.util.concurrent.atomic.AtomicReference;
  * production-readiness gaps the point tests don't reach:
  *
  * <ul>
- *   <li><b>Long randomized update soak</b> — hundreds of attributable changes (in-place
- *       updates, deletes, tail/middle inserts, invisible {@code {}}/null rows) across many
- *       commits, with a deterministic oracle checked after EVERY commit; the projection must
- *       keep serving (never silently tombstone) and stay row-exact.</li>
- *   <li><b>Vectorized ≡ interpreted differential</b> — a query battery (aggregates,
- *       predicate count, count-distinct, per-group counts) run through a session-bound chain
- *       and through the plain chain, byte-identical output plus a servedCount proof.</li>
- *   <li><b>Time travel</b> — every soak revision re-checked through a revision-pinned
- *       executor after the fact (revision-scoped catalog serving).</li>
- *   <li><b>Process-restart discovery</b> — registry wiped and the database re-opened cold;
- *       persisted leaves must serve the final state.</li>
- *   <li><b>Concurrent readers vs. writer</b> — REST-shaped concurrency (one session per
- *       reader) with revision-pinned checks racing ongoing maintenance commits.</li>
- *   <li><b>Structural fail-closed cycles</b> — repeated attempts to reorder projection record
- *       roots must leave both the committed tree and the still-served projection unchanged.</li>
+ * <li><b>Long randomized update soak</b> — hundreds of attributable changes (in-place updates,
+ * deletes, tail/middle inserts, invisible {@code {}}/null rows) across many commits, with a
+ * deterministic oracle checked after EVERY commit; the projection must keep serving (never silently
+ * tombstone) and stay row-exact.</li>
+ * <li><b>Vectorized ≡ interpreted differential</b> — a query battery (aggregates, predicate count,
+ * count-distinct, per-group counts) run through a session-bound chain and through the plain chain,
+ * byte-identical output plus a servedCount proof.</li>
+ * <li><b>Time travel</b> — every soak revision re-checked through a revision-pinned executor after
+ * the fact (revision-scoped catalog serving).</li>
+ * <li><b>Process-restart discovery</b> — registry wiped and the database re-opened cold; persisted
+ * leaves must serve the final state.</li>
+ * <li><b>Concurrent readers vs. writer</b> — REST-shaped concurrency (one session per reader) with
+ * revision-pinned checks racing ongoing maintenance commits.</li>
+ * <li><b>Structural fail-closed cycles</b> — repeated attempts to reorder projection record roots
+ * must leave both the committed tree and the still-served projection unchanged.</li>
  * </ul>
  */
 public final class ProjectionIndexStressTest extends AbstractJsonTest {
@@ -66,8 +66,8 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   private static final String CONC_DB = "json-stress-conc";
   private static final String CYCLE_DB = "json-stress-cycle";
   private static final String SOAK_RESOURCE = "soak.jn";
-  private static final String[] SOURCE_PATH = { "[]" };
-  private static final String[] DEPTS = { "Eng", "Sales", "HR", "Ops" };
+  private static final String[] SOURCE_PATH = {"[]"};
+  private static final String[] DEPTS = {"Eng", "Sales", "HR", "Ops"};
 
   private static final int INITIAL_RECORDS = 2200;
   private static final int COMMITS = 15;
@@ -88,23 +88,22 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   }
 
   /**
-   * The stress suite uses DEDICATED database names: the shared {@code json-path1} store
-   * lives under {@code java.io.tmpdir} and other modules' test helpers delete it — on CI
-   * {@code :sirix-kotlin-api:test} runs IN PARALLEL with this module and would wipe the
-   * store mid-soak. The helper-managed paths (PATH1/PATH2) are untouched here, so this
-   * class cleans its own databases up.
+   * The stress suite uses DEDICATED database names: the shared {@code json-path1} store lives under
+   * {@code java.io.tmpdir} and other modules' test helpers delete it — on CI
+   * {@code :sirix-kotlin-api:test} runs IN PARALLEL with this module and would wipe the store
+   * mid-soak. The helper-managed paths (PATH1/PATH2) are untouched here, so this class cleans its own
+   * databases up.
    */
   private static void removeStressDatabases() {
-    for (final String db : new String[] { SOAK_DB, CONC_DB, CYCLE_DB }) {
-      Databases.removeDatabase(
-          Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), db));
+    for (final String db : new String[] {SOAK_DB, CONC_DB, CYCLE_DB}) {
+      Databases.removeDatabase(Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), db));
     }
   }
 
   /**
-   * Oracle row mirroring one child of the top-level array. All-null fields represent
-   * field-less rows ({@code {}} records and JSON null elements alike — the aggregates
-   * observe both identically as "no field present").
+   * Oracle row mirroring one child of the top-level array. All-null fields represent field-less rows
+   * ({@code {}} records and JSON null elements alike — the aggregates observe both identically as "no
+   * field present").
    */
   private static final class Row {
     Long age;
@@ -133,7 +132,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
 
     final Map<Integer, long[]> expectedByRevision = new LinkedHashMap<>(COMMITS * 2);
     try (final Database<JsonResourceSession> database = openStressDatabase(SOAK_DB);
-         final JsonResourceSession session = database.beginResourceSession(SOAK_RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(SOAK_RESOURCE)) {
       expectedByRevision.put(session.getMostRecentRevisionNumber(), oracleStats(oracle));
 
       int cumulativeMutations = 0;
@@ -164,7 +163,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     final long[] finalStats = oracleStats(oracle);
     try (final Database<JsonResourceSession> database = openStressDatabase(SOAK_DB);
-         final JsonResourceSession session = database.beginResourceSession(SOAK_RESOURCE)) {
+        final JsonResourceSession session = database.beginResourceSession(SOAK_RESOURCE)) {
       verifyAggregates(session, session.getMostRecentRevisionNumber(), finalStats);
       Assertions.assertTrue(servedRowCount(session, session.getMostRecentRevisionNumber()) >= oracle.size(),
           "cold re-open must serve at least the live rows");
@@ -175,9 +174,8 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   /**
    * Apply one random, incrementally-attributable operation to both the wtx and the oracle.
    *
-   * @return {@code 1} when the operation may orphan a physical leaf slot (delete or
-   *         in-place update — maintenance may append the re-extracted row instead of
-   *         compacting), else {@code 0}
+   * @return {@code 1} when the operation may orphan a physical leaf slot (delete or in-place update —
+   *         maintenance may append the re-extracted row instead of compacting), else {@code 0}
    */
   private static int applyRandomOp(final JsonNodeTrx wtx, final Random rnd, final List<Row> oracle) {
     final int dice = rnd.nextInt(100);
@@ -203,8 +201,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     if (dice < 90) {
       final Row row = randomRecord(rnd);
       moveToArray(wtx);
-      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(recordJson(row)),
-                                   JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(recordJson(row)), JsonNodeTrx.Commit.NO);
       oracle.add(row);
       return 0;
     }
@@ -221,37 +218,31 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   }
 
   /**
-   * Per-commit verification: aggregate parity with the oracle plus leaf-level row totals.
-   * Deleted and re-extracted rows may legitimately remain as presence-cleared physical
-   * slots (mid-leaf maintenance clears a row's presence bits instead of compacting), so
-   * the physical total is bounded by {@code live <= physical <= live + cumulative
+   * Per-commit verification: aggregate parity with the oracle plus leaf-level row totals. Deleted and
+   * re-extracted rows may legitimately remain as presence-cleared physical slots (mid-leaf
+   * maintenance clears a row's presence bits instead of compacting), so the physical total is bounded
+   * by {@code live <= physical <= live + cumulative
    * mutations}; the aggregates prove the phantoms are dead.
    */
-  private static void verifyAgainstOracle(final JsonResourceSession session, final int revision,
-      final long[] stats, final int expectedRows, final int cumulativeMutations) {
+  private static void verifyAgainstOracle(final JsonResourceSession session, final int revision, final long[] stats,
+      final int expectedRows, final int cumulativeMutations) {
     verifyAggregates(session, revision, stats);
     final int physicalRows = servedRowCount(session, revision);
     Assertions.assertTrue(physicalRows >= expectedRows,
-        "physical rows " + physicalRows + " must cover the " + expectedRows
-            + " live rows at revision " + revision);
+        "physical rows " + physicalRows + " must cover the " + expectedRows + " live rows at revision " + revision);
     Assertions.assertTrue(physicalRows <= expectedRows + cumulativeMutations,
-        "physical rows " + physicalRows + " must not exceed live " + expectedRows
-            + " + cumulative mutations " + cumulativeMutations + " at revision " + revision);
+        "physical rows " + physicalRows + " must not exceed live " + expectedRows + " + cumulative mutations "
+            + cumulativeMutations + " at revision " + revision);
   }
 
   /** Assert sum/count/min/max of "age" served at {@code revision} match the oracle stats. */
-  private static void verifyAggregates(final JsonResourceSession session, final int revision,
-      final long[] stats) {
+  private static void verifyAggregates(final JsonResourceSession session, final int revision, final long[] stats) {
     final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
     try {
-      Assertions.assertEquals(stats[0], aggregateLong(executor, "sum"),
-          "sum(age) at revision " + revision);
-      Assertions.assertEquals(stats[1], aggregateLong(executor, "count"),
-          "count(age) at revision " + revision);
-      Assertions.assertEquals(stats[2], aggregateLong(executor, "min"),
-          "min(age) at revision " + revision);
-      Assertions.assertEquals(stats[3], aggregateLong(executor, "max"),
-          "max(age) at revision " + revision);
+      Assertions.assertEquals(stats[0], aggregateLong(executor, "sum"), "sum(age) at revision " + revision);
+      Assertions.assertEquals(stats[1], aggregateLong(executor, "count"), "count(age) at revision " + revision);
+      Assertions.assertEquals(stats[2], aggregateLong(executor, "min"), "min(age) at revision " + revision);
+      Assertions.assertEquals(stats[3], aggregateLong(executor, "max"), "max(age) at revision " + revision);
     } finally {
       executor.close();
     }
@@ -273,7 +264,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
       }
     }
     Assertions.assertTrue(count > 0, "the soak must always keep age-bearing rows");
-    return new long[] { sum, count, min, max };
+    return new long[] {sum, count, min, max};
   }
 
   private static long aggregateLong(final SirixVectorizedExecutor executor, final String func) {
@@ -287,12 +278,13 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   /** Total row count of the SERVED projection at {@code revision} (leaf-level integrity). */
   private static int servedRowCount(final JsonResourceSession session, final int revision) {
     try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
-          .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] { "age" });
+      final ProjectionIndexRegistry.Handle handle =
+          session.getRtxIndexController(revision)
+                 .openProjectionIndex(rtx.getStorageEngineReader(), SOURCE_PATH, new String[] {"age"});
       Assertions.assertNotNull(handle, "the maintained projection must still be served");
       int rows = 0;
-      for (final byte[] leaf : handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
-          session, revision, handle.defId(), handle.rowGroupCount()))) {
+      for (final byte[] leaf : handle.rowGroupPayloads(
+          ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), handle.rowGroupCount()))) {
         rows += ProjectionIndexRowGroupPage.deserialize(leaf).getRowCount();
       }
       return rows;
@@ -305,28 +297,27 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
 
   private static final String BATTERY_DOC = "let $doc := jn:doc('" + SOAK_DB + "','" + SOAK_RESOURCE + "') ";
 
-  private static final String[] BATTERY = {
-      BATTERY_DOC + "return sum(for $r in $doc[] return $r.age)",
+  private static final String[] BATTERY = {BATTERY_DOC + "return sum(for $r in $doc[] return $r.age)",
       BATTERY_DOC + "return count(for $r in $doc[] return $r.age)",
       BATTERY_DOC + "return min(for $r in $doc[] return $r.age)",
       BATTERY_DOC + "return max(for $r in $doc[] return $r.age)",
       BATTERY_DOC + "return count(for $r in $doc[] where $r.age > 40 and $r.active return $r)",
       BATTERY_DOC + "return count(for $r in $doc[] let $d := $r.dept group by $d return $d)",
-      BATTERY_DOC + "return count(for $r in $doc[] where $r.dept = \"Eng\" return $r)",
-  };
+      BATTERY_DOC + "return count(for $r in $doc[] where $r.dept = \"Eng\" return $r)",};
 
   /**
-   * Runs the battery once through a session-bound chain (auto-wired vectorized executor) and
-   * once through the plain chain; outputs must be identical and at least the plain aggregates
-   * must be SERVED from the projection (servedCount proof).
+   * Runs the battery once through a session-bound chain (auto-wired vectorized executor) and once
+   * through the plain chain; outputs must be identical and at least the plain aggregates must be
+   * SERVED from the projection (servedCount proof).
    */
   private void runDifferentialBattery() throws IOException {
     final List<String> vectorized = new ArrayList<>(BATTERY.length);
     final List<String> interpreted = new ArrayList<>(BATTERY.length);
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup(SOAK_DB);
       final JsonResourceSession session = collection.getDatabase().beginResourceSession(SOAK_RESOURCE);
       final long servedBefore = ProjectionIndexCatalog.servedCount();
@@ -339,10 +330,11 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
           "the battery must be SERVED from the catalogued projection, not the fallback");
     }
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       for (final String query : BATTERY) {
         interpreted.add(evaluateToString(chain, ctx, query));
       }
@@ -354,10 +346,10 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     }
   }
 
-  private static String evaluateToString(final SirixCompileChain chain, final SirixQueryContext ctx,
-      final String query) throws IOException {
+  private static String evaluateToString(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
+      throws IOException {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-         final PrintWriter printWriter = new PrintWriter(out)) {
+        final PrintWriter printWriter = new PrintWriter(out)) {
       new Query(chain, query).serialize(ctx, printWriter);
       printWriter.flush();
       return out.toString();
@@ -374,8 +366,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     final List<Row> oracle = new ArrayList<>(800);
     final StringBuilder json = new StringBuilder(800 * 48).append('[');
     for (int i = 0; i < 800; i++) {
-      final Row row = Row.record((long) (18 + rnd.nextInt(73)), rnd.nextBoolean(),
-                                 DEPTS[rnd.nextInt(DEPTS.length)]);
+      final Row row = Row.record((long) (18 + rnd.nextInt(73)), rnd.nextBoolean(), DEPTS[rnd.nextInt(DEPTS.length)]);
       oracle.add(row);
       if (i > 0) {
         json.append(',');
@@ -384,8 +375,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     }
     json.append(']');
     query("jn:store('" + CONC_DB + "','conc.jn','" + json + "')");
-    query("let $doc := jn:doc('" + CONC_DB + "','conc.jn') "
-        + "let $stats := jn:create-projection-index($doc, '/[]', "
+    query("let $doc := jn:doc('" + CONC_DB + "','conc.jn') " + "let $stats := jn:create-projection-index($doc, '/[]', "
         + "('/[]/age', '/[]/active', '/[]/dept'), ('long', 'boolean', 'string')) "
         + "return {\"revision\": sdb:commit($doc)}");
 
@@ -396,9 +386,8 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     final ExecutorService readers = Executors.newFixedThreadPool(readerCount);
 
     try (final Database<JsonResourceSession> writerDatabase = openStressDatabase(CONC_DB);
-         final JsonResourceSession writerSession = writerDatabase.beginResourceSession("conc.jn")) {
-      expectedSumByRevision.put(writerSession.getMostRecentRevisionNumber(),
-                                oracleStats(oracle)[0]);
+        final JsonResourceSession writerSession = writerDatabase.beginResourceSession("conc.jn")) {
+      expectedSumByRevision.put(writerSession.getMostRecentRevisionNumber(), oracleStats(oracle)[0]);
 
       final List<Future<Long>> checks = new ArrayList<>(readerCount);
       for (int r = 0; r < readerCount; r++) {
@@ -412,15 +401,13 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
               final Integer[] revisions = expectedSumByRevision.keySet().toArray(new Integer[0]);
               final int revision = revisions[readerRnd.nextInt(revisions.length)];
               try (final Database<JsonResourceSession> database = openStressDatabase(CONC_DB);
-                   final JsonResourceSession session = database.beginResourceSession("conc.jn")) {
-                final SirixVectorizedExecutor executor =
-                    new SirixVectorizedExecutor(session, revision, 2);
+                  final JsonResourceSession session = database.beginResourceSession("conc.jn")) {
+                final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
                 try {
                   final Sequence sum = executor.executeAggregate(null, SOURCE_PATH, "sum", "age");
                   Assertions.assertNotNull(sum, "revision " + revision + " must be answered");
-                  Assertions.assertEquals(expectedSumByRevision.get(revision).longValue(),
-                                          ((Int64) sum).longValue(),
-                                          "isolated sum at revision " + revision);
+                  Assertions.assertEquals(expectedSumByRevision.get(revision).longValue(), ((Int64) sum).longValue(),
+                      "isolated sum at revision " + revision);
                 } finally {
                   executor.close();
                 }
@@ -445,8 +432,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
           }
           wtx.commit();
         }
-        expectedSumByRevision.put(writerSession.getMostRecentRevisionNumber(),
-                                  oracleStats(oracle)[0]);
+        expectedSumByRevision.put(writerSession.getMostRecentRevisionNumber(), oracleStats(oracle)[0]);
       }
 
       running.set(false);
@@ -474,66 +460,63 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   public void repeatedRecordRootMovesKeepServingExactly() throws IOException {
     query("jn:store('" + CYCLE_DB + "','cycle.jn','{"
         + "\"records\":[{\"age\":1},{\"age\":2},{\"age\":3},{\"age\":4},{\"age\":5},"
-        + "{\"age\":6},{\"age\":7},{\"age\":8},{\"age\":9},{\"age\":10}],"
-        + "\"archive\":[]}')");
+        + "{\"age\":6},{\"age\":7},{\"age\":8},{\"age\":9},{\"age\":10}]," + "\"archive\":[]}')");
     final String createQuery = "let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
-        + "let $stats := jn:create-projection-index($doc, '/records/[]', "
-        + "('/records/[]/age'), ('long')) "
+        + "let $stats := jn:create-projection-index($doc, '/records/[]', " + "('/records/[]/age'), ('long')) "
         + "return {\"revision\": sdb:commit($doc)}";
     query(createQuery);
 
-    final String[] recordsPath = { "records", "[]" };
+    final String[] recordsPath = {"records", "[]"};
     for (int cycle = 0; cycle < 4; cycle++) {
       assertRecordsSumServed(recordsPath, 55L, "cycle " + cycle + " pre-move");
 
       // Move the first projected record out. Its row is removed without rebuilding any distant leaf.
       try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
-           final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
+          final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           Assertions.assertTrue(wtx.moveToDocumentRoot());
-          Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
-          Assertions.assertTrue(wtx.moveToFirstChild());       // "records" fused array
+          Assertions.assertTrue(wtx.moveToFirstChild()); // top-level OBJECT
+          Assertions.assertTrue(wtx.moveToFirstChild()); // "records" fused array
           Assertions.assertEquals(NodeKind.OBJECT_NAMED_ARRAY, wtx.getKind());
           final long recordsArrayKey = wtx.getNodeKey();
-          Assertions.assertTrue(wtx.moveToFirstChild());       // first record
+          Assertions.assertTrue(wtx.moveToFirstChild()); // first record
           final long recordKey = wtx.getNodeKey();
           Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
-          Assertions.assertTrue(wtx.moveToRightSibling());     // "archive" fused array
+          Assertions.assertTrue(wtx.moveToRightSibling()); // "archive" fused array
           Assertions.assertEquals(NodeKind.OBJECT_NAMED_ARRAY, wtx.getKind());
           wtx.moveSubtreeToFirstChild(recordKey);
           wtx.commit();
         }
       }
-      test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
-          + "return sum(for $r in $doc.records[] return $r.age)", "54");
+      test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') " + "return sum(for $r in $doc.records[] return $r.age)",
+          "54");
       assertRecordsSumServed(recordsPath, 54L, "cycle " + cycle + " moved out");
 
       // Move the same stable record root back to the first document position.
       try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
-           final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
+          final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           Assertions.assertTrue(wtx.moveToDocumentRoot());
-          Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
-          Assertions.assertTrue(wtx.moveToFirstChild());       // records
+          Assertions.assertTrue(wtx.moveToFirstChild()); // top-level OBJECT
+          Assertions.assertTrue(wtx.moveToFirstChild()); // records
           final long recordsArrayKey = wtx.getNodeKey();
-          Assertions.assertTrue(wtx.moveToRightSibling());     // archive
-          Assertions.assertTrue(wtx.moveToFirstChild());       // moved age=1 record
+          Assertions.assertTrue(wtx.moveToRightSibling()); // archive
+          Assertions.assertTrue(wtx.moveToFirstChild()); // moved age=1 record
           final long recordKey = wtx.getNodeKey();
           Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
           wtx.moveSubtreeToFirstChild(recordKey);
           wtx.commit();
         }
       }
-      test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
-          + "return sum(for $r in $doc.records[] return $r.age)", "55");
+      test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') " + "return sum(for $r in $doc.records[] return $r.age)",
+          "55");
       assertRecordsSumServed(recordsPath, 55L, "cycle " + cycle + " moved back");
     }
   }
 
-  private static void assertRecordsSumServed(final String[] recordsPath, final long expectedSum,
-      final String phase) {
+  private static void assertRecordsSumServed(final String[] recordsPath, final long expectedSum, final String phase) {
     try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
-         final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
       final int revision = session.getMostRecentRevisionNumber();
       Assertions.assertNotNull(openProjection(session, revision, recordsPath),
           phase + ": the projection must SERVE (controller-mediated open)");
@@ -549,11 +532,11 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   }
 
   /** Controller-mediated committed open — {@code null} when the projection declines. */
-  private static ProjectionIndexRegistry.Handle openProjection(final JsonResourceSession session,
-      final int revision, final String[] recordsPath) {
+  private static ProjectionIndexRegistry.Handle openProjection(final JsonResourceSession session, final int revision,
+      final String[] recordsPath) {
     try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
       return session.getRtxIndexController(revision)
-          .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" });
+                    .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] {"age"});
     }
   }
 
@@ -584,9 +567,15 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
 
   /** Sparse-aware random record: ~12% miss age, ~10% miss active, ~15% miss dept. */
   private static Row randomRecord(final Random rnd) {
-    final Long age = rnd.nextInt(100) < 88 ? (long) (18 + rnd.nextInt(73)) : null;
-    final Boolean active = rnd.nextInt(100) < 90 ? rnd.nextBoolean() : null;
-    final String dept = rnd.nextInt(100) < 85 ? DEPTS[rnd.nextInt(DEPTS.length)] : null;
+    final Long age = rnd.nextInt(100) < 88
+        ? (long) (18 + rnd.nextInt(73))
+        : null;
+    final Boolean active = rnd.nextInt(100) < 90
+        ? rnd.nextBoolean()
+        : null;
+    final String dept = rnd.nextInt(100) < 85
+        ? DEPTS[rnd.nextInt(DEPTS.length)]
+        : null;
     return Row.record(age, active, dept);
   }
 
@@ -654,8 +643,7 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   private static void setAgeOnCurrentRecord(final JsonNodeTrx wtx, final long newAge) {
     Assertions.assertEquals(NodeKind.OBJECT, wtx.getKind(), "age updates target object records");
     Assertions.assertTrue(wtx.moveToFirstChild(), "record must have fields");
-    while (!(wtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER
-        && "age".equals(wtx.getName().getLocalName()))) {
+    while (!(wtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER && "age".equals(wtx.getName().getLocalName()))) {
       Assertions.assertTrue(wtx.moveToRightSibling(), "record must carry an age field");
     }
     wtx.setNumberValue(newAge);

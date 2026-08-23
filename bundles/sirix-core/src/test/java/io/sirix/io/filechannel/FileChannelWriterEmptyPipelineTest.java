@@ -53,8 +53,7 @@ final class FileChannelWriterEmptyPipelineTest {
 
     final FileChannelStorage storage = createStorage(config);
     try {
-      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer();
-          Writer writer = storage.createWriter()) {
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
         writer.write(config, firstReference, new OverflowPage(firstPayload), appendBuffer);
         writer.write(config, secondReference, new OverflowPage(secondPayload), appendBuffer);
         IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);
@@ -101,8 +100,7 @@ final class FileChannelWriterEmptyPipelineTest {
     final FileChannelStorage storage = createStorage(config);
 
     try {
-      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer();
-          Writer writer = storage.createWriter()) {
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
         writer.write(config, firstReference, firstPage, appendBuffer);
         final byte[] bufferAfterFirstWrite = appendBuffer.toByteArray();
         assertBufferedFrame(bufferAfterFirstWrite, 0, firstBody);
@@ -111,8 +109,7 @@ final class FileChannelWriterEmptyPipelineTest {
         // longer page. The already-appended first frame must remain byte-for-byte unchanged.
         writer.write(config, secondReference, secondPage, appendBuffer);
         final byte[] bufferAfterScratchReuse = appendBuffer.toByteArray();
-        assertArrayEquals(bufferAfterFirstWrite,
-            Arrays.copyOf(bufferAfterScratchReuse, bufferAfterFirstWrite.length));
+        assertArrayEquals(bufferAfterFirstWrite, Arrays.copyOf(bufferAfterScratchReuse, bufferAfterFirstWrite.length));
         assertBufferedFrame(bufferAfterScratchReuse,
             Math.toIntExact(secondReference.getKey() - firstReference.getKey()), secondBody);
       }
@@ -132,8 +129,7 @@ final class FileChannelWriterEmptyPipelineTest {
     final FileChannelStorage storage = createStorage(config);
 
     try {
-      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer();
-          Writer writer = storage.createWriter()) {
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
         writer.write(config, reference, page, appendBuffer);
         // A subsequent identity write reuses the writer scratch but must neither replace nor mutate
         // the page-owned KVL cache chosen before the writer's empty-pipeline fast path.
@@ -161,8 +157,7 @@ final class FileChannelWriterEmptyPipelineTest {
       final OverflowPage closedPage = new OverflowPage(nativePayload.asReadOnly(), 0, 32);
       closedPage.close();
 
-      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer();
-          Writer writer = storage.createWriter()) {
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
         assertThrows(IllegalStateException.class,
             () -> writer.write(config, new PageReference(), closedPage, appendBuffer));
 
@@ -178,9 +173,9 @@ final class FileChannelWriterEmptyPipelineTest {
 
   private static ResourceConfiguration emptyPipelineConfig(final Path resourcePath) {
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("empty-pipeline-writer")
-        .storageType(StorageType.FILE_CHANNEL)
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .build();
     config.resourcePath = resourcePath;
     return config;
   }

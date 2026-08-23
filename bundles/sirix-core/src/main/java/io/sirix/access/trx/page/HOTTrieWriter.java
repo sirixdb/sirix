@@ -723,8 +723,8 @@ public final class HOTTrieWriter {
       sourceLeaf = reloadedLeaf;
     }
 
-    throw new IllegalStateException("HOT leaf was retired before it could be guarded after "
-        + MAX_HOT_LEAF_GUARD_RETRIES + " attempts");
+    throw new IllegalStateException(
+        "HOT leaf was retired before it could be guarded after " + MAX_HOT_LEAF_GUARD_RETRIES + " attempts");
   }
 
   /**

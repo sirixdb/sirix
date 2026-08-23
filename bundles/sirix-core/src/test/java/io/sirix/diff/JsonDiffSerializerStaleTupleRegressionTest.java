@@ -24,14 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Regression tests for stale diff tuples in the commit-time update-diff serialization
- * (found by {@code JsonModelBasedOracleTest}, seed 987654321).
+ * Regression tests for stale diff tuples in the commit-time update-diff serialization (found by
+ * {@code JsonModelBasedOracleTest}, seed 987654321).
  *
- * <p>Updating a node and then removing one of its ancestors within the same transaction used to
- * leave the UPDATED tuple in the operations log with a node key that no longer resolves in the
- * new revision. {@code JsonDiffSerializer} then read from an unpositioned cursor and threw an
- * NPE from {@code getName()} during commit — or, for other node kinds, silently wrote a corrupt
- * diff file.
+ * <p>
+ * Updating a node and then removing one of its ancestors within the same transaction used to leave
+ * the UPDATED tuple in the operations log with a node key that no longer resolves in the new
+ * revision. {@code JsonDiffSerializer} then read from an unpositioned cursor and threw an NPE from
+ * {@code getName()} during commit — or, for other node kinds, silently wrote a corrupt diff file.
  */
 final class JsonDiffSerializerStaleTupleRegressionTest {
 
@@ -48,8 +48,8 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
   @Test
   void updateDescendantThenRemoveAncestorInSameTransactionCommitsCleanly() throws Exception {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
       // r1: { "a": { "b": 1 }, "keep": "x" }
       wtx.insertObjectAsFirstChild();
@@ -82,8 +82,8 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
   @Test
   void insertThenRemoveSameNodeInSameTransactionProducesEmptyDiff() throws Exception {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
       // r1: {}
       wtx.insertObjectAsFirstChild();
@@ -105,8 +105,8 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
   @Test
   void removeSubtreeWithEarlierInsertedDescendantOmitsTheInsert() throws Exception {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
       // r1: { "a": {} }
       wtx.insertObjectAsFirstChild();
@@ -193,8 +193,8 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
       wtx.setStringValue("new");
       wtx.commit();
 
-      final String compactDiff = new BasicJsonDiff(database.getName()).generateDiff(
-          session, 1, 2, 0, Long.MAX_VALUE, false);
+      final String compactDiff =
+          new BasicJsonDiff(database.getName()).generateDiff(session, 1, 2, 0, Long.MAX_VALUE, false);
       final JsonObject document = JsonParser.parseString(compactDiff).getAsJsonObject();
       assertFalse(document.has(JsonDiffIntegrity.FORMAT_VERSION_FIELD));
       assertFalse(document.has(JsonDiffIntegrity.OPERATION_COUNT_FIELD));
@@ -203,8 +203,8 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
     }
   }
 
-  private static JsonArray readDiffs(final JsonResourceSession session, final int oldRevision,
-      final int newRevision) throws Exception {
+  private static JsonArray readDiffs(final JsonResourceSession session, final int oldRevision, final int newRevision)
+      throws Exception {
     final Path diffFile = session.getResourceConfig()
                                  .getResource()
                                  .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
@@ -212,8 +212,7 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
     assertTrue(Files.exists(diffFile), "diff file must exist: " + diffFile);
     final JsonObject diff = JsonParser.parseString(Files.readString(diffFile)).getAsJsonObject();
     JsonDiffIntegrity.validate(diff);
-    assertEquals(diff.getAsJsonArray("diffs").size(),
-        diff.get(JsonDiffIntegrity.OPERATION_COUNT_FIELD).getAsInt(),
+    assertEquals(diff.getAsJsonArray("diffs").size(), diff.get(JsonDiffIntegrity.OPERATION_COUNT_FIELD).getAsInt(),
         "integrity operation count must cover legitimate empty and non-empty sidecars");
     return diff.getAsJsonArray("diffs");
   }

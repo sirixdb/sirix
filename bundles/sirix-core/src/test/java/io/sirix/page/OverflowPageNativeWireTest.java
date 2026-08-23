@@ -38,16 +38,15 @@ final class OverflowPageNativeWireTest {
         final MemorySegment reservoir = arena.allocate(NATIVE_OFFSET + length + 5L, Long.BYTES);
         reservoir.fill(SENTINEL);
         MemorySegment.copy(payload, 0, reservoir, ValueLayout.JAVA_BYTE, NATIVE_OFFSET, length);
-        final OverflowPage nativePage =
-            new OverflowPage(reservoir.asReadOnly(), NATIVE_OFFSET, length);
+        final OverflowPage nativePage = new OverflowPage(reservoir.asReadOnly(), NATIVE_OFFSET, length);
         final OverflowPage heapPage = new OverflowPage(payload);
 
         final byte[] heapWire = serialize(persister, config, heapPage);
         final byte[] nativeWire = serialize(persister, config, nativePage);
         assertArrayEquals(heapWire, nativeWire, "wire mismatch for payload length " + length);
 
-        final OverflowPage roundTripped = (OverflowPage) persister.deserializePage(
-            config, Bytes.wrapForRead(nativeWire), SerializationType.DATA);
+        final OverflowPage roundTripped =
+            (OverflowPage) persister.deserializePage(config, Bytes.wrapForRead(nativeWire), SerializationType.DATA);
         assertArrayEquals(payload, roundTripped.getDataBytes());
         assertEquals(SENTINEL, reservoir.get(ValueLayout.JAVA_BYTE, 0));
         assertEquals(SENTINEL, reservoir.get(ValueLayout.JAVA_BYTE, NATIVE_OFFSET + length));

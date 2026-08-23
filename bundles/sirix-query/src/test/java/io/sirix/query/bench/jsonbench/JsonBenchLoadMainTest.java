@@ -44,8 +44,8 @@ final class JsonBenchLoadMainTest {
         final var collection = store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, "[{}]");
         try (final var session = collection.getDatabase().beginResourceSession(JsonBenchSchema.RESOURCE)) {
           final int revision = session.getMostRecentRevisionNumber();
-          final IllegalStateException failure = assertThrows(IllegalStateException.class,
-              () -> JsonBenchRunMain.warmCatalog(session, revision, false));
+          final IllegalStateException failure =
+              assertThrows(IllegalStateException.class, () -> JsonBenchRunMain.warmCatalog(session, revision, false));
           assertTrue(failure.getMessage().contains("usable projection"));
           assertDoesNotThrow(() -> JsonBenchRunMain.warmCatalog(session, revision, true));
         }
@@ -57,10 +57,11 @@ final class JsonBenchLoadMainTest {
 
   @Test
   void bothBenchmarkArmsLoadWithoutDeweyIds() {
-    try (final var projectionStore = JsonBenchLoadMain.newLoadStoreBuilder(
-        Path.of("."), 1024, true, false, HashType.NONE).build();
-         final var genericStore = JsonBenchLoadMain.newLoadStoreBuilder(
-             Path.of("."), 1024, false, false, HashType.NONE).build()) {
+    try (
+        final var projectionStore =
+            JsonBenchLoadMain.newLoadStoreBuilder(Path.of("."), 1024, true, false, HashType.NONE).build();
+        final var genericStore =
+            JsonBenchLoadMain.newLoadStoreBuilder(Path.of("."), 1024, false, false, HashType.NONE).build()) {
       assertFalse(projectionStore.options().useDeweyIDs());
       assertFalse(genericStore.options().useDeweyIDs());
     }
@@ -99,8 +100,7 @@ final class JsonBenchLoadMainTest {
     }
 
     @Override
-    public void destroy() {
-    }
+    public void destroy() {}
   }
 
   private static final class InterruptedProcess extends CompletedProcess {

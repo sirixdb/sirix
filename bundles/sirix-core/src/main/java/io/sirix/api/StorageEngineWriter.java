@@ -84,9 +84,9 @@ public interface StorageEngineWriter extends StorageEngineReader {
   <V extends DataRecord> V prepareRecordForModification(long key, IndexType indexType, int index);
 
   /**
-   * Fast-path variant of {@link #prepareRecordForModification} for the DOCUMENT index type.
-   * Skips assertNotClosed(), argument validation, and the IndexType switch in pageKey().
-   * Used on the insert hot path where keys are always valid and indexType is always DOCUMENT.
+   * Fast-path variant of {@link #prepareRecordForModification} for the DOCUMENT index type. Skips
+   * assertNotClosed(), argument validation, and the IndexType switch in pageKey(). Used on the insert
+   * hot path where keys are always valid and indexType is always DOCUMENT.
    *
    * @param key key of the entry to be modified (must be >= 0)
    * @return instance of the class implementing the {@link DataRecord} instance
@@ -97,30 +97,32 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Persist a mutated record into the TIL's modified page.
-   * Ensures the record's page is prepared for modification in the TIL
-   * and stores the record in the modified page's records[].
+   * Persist a mutated record into the TIL's modified page. Ensures the record's page is prepared for
+   * modification in the TIL and stores the record in the modified page's records[].
    *
-   * <p>This is used by mutation operations (setName, setValue, hash updates) that
-   * mutate the current node directly without going through prepareRecordForModification.</p>
+   * <p>
+   * This is used by mutation operations (setName, setValue, hash updates) that mutate the current
+   * node directly without going through prepareRecordForModification.
+   * </p>
    *
-   * @param record    the mutated record to persist
+   * @param record the mutated record to persist
    * @param indexType the index type
-   * @param index     the index number
+   * @param index the index number
    */
   void persistRecord(DataRecord record, IndexType indexType, int index);
 
   /**
-   * FSST-encode a string value against the resource's current symbol table at insert time, on
-   * behalf of a factory writing the record straight to {@code page}'s heap.
+   * FSST-encode a string value against the resource's current symbol table at insert time, on behalf
+   * of a factory writing the record straight to {@code page}'s heap.
    *
-   * <p>Returns the exact bytes to store with the record's compressed flag set — the same form
-   * commit-time compression produces — or {@code null} when the value must be stored raw:
-   * FSST disabled, no table yet (first commit bootstraps through the commit-time pass), value
-   * too small, encoding did not shrink it, or {@code page} is bound to a DIFFERENT table than
-   * the transaction's (raw is always correct; the commit pass handles it). When encoding
-   * succeeds on an unbound page, the page is bound to the table as a side effect, so the
-   * caller need only store the returned bytes.
+   * <p>
+   * Returns the exact bytes to store with the record's compressed flag set — the same form
+   * commit-time compression produces — or {@code null} when the value must be stored raw: FSST
+   * disabled, no table yet (first commit bootstraps through the commit-time pass), value too small,
+   * encoding did not shrink it, or {@code page} is bound to a DIFFERENT table than the transaction's
+   * (raw is always correct; the commit pass handles it). When encoding succeeds on an unbound page,
+   * the page is bound to the table as a side effect, so the caller need only store the returned
+   * bytes.
    *
    * @param page the page the record is being written to
    * @param value the raw value bytes
@@ -159,11 +161,13 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Resolve the name key {@code name} owns in the dictionary for {@code kind}, WITHOUT storing it or
    * counting an occurrence.
    *
-   * <p>If the name is already stored this is the key it was given; if it is not, this is the key
-   * {@link #createNameKey} would assign to it next. Both answers walk the same probe chain, so a
-   * name that lost a hash collision resolves to its own slot rather than to the colliding name's.
+   * <p>
+   * If the name is already stored this is the key it was given; if it is not, this is the key
+   * {@link #createNameKey} would assign to it next. Both answers walk the same probe chain, so a name
+   * that lost a hash collision resolves to its own slot rather than to the colliding name's.
    *
-   * <p>Exists for the path summary, whose nodes carry a name key but are not records and must not
+   * <p>
+   * Exists for the path summary, whose nodes carry a name key but are not records and must not
    * inflate the per-name occurrence count that {@code getNameCount} reports.
    *
    * @param name the name to resolve
@@ -219,8 +223,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return UberPage the revision after commit
    * @throws SirixException if Sirix fails to commit
    */
-  default UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp,
-      boolean isAutoCommitting) {
+  default UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp, boolean isAutoCommitting) {
     return commit(commitMessage, commitTimeStamp, isAutoCommitting, false);
   }
 
@@ -237,8 +240,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return UberPage the revision after commit
    * @throws SirixException if Sirix fails to commit
    */
-  UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp,
-      boolean isAutoCommitting, boolean isIntermediateCommit);
+  UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp, boolean isAutoCommitting,
+      boolean isIntermediateCommit);
 
   /**
    * Committing a {@link StorageEngineWriter}. This method is recursively invoked by all
@@ -254,11 +257,13 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Stage a fresh immutable {@link io.sirix.page.OverflowPage} for the writer's bounded background
    * append batch.
    *
-   * <p>This is intentionally narrower than {@link #commit(PageReference)}: the page must not be
-   * reachable from any committed root, must never be mutated, and its owner must tolerate the
-   * append becoming an unreachable orphan until transaction rollback reclaims the uncommitted
-   * tail. Implementations return {@code false} when their backend cannot reclaim such a tail; the
-   * page then stays resident and ordinary recursive commit writes it safely.</p>
+   * <p>
+   * This is intentionally narrower than {@link #commit(PageReference)}: the page must not be
+   * reachable from any committed root, must never be mutated, and its owner must tolerate the append
+   * becoming an unreachable orphan until transaction rollback reclaims the uncommitted tail.
+   * Implementations return {@code false} when their backend cannot reclaim such a tail; the page then
+   * stays resident and ordinary recursive commit writes it safely.
+   * </p>
    *
    * @param reference fresh unresolved reference whose page is an immutable OverflowPage
    * @return {@code true} if ownership moved into a bounded pending-write batch
@@ -270,8 +275,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
   PageContainer dereferenceRecordPageForModification(PageReference reference);
 
   /**
-   * Functional interface for binding a write-path singleton to a slotted page slot.
-   * Set by the node transaction to enable zero-allocation write path.
+   * Functional interface for binding a write-path singleton to a slotted page slot. Set by the node
+   * transaction to enable zero-allocation write path.
    */
   @FunctionalInterface
   interface WriteSingletonBinder {
@@ -279,8 +284,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Set the write singleton binder for zero-allocation write path.
-   * When set, prepareRecordForModification rebinds factory singletons instead of allocating.
+   * Set the write singleton binder for zero-allocation write path. When set,
+   * prepareRecordForModification rebinds factory singletons instead of allocating.
    *
    * @param binder the write singleton binder from the node factory
    */
@@ -292,9 +297,11 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Permanently mark this page transaction rollback-only after an already-published structural
    * mutation fails. The first cause is authoritative; later failures must not replace it.
    *
-   * <p>This is distinct from an asynchronous-flush failure: the page graph may already contain a
+   * <p>
+   * This is distinct from an asynchronous-flush failure: the page graph may already contain a
    * partially propagated in-memory splice, so no commit or later mutation may continue on this
-   * writer. Rollback closes it and creates a fresh writer with a clear state.</p>
+   * writer. Rollback closes it and creates a fresh writer with a clear state.
+   * </p>
    *
    * @param cause the failure that made the transaction unsafe to commit
    */
@@ -307,10 +314,11 @@ public interface StorageEngineWriter extends StorageEngineReader {
   void assertTransactionWritable();
 
   /**
-   * Allocate a record key and resolve the KVL page for direct-to-heap creation.
-   * After this call, read results from {@link #getAllocKvl()}, {@link #getAllocSlotOffset()},
-   * {@link #getAllocNodeKey()}.
-   * <p>Only supports DOCUMENT index (the hot path). Other index types use createRecord().</p>
+   * Allocate a record key and resolve the KVL page for direct-to-heap creation. After this call, read
+   * results from {@link #getAllocKvl()}, {@link #getAllocSlotOffset()}, {@link #getAllocNodeKey()}.
+   * <p>
+   * Only supports DOCUMENT index (the hot path). Other index types use createRecord().
+   * </p>
    */
   default void allocateForDocumentCreation() {
     throw new UnsupportedOperationException();
@@ -338,21 +346,25 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Perform an async intermediate commit: snapshot the current TIL via O(1) array swap
-   * and flush KVL pages to disk in a background thread. The insert thread continues immediately.
+   * Perform an async intermediate commit: snapshot the current TIL via O(1) array swap and flush KVL
+   * pages to disk in a background thread. The insert thread continues immediately.
    *
-   * <p>Only supported with {@code AfterCommitState.KEEP_OPEN_ASYNC_FLUSH} on the FILE_CHANNEL
-   * or MEMORY_MAPPED backend (both append through the file-channel writer).</p>
+   * <p>
+   * Only supported with {@code AfterCommitState.KEEP_OPEN_ASYNC_FLUSH} on the FILE_CHANNEL or
+   * MEMORY_MAPPED backend (both append through the file-channel writer).
+   * </p>
    */
   default void asyncFlush() {}
 
   /**
-   * Whether the live transaction-intent-log generation has reached the bounded amount of work for
-   * one async-flush epoch.
+   * Whether the live transaction-intent-log generation has reached the bounded amount of work for one
+   * async-flush epoch.
    *
-   * <p>The node transaction samples this only at its existing compound-operation-safe pre-mutation
-   * boundary. Implementations that do not support async TIL rotation retain the default
-   * {@code false} result.</p>
+   * <p>
+   * The node transaction samples this only at its existing compound-operation-safe pre-mutation
+   * boundary. Implementations that do not support async TIL rotation retain the default {@code false}
+   * result.
+   * </p>
    *
    * @return {@code true} when the foreground should rotate the current async-flush epoch
    */
@@ -361,21 +373,23 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Record the duration of one complete foreground async-flush rotation, including index
-   * maintenance performed before {@link #asyncFlush()}.
+   * Record the duration of one complete foreground async-flush rotation, including index maintenance
+   * performed before {@link #asyncFlush()}.
    *
    * @param elapsedNanos non-negative elapsed time in nanoseconds
    */
   default void recordAsyncFlushForegroundNanos(final long elapsedNanos) {}
 
   /**
-   * Phase 1 of a pipelined commit: create the commit marker, serialize and write every modified
-   * page from the TIL (assigning all disk keys) through the buffered data channel. After this
-   * returns, the revision's page trie is fully addressed and nothing references TIL-only state —
-   * but NOTHING is durable yet. Must run on the writer thread (serialization mutates TIL pages).
+   * Phase 1 of a pipelined commit: create the commit marker, serialize and write every modified page
+   * from the TIL (assigning all disk keys) through the buffered data channel. After this returns, the
+   * revision's page trie is fully addressed and nothing references TIL-only state — but NOTHING is
+   * durable yet. Must run on the writer thread (serialization mutates TIL pages).
    *
-   * <p>Pair with {@link #hardenCommit(UberPage, boolean)}; {@code commit(...)} is exactly the two
-   * phases run back-to-back.</p>
+   * <p>
+   * Pair with {@link #hardenCommit(UberPage, boolean)}; {@code commit(...)} is exactly the two phases
+   * run back-to-back.
+   * </p>
    *
    * @return the canonical in-memory uber page of the pending revision
    */
@@ -385,10 +399,10 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Phase 2 of a pipelined commit: make the revision durable — index catalogue, buffered-tail
-   * flush, data force, uber-page beacons — then clear the TIL and delete the commit marker.
-   * Safe to run off the writer thread; performs no page mutation. Does NOT publish
-   * {@code lastCommittedUberPage} — the orchestrator decides when the revision becomes visible.
+   * Phase 2 of a pipelined commit: make the revision durable — index catalogue, buffered-tail flush,
+   * data force, uber-page beacons — then clear the TIL and delete the commit marker. Safe to run off
+   * the writer thread; performs no page mutation. Does NOT publish {@code lastCommittedUberPage} —
+   * the orchestrator decides when the revision becomes visible.
    *
    * @param uberPage the uber page returned by {@link #commitWritePages}
    */
@@ -397,10 +411,12 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Block until any pending async intermediate commit completes, then clean up the snapshot
-   * (apply disk offsets, close written KVL pages, promote IndirectPages to current TIL).
+   * Block until any pending async intermediate commit completes, then clean up the snapshot (apply
+   * disk offsets, close written KVL pages, promote IndirectPages to current TIL).
    *
-   * <p>Must be called before any sync commit to ensure all background-written pages are finalized.</p>
+   * <p>
+   * Must be called before any sync commit to ensure all background-written pages are finalized.
+   * </p>
    *
    * @throws io.sirix.exception.SirixIOException if the background async commit failed
    */
@@ -453,8 +469,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
 
   /**
    * Get the current writer revision's {@link KeyValueLeafPage} for a given record page key, or
-   * {@code null} when the page is unchanged from the committed base revision.
-   * Used by the singleton moveTo path to read from the correct page during write transactions.
+   * {@code null} when the page is unchanged from the committed base revision. Used by the singleton
+   * moveTo path to read from the correct page during write transactions.
    *
    * @param recordPageKey the record page key
    * @param indexType the index type
@@ -492,6 +508,5 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @param page the page, or {@code null}
    */
-  default void releasePageForRead(@Nullable KeyValueLeafPage page) {
-  }
+  default void releasePageForRead(@Nullable KeyValueLeafPage page) {}
 }

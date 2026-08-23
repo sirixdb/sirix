@@ -178,16 +178,14 @@ public final class JsonDiffSerializer {
               jsonUpdateDiff.addProperty("name", newName.toString());
             }
             if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
-              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
+              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
                 jsonUpdateDiff.addProperty("type", "boolean");
                 jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
               } else if (newRtx.getKind() == NodeKind.STRING_VALUE
                   || newRtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
                 jsonUpdateDiff.addProperty("type", "string");
                 jsonUpdateDiff.addProperty("value", newRtx.getValue());
-              } else if (newRtx.getKind() == NodeKind.NULL_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_NULL) {
+              } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_NULL) {
                 jsonUpdateDiff.addProperty("type", "null");
                 jsonUpdateDiff.add("value", null);
               } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE
@@ -314,10 +312,8 @@ public final class JsonDiffSerializer {
       // iter#32 P2: OBJECT_NAMED_ARRAY plays the OBJECT_KEY+ARRAY role under fusion; every
       // child path resolution that previously bottomed out on ARRAY must accept the fused kind
       // too. OBJECT_NAMED_OBJECT plays the OBJECT_KEY role for the OBJECT_KEY-parent fallback.
-      final boolean parentIsArrayLike =
-          parentKind == NodeKind.ARRAY || parentKind == NodeKind.OBJECT_NAMED_ARRAY;
-      final boolean parentIsObjectKeyLike =
-          parentKind == NodeKind.OBJECT_NAMED_OBJECT;
+      final boolean parentIsArrayLike = parentKind == NodeKind.ARRAY || parentKind == NodeKind.OBJECT_NAMED_ARRAY;
+      final boolean parentIsObjectKeyLike = parentKind == NodeKind.OBJECT_NAMED_OBJECT;
 
       // For structural nodes (OBJECT, ARRAY) in arrays, get path from parent array
       // This gives paths like /foo/[0], /foo/[1] for array elements
@@ -358,8 +354,7 @@ public final class JsonDiffSerializer {
           final var arrayPathNode = pathReader.getPathNode();
           if (arrayPathNode != null) {
             final long parentKey = arrayPathNode.getParentKey();
-            if (parentKey >= 0
-                && parentKey != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            if (parentKey >= 0 && parentKey != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
               effectivePathNodeKey = parentKey;
             }
           }

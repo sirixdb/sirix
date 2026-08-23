@@ -23,7 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Regression tests for #1077: silent record loss under {@code KEEP_OPEN_ASYNC_FLUSH} intermediate
  * commits (and the stale-reference resolution the final commit depends on).
  *
- * <p>Monotonic inserts at the head of an array make every epoch (a) freeze the TIL, (b) flush the
+ * <p>
+ * Monotonic inserts at the head of an array make every epoch (a) freeze the TIL, (b) flush the
  * frozen leaf pages in the background, and (c) copy-on-write the still-hot pages into the new
  * epoch. Three defects conspired to silently lose every record of an epoch:
  *
@@ -33,18 +34,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * background flush, so the cursor kept reading it for the whole epoch while writes went into the
  * CoW copy — each new node linked to a stale first child, orphaning everything inserted after the
  * epoch boundary.</li>
- * <li>The completed-disk-offsets map (Layer 3 stale-reference resolution) deleted entries on
- * first access and pruned entries older than two generations, so a stale CoW'd reference
- * dereferenced only by the final commit could resolve to nothing — the parent was serialized
- * with child key -1.</li>
+ * <li>The completed-disk-offsets map (Layer 3 stale-reference resolution) deleted entries on first
+ * access and pruned entries older than two generations, so a stale CoW'd reference dereferenced
+ * only by the final commit could resolve to nothing — the parent was serialized with child key
+ * -1.</li>
  * <li>An epoch-straddling page's outdated flush could shadow its newer content: the snapshot
- * cleanup applied disk offsets and re-promoted containers through reference objects that a CoW
- * had already re-bound to newer entries.</li>
+ * cleanup applied disk offsets and re-promoted containers through reference objects that a CoW had
+ * already re-bound to newer entries.</li>
  * </ol>
  *
- * <p>Each test drives dozens of async epochs and then verifies every inserted record is present
- * in the committed revision (the sync variant guards against regressions on the synchronous
- * path).
+ * <p>
+ * Each test drives dozens of async epochs and then verifies every inserted record is present in the
+ * committed revision (the sync variant guards against regressions on the synchronous path).
  */
 final class AsyncIntermediateCommitStaleRefTest {
 
@@ -58,14 +59,14 @@ final class AsyncIntermediateCommitStaleRefTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(resource)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(versioningType)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(versioningType)
+                                             .storageType(StorageType.FILE_CHANNEL)
+                                             .build());
       try (final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN)) {
         final long arrayKey = wtx.insertArrayAsFirstChild().getNodeKey();
         assertEquals(0, session.getMostRecentRevisionNumber(),
             "the first mutation must not cause an empty pre-mutation commit");
@@ -88,14 +89,14 @@ final class AsyncIntermediateCommitStaleRefTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(resource)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(versioningType)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(versioningType)
+                                             .storageType(StorageType.FILE_CHANNEL)
+                                             .build());
       try (final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx(3, AfterCommitState.KEEP_OPEN)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(3, AfterCommitState.KEEP_OPEN)) {
         final long arrayKey = wtx.insertArrayAsFirstChild().getNodeKey();
         wtx.moveTo(arrayKey);
         wtx.insertStringValueAsFirstChild("first");
@@ -114,10 +115,10 @@ final class AsyncIntermediateCommitStaleRefTest {
     }
   }
 
-  private static void assertArrayChildCount(final Database<JsonResourceSession> database,
-      final String resource, final int revision, final long expectedChildren) {
+  private static void assertArrayChildCount(final Database<JsonResourceSession> database, final String resource,
+      final int revision, final long expectedChildren) {
     try (final JsonResourceSession session = database.beginResourceSession(resource);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       rtx.moveToFirstChild();
       assertEquals(expectedChildren, rtx.getChildCount(),
           "revision " + revision + " has the wrong auto-commit epoch contents");
@@ -139,15 +140,15 @@ final class AsyncIntermediateCommitStaleRefTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(resource)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.FULL)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(VersioningType.FULL)
+                                             .storageType(StorageType.FILE_CHANNEL)
+                                             .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx(maxNodesPerEpoch, afterCommitState)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(maxNodesPerEpoch, afterCommitState)) {
         final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
         for (int i = 0; i < RECORD_COUNT; i++) {
           wtx.moveTo(arrayNodeKey);
@@ -160,8 +161,8 @@ final class AsyncIntermediateCommitStaleRefTest {
     // Reopen from disk and traverse the sibling chain: a stale read at insert time (or a stale
     // reference at final commit) manifests as records missing from the committed revision.
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(resource);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = db.beginResourceSession(resource);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild(); // the array
       final boolean[] seen = new boolean[RECORD_COUNT];

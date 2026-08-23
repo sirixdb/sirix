@@ -122,8 +122,8 @@ public final class Diff extends AbstractFunction {
       throw new QueryException(new QNm("Revisions must be >= 1."));
     }
     if (oldRevision >= newRevision) {
-      throw new QueryException(new QNm("revision1 (" + oldRevision + ") must be less than revision2 ("
-          + newRevision + ")."));
+      throw new QueryException(
+          new QNm("revision1 (" + oldRevision + ") must be less than revision2 (" + newRevision + ")."));
     }
     final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
@@ -133,21 +133,17 @@ public final class Diff extends AbstractFunction {
     // The Dewey-ID fast path reads the pre-computed per-revision diff sidecar. Its core reader does
     // the strict single read plus identity, integrity, Unicode, schema, and fragment-node checks;
     // any failure below falls through to the authoritative revision-to-revision computation.
-    final var updateOperationsFile = resourceSession.getResourceConfig()
-                                                    .getResource()
-                                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                                    .resolve("diffFromRev" + oldRevision + "toRev" + newRevision
-                                                                 + ".json");
+    final var updateOperationsFile =
+        resourceSession.getResourceConfig()
+                       .getResource()
+                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                       .resolve("diffFromRev" + oldRevision + "toRev" + newRevision + ".json");
 
     if (resourceSession.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1
         && Files.exists(updateOperationsFile)) {
       try {
-        return readDiffFromFileAndCalculateViaDeweyIDs(databaseName,
-            resourceName,
-            oldRevision,
-            newRevision,
-            startNodeKey,
-            maxLevel == 0
+        return readDiffFromFileAndCalculateViaDeweyIDs(databaseName, resourceName, oldRevision, newRevision,
+            startNodeKey, maxLevel == 0
                 ? Integer.MAX_VALUE
                 : maxLevel,
             resourceSession);
@@ -179,8 +175,8 @@ public final class Diff extends AbstractFunction {
         // cursor would filter from the document root and leak unrelated operations.
         try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevision)) {
           if (!oldRtx.moveTo(startNodeKey)) {
-            throw new IllegalStateException("Diff start node " + startNodeKey
-                + " exists in neither requested revision");
+            throw new IllegalStateException(
+                "Diff start node " + startNodeKey + " exists in neither requested revision");
           }
           rootDeweyId = oldRtx.getDeweyID();
         }
@@ -198,13 +194,15 @@ public final class Diff extends AbstractFunction {
   /**
    * Convert JSON text to a Brackit item with semantic, decoded string values.
    *
-   * <p>Brackit's legacy tokenizer-backed {@code JSONParser} preserves JSON escape spellings in
-   * {@link Str} values. That used to pair with a serializer which wrote strings verbatim, but an
-   * RFC 8259-correct serializer escapes those retained backslashes a second time. The byte-oriented
+   * <p>
+   * Brackit's legacy tokenizer-backed {@code JSONParser} preserves JSON escape spellings in
+   * {@link Str} values. That used to pair with a serializer which wrote strings verbatim, but an RFC
+   * 8259-correct serializer escapes those retained backslashes a second time. The byte-oriented
    * {@code FastJSONParser} decodes escapes, but its escaped-string path currently corrupts raw
    * multi-byte UTF-8 following an escape. A strict streaming Gson reader validates and decodes the
    * generated diff directly into the Brackit tree, keeping quotes, controls, backslashes, Unicode,
-   * and arbitrary-precision JSON numbers exact without retaining an intermediate Gson DOM.</p>
+   * and arbitrary-precision JSON numbers exact without retaining an intermediate Gson DOM.
+   * </p>
    *
    * @param json the JSON string to parse
    * @return the parsed Brackit item
@@ -247,8 +245,8 @@ public final class Diff extends AbstractFunction {
         reader.nextNull();
         yield Null.INSTANCE;
       }
-      default -> throw new QueryException(JSONFun.ERR_PARSING_ERROR,
-          (Object) ("Unexpected JSON token " + reader.peek()));
+      default ->
+        throw new QueryException(JSONFun.ERR_PARSING_ERROR, (Object) ("Unexpected JSON token " + reader.peek()));
     };
   }
 
@@ -366,12 +364,12 @@ public final class Diff extends AbstractFunction {
   }
 
   /**
-   * Exact decimal fallback for exponent-form JSON numbers which cannot survive an xs:double
-   * round trip. Brackit's JSON serializer renders numeric items through {@link #toString()}, while
-   * the inherited {@link Dec#stringValue()} retains the canonical xs:decimal lexical form. Keeping
-   * those paths distinct prevents a compact valid JSON token such as {@code 1e1000000000} from
-   * expanding to roughly one gigabyte during JSON serialization without changing query-visible
-   * xs:decimal string and cast semantics.
+   * Exact decimal fallback for exponent-form JSON numbers which cannot survive an xs:double round
+   * trip. Brackit's JSON serializer renders numeric items through {@link #toString()}, while the
+   * inherited {@link Dec#stringValue()} retains the canonical xs:decimal lexical form. Keeping those
+   * paths distinct prevents a compact valid JSON token such as {@code 1e1000000000} from expanding to
+   * roughly one gigabyte during JSON serialization without changing query-visible xs:decimal string
+   * and cast semantics.
    */
   private static final class JsonExponentDecimal extends Dec {
     private JsonExponentDecimal(final BigDecimal value) {

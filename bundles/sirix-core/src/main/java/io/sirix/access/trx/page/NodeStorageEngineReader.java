@@ -594,11 +594,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * {@inheritDoc}
    *
-   * <p>Unlike record overflow, projection side pages are deliberately <em>not</em> swizzled onto
-   * their HOT-leaf reference. HOT cache weight accounts for the leaf's slot memory, not arbitrary
-   * side-map byte arrays; swizzling a scan's segments would therefore bypass the configured cache
-   * byte bound and regrow old generation after a bounded ingest. Projection scans use the
-   * coalesced batch path for locality instead.</p>
+   * <p>
+   * Unlike record overflow, projection side pages are deliberately <em>not</em> swizzled onto their
+   * HOT-leaf reference. HOT cache weight accounts for the leaf's slot memory, not arbitrary side-map
+   * byte arrays; swizzling a scan's segments would therefore bypass the configured cache byte bound
+   * and regrow old generation after a bounded ingest. Projection scans use the coalesced batch path
+   * for locality instead.
+   * </p>
    */
   @Override
   public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
@@ -2232,20 +2234,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     try {
       final KeyValueLeafPage latestPage = readOwnedRecordPage(pageReference, true);
       pages.add(latestPage);
-      if (resourceConfig.versioningType != VersioningType.FULL
-          && latestPage.size() != Constants.NDP_NODE_COUNT) {
+      if (resourceConfig.versioningType != VersioningType.FULL && latestPage.size() != Constants.NDP_NODE_COUNT) {
         for (final PageFragmentKey fragment : pageReference.getPageFragments()) {
-          final PageReference fragmentReference = new PageReference().setKey(fragment.key())
-                                                                      .setDatabaseId(databaseId)
-                                                                      .setResourceId(resourceId);
+          final PageReference fragmentReference =
+              new PageReference().setKey(fragment.key()).setDatabaseId(databaseId).setResourceId(resourceId);
           pages.add(readOwnedRecordPage(fragmentReference, false));
         }
-        pages.subList(1, pages.size())
-             .sort(Comparator.comparingInt(KeyValuePage<DataRecord>::getRevision).reversed());
+        pages.subList(1, pages.size()).sort(Comparator.comparingInt(KeyValuePage<DataRecord>::getRevision).reversed());
       }
       materializeFragments(pages);
-      return new PageFragmentsResult(pages, new ArrayList<>(pageReference.getPageFragments()),
-          pageReference.getKey());
+      return new PageFragmentsResult(pages, new ArrayList<>(pageReference.getPageFragments()), pageReference.getKey());
     } catch (final RuntimeException | Error failure) {
       for (final KeyValuePage<DataRecord> page : pages) {
         try {
@@ -2261,9 +2259,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   private KeyValueLeafPage readOwnedRecordPage(final PageReference sourceReference, final boolean copyHash) {
-    final PageReference directReference = new PageReference().setKey(sourceReference.getKey())
-                                                               .setDatabaseId(databaseId)
-                                                               .setResourceId(resourceId);
+    final PageReference directReference =
+        new PageReference().setKey(sourceReference.getKey()).setDatabaseId(databaseId).setResourceId(resourceId);
     if (copyHash) {
       directReference.copyHashFrom(sourceReference);
     }
@@ -2359,8 +2356,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, rootPage);
   }
 
-  @Nullable PageReference getLeafPageReference(final PageReference pageReferenceToSubtree,
-      final long recordPageKey,
+  @Nullable
+  PageReference getLeafPageReference(final PageReference pageReferenceToSubtree, final long recordPageKey,
       final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, revisionRootPage);
   }
@@ -2939,8 +2936,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
     if (versioningType == VersioningType.FULL) {
-      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference,
-          firstPage);
+      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, firstPage);
     }
 
     final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
@@ -2979,25 +2975,27 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       throw releaseFailure;
     }
 
-    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference,
-        combinedPage);
+    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, combinedPage);
   }
 
   /**
    * Atomically adopt a freshly decoded/combined HOT leaf or return the live canonical instance that
    * another loader already published for the same durable key.
    *
-   * <p>The guarded cache primitive keeps the winner live through identity selection, loser cleanup,
-   * and swizzle handoff. The guard is always released before returning to the existing optimistic
-   * HOT API. A different winner means the incoming page was never published and must be retired
-   * here. EmptyCache is explicit caller ownership: nothing is published and no guard is needed.</p>
+   * <p>
+   * The guarded cache primitive keeps the winner live through identity selection, loser cleanup, and
+   * swizzle handoff. The guard is always released before returning to the existing optimistic HOT
+   * API. A different winner means the incoming page was never published and must be retired here.
+   * EmptyCache is explicit caller ownership: nothing is published and no guard is needed.
+   * </p>
    *
-   * <p>If cache admission fails after partial publication, exact instance removal precedes
-   * retirement so no mapping can expose a retired frame.</p>
+   * <p>
+   * If cache admission fails after partial publication, exact instance removal precedes retirement so
+   * no mapping can expose a retired frame.
+   * </p>
    */
   static @Nullable HOTLeafPage adoptCanonicalHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
-      final PageReference cacheKey, final PageReference handoffReference,
-      final @Nullable HOTLeafPage incoming) {
+      final PageReference cacheKey, final PageReference handoffReference, final @Nullable HOTLeafPage incoming) {
     requireNonNull(cache);
     requireNonNull(cacheKey);
     requireNonNull(handoffReference);
@@ -3057,8 +3055,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /** Best-effort exact detachment followed by mandatory candidate retirement. */
-  private static void detachAndRetireHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
-      final HOTLeafPage candidate, final @Nullable Throwable primaryFailure) {
+  private static void detachAndRetireHOTLeaf(final Cache<PageReference, HOTLeafPage> cache, final HOTLeafPage candidate,
+      final @Nullable Throwable primaryFailure) {
     Throwable cleanupFailure = null;
     try {
       cache.removePage(candidate);

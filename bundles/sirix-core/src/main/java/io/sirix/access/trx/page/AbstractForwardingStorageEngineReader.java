@@ -69,8 +69,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
 
   @Override
   public @Nullable PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey,
-      int indexNumber,
-      IndexType indexType, RevisionRootPage revisionRootPage) {
+      int indexNumber, IndexType indexType, RevisionRootPage revisionRootPage) {
     return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType, revisionRootPage);
   }
 

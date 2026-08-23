@@ -62,10 +62,10 @@ import java.util.function.Consumer;
  * executor discovers them through the revision-scoped catalog and page layer
  * ({@code ProjectionIndexCatalog}) — after re-opening a database, queries use persisted projections
  * WITHOUT re-running this function. Calling it with an already-catalogued shape verifies the
- * persisted columns and returns; a stale or missing store (e.g. after an update invalidated it) is
- * rebuilt under the same definition; a different shape creates an additional projection. Shape
- * comparison uses the parsed paths' canonical form, so spelling variants that parse to the same
- * path match.
+ * persisted columns and returns; a stale or missing store (e.g. left behind by a dropped definition
+ * or an unfinished load-time build) is rebuilt under the same definition; a different shape creates
+ * an additional projection. Shape comparison uses the parsed paths' canonical form, so spelling
+ * variants that parse to the same path match.
  *
  * <p>
  * The projection is built over the passed document's revision — like the sibling functions, a
@@ -75,12 +75,14 @@ import java.util.function.Consumer;
  * {@code sdb:commit($doc)} afterwards to persist.
  *
  * <p>
- * <b>Experimental.</b> The projection is a static snapshot maintained by <em>invalidation</em>: an
- * update transaction that touches the record set tombstones the persisted columns, queries at later
- * revisions fall back to the always-correct generic pipeline, and re-running this function
- * rebuilds. The resource must be created with a path summary. Column lookup is by the declared path
- * relative to the record set, so nested declarations that merely share a trailing name with another
- * path are accepted; see {@link #assertUnambiguousFieldNames} for the one shape still rejected.
+ * <b>Experimental.</b> Once built, the projection is maintained INCREMENTALLY by the update
+ * transactions that touch the record set — inserts, updates, deletes and moves rewrite only the
+ * touched persistent units, so re-running this function is never needed to keep it current (see
+ * {@code ProjectionIndexChangeListener} and {@code docs/PROJECTION_INDEXES.md}). A touched unit the
+ * listener cannot attribute or read fails that transaction rather than degrading the index. The
+ * resource must be created with a path summary. Column lookup is by the declared path relative to
+ * the record set, so nested declarations that merely share a trailing name with another path are
+ * accepted; see {@link #assertUnambiguousFieldNames} for the one shape still rejected.
  *
  * @author Johannes Lichtenberger
  */

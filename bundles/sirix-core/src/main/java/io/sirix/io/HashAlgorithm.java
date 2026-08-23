@@ -74,9 +74,8 @@ public enum HashAlgorithm {
         if (offset >= 0 && length <= bytes.length && offset <= bytes.length - length) {
           return HASHER.hashBytes(bytes, (int) offset, (int) length);
         }
-        throw new IllegalArgumentException(
-            "Heap MemorySegment range exceeds its byte-array backing: offset=" + offset + ", length=" + length
-                + ", capacity=" + bytes.length);
+        throw new IllegalArgumentException("Heap MemorySegment range exceeds its byte-array backing: offset=" + offset
+            + ", length=" + length + ", capacity=" + bytes.length);
       }
 
       return HASHER.hashBytes(segment.toArray(ValueLayout.JAVA_BYTE));

@@ -213,9 +213,9 @@ public final class RevisionTrackingExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Context-aware admission for a gated evaluation. If terminal publication wins between its gate
-   * and scan, no scan finally block will run, so rejected admission must release that gate's pin
-   * here rather than retaining its QueryContext on the worker thread indefinitely.
+   * Context-aware admission for a gated evaluation. If terminal publication wins between its gate and
+   * scan, no scan finally block will run, so rejected admission must release that gate's pin here
+   * rather than retaining its QueryContext on the worker thread indefinitely.
    */
   private void enterResolution(final QueryContext ctx) {
     try {

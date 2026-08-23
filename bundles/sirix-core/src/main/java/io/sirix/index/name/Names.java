@@ -24,7 +24,9 @@ import org.jspecify.annotations.Nullable;
  */
 public final class Names {
 
-  /** Immutable dual representation: comparisons stay allocation-free while raw-name reads remain O(1). */
+  /**
+   * Immutable dual representation: comparisons stay allocation-free while raw-name reads remain O(1).
+   */
   private record NameEntry(String string, byte[] bytes) {
   }
 
@@ -124,10 +126,10 @@ public final class Names {
 
   /**
    * Reconstruct from storage by iterating ONLY the live entry node-keys (O(live)), avoiding the
-   * O(maxNodeKey) scan over the historical/tombstoned slot range that grows without bound under
-   * name churn. {@code liveEntryNodeKeys} is the set of live {@link HashEntryNode} node-keys
-   * persisted in the {@link io.sirix.page.NamePage}; each is read together with its paired count
-   * node at {@code +1}. Produces an identical dictionary to the scan constructor (asserted by the
+   * O(maxNodeKey) scan over the historical/tombstoned slot range that grows without bound under name
+   * churn. {@code liveEntryNodeKeys} is the set of live {@link HashEntryNode} node-keys persisted in
+   * the {@link io.sirix.page.NamePage}; each is read together with its paired count node at
+   * {@code +1}. Produces an identical dictionary to the scan constructor (asserted by the
    * differential test).
    *
    * @param storageEngineReader the reader
@@ -298,8 +300,9 @@ public final class Names {
   /**
    * Resolve the key {@code name} owns, without storing it or counting an occurrence.
    *
-   * <p>Returns the key an already-stored name was given, or the key {@link #setName} would assign
-   * to it next — the two agree because both walk the same probe chain.
+   * <p>
+   * Returns the key an already-stored name was given, or the key {@link #setName} would assign to it
+   * next — the two agree because both walk the same probe chain.
    *
    * @param name the name to resolve, never {@code null}
    * @return the key for the name
@@ -314,23 +317,25 @@ public final class Names {
    * holding exactly these bytes, or — if the name is not stored — the first free slot at which it
    * should be inserted.
    *
-   * <p>The chain has to be walked on BOTH outcomes. Only the primary slot used to be examined, so a
-   * name that lost a hash collision was never recognised again: every later occurrence fell through
-   * to "first free slot" and got a brand new entry. Measured on
+   * <p>
+   * The chain has to be walked on BOTH outcomes. Only the primary slot used to be examined, so a name
+   * that lost a hash collision was never recognised again: every later occurrence fell through to
+   * "first free slot" and got a brand new entry. Measured on
    * {@code [{"Aa":1,"BB":2},{"Aa":3,"BB":4},{"Aa":5,"BB":6}]} — {@code "Aa"} and {@code "BB"} both
    * hash to 2112 — the three {@code BB} records were assigned keys 2113, 2114 and 2115, i.e. three
-   * dictionary entries (six persisted records) for one name, each counted once, and no two records
-   * of the same field agreeing on a key.
+   * dictionary entries (six persisted records) for one name, each counted once, and no two records of
+   * the same field agreeing on a key.
    *
-   * <p>KNOWN LIMITATION, pre-existing and NOT addressed here: {@link #removeName} clears a slot
-   * outright when a name's last occurrence goes away, which truncates the chain of anything that
-   * had probed past it. Delete every record named {@code "Aa"} and then add one named {@code "BB"}
-   * and the walk stops at the freed 2112, giving {@code "BB"} a second entry alongside the 2113 it
-   * already owns. The standard repair is a tombstone, and it cannot be applied here as it stands:
-   * a key is not an internal slot number but a value persisted in every record that carries the
-   * name, so entries can be neither shifted nor renumbered, and tombstones would have to be part of
-   * the on-disk dictionary. The hazard needs a name to be fully deleted first; what this method
-   * fixes fired on the very first document containing a collision.
+   * <p>
+   * KNOWN LIMITATION, pre-existing and NOT addressed here: {@link #removeName} clears a slot outright
+   * when a name's last occurrence goes away, which truncates the chain of anything that had probed
+   * past it. Delete every record named {@code "Aa"} and then add one named {@code "BB"} and the walk
+   * stops at the freed 2112, giving {@code "BB"} a second entry alongside the 2113 it already owns.
+   * The standard repair is a tombstone, and it cannot be applied here as it stands: a key is not an
+   * internal slot number but a value persisted in every record that carries the name, so entries can
+   * be neither shifted nor renumbered, and tombstones would have to be part of the on-disk
+   * dictionary. The hazard needs a name to be fully deleted first; what this method fixes fired on
+   * the very first document containing a collision.
    *
    * @param name the name to locate
    * @param hash {@code String.hashCode()} of the name, the head of its probe chain
@@ -369,7 +374,9 @@ public final class Names {
    */
   public String getName(final int key) {
     final NameEntry entry = nameMap.get(key);
-    return entry == null ? null : entry.string();
+    return entry == null
+        ? null
+        : entry.string();
   }
 
   /**
@@ -390,7 +397,9 @@ public final class Names {
    */
   public byte[] getRawName(final int key) {
     final NameEntry entry = nameMap.get(key);
-    return entry == null ? null : entry.bytes();
+    return entry == null
+        ? null
+        : entry.bytes();
   }
 
   /**
@@ -413,8 +422,8 @@ public final class Names {
   }
 
   /**
-   * Reconstruct from storage using the persisted set of live entry node-keys (O(live)). Falls back
-   * to the full {@code 1..maxNodeKey} scan when {@code liveEntryNodeKeys} is null (no persisted set).
+   * Reconstruct from storage using the persisted set of live entry node-keys (O(live)). Falls back to
+   * the full {@code 1..maxNodeKey} scan when {@code liveEntryNodeKeys} is null (no persisted set).
    *
    * @param readOnlyPageTrx the reader
    * @param indexNumber the dictionary offset

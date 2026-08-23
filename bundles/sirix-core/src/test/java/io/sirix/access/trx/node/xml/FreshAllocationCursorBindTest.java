@@ -36,7 +36,7 @@ final class FreshAllocationCursorBindTest {
     final int nodeCount = 1_030;
     final QNm childName = new QNm("child");
     try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
+        final var session = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       final long rootKey;
       try (final var trx = session.beginNodeTrx()) {
         rootKey = trx.insertElementAsFirstChild(new QNm("root")).getNodeKey();
@@ -69,8 +69,8 @@ final class FreshAllocationCursorBindTest {
   @Test
   void rejectedFreshAllocationGuardFallsBackBeforeXmlTextMerge() throws ReflectiveOperationException {
     try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final var trx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
       final long rootKey = trx.insertElementAsFirstChild(new QNm("root")).getNodeKey();
       final long textKey = trx.insertTextAsFirstChild("left").getNodeKey();
 

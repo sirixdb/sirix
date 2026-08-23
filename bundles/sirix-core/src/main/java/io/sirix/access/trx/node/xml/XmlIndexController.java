@@ -67,8 +67,8 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return this;
   }
 
-  public ProjectionBulkLoad createProjectionIndexAtLoadStart(final IndexDef indexDef,
-      final XmlNodeTrx nodeWriteTrx, final long expectedRows) {
+  public ProjectionBulkLoad createProjectionIndexAtLoadStart(final IndexDef indexDef, final XmlNodeTrx nodeWriteTrx,
+      final long expectedRows) {
     return armProjectionIndexesAtLoadStart(Set.of(indexDef), nodeWriteTrx, expectedRows)[0];
   }
 
@@ -130,13 +130,12 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   }
 
   @Override
-  protected ChangeListener createProjectionIndexListener(final XmlNodeTrx nodeWriteTrx,
-      final IndexDef indexDef) {
+  protected ChangeListener createProjectionIndexListener(final XmlNodeTrx nodeWriteTrx, final IndexDef indexDef) {
     if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
       return null;
     }
-    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
-        nodeWriteTrx.getPathSummary(), indexDef, nodeWriteTrx);
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(),
+        indexDef, nodeWriteTrx);
   }
 
   /**
@@ -153,11 +152,12 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
       indexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH:
-          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(
+              createPathIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          indexBuilders.add(
-              createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(),
+              nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), indexDef));
@@ -185,12 +185,14 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return (XmlNodeVisitor) pathIndex.createBuilder(storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx, final StorageEngineWriter storageEngineWriter,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx,
+      final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+  private XmlNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter,
+      final IndexDef indexDef) {
     return (XmlNodeVisitor) nameIndex.createBuilder(storageEngineWriter, indexDef);
   }
 }

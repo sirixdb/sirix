@@ -70,8 +70,7 @@ final class HOTDirectionOneFrontierAtomicityTest {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ProjectionIndexHOTStorage poisonedStorage =
-          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
+      final ProjectionIndexHOTStorage poisonedStorage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
       final byte[] descriptor = new byte[24];
       final byte[] segment = new byte[600];
       AbstractHOTIndexWriter.setDirectionOneFrontierAfterPublicationTestHook(() -> {
@@ -89,8 +88,7 @@ final class HOTDirectionOneFrontierAtomicityTest {
       assertSame(sentinel, publishedFailure, "the publication seam must preserve the original failure");
 
       final SirixIOException nextWriteFailure = assertThrows(SirixIOException.class,
-          () -> poisonedStorage.putBlob(
-              descriptorSlotKey(ROW_GROUPS + 1L), descriptor));
+          () -> poisonedStorage.putBlob(descriptorSlotKey(ROW_GROUPS + 1L), descriptor));
       assertSame(sentinel, nextWriteFailure.getCause(),
           "the next bespoke projection HOT write must report the latched structural cause");
 
@@ -101,8 +99,7 @@ final class HOTDirectionOneFrontierAtomicityTest {
       AbstractHOTIndexWriter.setDirectionOneFrontierAfterPublicationTestHook(null);
       wtx.rollback();
 
-      final ProjectionIndexHOTStorage recoveredStorage =
-          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
+      final ProjectionIndexHOTStorage recoveredStorage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
       recoveredStorage.putBlob(descriptorSlotKey(1), descriptor);
       wtx.commit();
       assertEquals(1, session.getMostRecentRevisionNumber(),

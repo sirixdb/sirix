@@ -112,9 +112,10 @@ final class ProjectionIndexColumnSegmentCodecTest {
         encoded.columnSegmentIds().clone(), segments);
   }
 
-  /** Every output container and segment must be owned by one encode, never by the reusable workspace. */
-  private static void assertOutputsDetached(
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup first,
+  /**
+   * Every output container and segment must be owned by one encode, never by the reusable workspace.
+   */
+  private static void assertOutputsDetached(final ProjectionIndexColumnSegmentCodec.EncodedRowGroup first,
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup second) {
     assertNotSame(first.descriptor(), second.descriptor());
     assertNotSame(first.columnSegmentIds(), second.columnSegmentIds());
@@ -128,8 +129,7 @@ final class ProjectionIndexColumnSegmentCodecTest {
 
   /** Encode the same page through the legacy raw boundary and the borrowed live-page boundary. */
   private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup assertLiveEncodingEqualsRaw(
-      final ProjectionIndexRowGroupPage page,
-      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace rawWorkspace,
+      final ProjectionIndexRowGroupPage page, final ProjectionIndexColumnSegmentCodec.EncodeWorkspace rawWorkspace,
       final ProjectionIndexColumnSegmentCodec.EncodeWorkspace liveWorkspace) {
     final byte[] raw = page.serialize();
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expected =
@@ -170,8 +170,8 @@ final class ProjectionIndexColumnSegmentCodecTest {
   }
 
   private static ProjectionIndexRowGroupPage orderMetadataLeaf(final boolean dense) {
-    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
     assertTrue(appendNumericRow(page, 2L, 10L, false));
     if (dense) {
       assertTrue(appendNumericRow(page, 100L, 20L, true));
@@ -305,8 +305,7 @@ final class ProjectionIndexColumnSegmentCodecTest {
     for (final byte[] seg : encoded.segments()) {
       total += seg.length;
     }
-    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES
-        + page.orderLabelLength();
+    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
     assertTrue((total - orderLabelLaneBytes) * 4 < raw.length - orderLabelLaneBytes,
         "expected >4x compaction on bench-shaped column data excluding exact Dewey labels, got "
             + (raw.length - orderLabelLaneBytes) + " -> " + (total - orderLabelLaneBytes));
@@ -786,8 +785,7 @@ final class ProjectionIndexColumnSegmentCodecTest {
 
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup recovered =
         ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw, workspace);
-    assertArrayEquals(raw,
-        ProjectionIndexColumnSegmentCodec.assembleRaw(recovered.descriptor(), resolverOf(recovered)),
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(recovered.descriptor(), resolverOf(recovered)),
         "the owning thread's release must make the workspace reusable");
   }
 
@@ -808,13 +806,12 @@ final class ProjectionIndexColumnSegmentCodecTest {
     // both sides. Equality covers descriptor hashes, segment ids and every segment byte.
     final String[] compressible = new String[300];
     for (int i = 0; i < compressible.length; i++) {
-      compressible[i] =
-          "https://sirix.example/live-page/tenant-" + (i % 23) + "/entity-" + i + "/shared-tail";
+      compressible[i] = "https://sirix.example/live-page/tenant-" + (i % 23) + "/entity-" + i + "/shared-tail";
     }
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup fsst =
         assertLiveEncodingEqualsRaw(stringLeaf(compressible), rawWorkspace, liveWorkspace);
-    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup raw = assertLiveEncodingEqualsRaw(
-        stringLeaf(new String[] {"one", "two", "three"}), rawWorkspace, liveWorkspace);
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup raw =
+        assertLiveEncodingEqualsRaw(stringLeaf(new String[] {"one", "two", "three"}), rawWorkspace, liveWorkspace);
     assertEquals(1, segmentOf(fsst, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(
         0))[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES], "large dictionary must use FSST");
     assertEquals(0, segmentOf(raw, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(
@@ -825,8 +822,7 @@ final class ProjectionIndexColumnSegmentCodecTest {
   void slabAndColdReopenedLegacyDictionaryHaveGoldenWireSegmentAndHashParity() {
     final String[] values = new String[132];
     for (int i = 0; i < 128; i++) {
-      values[i] = "https://sirix.example/Grüße/世界/🦄/tenant-" + (i % 17) + "/entity-" + i
-          + "/shared-repetitive-tail";
+      values[i] = "https://sirix.example/Grüße/世界/🦄/tenant-" + (i % 17) + "/entity-" + i + "/shared-repetitive-tail";
     }
     values[128] = "";
     values[129] = values[7];

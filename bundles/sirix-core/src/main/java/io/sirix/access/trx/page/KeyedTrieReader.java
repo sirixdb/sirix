@@ -37,8 +37,8 @@ import static java.util.Objects.requireNonNull;
  * Reader for the keyed indirect-page trie structure.
  *
  * <p>
- * Provides read-only navigation of the trie of {@link IndirectPage}s that maps integer page keys
- * to leaf {@link PageReference}s using bit-decomposition. This is the read-side counterpart of
+ * Provides read-only navigation of the trie of {@link IndirectPage}s that maps integer page keys to
+ * leaf {@link PageReference}s using bit-decomposition. This is the read-side counterpart of
  * {@link KeyedTrieWriter}.
  * </p>
  *
@@ -70,18 +70,16 @@ final class KeyedTrieReader {
    * @throws SirixIOException if an I/O error occurs
    */
   @Nullable
-  PageReference getReferenceToLeafOfSubtree(final StorageEngineReader storageEngineReader,
-      final UberPage uberPage, final PageReference startReference,
-      final long pageKey, final int indexNumber,
-      final IndexType indexType, final RevisionRootPage revisionRootPage) {
+  PageReference getReferenceToLeafOfSubtree(final StorageEngineReader storageEngineReader, final UberPage uberPage,
+      final PageReference startReference, final long pageKey, final int indexNumber, final IndexType indexType,
+      final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = requireNonNull(startReference);
     int offset;
     long levelKey = pageKey;
     final int[] inpLevelPageCountExp = uberPage.getPageCountExp(indexType);
     final int maxHeight =
-        storageEngineReader.getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber,
-            revisionRootPage);
+        storageEngineReader.getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber, revisionRootPage);
 
     if (maxHeight == 0) {
       return pageKey == 0 && !reference.isVirginStructuralPlaceholder()

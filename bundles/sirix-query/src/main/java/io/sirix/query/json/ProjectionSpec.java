@@ -19,16 +19,16 @@ import static java.util.Objects.requireNonNull;
  * {@link BasicJsonDBStore#create(String, String, com.google.gson.stream.JsonReader, ProjectionSpec)}.
  *
  * <p>
- * Spelled in exactly the vocabulary {@code jn:create-projection-index} uses, so a spec and the query
- * form of the same declaration cannot drift apart: the same root path, the same field paths, and the
- * same type names.
+ * Spelled in exactly the vocabulary {@code jn:create-projection-index} uses, so a spec and the
+ * query form of the same declaration cannot drift apart: the same root path, the same field paths,
+ * and the same type names.
  *
  * @param rootPath the record set's root path, e.g. {@code /[]}
  * @param fieldPaths the projected field paths, each written from the document root
  * @param fieldTypes one type name per field — {@code long}, {@code double}, {@code decimal},
  *        {@code boolean} or {@code string}
- * @param expectedRows how many records the source will deliver, or {@code -1} when unknown. Only the
- *        resource-wide value dictionary's election reads it, and only to decline a column whose
+ * @param expectedRows how many records the source will deliver, or {@code -1} when unknown. Only
+ *        the resource-wide value dictionary's election reads it, and only to decline a column whose
  *        dictionary would not fit in its byte budget. A streaming build cannot derive this — it
  *        learns the row count when the stream ends, thousands of leaves after the election — so a
  *        caller who knows it (a generator, a documented corpus) turns a late whole-projection

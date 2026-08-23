@@ -75,9 +75,8 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("Async disposable copy appends through FileChannel, cold-reads, and recycles its frame")
   void realEncodeFileAppendColdReadAndFrameReuse(@TempDir final Path tempDir) {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-test")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-test").byteHandlerPipeline(new ByteHandlerPipeline()).build();
     config.resourcePath = tempDir.resolve("resource");
 
     final byte[] first = {1, 2, 3, 4};
@@ -87,8 +86,7 @@ final class AsyncSnapshotEncodedCacheTest {
       third[i] = (byte) (i * 31 + 7);
     }
 
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage original = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false);
     KeyValueLeafPage serializationCopy = null;
     KeyValueLeafPage coldPage = null;
     final FileChannelStorage storage = new FileChannelStorage(config, Caffeine.newBuilder().buildAsync());
@@ -112,7 +110,7 @@ final class AsyncSnapshotEncodedCacheTest {
 
       final PageReference writtenReference = new PageReference();
       try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
-           Writer writer = storage.createWriter()) {
+          Writer writer = storage.createWriter()) {
         writer.write(config, writtenReference, serializationCopy, appendBuffer);
         writer.flushBufferedWrites(appendBuffer);
         // A direct page append intentionally bypasses the normal commit root. Install a valid first
@@ -164,11 +162,10 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("An identity encoding larger than the disposable frame requests promotion without overwriting it")
   void directIdentityCapacityFailurePreservesCacheAndFrame() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-fallback")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(2L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-fallback").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                 .build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(2L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       final MemorySegment frame = page.getSlottedPage();
       final byte[] fullHeapRecord = new byte[Math.toIntExact(frame.byteSize()) - PageLayout.HEAP_START];
@@ -190,8 +187,7 @@ final class AsyncSnapshotEncodedCacheTest {
       assertFalse(NodeStorageEngineWriter.serializeDisposableSnapshotKeyValuePage(config, page),
           "an over-capacity identity encoding must promote the original instead of retaining heap fallback");
       assertNull(page.getCompressedSegment(), "the borrowed oversized identity result must never be published");
-      assertArrayEquals(framePrefix,
-          frame.asSlice(0, PageLayout.HEADER_SIZE).toArray(ValueLayout.JAVA_BYTE),
+      assertArrayEquals(framePrefix, frame.asSlice(0, PageLayout.HEADER_SIZE).toArray(ValueLayout.JAVA_BYTE),
           "capacity fallback must not partially overwrite the logical frame");
     } finally {
       page.close();
@@ -201,11 +197,10 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("Reusing and poisoning the released serialization buffer cannot mutate the frame cache")
   void pooledSourceReuseCannotMutatePublishedFrameCache() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-pool-reuse")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(3L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-pool-reuse").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                   .build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(3L, IndexType.DOCUMENT, config, 1, null, null, false);
     final SerializationBufferPool pool = SerializationBufferPool.INSTANCE;
     // A stripe holds at most two buffers. Holding both makes the production serializer allocate a
     // temporary buffer; release inserts that exact buffer into the empty stripe, so the subsequent
@@ -243,11 +238,10 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("Disposable numeric-region serialization has bounded direct memory and publishes no table")
   void disposableNumericRegionsAreReleasedBeforePublication() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-confined-regions")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(8L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-confined-regions").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                         .build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(8L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       writeObjectNumber(original, 0, 17, 42L);
 
@@ -262,9 +256,8 @@ final class AsyncSnapshotEncodedCacheTest {
       }
 
       final long directCapacityAfter = directBufferCapacity();
-      assertTrue(directCapacityAfter <= directCapacityBefore,
-          "disposable RegionTables retained " + (directCapacityAfter - directCapacityBefore)
-              + " direct bytes after their serializer calls returned");
+      assertTrue(directCapacityAfter <= directCapacityBefore, "disposable RegionTables retained "
+          + (directCapacityAfter - directCapacityBefore) + " direct bytes after their serializer calls returned");
     } finally {
       original.close();
     }
@@ -273,11 +266,10 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("A downstream handler failure still closes the disposable numeric-region arena")
   void disposableNumericRegionClosesOnSerializationFailure() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-confined-region-failure")
-        .byteHandlerPipeline(new ByteHandlerPipeline(new FailingMemorySegmentHandler()))
-        .build();
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(9L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-confined-region-failure").byteHandlerPipeline(
+            new ByteHandlerPipeline(new FailingMemorySegmentHandler())).build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(9L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       writeObjectNumber(original, 0, 23, 99L);
 
@@ -289,9 +281,8 @@ final class AsyncSnapshotEncodedCacheTest {
       }
 
       final long directCapacityAfter = directBufferCapacity();
-      assertTrue(directCapacityAfter <= directCapacityBefore,
-          "failed disposable serializations retained " + (directCapacityAfter - directCapacityBefore)
-              + " direct bytes after unwinding");
+      assertTrue(directCapacityAfter <= directCapacityBefore, "failed disposable serializations retained "
+          + (directCapacityAfter - directCapacityBefore) + " direct bytes after unwinding");
     } finally {
       original.close();
     }
@@ -300,11 +291,10 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("An Error after PAX encoding still closes the disposable numeric-region arena")
   void disposableNumericRegionClosesOnError() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-confined-region-error")
-        .byteHandlerPipeline(new ByteHandlerPipeline(new ErrorMemorySegmentHandler()))
-        .build();
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(10L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-confined-region-error").byteHandlerPipeline(
+            new ByteHandlerPipeline(new ErrorMemorySegmentHandler())).build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(10L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       writeObjectNumber(original, 0, 31, 101L);
 
@@ -317,8 +307,7 @@ final class AsyncSnapshotEncodedCacheTest {
 
       final long directCapacityAfter = directBufferCapacity();
       assertTrue(directCapacityAfter <= directCapacityBefore,
-          "Error unwinds retained " + (directCapacityAfter - directCapacityBefore)
-              + " disposable region bytes");
+          "Error unwinds retained " + (directCapacityAfter - directCapacityBefore) + " disposable region bytes");
     } finally {
       original.close();
     }
@@ -327,11 +316,12 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("Disposable and ordinary numeric pages have identical wire bytes")
   void disposableNumericWireMatchesOrdinarySerialization() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-region-wire-equality")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(11L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-region-wire-equality")
+                                                                             .byteHandlerPipeline(
+                                                                                 new ByteHandlerPipeline())
+                                                                             .build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(11L, IndexType.DOCUMENT, config, 1, null, null, false);
     KeyValueLeafPage ordinaryCopy = null;
     KeyValueLeafPage disposableCopy = null;
     try {
@@ -342,7 +332,7 @@ final class AsyncSnapshotEncodedCacheTest {
       final byte[] ordinaryWire;
       final byte[] disposableWire;
       try (BytesOut<?> ordinarySink = Bytes.elasticHeapByteBuffer();
-           BytesOut<?> disposableSink = Bytes.elasticHeapByteBuffer()) {
+          BytesOut<?> disposableSink = Bytes.elasticHeapByteBuffer()) {
         PageKind.KEYVALUELEAFPAGE.serializePage(config, ordinarySink, ordinaryCopy, SerializationType.DATA);
         PageKind.KEYVALUELEAFPAGE.serializeDisposablePage(config, disposableSink, disposableCopy,
             SerializationType.DATA);
@@ -369,11 +359,12 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("An unresolved overflow reference requests promotion and leaves the logical frame readable")
   void unresolvedOverflowReferenceRequestsPromotion() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-unresolved-overflow")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(4L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-unresolved-overflow")
+                                                                            .byteHandlerPipeline(
+                                                                                new ByteHandlerPipeline())
+                                                                            .build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(4L, IndexType.DOCUMENT, config, 1, null, null, false);
     try {
       writeObjectNumber(page, 17, 29, 123L);
       final byte[] slotBefore = page.getSlotAsByteArray(17);
@@ -403,11 +394,12 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("A non-empty handler pipeline keeps its ordinary owned compressed cache")
   void nonEmptyPipelineIsNotBypassed() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-nonempty-pipeline")
-        .byteHandlerPipeline(new ByteHandlerPipeline(new PrefixMemorySegmentHandler()))
-        .build();
-    final KeyValueLeafPage original =
-        new KeyValueLeafPage(5L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-nonempty-pipeline")
+                                                                          .byteHandlerPipeline(new ByteHandlerPipeline(
+                                                                              new PrefixMemorySegmentHandler()))
+                                                                          .build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(5L, IndexType.DOCUMENT, config, 1, null, null, false);
     KeyValueLeafPage expectedCopy = null;
     KeyValueLeafPage serializationCopy = null;
     KeyValueLeafPage expectedDecoded = null;
@@ -436,12 +428,12 @@ final class AsyncSnapshotEncodedCacheTest {
       // handler ran and was retained in the relocated cache.
       final BytesIn<?> expectedSource = Bytes.wrapForRead(expectedWire);
       expectedSource.readByte();
-      expectedDecoded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config,
-          expectedSource, SerializationType.DATA);
+      expectedDecoded =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, expectedSource, SerializationType.DATA);
       final BytesIn<?> actualSource = Bytes.wrapForRead(encoded.asSlice(1L));
       actualSource.readByte();
-      actualDecoded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config,
-          actualSource, SerializationType.DATA);
+      actualDecoded =
+          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, actualSource, SerializationType.DATA);
       assertEquals(expectedDecoded.getPageKey(), actualDecoded.getPageKey());
       assertEquals(expectedDecoded.getRevision(), actualDecoded.getRevision());
       assertEquals(expectedDecoded.getIndexType(), actualDecoded.getIndexType());
@@ -467,11 +459,10 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("The default pooled writer policy still retains an owned identity copy")
   void defaultPooledWriterPolicyRemainsOwned() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-default-policy")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(6L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-default-policy").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                       .build();
+    final KeyValueLeafPage page = new KeyValueLeafPage(6L, IndexType.DOCUMENT, config, 1, null, null, false);
     final MemorySegment backing = MemorySegment.ofArray(new byte[128 * 1024]);
     final PooledGrowingSegment pooledSegment = new PooledGrowingSegment(backing);
     try {
@@ -494,8 +485,7 @@ final class AsyncSnapshotEncodedCacheTest {
   @DisplayName("A joined serializer's promotion outcome is visible to allocation-free window accounting")
   void joinedPromotionOutcomeIsVisibleToWindowAccounting() {
     final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-promotion-status").build();
-    final KeyValueLeafPage page =
-        new KeyValueLeafPage(7L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage page = new KeyValueLeafPage(7L, IndexType.DOCUMENT, config, 1, null, null, false);
     final TransactionIntentLog log = new TransactionIntentLog(mock(BufferManager.class, RETURNS_DEEP_STUBS), 64);
     try {
       final PageReference reference = new PageReference();
@@ -503,8 +493,8 @@ final class AsyncSnapshotEncodedCacheTest {
       assertEquals(1, log.snapshot());
       assertEquals(Constants.NULL_ID_LONG, log.getSnapshotDiskOffset(0));
 
-      CompletableFuture.runAsync(
-          () -> log.setSnapshotDiskOffset(0, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL)).join();
+      CompletableFuture.runAsync(() -> log.setSnapshotDiskOffset(0, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL))
+                       .join();
 
       assertEquals(TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL, log.getSnapshotDiskOffset(0),
           "CompletableFuture.join must publish the serializer's disjoint status-slot write");
@@ -516,15 +506,14 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("A declined snapshot never hijacks a forwarded successor and pins only the live page")
   void declinedSnapshotPinsOnlyAuthoritativeSuccessor() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-forwarded-promotion")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage frozenPage =
-        new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage successorPage =
-        new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage replacementPage =
-        new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-forwarded-promotion")
+                                                                            .byteHandlerPipeline(
+                                                                                new ByteHandlerPipeline())
+                                                                            .build();
+    final KeyValueLeafPage frozenPage = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage successorPage = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage replacementPage = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
     final TransactionIntentLog log = new TransactionIntentLog(mock(BufferManager.class, RETURNS_DEEP_STUBS), 64);
     try {
       final PageReference frozenReference = new PageReference();
@@ -565,8 +554,7 @@ final class AsyncSnapshotEncodedCacheTest {
       assertSame(replacementContainer, log.get(liveReference));
       assertSame(replacementContainer, log.get(frozenReference));
 
-      final TransactionIntentLog.PinnedSpillBatch spillBatch =
-          new TransactionIntentLog.PinnedSpillBatch(1);
+      final TransactionIntentLog.PinnedSpillBatch spillBatch = new TransactionIntentLog.PinnedSpillBatch(1);
       assertEquals(0, log.capturePinnedSpillCandidates(1, spillBatch),
           "an unresolved-overflow KVL must never enter the structural prewrite path");
       assertEquals(0, log.snapshot(), "a pinned KVL must not rotate through another async snapshot");
@@ -580,13 +568,11 @@ final class AsyncSnapshotEncodedCacheTest {
   @Test
   @DisplayName("A declined snapshot never hijacks a handleless manually copied successor")
   void declinedSnapshotDoesNotHijackHandlelessSuccessor() {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("async-cache-legacy-promotion")
-        .byteHandlerPipeline(new ByteHandlerPipeline())
-        .build();
-    final KeyValueLeafPage frozenPage =
-        new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final KeyValueLeafPage successorPage =
-        new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("async-cache-legacy-promotion").byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                         .build();
+    final KeyValueLeafPage frozenPage = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
+    final KeyValueLeafPage successorPage = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
     final TransactionIntentLog log = new TransactionIntentLog(mock(BufferManager.class, RETURNS_DEEP_STUBS), 64);
     try {
       final PageReference frozenReference = new PageReference();
@@ -595,9 +581,9 @@ final class AsyncSnapshotEncodedCacheTest {
 
       // Compatibility path: copy only the historical raw identity fields and deliberately omit
       // shareTransactionLogReference(). put() must then record old→new in forwardedEntries.
-      final PageReference liveReference = new PageReference().setLogKey(frozenReference.getLogKey())
-                                                             .setActiveTilGeneration(
-                                                                 frozenReference.getActiveTilGeneration());
+      final PageReference liveReference =
+          new PageReference().setLogKey(frozenReference.getLogKey())
+                             .setActiveTilGeneration(frozenReference.getActiveTilGeneration());
       final PageContainer successorContainer = PageContainer.getInstance(successorPage, successorPage);
       log.put(liveReference, successorContainer);
       assertEquals(1, log.forwardedEntryCount());
@@ -675,18 +661,9 @@ final class AsyncSnapshotEncodedCacheTest {
   private static void writeObjectNumber(final KeyValueLeafPage page, final int slot, final int nameKey,
       final long value) {
     final long nodeKey = (page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT) + slot;
-    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        nameKey,
-        -1L,
-        0,
-        0,
-        0L,
-        value,
-        HASH_FUNCTION,
-        (byte[]) null);
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, -1L, 0, 0, 0L,
+        value, HASH_FUNCTION, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
   }
@@ -700,7 +677,9 @@ final class AsyncSnapshotEncodedCacheTest {
     throw new AssertionError("JVM direct buffer pool is unavailable");
   }
 
-  /** Deterministic owned-result handler used to prove that only an empty pipeline takes the new path. */
+  /**
+   * Deterministic owned-result handler used to prove that only an empty pipeline takes the new path.
+   */
   private static final class PrefixMemorySegmentHandler implements ByteHandler {
 
     private static final byte MARKER = (byte) 0xD3;

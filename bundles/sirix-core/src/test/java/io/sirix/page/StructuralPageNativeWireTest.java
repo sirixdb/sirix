@@ -49,10 +49,10 @@ final class StructuralPageNativeWireTest {
       assertArrayEquals(serializeHOTIndirectLegacy(pageA), secondAWire);
       assertArrayEquals(serializeHOTIndirectLegacy(pageB), pageBWire);
 
-      final HOTIndirectPage coldA = (HOTIndirectPage) persister.deserializePage(
-          config, Bytes.wrapForRead(secondAWire), SerializationType.DATA);
-      final HOTIndirectPage coldB = (HOTIndirectPage) persister.deserializePage(
-          config, Bytes.wrapForRead(pageBWire), SerializationType.DATA);
+      final HOTIndirectPage coldA =
+          (HOTIndirectPage) persister.deserializePage(config, Bytes.wrapForRead(secondAWire), SerializationType.DATA);
+      final HOTIndirectPage coldB =
+          (HOTIndirectPage) persister.deserializePage(config, Bytes.wrapForRead(pageBWire), SerializationType.DATA);
       try {
         assertEquals(HOTIndirectPage.LayoutType.MULTI_MASK, coldA.getLayoutType());
         assertArrayEquals(pageA.getExtractionPositions(), coldA.getExtractionPositions());
@@ -78,8 +78,8 @@ final class StructuralPageNativeWireTest {
     final PagePersister persister = new PagePersister();
 
     final IndirectPage referencesA = referencesPage(new int[] {3, 901}, new long[] {3_003L, 9_001L});
-    final IndirectPage referencesB = referencesPage(new int[] {1, 7, 511, 1_023},
-        new long[] {101L, 107L, 611L, 1_123L});
+    final IndirectPage referencesB =
+        referencesPage(new int[] {1, 7, 511, 1_023}, new long[] {101L, 107L, 611L, 1_123L});
     final IndirectPage bitmapA = bitmapPage(new int[] {0, 17, 511, 700, 1_023}, 20_000L);
     final IndirectPage bitmapB = bitmapPage(new int[] {2, 9, 33, 65, 129, 257, 513, 769}, 30_000L);
     final IndirectPage fullA = fullPage(new int[] {0, 37, 999}, 40_000L);
@@ -90,8 +90,8 @@ final class StructuralPageNativeWireTest {
           new int[] {3, 901}, new long[] {3_003L, 9_001L}, ReferencesPage4.class);
       final IndirectPage coldBitmap = assertIndirectAba(persister, config, sink, bitmapA, bitmapB,
           new int[] {0, 17, 511, 700, 1_023}, keysFromBase(20_000L, 5), BitmapReferencesPage.class);
-      final IndirectPage coldFull = assertIndirectAba(persister, config, sink, fullA, fullB,
-          new int[] {0, 37, 999}, keysFromBase(40_000L, 3), FullReferencesPage.class);
+      final IndirectPage coldFull = assertIndirectAba(persister, config, sink, fullA, fullB, new int[] {0, 37, 999},
+          keysFromBase(40_000L, 3), FullReferencesPage.class);
       try {
         final ReferencesPage4 coldReferencesDelegate = (ReferencesPage4) coldReferences.delegate();
         assertEquals(2, coldReferencesDelegate.getOffsets().size());
@@ -119,9 +119,8 @@ final class StructuralPageNativeWireTest {
   }
 
   private static IndirectPage assertIndirectAba(final PagePersister persister, final ResourceConfiguration config,
-      final MemorySegmentBytesOut sink, final IndirectPage pageA, final IndirectPage pageB,
-      final int[] expectedOffsets, final long[] expectedKeys, final Class<? extends Page> delegateClass)
-      throws IOException {
+      final MemorySegmentBytesOut sink, final IndirectPage pageA, final IndirectPage pageB, final int[] expectedOffsets,
+      final long[] expectedKeys, final Class<? extends Page> delegateClass) throws IOException {
     final byte[] firstAWire = serialize(persister, config, sink, pageA);
     final byte[] pageBWire = serialize(persister, config, sink, pageB);
     final byte[] secondAWire = serialize(persister, config, sink, pageA);
@@ -131,8 +130,8 @@ final class StructuralPageNativeWireTest {
     assertArrayEquals(serializeIndirectLegacy(pageA), secondAWire);
     assertArrayEquals(serializeIndirectLegacy(pageB), pageBWire);
 
-    final IndirectPage coldPage = (IndirectPage) persister.deserializePage(
-        config, Bytes.wrapForRead(secondAWire), SerializationType.DATA);
+    final IndirectPage coldPage =
+        (IndirectPage) persister.deserializePage(config, Bytes.wrapForRead(secondAWire), SerializationType.DATA);
     assertInstanceOf(delegateClass, coldPage.delegate());
     for (int index = 0; index < expectedOffsets.length; index++) {
       final PageReference reference = coldPage.getOrCreateReference(expectedOffsets[index]);
@@ -288,8 +287,8 @@ final class StructuralPageNativeWireTest {
   private static HOTIndirectPage multiMaskPage() {
     final byte[] positions = {0, 9, 17};
     final long[] masks = {0x8040_2000_0000_0000L};
-    return HOTIndirectPage.createSpanNodeMultiMask(11L, 7, positions, masks, positions.length,
-        new int[] {0, 1, 3, 7}, childReferences(4, 1_000L), 3, (short) 0);
+    return HOTIndirectPage.createSpanNodeMultiMask(11L, 7, positions, masks, positions.length, new int[] {0, 1, 3, 7},
+        childReferences(4, 1_000L), 3, (short) 0);
   }
 
   private static HOTIndirectPage indexedMultiNode() {

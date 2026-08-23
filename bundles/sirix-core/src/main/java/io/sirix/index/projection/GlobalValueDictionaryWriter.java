@@ -29,13 +29,14 @@ import java.util.Objects;
  * duration of the build and the persistent radix structures are produced from it in one pass at the
  * end.
  *
- * <p>Nothing here allocates per row: {@link #intern} takes a byte range and compares it against the
- * chunked arena in place.  One append generation admits at most
+ * <p>
+ * Nothing here allocates per row: {@link #intern} takes a byte range and compares it against the
+ * chunked arena in place. One append generation admits at most
  * {@link #MAX_DISTINCT_ENTRIES_PER_APPEND} distinct values, keeps every geometrically grown backing
- * array at or below a 256 KiB payload, and stores value bytes in fixed 64 KiB chunks.  An individual
+ * array at or below a 256 KiB payload, and stores value bytes in fixed 64 KiB chunks. An individual
  * UTF-8 value is likewise capped at {@link #MAX_VALUE_BYTES} bytes before copying or String
- * materialisation.  AUTO receives a typed decline and abandons the optional projection; forced
- * global encoding fails the owning operation.  {@link #release()} drops the transient generation.
+ * materialisation. AUTO receives a typed decline and abandons the optional projection; forced
+ * global encoding fails the owning operation. {@link #release()} drops the transient generation.
  *
  * <h2>Structures written</h2>
  *
@@ -55,22 +56,20 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   /**
-   * Payload cap for any geometrically grown primitive/reference array.  G1's minimum region is
-   * 1 MiB and its humongous threshold is half a region; 256 KiB plus an array header stays well
-   * below the minimum 512 KiB threshold.
+   * Payload cap for any geometrically grown primitive/reference array. G1's minimum region is 1 MiB
+   * and its humongous threshold is half a region; 256 KiB plus an array header stays well below the
+   * minimum 512 KiB threshold.
    */
   private static final int MAX_SAFE_ARRAY_PAYLOAD_BYTES = 256 << 10;
 
-  private static final int MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH =
-      MAX_SAFE_ARRAY_PAYLOAD_BYTES / Long.BYTES;
+  private static final int MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH = MAX_SAFE_ARRAY_PAYLOAD_BYTES / Long.BYTES;
 
   /**
-   * Largest append admitted by the current in-memory interner.  The next id would double the
-   * half-full hash table from 32,768 to 65,536 longs, creating a 512 KiB payload before its object
-   * header and therefore crossing the minimum G1 humongous boundary.
+   * Largest append admitted by the current in-memory interner. The next id would double the half-full
+   * hash table from 32,768 to 65,536 longs, creating a 512 KiB payload before its object header and
+   * therefore crossing the minimum G1 humongous boundary.
    */
-  public static final int MAX_DISTINCT_ENTRIES_PER_APPEND =
-      MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH / 2;
+  public static final int MAX_DISTINCT_ENTRIES_PER_APPEND = MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH / 2;
 
   /** Largest individual UTF-8 value admitted without a humongous materialisation. */
   public static final int MAX_VALUE_BYTES = ValueDictionaryEntryNode.MAX_VALUE_LENGTH;
@@ -79,10 +78,10 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   private static final int MAX_ARENA_CHUNKS = MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH;
 
   /**
-   * Value bytes are retained in fixed-size chunks.  A single geometrically-grown byte array is a
-   * particularly bad fit for high-cardinality columns: growing a 1 GiB arena briefly needs the old
-   * 1 GiB array and a new 2 GiB array at the same time, and both are humongous GC objects.  Fixed
-   * chunks make every value-byte allocation bounded and make the preflight delta exact.
+   * Value bytes are retained in fixed-size chunks. A single geometrically-grown byte array is a
+   * particularly bad fit for high-cardinality columns: growing a 1 GiB arena briefly needs the old 1
+   * GiB array and a new 2 GiB array at the same time, and both are humongous GC objects. Fixed chunks
+   * make every value-byte allocation bounded and make the preflight delta exact.
    */
   static final int ARENA_CHUNK_BYTES = 1 << 16;
 
@@ -135,11 +134,11 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * {@link Long#MAX_VALUE} for unbounded.
    *
    * <p>
-   * The original implementation treated distinct-count scaling as affordable.  That was false for
+   * The original implementation treated distinct-count scaling as affordable. That was false for
    * ClickBench URL/Referer/Title: at 100M rows the monolithic arena wanted more than a 16 GB heap and
-   * doubled until the collector took every core.  This aggregate bound complements the mandatory
-   * structural caps above: it accounts for simultaneous build/flush workspace and turns pressure
-   * into an admission decision before planner object graphs or persistent output are allocated.
+   * doubled until the collector took every core. This aggregate bound complements the mandatory
+   * structural caps above: it accounts for simultaneous build/flush workspace and turns pressure into
+   * an admission decision before planner object graphs or persistent output are allocated.
    * </p>
    */
   private final long budgetBytes;
@@ -147,13 +146,13 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   private final AdmissionPolicy admissionPolicy;
 
   /**
-   * No aggregate byte budget, for standalone callers and tests.  The structural entry, value and
-   * array ceilings remain mandatory; "unbounded" never means "may allocate a humongous array".
+   * No aggregate byte budget, for standalone callers and tests. The structural entry, value and array
+   * ceilings remain mandatory; "unbounded" never means "may allocate a humongous array".
    *
    * <p>
    * PUBLIC deliberately: before the budget existed this class had only the implicit public no-arg
-   * constructor, and narrowing it here would break every caller outside this package for no reason
-   * — the bound is opt-in, and adding it must not change who may construct one.
+   * constructor, and narrowing it here would break every caller outside this package for no reason —
+   * the bound is opt-in, and adding it must not change who may construct one.
    * </p>
    */
   public GlobalValueDictionaryWriter() {
@@ -172,48 +171,42 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * </p>
    */
   private static final long EMPTY_RETAINED_BYTES =
-      (long) INITIAL_ARENA_CHUNK_CAPACITY * Long.BYTES
-          + 64L * Integer.BYTES + 192L * Long.BYTES
+      (long) INITIAL_ARENA_CHUNK_CAPACITY * Long.BYTES + 64L * Integer.BYTES + 192L * Long.BYTES
           + (long) INITIAL_TABLE_CAPACITY * Long.BYTES + (long) INITIAL_TABLE_CAPACITY * Integer.BYTES;
 
-  public static final long MINIMUM_BUDGET_BYTES = EMPTY_RETAINED_BYTES
-      + KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY + 2L * PageLayout.INITIAL_PAGE_SIZE;
+  public static final long MINIMUM_BUDGET_BYTES =
+      EMPTY_RETAINED_BYTES + KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY + 2L * PageLayout.INITIAL_PAGE_SIZE;
 
   /**
    * @param column the column this dictionary encodes, for the breach message
    * @param budgetBytes ceiling on simultaneously live dictionary bytes, at least
-   *        {@link #MINIMUM_BUDGET_BYTES};
-   *        {@link Long#MAX_VALUE} disables the check
+   *        {@link #MINIMUM_BUDGET_BYTES}; {@link Long#MAX_VALUE} disables the check
    */
   GlobalValueDictionaryWriter(final int column, final long budgetBytes) {
     this(column, budgetBytes, AdmissionPolicy.DECLINE);
   }
 
-  GlobalValueDictionaryWriter(final int column, final long budgetBytes,
-      final AdmissionPolicy admissionPolicy) {
+  GlobalValueDictionaryWriter(final int column, final long budgetBytes, final AdmissionPolicy admissionPolicy) {
     if (budgetBytes < MINIMUM_BUDGET_BYTES) {
-      throw new IllegalArgumentException("budgetBytes must be at least MINIMUM_BUDGET_BYTES ("
-          + MINIMUM_BUDGET_BYTES + "), got " + budgetBytes
-          + " — an empty dictionary already retains that much, so a smaller budget refuses its own first value."
-          + " Decline the column instead of constructing a writer that cannot hold anything.");
+      throw new IllegalArgumentException(
+          "budgetBytes must be at least MINIMUM_BUDGET_BYTES (" + MINIMUM_BUDGET_BYTES + "), got " + budgetBytes
+              + " — an empty dictionary already retains that much, so a smaller budget refuses its own first value."
+              + " Decline the column instead of constructing a writer that cannot hold anything.");
     }
     this.column = column;
     this.budgetBytes = budgetBytes;
-    this.admissionPolicy = Objects.requireNonNull(admissionPolicy,
-        "admissionPolicy must not be null");
+    this.admissionPolicy = Objects.requireNonNull(admissionPolicy, "admissionPolicy must not be null");
   }
 
   /**
    * Everything this dictionary holds on the heap: the value arena plus the six index and table
-   * arrays. Counted from array LENGTHS, not from the data written into them, because the doubling
-   * is what actually costs — a half-full arena of 4 GB is 4 GB.
+   * arrays. Counted from array LENGTHS, not from the data written into them, because the doubling is
+   * what actually costs — a half-full arena of 4 GB is 4 GB.
    */
   public long retainedBytes() {
-    return (long) arenaChunks.length * Long.BYTES
-        + (long) allocatedArenaChunks * ARENA_CHUNK_BYTES
-        + (long) offsets.length * Long.BYTES + (long) lengths.length * Integer.BYTES
-        + (long) hashes.length * Long.BYTES + (long) secondaryHashes.length * Long.BYTES
-        + (long) tableHashes.length * Long.BYTES
+    return (long) arenaChunks.length * Long.BYTES + (long) allocatedArenaChunks * ARENA_CHUNK_BYTES
+        + (long) offsets.length * Long.BYTES + (long) lengths.length * Integer.BYTES + (long) hashes.length * Long.BYTES
+        + (long) secondaryHashes.length * Long.BYTES + (long) tableHashes.length * Long.BYTES
         + (long) tableIds.length * Integer.BYTES;
   }
 
@@ -236,19 +229,22 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   long hashAt(final int id) {
-    if (id < 1 || id > entryCount) throw new IllegalArgumentException("invalid dictionary id");
+    if (id < 1 || id > entryCount)
+      throw new IllegalArgumentException("invalid dictionary id");
     return hashes[id];
   }
 
   long secondaryHashAt(final int id) {
-    if (id < 1 || id > entryCount) throw new IllegalArgumentException("invalid dictionary id");
+    if (id < 1 || id > entryCount)
+      throw new IllegalArgumentException("invalid dictionary id");
     return secondaryHashes[id];
   }
 
   /**
    * Intern a value and return its id, minting one if the value is new.
    *
-   * <p>Ids count from 1 so that {@code 0} can mean "no id" everywhere downstream without a separate
+   * <p>
+   * Ids count from 1 so that {@code 0} can mean "no id" everywhere downstream without a separate
    * presence check.
    *
    * @param src the buffer holding the value's UTF-8 bytes
@@ -266,8 +262,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
       return existingId;
     }
     preflightStructuralNewEntry(len);
-    return insertAt(slot, hash, GlobalValueDictionary.secondaryValueHash(src, off, len),
-        src, off, len);
+    return insertAt(slot, hash, GlobalValueDictionary.secondaryValueHash(src, off, len), src, off, len);
   }
 
   int findId(final byte[] src, final int off, final int len) {
@@ -279,11 +274,9 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   @Override
   public int intern(final String value) {
     Objects.requireNonNull(value, "value must not be null");
-    final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value,
-        MAX_VALUE_BYTES);
+    final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value, MAX_VALUE_BYTES);
     if (encodedLength > MAX_VALUE_BYTES) {
-      refuseAdmission("UTF-8 value exceeds the safe V0 limit of " + MAX_VALUE_BYTES
-          + " bytes");
+      refuseAdmission("UTF-8 value exceeds the safe V0 limit of " + MAX_VALUE_BYTES + " bytes");
     }
     final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
     return intern(utf8, 0, utf8.length);
@@ -292,10 +285,11 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   /**
    * Return the largest allocation the next {@link #intern(byte[], int, int)} call can make.
    *
-   * <p>The method is deliberately allocation-free.  A transaction-wide memory ledger can reserve
-   * this delta before it lets the writer mutate; a duplicate value returns zero.  The delta counts
-   * complete newly allocated arrays (not merely their retained-size difference), because an array
-   * copy keeps the old array live until the copy has completed.
+   * <p>
+   * The method is deliberately allocation-free. A transaction-wide memory ledger can reserve this
+   * delta before it lets the writer mutate; a duplicate value returns zero. The delta counts complete
+   * newly allocated arrays (not merely their retained-size difference), because an array copy keeps
+   * the old array live until the copy has completed.
    */
   public long reservationBytesForIntern(final byte[] src, final int off, final int len) {
     checkInternArguments(src, off, len);
@@ -323,23 +317,21 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     }
     Objects.checkFromIndexSize(off, len, src.length);
     if (len > MAX_VALUE_BYTES) {
-      refuseAdmission("value length " + len + " exceeds the safe V0 limit of "
-          + MAX_VALUE_BYTES + " bytes");
+      refuseAdmission("value length " + len + " exceeds the safe V0 limit of " + MAX_VALUE_BYTES + " bytes");
     }
   }
 
   private void preflightStructuralNewEntry(final int length) {
     final int id = nextId();
     if (id > MAX_DISTINCT_ENTRIES_PER_APPEND) {
-      refuseAdmission(String.format(Locale.ROOT,
-          "append entry %,d exceeds the safe per-append limit of %,d",
-          id, MAX_DISTINCT_ENTRIES_PER_APPEND));
+      refuseAdmission(String.format(Locale.ROOT, "append entry %,d exceeds the safe per-append limit of %,d", id,
+          MAX_DISTINCT_ENTRIES_PER_APPEND));
     }
     final long requiredArenaLength = Math.addExact(arenaLength, length);
     final int requiredChunks = requiredArenaChunks(requiredArenaLength);
     if (requiredChunks > MAX_ARENA_CHUNKS) {
-      refuseAdmission("chunk directory would need " + requiredChunks
-          + " references, above its safe limit of " + MAX_ARENA_CHUNKS);
+      refuseAdmission(
+          "chunk directory would need " + requiredChunks + " references, above its safe limit of " + MAX_ARENA_CHUNKS);
     }
   }
 
@@ -366,8 +358,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
       final int chunkIndex = Math.toIntExact(arenaOffset / ARENA_CHUNK_BYTES);
       final int chunkOffset = (int) (arenaOffset & (ARENA_CHUNK_BYTES - 1));
       final int compared = Math.min(remaining, ARENA_CHUNK_BYTES - chunkOffset);
-      if (!Arrays.equals(arenaChunks[chunkIndex], chunkOffset, chunkOffset + compared,
-          src, sourceOffset, sourceOffset + compared)) {
+      if (!Arrays.equals(arenaChunks[chunkIndex], chunkOffset, chunkOffset + compared, src, sourceOffset,
+          sourceOffset + compared)) {
         return false;
       }
       arenaOffset += compared;
@@ -378,8 +370,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   /** Compare caller-owned bytes to an interned value without materialising the arena slice. */
-  int compareCandidateUnsigned(final byte[] candidate, final int offset, final int length,
-      final int id) {
+  int compareCandidateUnsigned(final byte[] candidate, final int offset, final int length, final int id) {
     Objects.checkFromIndexSize(offset, length, candidate.length);
     if (id < 1 || id > entryCount) {
       throw new IllegalArgumentException("invalid dictionary id");
@@ -399,8 +390,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     return Integer.compare(length, lengths[id]);
   }
 
-  private int insertAt(final int slot, final long hash, final long secondaryHash,
-      final byte[] src, final int off, final int len) {
+  private int insertAt(final int slot, final long hash, final long secondaryHash, final byte[] src, final int off,
+      final int len) {
     final long requiredArenaLength = Math.addExact(arenaLength, len);
     final int requiredChunks = requiredArenaChunks(requiredArenaLength);
     final int id = nextId();
@@ -414,12 +405,10 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
         ? grownCapacity(arenaChunks.length, requiredChunks)
         : arenaChunks.length;
     final int tableCapacity = tableCapacityFor(id);
-    final long allocationBytes = allocationBytes(requiredChunks, arenaChunkCapacity,
-        idArrayCapacity, tableCapacity);
-    final long futureRetained = saturatedAdd(retainedBytes(), retainedGrowthBytes(requiredChunks,
-        arenaChunkCapacity, idArrayCapacity, tableCapacity));
-    final long flushPeak = flushPeakBytes(futureRetained, id, requiredArenaLength,
-        Math.max(maxValueLength, len));
+    final long allocationBytes = allocationBytes(requiredChunks, arenaChunkCapacity, idArrayCapacity, tableCapacity);
+    final long futureRetained = saturatedAdd(retainedBytes(),
+        retainedGrowthBytes(requiredChunks, arenaChunkCapacity, idArrayCapacity, tableCapacity));
+    final long flushPeak = flushPeakBytes(futureRetained, id, requiredArenaLength, Math.max(maxValueLength, len));
     if (budgetBytes != Long.MAX_VALUE
         && Math.max(saturatedAdd(retainedBytes(), allocationBytes), flushPeak) > budgetBytes) {
       refuseAdmission(null);
@@ -487,7 +476,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   private int tableCapacityFor(final int id) {
-    // Filling the last slot at the 50% load boundary is safe.  Grow only for the following id so
+    // Filling the last slot at the 50% load boundary is safe. Grow only for the following id so
     // the canonical 16,384-mutation maintenance chunk fits its existing 32,768-slot table, while
     // structural admission rejects id 16,385 before this method can request a humongous array.
     if (id <= (tableIds.length >>> 1)) {
@@ -512,16 +501,14 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     return (int) chunks;
   }
 
-  private long allocationBytes(final int requiredChunks, final int arenaChunkCapacity,
-      final int idArrayCapacity, final int tableCapacity) {
-    long bytes = Math.multiplyExact((long) requiredChunks - allocatedArenaChunks,
-        ARENA_CHUNK_BYTES);
+  private long allocationBytes(final int requiredChunks, final int arenaChunkCapacity, final int idArrayCapacity,
+      final int tableCapacity) {
+    long bytes = Math.multiplyExact((long) requiredChunks - allocatedArenaChunks, ARENA_CHUNK_BYTES);
     if (arenaChunkCapacity != arenaChunks.length) {
       bytes = saturatedAdd(bytes, (long) arenaChunkCapacity * Long.BYTES);
     }
     if (idArrayCapacity != offsets.length) {
-      bytes = saturatedAdd(bytes,
-          (long) idArrayCapacity * (Integer.BYTES + 3L * Long.BYTES));
+      bytes = saturatedAdd(bytes, (long) idArrayCapacity * (Integer.BYTES + 3L * Long.BYTES));
     }
     if (tableCapacity != tableIds.length) {
       bytes = saturatedAdd(bytes, (long) tableCapacity * (Long.BYTES + Integer.BYTES));
@@ -529,20 +516,16 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     return bytes;
   }
 
-  private long retainedGrowthBytes(final int requiredChunks, final int arenaChunkCapacity,
-      final int idArrayCapacity, final int tableCapacity) {
-    long bytes = Math.multiplyExact((long) requiredChunks - allocatedArenaChunks,
-        ARENA_CHUNK_BYTES);
-    bytes = saturatedAdd(bytes,
-        (long) (arenaChunkCapacity - arenaChunks.length) * Long.BYTES);
-    bytes = saturatedAdd(bytes, (long) (idArrayCapacity - offsets.length)
-        * (Integer.BYTES + 3L * Long.BYTES));
-    return saturatedAdd(bytes, (long) (tableCapacity - tableIds.length)
-        * (Long.BYTES + Integer.BYTES));
+  private long retainedGrowthBytes(final int requiredChunks, final int arenaChunkCapacity, final int idArrayCapacity,
+      final int tableCapacity) {
+    long bytes = Math.multiplyExact((long) requiredChunks - allocatedArenaChunks, ARENA_CHUNK_BYTES);
+    bytes = saturatedAdd(bytes, (long) (arenaChunkCapacity - arenaChunks.length) * Long.BYTES);
+    bytes = saturatedAdd(bytes, (long) (idArrayCapacity - offsets.length) * (Integer.BYTES + 3L * Long.BYTES));
+    return saturatedAdd(bytes, (long) (tableCapacity - tableIds.length) * (Long.BYTES + Integer.BYTES));
   }
 
-  private static void copyIntoArena(final byte[][] destination, long destinationOffset,
-      final byte[] source, int sourceOffset, int remaining) {
+  private static void copyIntoArena(final byte[][] destination, long destinationOffset, final byte[] source,
+      int sourceOffset, int remaining) {
     while (remaining > 0) {
       final int chunkIndex = Math.toIntExact(destinationOffset / ARENA_CHUNK_BYTES);
       final int chunkOffset = (int) (destinationOffset & (ARENA_CHUNK_BYTES - 1));
@@ -556,12 +539,14 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
 
   private static long flushPeakBytes(final long retained, final int entries, final long valueBytes,
       final int largestValueBytes) {
-    return saturatedAdd(retained, GlobalValueDictionaryRadix.reservationBytesForAppend(
-        0, entries, valueBytes, largestValueBytes));
+    return saturatedAdd(retained,
+        GlobalValueDictionaryRadix.reservationBytesForAppend(0, entries, valueBytes, largestValueBytes));
   }
 
   private static long saturatedAdd(final long left, final long right) {
-    return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+    return left > Long.MAX_VALUE - right
+        ? Long.MAX_VALUE
+        : left + right;
   }
 
   private static int grownCapacity(final int current, final long required) {
@@ -633,14 +618,12 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     return value;
   }
 
-  private void copyFromArena(long sourceOffset, final byte[] destination,
-      int destinationOffset, int remaining) {
+  private void copyFromArena(long sourceOffset, final byte[] destination, int destinationOffset, int remaining) {
     while (remaining > 0) {
       final int chunkIndex = Math.toIntExact(sourceOffset / ARENA_CHUNK_BYTES);
       final int chunkOffset = (int) (sourceOffset & (ARENA_CHUNK_BYTES - 1));
       final int copied = Math.min(remaining, ARENA_CHUNK_BYTES - chunkOffset);
-      System.arraycopy(arenaChunks[chunkIndex], chunkOffset, destination, destinationOffset,
-          copied);
+      System.arraycopy(arenaChunks[chunkIndex], chunkOffset, destination, destinationOffset, copied);
       sourceOffset += copied;
       destinationOffset += copied;
       remaining -= copied;
@@ -651,15 +634,17 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * Write the dictionary: every value entry, the forward directory over all of them, and the header
    * that ties the two together.
    *
-   * <p>Every key comes out of one contiguous run reserved up front, because that is the only key
-   * shape the sub-trie's indirect-page traversal can address — see
-   * {@link NamePage#reserveProjectionValueDictionaryKeys}. Records are written in ascending key
-   * order so each record page is prepared in turn, which is what lets the trie grow its levels at
-   * the boundaries it expects.
+   * <p>
+   * Every key comes out of one contiguous run reserved up front, because that is the only key shape
+   * the sub-trie's indirect-page traversal can address — see
+   * {@link NamePage#reserveProjectionValueDictionaryKeys}. Records are written in ascending key order
+   * so each record page is prepared in turn, which is what lets the trie grow its levels at the
+   * boundaries it expects.
    *
-   * <p>The header is written last so a dictionary is never advertised as complete before the
-   * structures it describes exist; a torn write leaves an older header, or none, which readers
-   * treat as "cannot say" rather than as an empty dictionary.
+   * <p>
+   * The header is written last so a dictionary is never advertised as complete before the structures
+   * it describes exist; a torn write leaves an older header, or none, which readers treat as "cannot
+   * say" rather than as an empty dictionary.
    *
    * @param namePage the name page of the revision being built
    * @param databaseType the database type, which fixes the dictionary offset
@@ -676,10 +661,10 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     namePage.createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
 
     final long headerKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
-    final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(0L, 0L, 0,
-        this, namePage, databaseType, storageEngineWriter, log);
-    final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey,
-        ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0);
+    final GlobalValueDictionaryRadix.Roots roots =
+        GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage, databaseType, storageEngineWriter, log);
+    final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey, ValueDictionaryHeaderNode.VERSION,
+        entryCount, roots.forward(), roots.reverse(), 0);
     namePage.putProjectionValueDictionaryRecord(header, databaseType, storageEngineWriter, log);
     return headerKey;
   }
@@ -688,8 +673,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * Append this writer's values as one immutable segment and update only the stable base header.
    */
   public long flushAppend(final ValueDictionaryHeaderNode baseHeader, final NamePage namePage,
-      final DatabaseType databaseType, final StorageEngineWriter storageEngineWriter,
-      final TransactionIntentLog log) {
+      final DatabaseType databaseType, final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
     if (released) {
       throw new IllegalStateException("value dictionary writer was released");
     }
@@ -697,28 +681,27 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     if (entryCount == 0) {
       return baseHeader.getNodeKey();
     }
-    final int totalEntries = Math.toIntExact(Math.addExact(
-        (long) baseHeader.getEntryCount(), entryCount));
+    final int totalEntries = Math.toIntExact(Math.addExact((long) baseHeader.getEntryCount(), entryCount));
     ensureFlushFitsBudget(reservationBytesForFlushAppend(baseHeader));
-    final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(
-        baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(), baseHeader.getEntryCount(),
-        this, namePage, databaseType, storageEngineWriter, log);
-    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(baseHeader.getNodeKey(),
-        ValueDictionaryHeaderNode.VERSION, totalEntries, roots.forward(), roots.reverse(),
-        Math.addExact(baseHeader.getGeneration(), 1)), databaseType, storageEngineWriter, log);
+    final GlobalValueDictionaryRadix.Roots roots =
+        GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(),
+            baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log);
+    namePage.putProjectionValueDictionaryRecord(
+        new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
+            roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1)),
+        databaseType, storageEngineWriter, log);
     return baseHeader.getNodeKey();
   }
 
   /**
-   * Allocation-free reservation for a new dictionary flush.  Persistent node-key reservation is
+   * Allocation-free reservation for a new dictionary flush. Persistent node-key reservation is
    * intentionally not part of this number; keys are allocated exactly by the radix writer.
    */
   public long reservationBytesForFlush() {
     if (released) {
       throw new IllegalStateException("value dictionary writer was released");
     }
-    return GlobalValueDictionaryRadix.reservationBytesForAppend(0, entryCount, arenaLength,
-        maxValueLength);
+    return GlobalValueDictionaryRadix.reservationBytesForAppend(0, entryCount, arenaLength, maxValueLength);
   }
 
   /**
@@ -730,8 +713,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     }
     validateAppendHeader(baseHeader);
     Math.toIntExact(Math.addExact((long) baseHeader.getEntryCount(), entryCount));
-    return GlobalValueDictionaryRadix.reservationBytesForAppend(baseHeader.getEntryCount(),
-        entryCount, arenaLength, maxValueLength);
+    return GlobalValueDictionaryRadix.reservationBytesForAppend(baseHeader.getEntryCount(), entryCount, arenaLength,
+        maxValueLength);
   }
 
   private static void validateAppendHeader(final ValueDictionaryHeaderNode baseHeader) {
@@ -742,8 +725,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   private void ensureFlushFitsBudget(final long reservationBytes) {
-    if (budgetBytes != Long.MAX_VALUE
-        && saturatedAdd(retainedBytes(), reservationBytes) > budgetBytes) {
+    if (budgetBytes != Long.MAX_VALUE && saturatedAdd(retainedBytes(), reservationBytes) > budgetBytes) {
       refuseAdmission(null);
     }
   }
@@ -756,34 +738,34 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     if (workspaceBytes < 0) {
       throw new IllegalArgumentException("workspaceBytes must be non-negative");
     }
-    if (budgetBytes != Long.MAX_VALUE
-        && saturatedAdd(retainedBytes(), workspaceBytes) > budgetBytes) {
+    if (budgetBytes != Long.MAX_VALUE && saturatedAdd(retainedBytes(), workspaceBytes) > budgetBytes) {
       refuseAdmission(null);
     }
   }
 
   private void refuseAdmission(final String detail) {
     final GlobalDictionaryBudgetExceededException decline =
-        new GlobalDictionaryBudgetExceededException(column, retainedBytes(), budgetBytes,
-            entryCount, detail);
+        new GlobalDictionaryBudgetExceededException(column, retainedBytes(), budgetBytes, entryCount, detail);
     if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
       throw new IllegalStateException("Forced global value dictionary for column " + column
-          + " cannot continue safely: "
-          + (detail == null ? "configured aggregate budget exhausted" : detail), decline);
+          + " cannot continue safely: " + (detail == null
+              ? "configured aggregate budget exhausted"
+              : detail),
+          decline);
     }
     throw decline;
   }
 
   /**
-   * The same policy-correct refusal {@link #refuseAdmission} raises, for encoders that reject a
-   * value BEFORE any generation writer exists to raise it themselves.
+   * The same policy-correct refusal {@link #refuseAdmission} raises, for encoders that reject a value
+   * BEFORE any generation writer exists to raise it themselves.
    *
    * <p>
    * The V0 value-length ceiling is an admission decision like every other bound here, so it has to
    * honour the same {@link AdmissionPolicy}: an AUTO build receives the typed decline and abandons
-   * its optional projection while the ingest completes, and only a forced dictionary fails the
-   * owning operation. Raising a bare {@code IllegalStateException} instead would kill a legal load
-   * over an optional index.
+   * its optional projection while the ingest completes, and only a forced dictionary fails the owning
+   * operation. Raising a bare {@code IllegalStateException} instead would kill a legal load over an
+   * optional index.
    * </p>
    *
    * @param column the column whose dictionary refused the value
@@ -794,17 +776,14 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * @param admissionPolicy the refusing dictionary's policy
    * @return the exception to throw; never {@code null}
    */
-  static RuntimeException oversizedValueRefusal(final int column, final int length,
-      final long retainedBytes, final long budgetBytes, final int entryCount,
-      final AdmissionPolicy admissionPolicy) {
-    final String detail = "value length " + length + " exceeds the safe V0 limit of "
-        + MAX_VALUE_BYTES + " bytes";
+  static RuntimeException oversizedValueRefusal(final int column, final int length, final long retainedBytes,
+      final long budgetBytes, final int entryCount, final AdmissionPolicy admissionPolicy) {
+    final String detail = "value length " + length + " exceeds the safe V0 limit of " + MAX_VALUE_BYTES + " bytes";
     final GlobalDictionaryBudgetExceededException decline =
-        new GlobalDictionaryBudgetExceededException(column, retainedBytes, budgetBytes, entryCount,
-            detail);
+        new GlobalDictionaryBudgetExceededException(column, retainedBytes, budgetBytes, entryCount, detail);
     if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
-      return new IllegalStateException("Forced global value dictionary for column " + column
-          + " cannot continue safely: " + detail, decline);
+      return new IllegalStateException(
+          "Forced global value dictionary for column " + column + " cannot continue safely: " + detail, decline);
     }
     return decline;
   }

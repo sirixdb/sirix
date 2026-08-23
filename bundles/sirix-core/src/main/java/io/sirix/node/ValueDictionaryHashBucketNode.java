@@ -17,20 +17,15 @@ public final class ValueDictionaryHashBucketNode implements DataRecord {
   private final long[] hashes;
   private final int[] ids;
 
-  public ValueDictionaryHashBucketNode(final long nodeKey, final int bucket, final long[] hashes,
-      final int[] ids) {
+  public ValueDictionaryHashBucketNode(final long nodeKey, final int bucket, final long[] hashes, final int[] ids) {
     this(nodeKey, bucket, (byte) 0, 0L, 0L, hashes, ids);
   }
 
-  public ValueDictionaryHashBucketNode(final long nodeKey, final int bucket,
-      final byte secondaryDepth, final long secondaryPrefix, final long nextBucketKey,
-      final long[] hashes,
-      final int[] ids) {
-    if (nodeKey <= 0 || bucket < 0 || bucket > 0xFF_FFFF || hashes == null || ids == null
-        || hashes.length != ids.length || hashes.length == 0 || secondaryDepth < 0
-        || secondaryDepth > Long.BYTES
-        || (secondaryDepth == 0 && (secondaryPrefix != 0L || nextBucketKey != 0L))
-        || nextBucketKey < 0) {
+  public ValueDictionaryHashBucketNode(final long nodeKey, final int bucket, final byte secondaryDepth,
+      final long secondaryPrefix, final long nextBucketKey, final long[] hashes, final int[] ids) {
+    if (nodeKey <= 0 || bucket < 0 || bucket > 0xFF_FFFF || hashes == null || ids == null || hashes.length != ids.length
+        || hashes.length == 0 || secondaryDepth < 0 || secondaryDepth > Long.BYTES
+        || (secondaryDepth == 0 && (secondaryPrefix != 0L || nextBucketKey != 0L)) || nextBucketKey < 0) {
       throw new IllegalArgumentException("invalid value dictionary hash bucket");
     }
     for (int i = 0; i < ids.length; i++) {
@@ -115,11 +110,9 @@ public final class ValueDictionaryHashBucketNode implements DataRecord {
 
   @Override
   public boolean equals(final Object object) {
-    return object instanceof ValueDictionaryHashBucketNode other && nodeKey == other.nodeKey
-        && bucket == other.bucket && secondaryDepth == other.secondaryDepth
-        && secondaryPrefix == other.secondaryPrefix && nextBucketKey == other.nextBucketKey
-        && Arrays.equals(hashes, other.hashes)
-        && Arrays.equals(ids, other.ids);
+    return object instanceof ValueDictionaryHashBucketNode other && nodeKey == other.nodeKey && bucket == other.bucket
+        && secondaryDepth == other.secondaryDepth && secondaryPrefix == other.secondaryPrefix
+        && nextBucketKey == other.nextBucketKey && Arrays.equals(hashes, other.hashes) && Arrays.equals(ids, other.ids);
   }
 
   @Override

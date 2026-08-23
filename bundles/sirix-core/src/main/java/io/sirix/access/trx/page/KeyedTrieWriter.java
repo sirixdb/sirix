@@ -37,18 +37,18 @@ import io.sirix.settings.Constants;
  * Writer for the keyed indirect-page trie structure.
  *
  * <p>
- * Manages write-side navigation and mutation of the trie of {@link IndirectPage}s that maps
- * integer page keys to leaf {@link PageReference}s using bit-decomposition. Handles:
+ * Manages write-side navigation and mutation of the trie of {@link IndirectPage}s that maps integer
+ * page keys to leaf {@link PageReference}s using bit-decomposition. Handles:
  * </p>
  * <ul>
- *   <li>Preparing a new revision root page from the previous revision (CoW)</li>
- *   <li>Navigating / growing the trie height when keys exceed the current capacity</li>
- *   <li>Copy-on-Write of frozen {@link IndirectPage}s in the transaction intent log</li>
+ * <li>Preparing a new revision root page from the previous revision (CoW)</li>
+ * <li>Navigating / growing the trie height when keys exceed the current capacity</li>
+ * <li>Copy-on-Write of frozen {@link IndirectPage}s in the transaction intent log</li>
  * </ul>
  *
  * <p>
- * This class is intentionally allocation-free on the traversal hot path (no varargs, no
- * boxing). It is <em>not</em> thread-safe — each write transaction owns its own instance.
+ * This class is intentionally allocation-free on the traversal hot path (no varargs, no boxing). It
+ * is <em>not</em> thread-safe — each write transaction owns its own instance.
  * </p>
  *
  * <p>
@@ -72,16 +72,15 @@ final class KeyedTrieWriter {
    * @return new {@link RevisionRootPage} instance
    */
   RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage,
-      final NodeStorageEngineReader storageEngineReader, final TransactionIntentLog log,
-      final int baseRevision, final int representRevision) {
+      final NodeStorageEngineReader storageEngineReader, final TransactionIntentLog log, final int baseRevision,
+      final int representRevision) {
     final RevisionRootPage revisionRootPage;
 
     if (uberPage.isBootstrap()) {
       revisionRootPage = storageEngineReader.loadRevRoot(baseRevision);
     } else {
       // Prepare revision root nodePageReference.
-      revisionRootPage =
-          new RevisionRootPage(storageEngineReader.loadRevRoot(baseRevision), representRevision + 1);
+      revisionRootPage = new RevisionRootPage(storageEngineReader.loadRevRoot(baseRevision), representRevision + 1);
 
       // NB: the prepared RevisionRootPage is logged (under the uber-page's revision-root reference)
       // by StorageEngineWriterFactory, which is the reference the uber-page actually commits. A
@@ -107,9 +106,8 @@ final class KeyedTrieWriter {
    * @param revisionRootPage the revision root page
    * @return {@link PageReference} instance pointing to the leaf page
    */
-  PageReference prepareLeafOfTree(final StorageEngineWriter storageEngineWriter,
-      final TransactionIntentLog log, final int[] inpLevelPageCountExp,
-      final PageReference startReference, final long pageKey, final int index,
+  PageReference prepareLeafOfTree(final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log,
+      final int[] inpLevelPageCountExp, final PageReference startReference, final long pageKey, final int index,
       final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;
@@ -117,13 +115,11 @@ final class KeyedTrieWriter {
     int offset;
     long levelKey = pageKey;
 
-    int maxHeight =
-        storageEngineWriter.getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
+    int maxHeight = storageEngineWriter.getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
 
     // Check if we need an additional level of indirect pages.
     if (pageKey == (1L << inpLevelPageCountExp[inpLevelPageCountExp.length - maxHeight - 1])) {
-      maxHeight = incrementCurrentMaxIndirectPageTreeLevel(storageEngineWriter, revisionRootPage,
-          indexType, index);
+      maxHeight = incrementCurrentMaxIndirectPageTreeLevel(storageEngineWriter, revisionRootPage, indexType, index);
 
       // Add a new indirect page to the top of the trie and to the transaction-log.
       final IndirectPage page = new IndirectPage();
@@ -145,9 +141,8 @@ final class KeyedTrieWriter {
 
       // Create new page reference, add it to the transaction-log and reassign it in the root pages
       // of the trie.
-      final PageReference newPageReference =
-          new PageReference().setDatabaseId(storageEngineWriter.getDatabaseId())
-                             .setResourceId(storageEngineWriter.getResourceId());
+      final PageReference newPageReference = new PageReference().setDatabaseId(storageEngineWriter.getDatabaseId())
+                                                                .setResourceId(storageEngineWriter.getResourceId());
       log.put(newPageReference, PageContainer.getInstance(page, page));
       setNewIndirectPage(storageEngineWriter, revisionRootPage, indexType, index, newPageReference);
 
@@ -177,16 +172,17 @@ final class KeyedTrieWriter {
    * @param reference {@link PageReference} to get the indirect page from or to create a new one
    * @return {@link IndirectPage} reference
    */
-  IndirectPage prepareIndirectPage(final StorageEngineReader storageEngineReader,
-      final TransactionIntentLog log, final PageReference reference) {
+  IndirectPage prepareIndirectPage(final StorageEngineReader storageEngineReader, final TransactionIntentLog log,
+      final PageReference reference) {
     final PageContainer cont = log.get(reference);
-    IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
+    IndirectPage page = cont == null
+        ? null
+        : (IndirectPage) cont.getComplete();
     if (page == null) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         page = new IndirectPage();
       } else {
-        final IndirectPage indirectPage =
-            storageEngineReader.dereferenceIndirectPageReference(reference);
+        final IndirectPage indirectPage = storageEngineReader.dereferenceIndirectPageReference(reference);
         page = new IndirectPage(indirectPage);
       }
       log.put(reference, PageContainer.getInstance(page, page));
@@ -202,62 +198,51 @@ final class KeyedTrieWriter {
   /**
    * Set a new indirect page in the appropriate index structure.
    */
-  private void setNewIndirectPage(final StorageEngineReader storageEngineReader,
-      final RevisionRootPage revisionRoot, final IndexType indexType, final int index,
-      final PageReference pageReference) {
+  private void setNewIndirectPage(final StorageEngineReader storageEngineReader, final RevisionRootPage revisionRoot,
+      final IndexType indexType, final int index, final PageReference pageReference) {
     // $CASES-OMITTED$
     switch (indexType) {
       case DOCUMENT -> revisionRoot.setOrCreateReference(0, pageReference);
       case CHANGED_NODES -> revisionRoot.setOrCreateReference(1, pageReference);
       case RECORD_TO_REVISIONS -> revisionRoot.setOrCreateReference(2, pageReference);
-      case CAS ->
-        storageEngineReader.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case PATH ->
-        storageEngineReader.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
-      case NAME ->
-        storageEngineReader.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
-      case PATH_SUMMARY -> storageEngineReader.getPathSummaryPage(revisionRoot)
-                                              .setOrCreateReference(index, pageReference);
-      case VECTOR ->
-        storageEngineReader.getVectorPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case CAS -> storageEngineReader.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PATH -> storageEngineReader.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case NAME -> storageEngineReader.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
+      case PATH_SUMMARY ->
+        storageEngineReader.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
+      case VECTOR -> storageEngineReader.getVectorPage(revisionRoot).setOrCreateReference(index, pageReference);
       case PROJECTION ->
         storageEngineReader.getProjectionIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
       case VALIDTIME ->
         storageEngineReader.getValidTimeIndexPage(revisionRoot).setOrCreateReference(index, pageReference);
-      default -> throw new IllegalStateException(
-          "Only defined for node, path summary, text value and attribute value pages!");
+      default ->
+        throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     }
   }
 
   /**
    * Increment the current maximum indirect page trie level for the given index type.
    */
-  private int incrementCurrentMaxIndirectPageTreeLevel(
-      final StorageEngineReader storageEngineReader, final RevisionRootPage revisionRoot,
-      final IndexType indexType, final int index) {
+  private int incrementCurrentMaxIndirectPageTreeLevel(final StorageEngineReader storageEngineReader,
+      final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
     // $CASES-OMITTED$
     return switch (indexType) {
       case DOCUMENT -> revisionRoot.incrementAndGetCurrentMaxLevelOfDocumentIndexIndirectPages();
-      case CHANGED_NODES ->
-        revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
-      case RECORD_TO_REVISIONS ->
-        revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-      case CAS -> storageEngineReader.getCASPage(revisionRoot)
-                                     .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PATH -> storageEngineReader.getPathPage(revisionRoot)
-                                      .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case NAME -> storageEngineReader.getNamePage(revisionRoot)
-                                      .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PATH_SUMMARY -> storageEngineReader.getPathSummaryPage(revisionRoot)
-                                              .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case VECTOR -> storageEngineReader.getVectorPage(revisionRoot)
-                                        .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PROJECTION -> storageEngineReader.getProjectionIndexPage(revisionRoot)
-                                            .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(revisionRoot)
-                                           .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      default -> throw new IllegalStateException(
-          "Only defined for node, path summary, text value and attribute value pages!");
+      case CHANGED_NODES -> revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
+      case RECORD_TO_REVISIONS -> revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
+      case CAS -> storageEngineReader.getCASPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PATH -> storageEngineReader.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case NAME -> storageEngineReader.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PATH_SUMMARY ->
+        storageEngineReader.getPathSummaryPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case VECTOR ->
+        storageEngineReader.getVectorPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case PROJECTION ->
+        storageEngineReader.getProjectionIndexPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case VALIDTIME ->
+        storageEngineReader.getValidTimeIndexPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      default ->
+        throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
   }
 }

@@ -140,7 +140,9 @@ public final class NumericGroupAggTable {
     return aggColumns;
   }
 
-  /** This table's {@link #sumExactMask} — kernels fold their rows under the same rule the merge uses. */
+  /**
+   * This table's {@link #sumExactMask} — kernels fold their rows under the same rule the merge uses.
+   */
   public long sumExactMask() {
     return sumExactMask;
   }
@@ -494,9 +496,9 @@ public final class NumericGroupAggTable {
    */
   private static void requireMergeable(final NumericGroupAggTable src, final NumericGroupAggTable into) {
     if (src.slotWidth != into.slotWidth || src.withAux != into.withAux || src.sumExactMask != into.sumExactMask) {
-      throw new IllegalStateException("incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth
-          + ", aux " + src.withAux + "/" + into.withAux + ", sumExactMask " + src.sumExactMask + "/"
-          + into.sumExactMask);
+      throw new IllegalStateException(
+          "incompatible group tables: slotWidth " + src.slotWidth + "/" + into.slotWidth + ", aux " + src.withAux + "/"
+              + into.withAux + ", sumExactMask " + src.sumExactMask + "/" + into.sumExactMask);
     }
   }
 

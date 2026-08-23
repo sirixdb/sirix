@@ -66,9 +66,8 @@ final class TransactionIntentLogPinnedSpillTest {
       assertEquals(4_096L, staleCopy.getKey(), "a reachable stale copy resolves through the published handle");
       assertTrue(staleCopy.hasHash(), "a zero checksum remains present after pinned-spill publication");
       assertEquals(0L, staleCopy.getHashAsLong());
-      final PageReference handlelessStale = new PageReference().setLogKey(retiredSlot)
-                                                              .setActiveTilGeneration(
-                                                                  TransactionIntentLog.PINNED_GENERATION);
+      final PageReference handlelessStale =
+          new PageReference().setLogKey(retiredSlot).setActiveTilGeneration(TransactionIntentLog.PINNED_GENERATION);
       assertNull(log.get(handlelessStale), "a tombstoned pinned slot must never alias another container");
       assertEquals(Constants.NULL_ID_LONG, handlelessStale.getKey());
 

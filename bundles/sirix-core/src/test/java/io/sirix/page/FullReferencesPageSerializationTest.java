@@ -34,8 +34,7 @@ public final class FullReferencesPageSerializationTest {
     // A reference with a key, two page fragments and an 8-byte hash.
     final PageReference first = new PageReference();
     first.setKey(42L);
-    first.setPageFragments(List.of(new PageFragmentKeyImpl(1, 200L, 0L, 0L),
-        new PageFragmentKeyImpl(2, 763L, 0L, 0L)));
+    first.setPageFragments(List.of(new PageFragmentKeyImpl(1, 200L, 0L, 0L), new PageFragmentKeyImpl(2, 763L, 0L, 0L)));
     first.setHash(PAGE_HASH);
     refs[0] = first;
 
@@ -98,8 +97,7 @@ public final class FullReferencesPageSerializationTest {
     }
 
     final DeserializedBitmapReferencesPageTuple roundTrip =
-        SerializationType.DATA.deserializeBitmapReferencesPage(Constants.INP_REFERENCE_COUNT,
-            Bytes.wrapForRead(wire));
+        SerializationType.DATA.deserializeBitmapReferencesPage(Constants.INP_REFERENCE_COUNT, Bytes.wrapForRead(wire));
     assertTrue(roundTrip.getReferences().get(0).hasHash());
     assertEquals(PAGE_HASH, roundTrip.getReferences().get(0).getHashAsLong());
   }
@@ -126,8 +124,7 @@ public final class FullReferencesPageSerializationTest {
     for (int offset = 0; offset < back.length; offset++) {
       if (back[offset] != null && back[offset].getKey() != Constants.NULL_ID_LONG) {
         durableReferenceCount++;
-        assertTrue(offset == firstOffset || offset == farOffset,
-            "unexpected durable reference at offset " + offset);
+        assertTrue(offset == firstOffset || offset == farOffset, "unexpected durable reference at offset " + offset);
       }
     }
     assertEquals(2, durableReferenceCount);

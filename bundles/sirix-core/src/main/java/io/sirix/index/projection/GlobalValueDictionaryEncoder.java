@@ -6,9 +6,9 @@ interface GlobalValueDictionaryEncoder {
   int intern(String value);
 
   /**
-   * Conservative UTF-8 length without allocating the encoded array.  Malformed surrogate code
-   * units count as three bytes although the JDK encoder may substitute one byte; over-counting can
-   * only decline a malformed value early, never permit an oversized materialisation.
+   * Conservative UTF-8 length without allocating the encoded array. Malformed surrogate code units
+   * count as three bytes although the JDK encoder may substitute one byte; over-counting can only
+   * decline a malformed value early, never permit an oversized materialisation.
    */
   static int utf8LengthCapped(final String value, final int limit) {
     int length = 0;

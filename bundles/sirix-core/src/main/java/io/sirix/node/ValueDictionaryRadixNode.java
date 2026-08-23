@@ -19,16 +19,14 @@ public final class ValueDictionaryRadixNode implements DataRecord {
   private final byte[] childSlots;
   private final long[] childKeys;
 
-  public ValueDictionaryRadixNode(final long nodeKey, final byte indexKind, final byte depth,
-      final long[] childKeys) {
+  public ValueDictionaryRadixNode(final long nodeKey, final byte indexKind, final byte depth, final long[] childKeys) {
     this(nodeKey, indexKind, depth, populatedSlots(childKeys), populatedKeys(childKeys));
   }
 
-  public ValueDictionaryRadixNode(final long nodeKey, final byte indexKind, final byte depth,
-      final byte[] childSlots, final long[] childKeys) {
-    if (nodeKey <= 0 || (indexKind != FORWARD && indexKind != REVERSE) || depth < 0 || depth > 10
-        || childSlots == null || childKeys == null || childSlots.length != childKeys.length
-        || childSlots.length > FANOUT) {
+  public ValueDictionaryRadixNode(final long nodeKey, final byte indexKind, final byte depth, final byte[] childSlots,
+      final long[] childKeys) {
+    if (nodeKey <= 0 || (indexKind != FORWARD && indexKind != REVERSE) || depth < 0 || depth > 10 || childSlots == null
+        || childKeys == null || childSlots.length != childKeys.length || childSlots.length > FANOUT) {
       throw new IllegalArgumentException("invalid value dictionary radix node");
     }
     int priorSlot = -1;
@@ -126,9 +124,9 @@ public final class ValueDictionaryRadixNode implements DataRecord {
 
   @Override
   public boolean equals(final Object object) {
-    return object instanceof ValueDictionaryRadixNode other && nodeKey == other.nodeKey
-        && indexKind == other.indexKind && depth == other.depth
-        && Arrays.equals(childSlots, other.childSlots) && Arrays.equals(childKeys, other.childKeys);
+    return object instanceof ValueDictionaryRadixNode other && nodeKey == other.nodeKey && indexKind == other.indexKind
+        && depth == other.depth && Arrays.equals(childSlots, other.childSlots)
+        && Arrays.equals(childKeys, other.childKeys);
   }
 
   @Override
@@ -144,12 +142,14 @@ public final class ValueDictionaryRadixNode implements DataRecord {
     validateDense(denseChildKeys);
     int count = 0;
     for (final long childKey : denseChildKeys) {
-      if (childKey != 0) count++;
+      if (childKey != 0)
+        count++;
     }
     final byte[] slots = new byte[count];
     int out = 0;
     for (int slot = 0; slot < denseChildKeys.length; slot++) {
-      if (denseChildKeys[slot] != 0) slots[out++] = (byte) slot;
+      if (denseChildKeys[slot] != 0)
+        slots[out++] = (byte) slot;
     }
     return slots;
   }
@@ -158,12 +158,14 @@ public final class ValueDictionaryRadixNode implements DataRecord {
     validateDense(denseChildKeys);
     int count = 0;
     for (final long childKey : denseChildKeys) {
-      if (childKey != 0) count++;
+      if (childKey != 0)
+        count++;
     }
     final long[] keys = new long[count];
     int out = 0;
     for (final long childKey : denseChildKeys) {
-      if (childKey != 0) keys[out++] = childKey;
+      if (childKey != 0)
+        keys[out++] = childKey;
     }
     return keys;
   }

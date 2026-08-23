@@ -99,8 +99,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
   /**
    * Reusable carrier for numeric object-record insertion. The transaction consumes the carrier
-   * synchronously; integral values stay primitive through the fused record writer, while rare
-   * decimal and big-number values retain the existing {@link Number} fallback.
+   * synchronously; integral values stay primitive through the fused record writer, while rare decimal
+   * and big-number values retain the existing {@link Number} fallback.
    */
   private final ReusableNumberValue reusableNumberValue = new ReusableNumberValue();
 
@@ -234,10 +234,11 @@ public final class JacksonJsonShredder implements Callable<Long> {
     }
 
     /**
-     * Enable LDJSON (line-delimited JSON) mode. Each top-level JSON object or array in the input
-     * is treated as a separate document, wrapped in a single container array.
+     * Enable LDJSON (line-delimited JSON) mode. Each top-level JSON object or array in the input is
+     * treated as a separate document, wrapped in a single container array.
      *
-     * <p>Incompatible with {@link #skipRootJsonToken()}.
+     * <p>
+     * Incompatible with {@link #skipRootJsonToken()}.
      *
      * @return this builder instance
      * @throws SirixUsageException if {@code skipRootJsonToken} was already set
@@ -333,8 +334,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Insert LDJSON content: wraps all top-level documents in a single array, then delegates
-   * to the standard token-dispatch loop which continues across document boundaries.
+   * Insert LDJSON content: wraps all top-level documents in a single array, then delegates to the
+   * standard token-dispatch loop which continues across document boundaries.
    */
   private void insertLdjsonContent() {
     // Insert the wrapper array
@@ -347,23 +348,22 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Validates that the given token is a container start token (START_OBJECT or START_ARRAY)
-   * when operating in LDJSON mode. Scalar top-level values are not supported.
+   * Validates that the given token is a container start token (START_OBJECT or START_ARRAY) when
+   * operating in LDJSON mode. Scalar top-level values are not supported.
    *
    * @param token the token to validate
    * @throws SirixUsageException if the token is a scalar value in LDJSON mode
    */
   private void validateLdjsonToken(final JsonToken token) {
     if (token != null && token != JsonToken.START_OBJECT && token != JsonToken.START_ARRAY) {
-      throw new SirixUsageException(
-          "LDJSON mode requires each document to be an object or array, got: " + token);
+      throw new SirixUsageException("LDJSON mode requires each document to be an object or array, got: " + token);
     }
   }
 
   /**
-   * Insert new content using Jackson's native pull-parsing with token-forwarding.
-   * Each process method reads the current token's value, advances the parser, and returns
-   * the next JsonToken for dispatch — eliminating all lookahead/peek/cache overhead.
+   * Insert new content using Jackson's native pull-parsing with token-forwarding. Each process method
+   * reads the current token's value, advances the parser, and returns the next JsonToken for dispatch
+   * — eliminating all lookahead/peek/cache overhead.
    *
    * @throws SirixException if something went wrong while inserting
    */
@@ -371,7 +371,9 @@ public final class JacksonJsonShredder implements Callable<Long> {
     try {
       level = 0;
       insertedRootNodeKey = -1;
-      var token = (firstToken != null) ? firstToken : parser.nextToken();
+      var token = (firstToken != null)
+          ? firstToken
+          : parser.nextToken();
 
       if (ldjsonMode) {
         validateLdjsonToken(token);
@@ -522,13 +524,15 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /**
    * Encode the current parser text to UTF-8 bytes into the reusable {@link #encodeBuf}.
    *
-   * <p>Uses Jackson's {@code getTextCharacters()} which returns the internal char buffer
-   * without String allocation. For ASCII-only content (the common case in JSON), this
-   * performs a direct 1:1 char-to-byte copy into the reusable buffer (zero allocation).
-   * Non-ASCII content falls back to the JDK's {@link StandardCharsets#UTF_8} encoder
-   * for correctness with surrogates, BMP multi-byte, and emoji.
+   * <p>
+   * Uses Jackson's {@code getTextCharacters()} which returns the internal char buffer without String
+   * allocation. For ASCII-only content (the common case in JSON), this performs a direct 1:1
+   * char-to-byte copy into the reusable buffer (zero allocation). Non-ASCII content falls back to the
+   * JDK's {@link StandardCharsets#UTF_8} encoder for correctness with surrogates, BMP multi-byte, and
+   * emoji.
    *
-   * <p>After this call, the encoded data is in {@code encodeBuf[0..encodeLen)}.
+   * <p>
+   * After this call, the encoded data is in {@code encodeBuf[0..encodeLen)}.
    *
    * @throws IOException if the parser cannot provide text
    */
@@ -810,8 +814,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
           case INT -> reusableNumberValue.setInt(parser.getIntValue());
           case LONG -> reusableNumberValue.setLong(parser.getLongValue());
           case BIG_INTEGER -> reusableNumberValue.set(JsonNumber.fromJsonParser(parser));
-          default -> throw new IllegalStateException(
-              "Unexpected integral number type: " + parser.getNumberType());
+          default -> throw new IllegalStateException("Unexpected integral number type: " + parser.getNumberType());
         }
         value = reusableNumberValue;
       }
@@ -964,8 +967,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
   /**
    * Mutable, shredder-local numeric value carrier. {@link JacksonJsonShredder} is deliberately
-   * single-threaded and object-record insertion does not retain an {@link ObjectRecordValue}, so
-   * the next parser token may safely replace the payload after the insertion call returns.
+   * single-threaded and object-record insertion does not retain an {@link ObjectRecordValue}, so the
+   * next parser token may safely replace the payload after the insertion call returns.
    */
   private static final class ReusableNumberValue implements PrimitiveNumberValue {
 
