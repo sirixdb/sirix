@@ -716,14 +716,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Create a deep copy of this page for Copy-on-Write during async epoch boundaries. Copies slotted
-   * page MemorySegment, records[], references map, FSST symbol table. The copy is fully independent —
-   * no shared mutable state with the original.
+   * page MemorySegment, references map and the records ARRAY, and shares the FSST symbol table.
    *
    * <p>
    * Uses the deserialization constructor to set lastSlotIndex directly (no public setter). Slotted
-   * page is deep-copied via allocate + MemorySegment.copy, then set via setSlottedPage(). records[]
-   * is shallow-copied (DataRecord objects are not mutated concurrently). Serialization caches
-   * (compressedSegment, bytes, hashCode) are left null — copy is dirty.
+   * page is deep-copied via allocate + MemorySegment.copy, then set via setSlottedPage().
+   * Serialization caches (compressedSegment, bytes, hashCode) are left null — copy is dirty.
+   * </p>
+   *
+   * <p>
+   * <b>What this copy does NOT give you:</b> {@code records[]} is copied with
+   * {@link Arrays#copyOf}, so the copy and the original share every {@link DataRecord} INSTANCE.
+   * The page structure is independent; the records inside it are not. A record whose fields are
+   * mutated after this call — or whose serializer mutates them, as
+   * {@link io.sirix.index.path.summary.PathStats#writeTo} does when it calls
+   * {@code RoaringBitmap.runOptimize()} — is therefore shared mutable state across the async flush
+   * boundary, and the record itself must make that safe. {@code PathStats} does, by guarding its
+   * page-key bitmap with its own monitor. Any new mutable record kind flushed through this path
+   * owes the same guarantee; this method cannot supply it.
    * </p>
    *
    * @return a fully independent deep copy of this page
@@ -752,8 +762,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       copy.setSlottedPage(freshSegment);
     }
 
-    // Shallow-copy records[] if non-null (pending unflushed mutations from setRecord).
-    // DataRecord objects are not mutated concurrently — safe to share references.
+    // Copy the records ARRAY if non-null (pending unflushed mutations from setRecord); the
+    // DataRecord instances themselves are SHARED with the original, so a record that is still
+    // being mutated by the ingest thread is shared mutable state across the flush boundary and
+    // must guard itself — see this method's javadoc and PathStats#pageKeys.
     // processEntries() at commit time will serialize them to the COPY's slotted page.
     if (records != null) {
       copy.records = Arrays.copyOf(records, records.length);

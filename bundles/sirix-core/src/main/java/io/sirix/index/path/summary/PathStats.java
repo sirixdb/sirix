@@ -2,6 +2,7 @@ package io.sirix.index.path.summary;
 
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import it.unimi.dsi.fastutil.ints.IntIterator;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.RoaringBitmap;
 
@@ -93,12 +94,33 @@ public final class PathStats {
    */
   public boolean countDirty;
 
-  public @Nullable RoaringBitmap pageKeys;
+  /**
+   * Leaf pages on which this path was observed; {@code null} until the first merge.
+   *
+   * <p><b>Guarded by {@code this}.</b> Every read, write and serialization of this bitmap holds the
+   * {@code PathStats} monitor, and the field is private so that discipline cannot be bypassed from
+   * outside. The async snapshot flush genuinely shares it across threads:
+   * {@code KeyValueLeafPage.deepCopy()} copies the {@code records[]} ARRAY but not the records, so
+   * the serialization copy and the live page hold the SAME {@link PathNode}, and the background
+   * snapshot-append thread serializes this bitmap while the ingest thread keeps merging page keys
+   * into it.
+   *
+   * <p>{@link RoaringBitmap} tolerates neither half of that. {@code runOptimize()} REWRITES the
+   * container in place: it sizes a run container from a run count and then re-walks the array to
+   * fill it, so a concurrent {@code add} that creates a run overruns the fill
+   * ({@code ArrayIndexOutOfBoundsException: Index N out of bounds for length N}) while one that
+   * merges two runs silently under-fills it, leaving a container whose declared run count exceeds
+   * what was written. Independently of {@code runOptimize},
+   * {@code serializedSizeInBytes()} and {@code serialize()} are two separate walks, so an add
+   * between them makes the length prefix disagree with the bytes that follow and corrupts the
+   * record for every later reader.
+   */
+  private @Nullable RoaringBitmap pageKeys;
 
   public PathStats() {
   }
 
-  public boolean isEmpty() {
+  public synchronized boolean isEmpty() {
     return count == 0L && nullCount == 0L && sum == 0L && sumFraction == 0.0d && !sumDirty
         && !doubleTyped && !countDirty
         && min == EMPTY_MIN && max == EMPTY_MAX
@@ -136,18 +158,66 @@ public final class PathStats {
     sink.writeBoolean(sumDirty);
     sink.writeBoolean(doubleTyped);
     sink.writeBoolean(countDirty);
+    writePageKeysTo(sink);
+  }
+
+  /**
+   * Write the optional page-key trailer under the monitor, so no merge can land between
+   * {@code runOptimize()}, the length prefix and the payload those two agreed on.
+   *
+   * <p>Nothing is copied: the flush path stays allocation-free -- a defensive clone here would put
+   * an unbounded, bitmap-sized allocation on every snapshot flush -- and the monitor is held only
+   * for this one trailer, so the ingest thread can at worst wait out a single bitmap's
+   * serialization.
+   */
+  private synchronized void writePageKeysTo(final BytesOut<?> sink) {
     final RoaringBitmap pageKeysRef = pageKeys;
     if (pageKeysRef == null) {
       sink.writeInt(-1);
-    } else {
-      pageKeysRef.runOptimize();
-      sink.writeInt(pageKeysRef.serializedSizeInBytes());
-      try (final DataOutputStream out = new DataOutputStream(sink.outputStream())) {
-        pageKeysRef.serialize(out);
-      } catch (final IOException e) {
-        throw new UncheckedIOException("PathStats pageKeys serialize failed", e);
-      }
+      return;
     }
+    pageKeysRef.runOptimize();
+    sink.writeInt(pageKeysRef.serializedSizeInBytes());
+    try (final DataOutputStream out = new DataOutputStream(sink.outputStream())) {
+      pageKeysRef.serialize(out);
+    } catch (final IOException e) {
+      throw new UncheckedIOException("PathStats pageKeys serialize failed", e);
+    }
+  }
+
+  /**
+   * Merge every key {@code keys} yields into the presence bitmap, allocating it on first use.
+   * Holds the monitor for the whole batch so a flush observes the batch as a unit.
+   */
+  synchronized void mergePageKeys(final IntIterator keys) {
+    RoaringBitmap bitmap = pageKeys;
+    if (bitmap == null) {
+      bitmap = new RoaringBitmap();
+      pageKeys = bitmap;
+    }
+    while (keys.hasNext()) {
+      bitmap.add(keys.nextInt());
+    }
+  }
+
+  /** Replace the presence bitmap; the caller hands over ownership of {@code bitmap}. */
+  synchronized void setPageKeys(final @Nullable RoaringBitmap bitmap) {
+    pageKeys = bitmap;
+  }
+
+  /**
+   * The live presence bitmap, or {@code null}. Safe only for callers reading a revision no ingest
+   * thread is still mutating; anything else must use {@link #pageKeysToArray()}, which snapshots
+   * under the monitor.
+   */
+  synchronized @Nullable RoaringBitmap pageKeys() {
+    return pageKeys;
+  }
+
+  /** A snapshot of the presence bitmap taken under the monitor, or {@code null} if unset. */
+  synchronized int @Nullable [] pageKeysToArray() {
+    final RoaringBitmap bitmap = pageKeys;
+    return bitmap == null ? null : bitmap.toArray();
   }
 
   /**

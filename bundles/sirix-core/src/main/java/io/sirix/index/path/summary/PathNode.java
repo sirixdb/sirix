@@ -11,7 +11,6 @@ import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
-import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.RoaringBitmap;
@@ -831,24 +830,20 @@ public final class PathNode implements StructNode, NameNode {
     if (leafPageKeys == null || leafPageKeys.isEmpty()) {
       return;
     }
-    final PathStats s = getOrCreateStats();
-    if (s.pageKeys == null) {
-      s.pageKeys = new RoaringBitmap();
-    }
-    final IntIterator it = leafPageKeys.iterator();
-    while (it.hasNext()) {
-      s.pageKeys.add(it.nextInt());
-    }
+    // The bitmap is guarded by the PathStats monitor -- the background snapshot flush serializes
+    // this very object while ingest keeps merging into it. See PathStats#pageKeys.
+    getOrCreateStats().mergePageKeys(leafPageKeys.iterator());
   }
 
   /** Serializer-accessible setter; takes ownership of the supplied bitmap. */
   public void setPageKeys(final @Nullable RoaringBitmap pageKeys) {
     if (pageKeys == null) {
-      if (stats != null) {
-        stats.pageKeys = null;
+      final PathStats s = stats;
+      if (s != null) {
+        s.setPageKeys(null);
       }
     } else {
-      getOrCreateStats().pageKeys = pageKeys;
+      getOrCreateStats().setPageKeys(pageKeys);
     }
   }
 
@@ -856,14 +851,14 @@ public final class PathNode implements StructNode, NameNode {
     final PathStats s = stats;
     return s == null
         ? null
-        : s.pageKeys;
+        : s.pageKeys();
   }
 
   public int @Nullable [] getPageKeysArray() {
     final PathStats s = stats;
-    return (s == null || s.pageKeys == null)
+    return s == null
         ? null
-        : s.pageKeys.toArray();
+        : s.pageKeysToArray();
   }
 
   // =====================================================================
