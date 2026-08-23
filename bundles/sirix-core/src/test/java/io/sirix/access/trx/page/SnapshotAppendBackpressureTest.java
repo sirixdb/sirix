@@ -5,15 +5,24 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SnapshotAppendBackpressureTest {
+
+  /**
+   * How long {@link #appendProgressRestartsTheAdmissionDeadline()} lets its stall deadline run before
+   * it reports progress. Comfortably inside the deadline, and large enough that a caller which
+   * ignored the progress would return that much sooner than the assertion allows.
+   */
+  private static final long PROGRESS_DELAY_MILLIS = 150L;
 
   @Test
   void aSaturatedAppendExecutorBackpressuresWithoutCallerExecution() throws Exception {
@@ -88,22 +97,46 @@ final class SnapshotAppendBackpressureTest {
     final NodeStorageEngineWriter.SnapshotAppendExecutor executor =
         NodeStorageEngineWriter.createSnapshotAppendExecutor(1, 1);
     final CountDownLatch release = new CountDownLatch(1);
+    final long stallTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(500);
     try {
       submit(executor, task(() -> await(release)));
       submit(executor, task(() -> await(release)));
+      final AtomicLong signalledAt = new AtomicLong();
       final Thread progress = new Thread(() -> {
+        // Signal only once the waiter is parked on the admission semaphore. A bare sleep decided
+        // this test on scheduling luck: a signal published before the wait began was never observed
+        // (the deadline then ran its full, unextended length) and one published after the deadline
+        // had already expired came too late. Both leave the caller returning at the unextended
+        // deadline, and both were reachable on a loaded macOS runner.
+        while (executor.admissionWaiters() == 0) {
+          Thread.onSpinWait();
+        }
+        // Let a measurable part of the deadline burn down first, so a restart is distinguishable
+        // from no restart at all. The assertion below is anchored on the signal rather than on the
+        // call, so oversleeping only makes the restart MORE visible.
         try {
-          Thread.sleep(60L);
+          Thread.sleep(PROGRESS_DELAY_MILLIS);
         } catch (final InterruptedException interrupted) {
           Thread.currentThread().interrupt();
+          return;
         }
+        signalledAt.set(System.nanoTime());
         executor.signalProgress();
-      });
+      }, "snapshot-append-progress");
       progress.start();
-      final long start = System.nanoTime();
-      assertFalse(executor.acquireAdmissionUntilProgressStalls(TimeUnit.MILLISECONDS.toNanos(100)));
-      assertTrue(System.nanoTime() - start >= TimeUnit.MILLISECONDS.toNanos(140));
+
+      assertFalse(executor.acquireAdmissionUntilProgressStalls(stallTimeoutNanos));
+      final long returnedAt = System.nanoTime();
       progress.join(5_000L);
+
+      // The deadline is measured from the LAST observed progress, not from the call: an admission
+      // may only be given up after a further full stall timeout has passed without any.
+      final long signalled = signalledAt.get();
+      assertNotEquals(0L, signalled, "the progress signal must have been published while the caller waited");
+      assertTrue(returnedAt - signalled >= stallTimeoutNanos,
+          "admission was given up " + TimeUnit.NANOSECONDS.toMillis(returnedAt - signalled)
+              + " ms after progress, before the restarted " + TimeUnit.NANOSECONDS.toMillis(stallTimeoutNanos)
+              + " ms deadline");
     } finally {
       release.countDown();
       executor.shutdownNow();

@@ -9,6 +9,7 @@ import io.sirix.node.SirixDeweyID;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -55,6 +56,31 @@ final class PathStatsConcurrentFlushTest {
 
   private static final int ROUNDS = 60;
 
+  /**
+   * Merge checkpoints at which the ingest thread waits for the flush thread to finish another
+   * serialization before it merges on.
+   *
+   * <p>
+   * Without them the overlap this test exists for is a matter of relative thread speed: one serialize
+   * + deserialize of a bitmap this size outruns the whole merge loop on a loaded runner, the round
+   * ends with the flush thread still inside its first attempt, and the vacuity guard below trips (36
+   * flushes over 60 rounds on the ubuntu CI runner). Pacing makes the interleaving structural — every
+   * round contributes at least {@code PACE_CHECKPOINTS} flushes that ran while merges were still
+   * outstanding, whatever the machine.
+   * </p>
+   */
+  private static final int PACE_CHECKPOINTS = 2;
+
+  /**
+   * Merges between two checkpoints. Derived so that no checkpoint falls on the LAST merge: the flush
+   * thread stops once every merge is in, so waiting for a further flush there could never be
+   * satisfied.
+   */
+  private static final int PACE_INTERVAL = SPARSE_COUNT / (PACE_CHECKPOINTS + 1);
+
+  /** Fail loudly instead of hanging if a paced merge never sees the flush thread again. */
+  private static final long PACE_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(60L);
+
   private static PathNode freshNode() {
     return new PathNode(new QNm("age"), NodeKind.OBJECT_NAMED_OBJECT, 1, 1, 1L, -1L, -1, 0, (SirixDeweyID) null, -1L,
         -1L, -1L, -1L, 0L, 0L, -1, -1, 42, 0L);
@@ -74,6 +100,30 @@ final class PathStatsConcurrentFlushTest {
     return offset >= 0 && offset % SPARSE_STRIDE == 0 && offset / SPARSE_STRIDE < SPARSE_COUNT;
   }
 
+  /**
+   * Hold the merge sequence until the flush thread completes one more serialization.
+   *
+   * @return {@code false} when the flush thread stopped, so the caller must stop merging too
+   */
+  private static boolean awaitFlush(final AtomicInteger flushCount, final AtomicReference<String> anomaly) {
+    final int target = flushCount.get() + 1;
+    final long deadline = System.nanoTime() + PACE_TIMEOUT_NANOS;
+    while (flushCount.get() < target) {
+      if (anomaly.get() != null) {
+        return false;
+      }
+      if (System.nanoTime() - deadline >= 0L) {
+        anomaly.compareAndSet(null, "the flush thread completed no serialization within "
+            + TimeUnit.NANOSECONDS.toSeconds(PACE_TIMEOUT_NANOS) + "s while the merge sequence waited for it");
+        return false;
+      }
+      // Yield rather than spin: on a two-core runner the flush thread this waits for is the one
+      // that would be starved.
+      Thread.yield();
+    }
+    return true;
+  }
+
   @Test
   void pageKeysStaySerializableWhileIngestKeepsMergingIntoThem() throws InterruptedException {
     final ResourceConfiguration config = config();
@@ -90,6 +140,7 @@ final class PathStatsConcurrentFlushTest {
       node.mergePageKeys(seed);
 
       final AtomicInteger merged = new AtomicInteger();
+      final AtomicInteger flushCount = new AtomicInteger();
       final Thread ingest = new Thread(() -> {
         final IntOpenHashSet batch = new IntOpenHashSet(1);
         for (int i = 0; i < SPARSE_COUNT; i++) {
@@ -100,10 +151,12 @@ final class PathStatsConcurrentFlushTest {
           // Stretch the merge sequence across many flushes instead of racing through it in one
           // burst; without this the window closes before the flush thread can overlap it.
           Thread.onSpinWait();
+          if ((i + 1) % PACE_INTERVAL == 0 && i + 1 < SPARSE_COUNT && !awaitFlush(flushCount, anomaly)) {
+            return;
+          }
         }
       }, "ingest-merge-" + round);
 
-      final AtomicInteger flushCount = new AtomicInteger();
       final Thread flush = new Thread(() -> {
         while (merged.get() < SPARSE_COUNT && anomaly.get() == null) {
           try {

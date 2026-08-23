@@ -50,6 +50,13 @@ class HOTLeafWriterGuardTest {
 
   private static final long PAGE_WEIGHT = 1024L;
 
+  /**
+   * Reloads that lose the guard before the writer may keep one. Deliberately above the writer's
+   * tight-loop spin budget of 256 attempts: a writer that gives up on a fixed attempt count aborts
+   * the transaction here, while one bounded by a wall-clock deadline still makes progress.
+   */
+  private static final int RETIRED_RELOADS = 300;
+
   @Test
   void trieWriterKeepsSourceGuardedAcrossPressureAndTilTransfer() {
     final LeafState source = leafState(1L);
@@ -152,6 +159,38 @@ class HOTLeafWriterGuardTest {
   }
 
   @Test
+  void trieWriterOutlastsAnEvictionStormThatKeepsRetiringTheReloadedLeaf() {
+    final LeafState retired = leafState(9L);
+    final LeafState replacement = leafState(9L);
+    final HOTLeafPage modified = mock(HOTLeafPage.class);
+    final PageReference reference = reference(9L);
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    reference.setPage(retired.page());
+    retired.page().retire();
+
+    // Every reload loses the guard again, exactly as pressure eviction retiring each freshly
+    // published instance looks to the writer. The count exceeds any fixed tight-loop attempt
+    // budget: the storm has to be outlasted in wall-clock time, not in attempts.
+    final AtomicInteger retiredLoads = new AtomicInteger();
+    final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
+    when(replacement.page().copy()).thenReturn(modified);
+    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
+    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retiredLoads.getAndIncrement() < RETIRED_RELOADS
+        ? retired.page()
+        : replacement.page());
+
+    final PageContainer result = new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log,
+        reference, new byte[] {9}, IndexType.PATH, 0);
+
+    assertSame(replacement.page(), result.getComplete(), "the storm must end in the live instance, not in a failure");
+    assertSame(modified, result.getModified());
+    assertEquals(RETIRED_RELOADS + 1, retiredLoads.get(), "every retired reload must be retried, not skipped");
+    assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
+    verify(retired.page(), never()).copy();
+    verify(replacement.page(), times(1)).releaseGuard();
+  }
+
+  @Test
   void abstractIndexWriterKeepsCombinedSourceGuardedUntilTilOwnsIt() {
     final LeafState source = leafState(3L);
     final HOTLeafPage modified = mock(HOTLeafPage.class);
@@ -180,6 +219,34 @@ class HOTLeafWriterGuardTest {
     assertEquals(0L, cache.size());
     assertFalse(source.closed().get());
     verify(source.page(), times(1)).releaseGuard();
+  }
+
+  @Test
+  void abstractIndexWriterOutlastsAnEvictionStormThatKeepsRetiringTheReloadedLeaf() {
+    final LeafState retired = leafState(10L);
+    final LeafState replacement = leafState(10L);
+    final HOTLeafPage modified = mock(HOTLeafPage.class);
+    final PageReference reference = reference(10L);
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    retired.page().retire();
+
+    final AtomicInteger retiredLoads = new AtomicInteger();
+    final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
+    when(replacement.page().copy()).thenReturn(modified);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+    when(storageEngineWriter.getLog()).thenReturn(log);
+    attachCache(storageEngineWriter, cache);
+    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
+        ResourceConfiguration.newBuilder("hot-writer-guard-storm").versioningApproach(VersioningType.FULL).build());
+    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retiredLoads.getAndIncrement() < RETIRED_RELOADS
+        ? retired.page()
+        : replacement.page());
+
+    assertSame(modified, invokeCow(new TestIndexWriter(storageEngineWriter), reference, retired.page()));
+    assertEquals(RETIRED_RELOADS + 1, retiredLoads.get(), "every retired reload must be retried, not skipped");
+    assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
+    verify(retired.page(), never()).copy();
+    verify(replacement.page(), times(1)).releaseGuard();
   }
 
   @Test

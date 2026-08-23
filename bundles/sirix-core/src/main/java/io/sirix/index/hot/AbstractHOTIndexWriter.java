@@ -58,6 +58,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
@@ -91,8 +92,26 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** Maximum navigable tree depth — pre-allocates path arrays at this depth. */
   private static final int MAX_PATH_DEPTH = 64;
 
-  /** Bound retries when pressure eviction wins the race before a writer can guard a HOT leaf. */
-  private static final int MAX_HOT_LEAF_GUARD_RETRIES = 256;
+  /**
+   * Tight-loop attempts before the guard retry starts yielding. Losing the guard once is the common
+   * case — the loser only has to resolve the current instance again — so the first attempts stay
+   * allocation- and syscall-free.
+   */
+  private static final int HOT_LEAF_GUARD_SPIN_ATTEMPTS = 256;
+
+  /**
+   * Wall-clock budget for re-resolving a HOT leaf that pressure eviction keeps retiring first.
+   *
+   * <p>
+   * The budget has to be a DEADLINE rather than an attempt count. Under an allocator-pressure
+   * eviction storm every freshly published instance can be retired again within microseconds of the
+   * loader dropping its guard, so a fixed count of tight-loop attempts is spent in well under a
+   * millisecond and aborts a transaction that only had to outlast the storm. A deadline keeps the
+   * wait bounded — an unguardable leaf still fails rather than hanging — while making the retry
+   * budget mean what its name says.
+   * </p>
+   */
+  private static final long HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(1L);
 
   /** Inserts between periodic leaf-consolidation sweeps ({@link #consolidateSubtree}). */
   private static final int CONSOLIDATION_INTERVAL = 4096;
@@ -742,7 +761,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
     final TransactionIntentLog log = storageEngineWriter.getLog();
     HOTLeafPage sourceLeaf = hotLeaf;
-    for (int attempt = 0; attempt < MAX_HOT_LEAF_GUARD_RETRIES; attempt++) {
+    long retryDeadlineNanos = 0L;
+    for (long attempt = 0L;; attempt++) {
       final PageContainer existing = log.get(currentRef);
       if (existing != null && existing.getModified() instanceof HOTLeafPage modifiedLeaf && !modifiedLeaf.isClosed()) {
         return modifiedLeaf;
@@ -793,6 +813,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
       }
 
+      // The guard was lost to a retirement, so this instance is dead and the current one has to be
+      // resolved again. Back off before doing so: spinning first keeps the common single lost race
+      // cheap, and yielding afterwards lets the evicting thread finish instead of burning the whole
+      // budget against it.
+      retryDeadlineNanos = backOffBeforeHOTLeafGuardRetry(attempt, retryDeadlineNanos);
+
       currentRef.clearPageIfSame(sourceLeaf);
       final Page reloaded = resolveHOTPageForTraversal(currentRef);
       if (!(reloaded instanceof HOTLeafPage reloadedLeaf)) {
@@ -800,9 +826,33 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       sourceLeaf = reloadedLeaf;
     }
+  }
 
-    throw new IllegalStateException(
-        "HOT leaf was retired before it could be guarded after " + MAX_HOT_LEAF_GUARD_RETRIES + " attempts");
+  /**
+   * Pace one lost guard race and enforce the retry deadline.
+   *
+   * @param attempt the number of guard acquisitions already lost, counted in {@code long} so an
+   *        unbounded storm can never wrap the counter back into the spin budget
+   * @param deadlineNanos the deadline armed on the first attempt past the spin budget; unread until
+   *        then
+   * @return the armed deadline to carry into the next attempt
+   * @throws IllegalStateException when the deadline passed without a single guarded attempt
+   */
+  private static long backOffBeforeHOTLeafGuardRetry(final long attempt, final long deadlineNanos) {
+    if (attempt < HOT_LEAF_GUARD_SPIN_ATTEMPTS) {
+      Thread.onSpinWait();
+      return deadlineNanos;
+    }
+    if (attempt == HOT_LEAF_GUARD_SPIN_ATTEMPTS) {
+      Thread.yield();
+      return System.nanoTime() + HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS;
+    }
+    if (System.nanoTime() - deadlineNanos >= 0L) {
+      throw new IllegalStateException("HOT leaf was retired before it could be guarded within "
+          + TimeUnit.NANOSECONDS.toMillis(HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS) + " ms and " + attempt + " attempts");
+    }
+    Thread.yield();
+    return deadlineNanos;
   }
 
   /**
