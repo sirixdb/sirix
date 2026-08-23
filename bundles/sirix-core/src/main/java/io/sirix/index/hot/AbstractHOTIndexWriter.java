@@ -760,6 +760,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // named answers "none" for an entry that very much exists and has been released.
     final int logKeyBeforeResolution = ref.getLogKey();
     final int generationBeforeResolution = ref.getActiveTilGeneration();
+    boolean releasedWithoutMerge = false;
     final PageContainer container = log.get(ref);
     if (container != null) {
       final Page modified = container.getModified();
@@ -772,15 +773,21 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
     }
 
-    // The log has the entry but released its HOT leaf: an incremental merge moved that leaf's
-    // entries into a sibling. Neither remaining source describes this slot any more — the instance
-    // still swizzled here is the freed page, and the durable image behind the reference is the
-    // leaf's PRE-MERGE bytes, whose keys now also live in the merge target. Handing either one to
-    // the descent seeds it with a leaf whose key set contradicts the live routing, and the insert
-    // dispatch reads that contradiction as a branch escape (mismatch bit at or above an ancestor's
-    // discriminative bit) it cannot place incrementally — which on the projection index, where
-    // subtree rebuilds are refused outright, ends the transaction. The merge forwarded the orphan to
-    // the page that absorbed its entries, and that page is the one the descent must continue at.
+    // The log has the entry but every page it holds is a closed HOT leaf. That is the state an
+    // incremental merge leaves behind after moving the leaf's entries into a sibling — and for THAT
+    // case neither remaining source describes this slot any more: the instance still swizzled here
+    // is the freed page, and the durable image behind the reference is the leaf's PRE-MERGE bytes,
+    // whose keys now also live in the merge target. Handing either one to the descent seeds it with
+    // a leaf whose key set contradicts the live routing, and the insert dispatch reads that
+    // contradiction as a branch escape (mismatch bit at or above an ancestor's discriminative bit)
+    // it cannot place incrementally — which on the projection index, where subtree rebuilds are
+    // refused outright, ends the transaction. The merge forwarded the orphan to the page that
+    // absorbed its entries, and that page is the one the descent must continue at.
+    //
+    // It is NOT, however, the only way an entry loses every page: a spill closes the very container
+    // it has just written out, and a superseded container is closed with its successor. Those merged
+    // nothing away and forwarded nothing, and their durable image is the live one — so an entry with
+    // no forwarding link is handed to mergeReleasedEntry, which asks the authority.
     if (namesReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
       // get() has already tried the packed-identity forwarding; that link only resolves while the
       // replacement is still an addressable log entry, so ask for the replacement's REFERENCE, which
@@ -791,13 +798,26 @@ public abstract class AbstractHOTIndexWriter<K> {
         forwardedReplacementRef = replacement;
         return null;
       }
-      releasedLeafRefused = true;
-      return null;
+      if (mergeReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
+        return null;
+      }
+      // Unresolvable, but no merge released it: fall through to the durable image, which IS the live
+      // one for this leaf. See mergeReleasedEntry.
+      releasedWithoutMerge = true;
     }
 
     final Page swizzled = ref.getPage();
     if (servesTraversal(swizzled)) {
       return swizzled;
+    }
+
+    if (releasedWithoutMerge && ref.getKey() < 0) {
+      // The fall-through above needs somewhere to land, and here there is nowhere: the entry's pages
+      // are closed, the swizzle cannot serve, and no durable image was ever written for this
+      // reference. Refuse rather than return the null the empty-slot arm reads as permission to
+      // fabricate a leaf over a slot that still routes for the keys it lost.
+      releasedLeafRefused = true;
+      return null;
     }
 
     if (ref.getKey() < 0 && ref.getLogKey() < 0) {
@@ -867,6 +887,53 @@ public abstract class AbstractHOTIndexWriter<K> {
     return replacement != null
         ? replacement
         : log.releasedHOTLeafReplacementReference(logKeyBeforeResolution, generationBeforeResolution);
+  }
+
+  /**
+   * Whether an unresolvable log entry is unresolvable <em>because an incremental merge released its
+   * leaf</em> — and, if so, dispose of the descent for it.
+   *
+   * <p>
+   * The distinction matters because the two cases want opposite answers. A merged-away leaf must
+   * never fall back to storage: the durable image is its PRE-MERGE content, whose keys by then also
+   * live in the merge target, and descending into it contradicts the live routing. But a leaf whose
+   * container was closed for any OTHER reason has lost nothing — {@code publishPinnedSpillCandidate}
+   * closes the exact container it has just written out to a durable offset, and a superseded
+   * container the epoch rotation left behind is closed together with its successor — and for those
+   * the durable image IS the live image. Dead-ending on them is what ended the transaction on the
+   * {@code windows-latest / query} lane, where the pinned-trie spill runs often enough to close a
+   * container the descent later walks into ({@code pinnedTrieSpillPages} in the job's
+   * {@code HFT_ASYNC_FLUSH} line); the identity test alone cannot tell them apart, because a spill
+   * records no forwarding link — it merged nothing away.
+   * </p>
+   *
+   * <p>
+   * The page-key blacklist {@code releaseOrphanedHOTLeaves} records is the authority, and the dead
+   * container still carries the page key to ask it with, so the question is answered without
+   * reloading the image it may have to refuse. When it answers yes, the same blacklist also names the
+   * page that absorbed the entries — consulted here as well as through the orphan's identity, since a
+   * reference copy may name a different entry of the same released leaf than the merge did.
+   * </p>
+   *
+   * @return {@code true} iff a merge released this entry's leaf, in which case the descent has
+   *         already been given its forwarding target or refused
+   */
+  private boolean mergeReleasedEntry(final TransactionIntentLog log, final PageReference ref,
+      final int logKeyBeforeResolution, final int generationBeforeResolution) {
+    long pageKey = log.releasedHOTLeafEntryPageKey(ref.getLogKey(), ref.getActiveTilGeneration());
+    if (pageKey == Constants.NULL_ID_LONG) {
+      pageKey = log.releasedHOTLeafEntryPageKey(logKeyBeforeResolution, generationBeforeResolution);
+    }
+    if (pageKey == Constants.NULL_ID_LONG || !log.namesReleasedHOTLeafPage(indexScope(), pageKey)) {
+      return false;
+    }
+    final PageReference replacement = log.releasedHOTLeafReplacementReference(indexScope(), pageKey);
+    if (replacement != null && replacement != ref) {
+      forwardedReplacementRef = replacement;
+    } else {
+      releasedLeafRefused = true;
+    }
+    return true;
   }
 
   /** This writer's page-key namespace — page keys are unique only within one index. */
@@ -4435,35 +4502,51 @@ public abstract class AbstractHOTIndexWriter<K> {
       putStarted = true;
       log.put(ref, container);
     } catch (final RuntimeException | Error failure) {
-      // put() clears ref.page before it publishes a new log slot. Retain the local page so a
-      // failure between those operations cannot strand an off-heap leaf outside both the tree and
-      // the TIL. Before put begins, ownership is known to remain local. Once it begins, exact
-      // container identity is the boundary; if that probe itself fails, retain rather than risk
-      // closing a log-owned page. Any failure here dooms the transaction because descendant pages
-      // may already have crossed their ownership boundary.
-      boolean ownershipKnown = !putStarted;
-      boolean logOwnsContainer = false;
-      if (putStarted) {
-        try {
-          logOwnsContainer = log.get(ref) == container;
-          ownershipKnown = true;
-        } catch (final RuntimeException | Error ownershipFailure) {
-          addSuppressedSafely(failure, ownershipFailure);
-        }
-      }
-      try {
-        storageEngineWriter.markTransactionRollbackOnly(failure);
-      } catch (final RuntimeException | Error poisonFailure) {
-        addSuppressedSafely(failure, poisonFailure);
-      }
-      if (ownershipKnown && !logOwnsContainer && page instanceof HOTLeafPage freshLeaf) {
-        try {
-          freshLeaf.close();
-        } catch (final RuntimeException | Error cleanupFailure) {
-          addSuppressedSafely(failure, cleanupFailure);
-        }
-      }
+      recoverFromRegistrationFailure(failure, ref, page, container, log, putStarted);
       throw failure;
+    }
+  }
+
+  /**
+   * Settle ownership of a fresh page whose transaction-log registration threw.
+   *
+   * <p>
+   * {@code put()} clears {@code ref.page} before it publishes a new log slot. Retain the local page
+   * so a failure between those operations cannot strand an off-heap leaf outside both the tree and
+   * the TIL. Before {@code put} begins, ownership is known to remain local. Once it begins, exact
+   * container identity is the boundary; if that probe itself fails, retain rather than risk closing a
+   * log-owned page. Any failure here dooms the transaction because descendant pages may already have
+   * crossed their ownership boundary.
+   * </p>
+   *
+   * <p>
+   * Every step absorbs its own secondary failure into {@code failure}'s suppressed list, so the
+   * caller always rethrows the original cause.
+   * </p>
+   */
+  private void recoverFromRegistrationFailure(final Throwable failure, final PageReference ref, final Page page,
+      final @Nullable PageContainer container, final @Nullable TransactionIntentLog log, final boolean putStarted) {
+    boolean ownershipKnown = !putStarted;
+    boolean logOwnsContainer = false;
+    if (putStarted) {
+      try {
+        logOwnsContainer = log.get(ref) == container;
+        ownershipKnown = true;
+      } catch (final RuntimeException | Error ownershipFailure) {
+        addSuppressedSafely(failure, ownershipFailure);
+      }
+    }
+    try {
+      storageEngineWriter.markTransactionRollbackOnly(failure);
+    } catch (final RuntimeException | Error poisonFailure) {
+      addSuppressedSafely(failure, poisonFailure);
+    }
+    if (ownershipKnown && !logOwnsContainer && page instanceof HOTLeafPage freshLeaf) {
+      try {
+        freshLeaf.close();
+      } catch (final RuntimeException | Error cleanupFailure) {
+        addSuppressedSafely(failure, cleanupFailure);
+      }
     }
   }
 

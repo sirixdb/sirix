@@ -1026,8 +1026,20 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return {@code true} iff that entry exists and every page it holds is a released HOT leaf
    */
   public boolean namesReleasedHOTLeafEntry(final int logKey, final int generation) {
+    return releasedEntry(logKey, generation) != null;
+  }
+
+  /**
+   * The entry {@code (logKey, generation)} names, if it is still here but no longer resolvable.
+   *
+   * <p>
+   * Shared by {@link #namesReleasedHOTLeafEntry} and {@link #releasedHOTLeafEntryPageKey} so the two
+   * always agree on which region an identity resolves against.
+   * </p>
+   */
+  private @Nullable PageContainer releasedEntry(final int logKey, final int generation) {
     if (logKey < 0) {
-      return false;
+      return null;
     }
     final PageContainer entry;
     if (generation == PINNED_GENERATION) {
@@ -1041,7 +1053,48 @@ public final class TransactionIntentLog implements AutoCloseable {
     } else {
       entry = null;
     }
-    return entry != null && resolvableContainer(entry) == null;
+    return entry != null && resolvableContainer(entry) == null
+        ? entry
+        : null;
+  }
+
+  /**
+   * The page key of the closed HOT leaf a released entry still holds.
+   *
+   * <p>
+   * An unresolvable entry is NOT by itself proof that an incremental merge released its leaf. Two
+   * ordinary events close a HOT leaf without merging anything away:
+   * {@link #publishPinnedSpillCandidate} closes the exact container it has just written out to a
+   * durable offset (the pinned-trie spill runs mid-transaction), and a superseded container the epoch
+   * rotation left behind is closed together with its successor. In both cases the durable image
+   * behind the reference IS the live image, and the write-path descent must be free to reload it —
+   * whereas for a merged-away leaf that same image is the leaf's PRE-MERGE content and serving it
+   * corrupts the trie.
+   * </p>
+   *
+   * <p>
+   * {@link #namesReleasedHOTLeafPage} is the authority that tells the two apart, and it needs a page
+   * key. Reading it off the dead container is what lets a caller ask that question without first
+   * reloading the very image it may have to refuse — and without seeding the buffer cache with it.
+   * </p>
+   *
+   * @param logKey the log key the reference names
+   * @param generation the generation the reference names
+   * @return the released leaf's page key, or {@link Constants#NULL_ID_LONG} when that identity names
+   *         no released entry or the entry holds no HOT leaf at all
+   */
+  public long releasedHOTLeafEntryPageKey(final int logKey, final int generation) {
+    final PageContainer entry = releasedEntry(logKey, generation);
+    if (entry == null) {
+      return Constants.NULL_ID_LONG;
+    }
+    if (entry.getModified() instanceof HOTLeafPage modified) {
+      return modified.getPageKey();
+    }
+    if (entry.getComplete() instanceof HOTLeafPage complete) {
+      return complete.getPageKey();
+    }
+    return Constants.NULL_ID_LONG;
   }
 
   /**
