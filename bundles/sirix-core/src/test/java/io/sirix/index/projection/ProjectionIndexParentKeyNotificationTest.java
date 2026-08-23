@@ -81,6 +81,11 @@ final class ProjectionIndexParentKeyNotificationTest {
     final LongOpenHashSet rootPcrs = new LongOpenHashSet();
     rootPcrs.add(ROOT_PCR);
     when(pathSummary.getPCRsForPaths(any())).thenReturn(rootPcrs);
+    // Seeding walks UP from every matched record-set root to reject an overlapping nested root, so
+    // the summary must actually resolve ROOT_PCR. A record-set root directly under the document
+    // node has no further ancestor, which is what the empty parent walk models here.
+    when(pathSummary.moveTo(ROOT_PCR)).thenReturn(true);
+    when(pathSummary.moveToParent()).thenReturn(false);
 
     final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
         List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), 0, IndexDef.DbType.JSON);
