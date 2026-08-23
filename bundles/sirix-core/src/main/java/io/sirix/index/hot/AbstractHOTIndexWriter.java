@@ -290,7 +290,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * exists for is O(index) work hiding inside a commit, and that is a property of the MEASURED
    * subtree, not of the fallback itself.
    */
-  protected boolean allowsSubtreeRebuild(final int entryCount) {
+  protected boolean allowsSubtreeRebuild(final int entryCount, final int subtreeHeight) {
     return true;
   }
 
@@ -302,15 +302,15 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private @Nullable String pendingRebuildReason;
 
-  private void requireSubtreeRebuildAllowed(final int entryCount) {
-    if (!allowsSubtreeRebuild(entryCount)) {
+  private void requireSubtreeRebuildAllowed(final int entryCount, final int subtreeHeight) {
+    if (!allowsSubtreeRebuild(entryCount, subtreeHeight)) {
       final String reason = pendingRebuildReason == null
           ? "unrecorded"
           : pendingRebuildReason;
       pendingRebuildReason = null;
       throw new IllegalStateException(indexType + " index " + indexNumber + " requires a subtree rebuild of "
-          + entryCount + " entries; refusing the transaction before publication [" + reason + " lastHandler="
-          + lastDispatchHandler + "]");
+          + entryCount + " entries at height " + subtreeHeight + "; refusing the transaction before publication ["
+          + reason + " lastHandler=" + lastDispatchHandler + "]");
     }
     if (indexType == IndexType.PROJECTION) {
       PROJECTION_BOUNDED_REBUILD_ALLOWED.incrementAndGet();
@@ -3479,7 +3479,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
     // Gate on the MEASURED size, after the read-only collection and before any mutation: the
     // refusal exists to keep O(index) work out of a commit, and only the count says which this is.
-    requireSubtreeRebuildAllowed(collected.size());
+    requireSubtreeRebuildAllowed(collected.size(), subtreeRoot.getHeight());
     collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
 
@@ -3613,7 +3613,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
     collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
     // Same measured gate as rebuildSubtree: the refusal is about SIZE, and only collection knows it.
-    requireSubtreeRebuildAllowed(collected.size());
+    requireSubtreeRebuildAllowed(collected.size(), subtreeRoot.getHeight());
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
     final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
 

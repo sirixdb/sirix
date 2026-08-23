@@ -2026,7 +2026,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   static boolean isPinnedTrieSpillPageEligible(final Page page) {
     final Class<?> pageClass = page.getClass();
     if (pageClass == HOTLeafPage.class) {
-      return ((HOTLeafPage) page).allSideReferencesDurableAndUnclaimed();
+      final HOTLeafPage leaf = (HOTLeafPage) page;
+      // A leaf in the sparse-fragment shape must not spill: the serializer would write only its
+      // dirty entries (a versioned delta for the committed read path's chain combine), and the
+      // spill's standalone reload has no chain — the clean entries would silently vanish from the
+      // live trie. See HOTLeafPage#wouldEmitSparseFragment.
+      return !leaf.wouldEmitSparseFragment() && leaf.allSideReferencesDurableAndUnclaimed();
     }
 
     if (pageClass == HOTIndirectPage.class) {

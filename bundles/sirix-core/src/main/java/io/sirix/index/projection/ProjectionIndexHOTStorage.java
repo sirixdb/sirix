@@ -166,9 +166,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   private static final int MAX_BOUNDED_REBUILD_ENTRIES = 128;
 
+  /**
+   * A height-1 subtree — one indirect over leaf children — is bounded BY CONSTRUCTION: at most
+   * {@code MAX_NODE_ENTRIES} leaves, whatever their entry count (the Windows lane measured a
+   * legitimate demand of 2250 entries at height 1, which is ~32 leaves of streamed row groups and
+   * milliseconds of work). Depth-0 demands on a DEEPER trie are the O(index) case the projection
+   * exists to refuse, and they stay refused with the size and height in the message.
+   */
   @Override
-  protected boolean allowsSubtreeRebuild(final int entryCount) {
-    return entryCount <= MAX_BOUNDED_REBUILD_ENTRIES;
+  protected boolean allowsSubtreeRebuild(final int entryCount, final int subtreeHeight) {
+    return subtreeHeight <= 1 || entryCount <= MAX_BOUNDED_REBUILD_ENTRIES;
   }
 
   /** The writer's private CoW copy of the projection container page (task #57 discipline). */

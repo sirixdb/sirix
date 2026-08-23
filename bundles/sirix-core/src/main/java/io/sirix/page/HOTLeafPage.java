@@ -4591,6 +4591,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    *
    * @return {@code true} when this leaf can be serialized without recursive side-page writes
    */
+  /**
+   * Would serializing this leaf right now emit a sparse VERSIONED FRAGMENT rather than a
+   * self-contained image? True when the leaf descends from a committed complete fragment and carries
+   * uncommitted modifications: the serializer then writes ONLY the dirty entries, because the
+   * committed read path re-combines fragment chains.
+   *
+   * <p>
+   * A consumer that reloads a single serialized image STANDALONE — the pinned trie spill's
+   * mid-transaction write is the one such consumer — must never write this shape: the deserializer
+   * has no chain to combine, so the reload would present the dirty subset as the whole leaf and
+   * silently drop every clean entry. Keys vanishing from a live trie leaf surface later as routing
+   * contradictions (an I8-unsafe branch, a descent landing on a since-released sibling), far from
+   * this cause. The spill's eligibility check excludes this shape; the leaf stays resident until a
+   * commit resets its dirty tracking.
+   * </p>
+   */
+  public boolean wouldEmitSparseFragment() {
+    return getCompletePageRef() != null && hasDirty();
+  }
+
   public boolean allSideReferencesDurableAndUnclaimed() {
     beginSideReferenceRead();
     try {
