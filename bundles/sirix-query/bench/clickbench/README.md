@@ -30,15 +30,19 @@ DuckDB **1.5.2 (Variegata)**.
 Everything here — and `ClickBenchSchema.java` on the Java side — agrees on exactly this:
 
 * **one JSON object per hit, all 105 columns always present, in `create.sql` column order**;
-* the whole file is **ONE JSON ARRAY** of those objects, `[{...},\n{...}]` (SirixDB shreds a JSON
-  array with gson's streaming `JsonReader`; the loader also accepts newline-delimited JSON — the
-  shape of the official `hits.json.gz` — and frames it into an array on the fly);
+* the whole file is **ONE JSON ARRAY** of those objects, `[{...},\n{...}]`, which
+  `ClickBenchLoadMain` shreds through a Jackson streaming parser; the loader also accepts
+  newline-delimited JSON — the shape of the official `hits.json.gz` — detected by peeking for the
+  leading `[` and ingested through the transaction's native LDJSON mode rather than reframed;
 * `SMALLINT`/`INTEGER`/`BIGINT` → JSON numbers, exact int64, never quoted, never floats;
 * `TEXT`/`VARCHAR`/`CHAR` → JSON strings; `NULL` is coalesced to `""`, which is what ClickBench
   itself uses as the "missing" marker, so the file never contains a JSON `null`;
 * `EventDate` → `"YYYY-MM-DD"`;
 * `EventTime`, `ClientEventTime`, `LocalEventTime` → `"YYYY-MM-DDTHH:MM:SS"` (ISO-8601, `T`
   separator, second resolution, no timezone).
+
+`ClickBenchSchema.java` is the authoritative definition of this encoding; where this prose and
+the code disagree, the code wins.
 
 JSON has no date type, and ISO-8601 strings order lexicographically. That is the whole point of the
 choice: `ORDER BY EventTime` and the `EventDate` range predicates stay plain string comparisons in

@@ -62,10 +62,17 @@ Elasticsearch maps `long` and `date`, Druid keeps three of the four timestamps a
 JSON encoding here is:
 
 * one object per hit, **all 105 columns always present**, in `create.sql` order;
+* the whole file is **one JSON array** of those objects, shredded through a Jackson streaming
+  parser; the loader also accepts newline-delimited JSON — the shape of the official
+  `hits.json.gz` — which it ingests in the transaction's native LDJSON mode rather than
+  reframing it as an array;
 * integers as JSON numbers, **exact int64, never quoted** — `UserID` and the two hashes are 18-digit
   values that Q19/Q40/Q41 filter on by literal;
 * text as JSON strings, with `NULL` coalesced to `""` (ClickBench's own missing marker);
 * `EventDate` as `"YYYY-MM-DD"`, the three timestamps as `"YYYY-MM-DDTHH:MM:SS"`.
+
+`ClickBenchSchema.java` is the authoritative definition of this encoding; where prose and code
+disagree, the code wins.
 
 The date choice is load-bearing rather than cosmetic. JSON has no date type, and ISO-8601 orders
 lexicographically, so `ORDER BY EventTime` and the `EventDate BETWEEN …` predicates stay plain string

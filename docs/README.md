@@ -21,6 +21,26 @@ list of files.
 |-----|----------------|
 | [formal-verification.md](formal-verification.md) | The invariant catalog: load-bearing invariants of the engine stated as pre/post-conditions, each with a proof sketch and a pointer to the CI test that discharges it. |
 | [cost-based-optimizer-design.md](cost-based-optimizer-design.md) | Design of the cost-based query optimizer (PathSummary statistics, selectivity/cardinality estimation, predicate pushdown, join ordering). |
+| [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) | Every disabled test in `sirix-core`, why it is off, and the tracking artifact — so a real correctness gap is never mistaken for a benchmark that is simply not run in CI. |
+
+## Projection indexes
+
+| Doc | What it covers |
+|-----|----------------|
+| [PROJECTION_INDEXES.md](PROJECTION_INDEXES.md) | The user-facing feature: what a columnar projection index is, how to create one in JSONiq, and which analytical queries it accelerates. Start here. |
+| [PROJECTION_INDEX_DEEP_DIVE.md](PROJECTION_INDEX_DEEP_DIVE.md) | One dataset walked through every layer — JSON rows to columnar leaves to semantic segments to the bytes on disk to the SIMD kernels — and back up through maintenance and time travel. |
+| [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md) | Normative contract for the V0 storage format: exact record lookup, document-order routing, and local update/delete/insert/move maintenance. |
+
+The remaining `PROJECTION_INDEX_*.md` files are storage-format design notes; the deep dive cites
+them where they matter.
+
+## Benchmarks
+
+| Doc | What it covers |
+|-----|----------------|
+| [BENCHMARKS.md](BENCHMARKS.md) | REST-API behavior under concurrency and a 10,000-commit large-history run, with the environment and raw-log provenance for every number. |
+| [CLICKBENCH.md](CLICKBENCH.md) | The ClickBench port: the 43 queries translated SQL → JSONiq, the JSON encoding, how to run the load/query/differential gates, and the engine defects the port uncovered. |
+| [BENCHMARK_CAMPAIGNS.md](BENCHMARK_CAMPAIGNS.md) | Every change made in the ClickBench and JSONBench performance campaigns, written to be readable without prior knowledge of SirixDB internals. |
 
 ## Design notes & development archive
 
@@ -59,4 +79,5 @@ user-facing documentation.
 - **Other subsystem plans:**
   [COST_BASED_QUERY_OPTIMIZER_PLAN.md](COST_BASED_QUERY_OPTIMIZER_PLAN.md),
   [ZERO_COPY_PLAN.md](ZERO_COPY_PLAN.md),
-  [NAME_DICTIONARY_RECONSTRUCTION_PLAN.md](NAME_DICTIONARY_RECONSTRUCTION_PLAN.md)
+  [NAME_DICTIONARY_RECONSTRUCTION_PLAN.md](NAME_DICTIONARY_RECONSTRUCTION_PLAN.md),
+  [ROWSTORE_RANGED_DECODE_PLAN.md](ROWSTORE_RANGED_DECODE_PLAN.md)
