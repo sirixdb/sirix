@@ -153,9 +153,22 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     rootReference = projPage.getOrCreateReference(indexNumber);
   }
 
+  /**
+   * The largest subtree the projection lets the HOT writer rebuild canonically. The refusal this gate
+   * feeds exists to keep O(index) work out of a commit — the intent's incrementality criterion — not
+   * to ban the canonical fallback outright. A blanket {@code false} made the projection strictly more
+   * brittle than every other index type: a legitimate rare fold state (measured on the Windows lane
+   * as {@code trigger=branch-i8-unsafe insertDepth=0 pathDepth=1} — an I8-unsafe branch at the root
+   * of a trie holding a handful of streamed row-group leaves) aborted the whole transaction to avoid
+   * rebuilding a few pages. Dense monotonic slot keys make a depth-0 branch on a LARGE projection
+   * trie unreachable — new keys share every leading prefix — so the oversize refusal stays as the
+   * tripwire for the genuinely forbidden case.
+   */
+  private static final int MAX_BOUNDED_REBUILD_ENTRIES = 128;
+
   @Override
-  protected boolean allowsSubtreeRebuild() {
-    return false;
+  protected boolean allowsSubtreeRebuild(final int entryCount) {
+    return entryCount <= MAX_BOUNDED_REBUILD_ENTRIES;
   }
 
   /** The writer's private CoW copy of the projection container page (task #57 discipline). */

@@ -282,7 +282,15 @@ public abstract class AbstractHOTIndexWriter<K> {
     this.trieWriter = new HOTTrieWriter(pageKeyAllocator);
   }
 
-  protected boolean allowsSubtreeRebuild() {
+  /**
+   * May this index rebuild a subtree of {@code entryCount} entries canonically? The base writer
+   * always may — the scoped rebuild is the canonical fallback for the rare fold states the
+   * incremental handlers cannot place (I8-unsafe branches, non-convergent self-heal). An index type
+   * whose contract forbids UNBOUNDED rebuilds overrides this with a size gate: the hazard the refusal
+   * exists for is O(index) work hiding inside a commit, and that is a property of the MEASURED
+   * subtree, not of the fallback itself.
+   */
+  protected boolean allowsSubtreeRebuild(final int entryCount) {
     return true;
   }
 
@@ -294,18 +302,18 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private @Nullable String pendingRebuildReason;
 
-  private void requireSubtreeRebuildAllowed() {
-    if (indexType == IndexType.PROJECTION) {
-      PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
-    }
-    if (!allowsSubtreeRebuild()) {
+  private void requireSubtreeRebuildAllowed(final int entryCount) {
+    if (!allowsSubtreeRebuild(entryCount)) {
       final String reason = pendingRebuildReason == null
           ? "unrecorded"
           : pendingRebuildReason;
       pendingRebuildReason = null;
-      throw new IllegalStateException(indexType + " index " + indexNumber
-          + " requires a subtree rebuild; refusing the transaction before publication [" + reason + " lastHandler="
+      throw new IllegalStateException(indexType + " index " + indexNumber + " requires a subtree rebuild of "
+          + entryCount + " entries; refusing the transaction before publication [" + reason + " lastHandler="
           + lastDispatchHandler + "]");
+    }
+    if (indexType == IndexType.PROJECTION) {
+      PROJECTION_BOUNDED_REBUILD_ALLOWED.incrementAndGet();
     }
     pendingRebuildReason = null;
   }
@@ -2345,6 +2353,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong REBUILD_SUBTREE_CALLED = new AtomicLong();
   public static final AtomicLong PROJECTION_REBUILD_SUBTREE_ATTEMPTED = new AtomicLong();
 
+  /**
+   * Bounded canonical rebuilds a PROJECTION index performed — attempts that passed the size gate.
+   * Telemetry for watching whether the rare fold states stay rare.
+   */
+  public static final AtomicLong PROJECTION_BOUNDED_REBUILD_ALLOWED = new AtomicLong();
+
 
   /**
    * Characterize an I8-unsafe Direction 1 fallback (Stage 4b iter-3 diagnostic). Gated on
@@ -3452,7 +3466,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * already a valid (strictly ascending, distinct) {@link HOTBulkBuilder} input.
    */
   private void rebuildSubtree(LeafNavigationResult navResult, int depth, byte[] keySlice, byte[] valueSlice) {
-    requireSubtreeRebuildAllowed();
+    if (indexType == IndexType.PROJECTION) {
+      PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
+    }
     REBUILD_SUBTREE_CALLED.incrementAndGet();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final int safeDepth = Math.max(0, Math.min(depth, navResult.pathDepth() - 1));
@@ -3461,6 +3477,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
     final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
     collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
+    // Gate on the MEASURED size, after the read-only collection and before any mutation: the
+    // refusal exists to keep O(index) work out of a commit, and only the count says which this is.
+    requireSubtreeRebuildAllowed(collected.size());
     collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
 
@@ -3583,7 +3602,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * invariant-clean by construction (Theorem 1).
    */
   private void rebuildExistingSubtree(PageReference ref) {
-    requireSubtreeRebuildAllowed();
+    if (indexType == IndexType.PROJECTION) {
+      PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
+    }
     final Page page = resolveHOTPageForTraversal(ref);
     if (!(page instanceof HOTIndirectPage subtreeRoot)) {
       return; // a leaf root has no indirect invariant
@@ -3591,6 +3612,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
     final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
     collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
+    // Same measured gate as rebuildSubtree: the refusal is about SIZE, and only collection knows it.
+    requireSubtreeRebuildAllowed(collected.size());
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
     final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
 
