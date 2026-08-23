@@ -102,16 +102,22 @@ class HOTLeafWriterGuardTest {
       }
       return observed;
     }).when(retired.page()).getGuardCount();
+    // The latch must only open once the guard is DEFINITIVELY held: it is what releases the blocked
+    // evictor, and this test pins down the interleaving where the writer owns a real guard and
+    // eviction retires the page underneath it anyway. Signalling between the increment and the
+    // re-check below let the evictor retire while acquireGuard was still in flight, so the writer
+    // backed its own guard out and never released one — leaving the retired page unclosed. That
+    // window was wide enough to lose on the Windows runner.
     doAnswer(_ -> {
       if (retired.closed().get() || retired.orphaned().get()) {
         return false;
       }
       retired.guards().incrementAndGet();
-      writerAcquiredGuard.countDown();
       if (retired.closed().get() || retired.orphaned().get()) {
         retired.guards().decrementAndGet();
         return false;
       }
+      writerAcquiredGuard.countDown();
       return true;
     }).when(retired.page()).acquireGuard();
 

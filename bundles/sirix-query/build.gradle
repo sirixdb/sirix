@@ -153,6 +153,13 @@ def hftWriteBuildIdentity = { outputProvider, String runtimeClasspath ->
 
 tasks.register('generateHftBuildIdentity') {
     dependsOn(tasks.named('compileJava'), tasks.named('compileKotlin'), tasks.named('processResources'))
+    // Hashing the runtime classpath reads every entry on it, so every entry has to exist first.
+    // Compile avoidance means compileJava consumes a project dependency's classes DIRECTORY, never
+    // its jar, so the compile tasks above do not build :sirix-core:jar -- yet the runtime classpath
+    // resolves exactly that jar. Depend on the resolvable configuration rather than on
+    // sourceSets.main.runtimeClasspath: the source set's classpath now carries this task's own
+    // output directory, and depending on that would be a cycle.
+    dependsOn(configurations.runtimeClasspath)
     outputs.dir(hftBuildIdentityDir)
     outputs.upToDateWhen { false }
     doLast {
@@ -165,6 +172,9 @@ sourceSets.main.output.dir(hftBuildIdentityDir, builtBy: 'generateHftBuildIdenti
 
 tasks.register('generateHftTestBuildIdentity') {
     dependsOn(tasks.named('testClasses'))
+    // Same reason as generateHftBuildIdentity: the test runtime classpath carries jars no compile
+    // task is obliged to produce.
+    dependsOn(configurations.testRuntimeClasspath)
     outputs.file(hftTestBuildIdentityFile)
     outputs.upToDateWhen { false }
     doLast {
