@@ -136,8 +136,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -733,10 +738,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Executor-owned projection warm-up lane. Keeping advisory I/O off {@link #workerPool} preserves
    * the configured scan parallelism (especially the one-thread case), while ownership gives
    * {@link #close()} a completion fence that raw daemon threads cannot provide.
+   *
+   * <p>
+   * Typed as a {@link ThreadPoolExecutor} rather than an {@link ExecutorService} so shutdown can
+   * drain the QUEUE without interrupting the RUNNING task. Its tasks read through a
+   * {@code FileChannel} that the storage shares with every other reader of the resource, and a
+   * {@code FileChannel} is an {@code InterruptibleChannel}: interrupting a thread blocked in one of
+   * its operations CLOSES the channel for everyone. {@code shutdownNow()} here therefore used to take
+   * a concurrent parallel scan down with a bare {@code ClosedChannelException}.
+   * </p>
    */
-  private final ExecutorService projectionWarmupPool;
+  private final ThreadPoolExecutor projectionWarmupPool;
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
   private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(SirixVectorizedExecutor.class);
+
+  /** Shared daemon reaper joining retired executors' pools off the compile path — see {@link #retireAsync()}. */
+  private static final ExecutorService RETIREMENT_REAPER = Executors.newSingleThreadExecutor(r -> {
+    final Thread thread = new Thread(r, "sirix-executor-retirement");
+    thread.setDaemon(true);
+    return thread;
+  });
 
   /**
    * Per-field cache of the {@code {count, sum, min, max}} tuple produced by
@@ -991,14 +1014,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
-    this.projectionWarmupPool = Executors.newSingleThreadExecutor(r -> {
-      final Thread thread = new Thread(r, "sirix-projection-warmup");
-      thread.setDaemon(true);
-      return thread;
-    });
+    this.projectionWarmupPool =
+        new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), r -> {
+          final Thread thread = new Thread(r, "sirix-projection-warmup");
+          thread.setDaemon(true);
+          return thread;
+        });
     if (!executionLifecycle.register(this)) {
       terminallyClosed = true;
-      projectionWarmupPool.shutdownNow();
+      // Nothing was submitted yet, so there is no running read to protect and no queue to drain.
+      projectionWarmupPool.shutdown();
       workerPool.shutdownNow();
       throw new IllegalStateException("Vectorized executor lifecycle is closed");
     }
@@ -1027,6 +1052,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Retire without blocking the caller. {@link #retire()} joins the warm-up and worker pools, and
+   * a running whole-leaf warm-up materialization is uncancellable (its parallel arm runs through
+   * {@code ForkJoinTask.invoke}, which ignores interrupts) — retiring synchronously on the compile
+   * path serialized every compile of the chain, and every executor-cache overflow, behind a
+   * potentially multi-GB read. The queue drain and shutdown still run HERE, synchronously (see
+   * {@link #initiatePoolShutdown}); only the join moves to the shared reaper. The caller has
+   * already unpublished this executor, so no new work reaches it, and in-flight scans complete
+   * exactly as under a synchronous retire.
+   */
+  public void retireAsync() {
+    initiatePoolShutdown(false);
+    try {
+      RETIREMENT_REAPER.execute(() -> {
+        try {
+          awaitPoolTermination(false);
+        } catch (final RuntimeException | Error failure) {
+          LOGGER.warn("Background executor retirement failed", failure);
+        } finally {
+          executionLifecycle.unregister(this);
+        }
+      });
+    } catch (final RejectedExecutionException reaperGone) {
+      // JVM shutdown took the reaper: fall back to the synchronous join.
+      try {
+        awaitPoolTermination(false);
+      } finally {
+        executionLifecycle.unregister(this);
+      }
+    }
+  }
+
+  /**
    * Terminally close this executor. Later parallel work is rejected and every locally accepted call
    * is drained. A standalone executor also closes its private execution lifetime; chain-owned
    * executors share a lifetime which {@link io.sirix.query.SirixCompileChain} closes once for all
@@ -1044,12 +1101,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private void shutdownPoolsAndAwait(final boolean terminal) {
-    boolean interrupted = false;
+    initiatePoolShutdown(terminal);
+    awaitPoolTermination(terminal);
+  }
+
+  /**
+   * The non-blocking half of a shutdown: reject new work, drain queued warm-ups, and run their
+   * cancellation hooks. Runs synchronously in every retirement flavour — queued warm-ups carry
+   * cancellation hooks whose one-shot latches in-flight readers may await, so this must never
+   * queue behind another executor's slow termination.
+   */
+  private void initiatePoolShutdown(final boolean terminal) {
     synchronized (workerPoolLifecycleLock) {
       if (terminal) {
         terminallyClosed = true;
       }
-      final List<Runnable> cancelledWarmups = projectionWarmupPool.shutdownNow();
+      // Drain the QUEUE, then shut down WITHOUT interrupting whatever is already running. The
+      // advisory warm-up tasks read through the resource's SHARED, striped FileChannel, and a
+      // FileChannel is an InterruptibleChannel: interrupting a thread blocked in one of its
+      // operations closes that channel — for the interrupted thread AND for every other reader
+      // borrowing the same stripe. shutdownNow() therefore killed the storage under concurrent
+      // scans, which surfaced as an intermittent ClosedChannelException in an unrelated query.
+      // Queued-but-unstarted tasks still get their cancellation hook, so the one-shot latches they
+      // guard are released exactly as before.
+      final List<Runnable> cancelledWarmups = new ArrayList<>();
+      projectionWarmupPool.getQueue().drainTo(cancelledWarmups);
+      projectionWarmupPool.shutdown();
       for (final Runnable cancelled : cancelledWarmups) {
         if (cancelled instanceof ProjectionIndexRegistry.CancellableBackgroundTask task) {
           try {
@@ -1061,6 +1138,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       workerPool.shutdown();
     }
+  }
+
+  /** The blocking half: join both pools, release the worker cursors, and terminally drain calls. */
+  private void awaitPoolTermination(final boolean terminal) {
+    boolean interrupted = false;
 
     // A private lifetime has no sibling executors, so terminal close owns its admission fence and
     // detached cursors. A chain closes its shared lifetime before closing the cached executors.
