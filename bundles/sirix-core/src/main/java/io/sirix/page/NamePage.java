@@ -682,6 +682,31 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
+   * Adds {@code delta} occurrences to an EXISTING interned name's count in one record touch — the
+   * batched sibling of {@link #setName}'s per-occurrence increment. JSON object keys only for now
+   * (the parallel bulk importer's use case); other kinds extend the switch when they need it.
+   *
+   * @param key the interned name key
+   * @param delta additional occurrences; must be positive
+   * @param nodeKind kind of node, selecting the dictionary
+   * @param storageEngineWriter the writer for the count-record modification
+   */
+  public void addCount(final int key, final int delta, final NodeKind nodeKind,
+      final StorageEngineWriter storageEngineWriter) {
+    // $CASES-OMITTED$
+    switch (nodeKind) {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+          OBJECT_NAMED_NULL -> {
+        if (jsonObjectKeys == null) {
+          jsonObjectKeys = getNames(storageEngineWriter, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+        }
+        jsonObjectKeys.addCount(key, delta, storageEngineWriter);
+      }
+      default -> throw new IllegalStateException("addCount currently supports JSON object keys only");
+    }
+  }
+
+  /**
    * Resolve the key a name owns without storing it or counting an occurrence — see
    * {@code StorageEngineWriter#keyForName}.
    *
@@ -832,7 +857,21 @@ public final class NamePage extends AbstractForwardingPage {
     if (nodeKey <= 0) {
       throw new IllegalArgumentException("value dictionary node key must be positive, got " + nodeKey);
     }
-    return storageEngineReader.getRecord(nodeKey, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
+    // Writer-scoped memo (no-op defaults for read-only transactions): once the async flush has
+    // released a dictionary page from the intent log, an uncached read here decodes the WHOLE page
+    // — IO, checksum, LZ77, version combine — for one record, and the radix walks re-read the same
+    // upper-level nodes constantly. Soundness (CoW fresh keys, header evict-on-put, single thread)
+    // is argued on the interface hooks.
+    final DataRecord cached = storageEngineReader.cachedProjectionDictionaryRecord(nodeKey);
+    if (cached != null) {
+      return cached;
+    }
+    final DataRecord record =
+        storageEngineReader.getRecord(nodeKey, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
+    if (record != null) {
+      storageEngineReader.cacheProjectionDictionaryRecord(nodeKey, record);
+    }
+    return record;
   }
 
   /**
@@ -856,6 +895,10 @@ public final class NamePage extends AbstractForwardingPage {
     Objects.requireNonNull(databaseType, "databaseType must not be null");
     Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
     Objects.requireNonNull(log, "log must not be null");
+    // Evict BEFORE persisting: nearly every dictionary write lands under a freshly minted key, but
+    // the generation header is rewritten under its stable key, and a memoized pre-rewrite header
+    // would resurrect a stale entry count on the next read.
+    storageEngineWriter.evictProjectionDictionaryRecord(record.getNodeKey());
     createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
     storageEngineWriter.persistRecord(record, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
   }

@@ -214,6 +214,11 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
+  public void setChildCount(final long childCount) {
+    this.childCount = childCount;
+  }
+
+  @Override
   public int hashCode() {
     return lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()
         ? Objects.hash(childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount)

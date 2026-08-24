@@ -393,6 +393,26 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   /**
+   * Reserves {@code count} consecutive document-index node keys and returns the FIRST reserved
+   * key. The parallel bulk importer assigns each build chunk an exact contiguous range up front so
+   * workers can encode final record bytes off-thread; the single-writer mint
+   * ({@link #incrementAndGetMaxNodeKeyInDocumentIndex()}) and this reservation share the one
+   * counter, so the field equals the true high-water mark at all times — the invariant the commit
+   * relies on when it serializes this page.
+   *
+   * @param count how many keys to reserve; must be positive
+   * @return the first key of the reserved contiguous range
+   */
+  public long reserveKeyRangeInDocumentIndex(final long count) {
+    if (count <= 0) {
+      throw new IllegalArgumentException("count must be positive: " + count);
+    }
+    final long first = maxNodeKeyInDocumentIndex + 1;
+    maxNodeKeyInDocumentIndex += count;
+    return first;
+  }
+
+  /**
    * Get last allocated node key in changed nodes index.
    *
    * @return Last allocated node key in changed nodes index
