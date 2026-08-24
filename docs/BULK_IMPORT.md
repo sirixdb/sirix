@@ -77,10 +77,17 @@ existing resources remains the cursor's job.
 |---|---|---|
 | 1M ClickBench-shaped rows (2.0 GB JSON) | 30.4 s | **12.1 s** |
 | 10M real ClickBench rows (gz-streamed NDJSON) | — | **119.6 s** (12.0 s/1M, linear) |
+| 100M real ClickBench rows (full 23 GB `hits.json.gz`) | — | **1145.2 s** (11.5 s/1M, 87.3k rows/s) |
 
-GC profile under the parallel importer: zero full collections; chunk buffers and decode scratch
-are pooled, so no humongous-allocation-triggered cycles. Peak RSS for the 10M import: 3.5 GB
-(heap 10 GB budgeted, off-heap capped at 8 GB).
+The 100M run is the full official corpus streamed through the NDJSON adapter: 99,997,497 records
+(the corpus's exact row count) verified by post-commit read-back, ~10.6 billion nodes minted,
+119.4 GiB on disk — scaling stays linear and per-row cost actually improves slightly as epochs
+amortize.
+
+GC profile under the parallel importer: zero full collections at every scale; chunk buffers and
+decode scratch are pooled, so no humongous-allocation-triggered cycles. Peak RSS for the 10M
+import: 3.5 GB (heap 10 GB budgeted, off-heap capped at 8 GB). At 100M: 3,953 young pauses
+totaling 4.4 s of a 1,145 s wall (0.38%), max single pause 3.7 ms.
 
 ### Known limits and roadmap
 
