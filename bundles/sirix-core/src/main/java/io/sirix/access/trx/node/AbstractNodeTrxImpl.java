@@ -733,6 +733,35 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
+   * Bulk-assembly epoch driver: account a whole completed record's mutations in one call and rotate
+   * the intermediate epoch under EXACTLY the same predicate the per-insert path uses — same count
+   * threshold, same TIL page-work boundary, same flush dispatch. The assembler computes its pointers
+   * from a stack instead of per-insert bookkeeping, so it accounts at record boundaries; the only
+   * semantic difference to the cursor path is that rotation happens AFTER accounting the
+   * just-completed record, so an epoch may exceed the threshold by at most one record's node count
+   * (records are orders of magnitude smaller than an epoch).
+   *
+   * @param mutations completed node creations since the previous call; must be positive
+   */
+  protected final void bulkAccountMutations(final int mutations) {
+    if (mutations <= 0) {
+      throw new IllegalArgumentException("mutations must be positive: " + mutations);
+    }
+    assertNotRollbackOnly();
+    mutationSequence += mutations;
+    modificationCount += mutations;
+    if (shouldRotateIntermediateEpoch()) {
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+        asyncCommitInternal("autoCommit");
+      } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+        flushIntermediateAsyncEpoch();
+      } else {
+        commitInternal("autoCommit", null, true);
+      }
+    }
+  }
+
+  /**
    * Shared insertion preflight. A subtree shredder already established that the transaction is open
    * and running before enabling bulk mode, so its per-node inserts retain count-based rotation while
    * avoiding two redundant state checks. Standalone JSON/XML insertions keep the full public-mutator

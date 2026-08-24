@@ -350,6 +350,27 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param parentPathNodeKey path node key of the OBJECT_KEY parent (must be a valid path node)
    * @return path node key of the {@code __array__/ARRAY} child (existing or freshly inserted)
    */
+  /**
+   * Apply {@code delta} deferred reference-count increments to an existing path node in ONE record
+   * touch. The bulk assembler resolves a path class once (which counts its first occurrence via the
+   * ordinary resolution path) and counts repeats locally; this applies the accumulated repeats at
+   * epoch boundaries, so committed reference counts are EXACTLY what per-occurrence counting
+   * produces while the per-occurrence record modifications disappear. The equivalence oracle's
+   * path-summary dump (references included) pins that equality.
+   *
+   * @param pathNodeKey the existing path node
+   * @param delta how many additional references to record; must be positive
+   */
+  public void addReferences(final long pathNodeKey, final int delta) {
+    if (delta <= 0) {
+      throw new IllegalArgumentException("delta must be positive: " + delta);
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.setReferenceCount(pathNode.getReferences() + delta);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
   public long getArrayChildPathNodeKey(final long parentPathNodeKey) {
     if (parentPathNodeKey < 0) {
       throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
