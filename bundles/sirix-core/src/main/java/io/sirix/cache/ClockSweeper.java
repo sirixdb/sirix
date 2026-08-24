@@ -146,8 +146,12 @@ public final class ClockSweeper implements Runnable {
         Thread.currentThread().interrupt();
         LOGGER.info("ClockSweeper[{}] interrupted", shardIndex);
         break;
-      } catch (Exception e) {
-        LOGGER.error("ClockSweeper[{}] error during sweep", shardIndex, e);
+      } catch (Throwable t) {
+        // sweep() rethrows RETAINED page-retirement failures, and retention keeps Errors too
+        // (HOTLeafPage.releaseMemory deliberately rethrows frame-releaser Errors). This thread
+        // is the only reclamation in the 90-110%-of-budget band and nothing restarts a dead
+        // sweeper, so it must survive anything a sweep can surface — the failure is still loud.
+        LOGGER.error("ClockSweeper[{}] error during sweep", shardIndex, t);
       }
     }
 
