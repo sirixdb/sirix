@@ -3603,6 +3603,8 @@ final class JsonNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean renameStarted = false;
     try {
       final NodeKind currentKind = getKind();
       if (!currentKind.playsObjectKeyRole()) {
@@ -3612,7 +3614,21 @@ final class JsonNodeTrxImpl extends
 
       final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
       final NameNode nameNode = (NameNode) node;
+      final QNm renamed = new QNm(key);
+      if (renamed.equals(nodeReadOnlyTrx.getName())) {
+        // No-op rename: nothing changes, so no listener may observe a structural episode —
+        // notifying here would (correctly) reject the call during an append-only bulk load.
+        return this;
+      }
       final long oldHash = node.computeHash(bytes);
+
+      // A rename rewrites this node's path class and, for container kinds, its descendants' —
+      // wholesale class surgery the per-node DELETE/INSERT bracketing below cannot re-attribute
+      // (a renamed record-set root exits the set with no per-row notification at all). Bracket
+      // it like a subtree move: listeners snapshot record attribution before, diff after, and
+      // an append-only bulk-load build rejects the surgery up front.
+      pendingStructuralChange = nameNode.getNodeKey();
+      indexController.notifyBeforeStructuralChange(pendingStructuralChange);
 
       // De-index under the OLD name/path BEFORE the rename: a rename changes the node's name (and,
       // for non-shared path classes, its pathNodeKey), so NAME/CAS index entries keyed by the old
@@ -3620,6 +3636,9 @@ final class JsonNodeTrxImpl extends
       // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
       // DELETE/INSERT bracketing of setStringValueFused.
       final long oldPathNodeKey = nameNode.getPathNodeKey();
+      // The rollback-only latch arms at the first statement a failed rename would need to
+      // unwind — the DELETE de-index. Everything above leaves no half-applied state.
+      renameStarted = true;
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
 
       // Fused NamePage entries live in the OBJECT_KEY namespace, so remove+create always uses OBJECT_KEY.
@@ -3630,7 +3649,6 @@ final class JsonNodeTrxImpl extends
 
       final int newNameKey = storageEngineWriter.createNameKey(key, nameNamespaceKind);
 
-      final QNm renamed = new QNm(key);
       nameNode.setLocalNameKey(newNameKey);
       nameNode.setName(renamed);
       nameNode.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
@@ -3676,6 +3694,8 @@ final class JsonNodeTrxImpl extends
       // Re-index under the NEW name/path (see the DELETE above).
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node,
           nameNode.getPathNodeKey());
+      indexController.notifyAfterStructuralChange(pendingStructuralChange);
+      pendingStructuralChange = -1L;
 
       final long updatedNodeKey = ((Node) node).getNodeKey();
       adaptUpdateOperationsForUpdate(((ImmutableJsonNode) node).getDeweyID(),
@@ -3686,6 +3706,14 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
+    } catch (final RuntimeException | Error failure) {
+      if (renameStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();
