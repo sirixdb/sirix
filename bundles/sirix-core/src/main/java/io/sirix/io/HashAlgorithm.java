@@ -3,7 +3,6 @@ package io.sirix.io;
 import net.openhft.hashing.LongHashFunction;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 
 /**
  * Hash algorithms for page checksum verification.
@@ -47,43 +46,28 @@ public enum HashAlgorithm {
 
     @Override
     public long computeHashLong(byte[] data) {
-      return HASHER.hashBytes(data);
+      // The custom accesses feed the SAME xx3 function without sun.misc.Unsafe — since JDK 25 the
+      // library's default access pays Unsafe.beforeMemoryAccess() per read, measured at up to ~10%
+      // of a bulk load's CPU. Hash values are bit-identical (see HashAccesses); persisted checksums
+      // stay valid.
+      return HASHER.hash(data, HashAccesses.BYTES, 0, data.length);
     }
 
     @Override
     public long computeHashLong(byte[] data, int offset, int length) {
-      return HASHER.hashBytes(data, offset, length);
+      return HASHER.hash(data, HashAccesses.BYTES, offset, length);
     }
 
     @Override
     public long computeHashLong(MemorySegment segment) {
-      if (segment.isNative()) {
-        // Zero-copy: hash directly from native memory address
-        return HASHER.hashMemory(segment.address(), segment.byteSize());
-      }
-
-      // MemorySegment.address() is the byte offset into heapBase() for heap segments, including
-      // slices and MemorySegment.ofBuffer(heapByteBuffer). Page serialization uses byte[]-backed
-      // segments, so hash that exact range directly instead of allocating and copying the entire
-      // compressed page through MemorySegment.toArray(). Retain the generic fallback for segments
-      // backed by another primitive array type.
-      final Object heapBase = segment.heapBase().orElse(null);
-      if (heapBase instanceof byte[] bytes) {
-        final long offset = segment.address();
-        final long length = segment.byteSize();
-        if (offset >= 0 && length <= bytes.length && offset <= bytes.length - length) {
-          return HASHER.hashBytes(bytes, (int) offset, (int) length);
-        }
-        throw new IllegalArgumentException("Heap MemorySegment range exceeds its byte-array backing: offset=" + offset
-            + ", length=" + length + ", capacity=" + bytes.length);
-      }
-
-      return HASHER.hashBytes(segment.toArray(ValueLayout.JAVA_BYTE));
+      // One access serves native and heap segments alike, zero-copy either way — the previous
+      // address()/heapBase() split existed only because the Unsafe access needed raw coordinates.
+      return HASHER.hash(segment, HashAccesses.SEGMENT, 0, segment.byteSize());
     }
 
     @Override
     public boolean verifyLong(byte[] data, long expectedHash) {
-      return HASHER.hashBytes(data) == expectedHash;
+      return computeHashLong(data) == expectedHash;
     }
 
     @Override

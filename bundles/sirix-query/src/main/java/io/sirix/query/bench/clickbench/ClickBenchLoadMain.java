@@ -11,6 +11,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.cache.Allocators;
+import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
@@ -259,8 +260,14 @@ public final class ClickBenchLoadMain {
     if (!projection) {
       System.out.println("# projection: DISABLED (-Dclickbench.projection=false) — nothing will be served");
     } else if (incrementalProjection) {
-      System.out.printf("# projection: columns=%d built DURING the shred (one pass)%n",
-          ClickBenchProjection.PROJECTED_COLUMNS.size());
+      // dictProbes is the intern-table retention witness: a one-pass load keeps its dictionary
+      // tables in memory until finalize, so interning can never reach the persistent radix and this
+      // must print 0. A non-zero figure means the per-value durable-read regime is back — the shape
+      // measured at ~85% of load CPU before the retention fix.
+      System.out.printf(
+          "# projection: columns=%d globalDictColumns=%d dictProbes=%d built DURING the shred (one pass)%n",
+          ClickBenchProjection.PROJECTED_COLUMNS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
+          ProjectionIndexBuilder.persistentDictionaryProbesReported());
     } else {
       final double projectionSeconds = ClickBenchProjection.create(dbDir);
       System.out.printf("# projection: columns=%d built in %.3f s by a second pass%n",
