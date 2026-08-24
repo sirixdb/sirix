@@ -486,6 +486,15 @@ public final class ProjectionBulkLoad {
           diagExtractFailures++;
         }
       }
+      // The per-epoch generation flush is deliberate and must stay: each generation is bounded by
+      // the radix append's MAX_DISTINCT_ENTRIES_PER_APPEND ceiling, and rotating bounded writers is
+      // the ONLY way a column's dictionary exceeds that ceiling. (Skipping this call and keeping
+      // one whole-load writer was tried: the writer's own per-append ceiling aborted every
+      // high-cardinality load mid-way.) What must NOT return is the old probe regime — a released
+      // generation's values re-resolved through the persistent radix per occurrence, ~85% of load
+      // CPU — which the StreamingGlobalDictionary's resident probe front now prevents: it keeps
+      // every (value, id) of the whole load resident, so this flush releases only the WRITER, never
+      // the ability to probe. dictProbes=0 in the load banner is the witness.
       builder.flushStreamingDictionaryGeneration(storageEngineWriter);
     } catch (final Throwable failure) {
       primaryFailure = failure;

@@ -40,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongFunction;
 
@@ -240,6 +241,22 @@ public final class ProjectionIndexBuilder {
   /** How many global columns the latest successful build to report its diagnostic produced. */
   public static int globalDictionaryColumnsBuilt() {
     return GLOBAL_DICTIONARY_COLUMNS.get();
+  }
+
+  /**
+   * Persistent-radix probes the latest reported build's dictionaries issued, same atomic-handoff
+   * semantics as {@link #globalDictionaryColumnsBuilt()}. Load-bearing witness for the intern-table
+   * retention contract: a bulk load that keeps its tables resident until {@code finish()} creates no
+   * generation mid-load, so its interns can never reach the persistent-probe branch and this must
+   * report {@code 0}. A non-zero value on a fresh bulk load means the uncached per-value radix-walk
+   * regime is back. (Loads into a resource that already carries a durable generation legitimately
+   * probe it; those report their real count.)
+   */
+  private static final AtomicLong PERSISTENT_DICTIONARY_PROBES = new AtomicLong();
+
+  /** Persistent-dictionary probes reported by the latest build's diagnostic handoff. */
+  public static long persistentDictionaryProbesReported() {
+    return PERSISTENT_DICTIONARY_PROBES.get();
   }
 
   /**
@@ -1106,10 +1123,24 @@ public final class ProjectionIndexBuilder {
 
   void publishGlobalDictionaryColumnsBuilt() {
     publishGlobalDictionaryColumnsBuilt(globalDictionaryColumns);
+    // Summed at publish time rather than accumulated at flush time so the figure is idempotent and
+    // the post-pass path (raw writers, no persistent probes by construction) reports 0 without a
+    // parallel bookkeeping field. Runs before releaseTransientState(), so the encoders are live.
+    long probes = 0;
+    final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
+    if (encoders != null) {
+      for (final GlobalValueDictionaryEncoder encoder : encoders) {
+        if (encoder instanceof final StreamingGlobalDictionary dictionary) {
+          probes += dictionary.persistentProbeCount();
+        }
+      }
+    }
+    PERSISTENT_DICTIONARY_PROBES.set(probes);
   }
 
   private static void publishGlobalDictionaryColumnsBuilt(final int columns) {
     GLOBAL_DICTIONARY_COLUMNS.set(columns);
+    PERSISTENT_DICTIONARY_PROBES.set(0);
   }
 
   /** @return total rows appended across all emitted leaves. */
@@ -1349,7 +1380,26 @@ public final class ProjectionIndexBuilder {
     private final int column;
     private final long budgetBytes;
     private final GlobalValueDictionaryWriter.AdmissionPolicy admissionPolicy;
-    private final GlobalValueDictionaryHotCache hotValues = new GlobalValueDictionaryHotCache();
+    /**
+     * Resident value→id map covering EVERY generation of this load, not just the current epoch's
+     * additions. Replaces the 64-slot hot cache AND the per-value persistent-radix probe that used to
+     * serve values from released generations — the regime measured at ~85% of load CPU. See
+     * {@link GlobalValueDictionaryProbeFront}.
+     */
+    private final GlobalValueDictionaryProbeFront residentFront;
+    /**
+     * Front-completeness invariant: {@code true} while every value in every durable generation
+     * reachable from {@link #headerKey} is present in {@link #residentFront}. Holds by construction
+     * today — (i) with {@code headerKey == 0} there are no durable generations; (ii) the constructor
+     * seeds the election writer's entries; (iii) every mint and every probe-resolved id is put into the
+     * front before it is returned; (iv) {@code flush()} moves additions to durable without changing the
+     * value set; and {@code headerKey} only ever becomes non-zero through our OWN flush. While it
+     * holds, a front miss PROVES a value is new, so minting without consulting the persistent radix
+     * cannot double-assign an id. Any future path that adopts a durable header this front did not
+     * witness (resume-into-existing-dictionary) must clear this flag, which re-arms the guarded probe
+     * below.
+     */
+    private boolean frontCoversDurableGenerations = true;
     private long headerKey;
     private int baseEntryCount;
     private @Nullable ValueDictionaryHeaderNode baseHeader;
@@ -1362,6 +1412,18 @@ public final class ProjectionIndexBuilder {
       this.budgetBytes = initialGeneration.budgetBytes();
       this.admissionPolicy = initialGeneration.admissionPolicy();
       this.additions = initialGeneration;
+      this.residentFront = new GlobalValueDictionaryProbeFront(column, this.budgetBytes);
+      // The initial generation already holds entries (election seeded the sample's distincts before
+      // this wrapper existed). The front must know them: the wrap happens AT the first flush, so a
+      // seeded value's first post-wrap occurrence would otherwise miss the front and walk the
+      // persistent radix — one probe per seeded distinct, exactly the cost class this front removes.
+      // Ids in the initial generation are the global ids (base 0).
+      final int seededEntries = initialGeneration.entryCount();
+      for (int id = 1; id <= seededEntries; id++) {
+        final byte[] valueBytes = initialGeneration.valueBytes(id);
+        residentFront.put(initialGeneration.hashAt(id), initialGeneration.secondaryHashAt(id), valueBytes, 0,
+            valueBytes.length, id);
+      }
     }
 
     void bind(final StorageEngineWriter writer) {
@@ -1406,22 +1468,25 @@ public final class ProjectionIndexBuilder {
       if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
         throw refuseOversizedValue(length);
       }
-      GlobalValueDictionaryWriter generation = additions;
-      if (generation != null) {
-        final int localId = generation.findId(source, offset, length);
-        if (localId > 0) {
-          return Math.addExact(baseEntryCount, localId);
-        }
+      // The resident front answers for every value this load has seen — whichever generation it
+      // went into — in one open-addressing probe. The hashes are computed once and shared with the
+      // put below.
+      final long hash = GlobalValueDictionary.valueHash(source, offset, length);
+      final long secondaryHash = GlobalValueDictionary.secondaryValueHash(source, offset, length);
+      final int knownId = residentFront.findId(hash, secondaryHash, source, offset, length);
+      if (knownId > 0) {
+        return knownId;
       }
-      final int hotId = hotValues.find(source, offset, length);
-      if (hotId > 0) {
-        return hotId;
-      }
-      if (headerKey != 0) {
+      if (headerKey != 0 && !frontCoversDurableGenerations) {
+        // Reachable only for a value in a durable generation this front never saw minted — i.e. a
+        // generation that predates the front. A fresh bulk load can never get here (see the
+        // front-completeness invariant on the flag), which is what dictProbes=0 in the load banner
+        // witnesses; a non-zero count on a fresh load means the ~5-page-decode-per-value probe
+        // regime is back.
         persistentProbeCount++;
         final int existing = GlobalValueDictionary.probe(headerKey, source, offset, length, writer);
         if (existing > 0) {
-          hotValues.put(source, offset, length, existing);
+          residentFront.put(hash, secondaryHash, source, offset, length, existing);
           return existing;
         }
         if (existing == GlobalValueDictionary.ID_UNKNOWN) {
@@ -1429,6 +1494,7 @@ public final class ProjectionIndexBuilder {
               "global dictionary column " + column + " cannot probe generation header " + headerKey);
         }
       }
+      GlobalValueDictionaryWriter generation = additions;
       if (generation == null) {
         generation = new GlobalValueDictionaryWriter(column, budgetBytes, admissionPolicy);
         additions = generation;
@@ -1438,6 +1504,7 @@ public final class ProjectionIndexBuilder {
       if (globalId > Integer.MAX_VALUE) {
         throw new IllegalStateException("global dictionary column " + column + " exhausted dictionary ids");
       }
+      residentFront.put(hash, secondaryHash, source, offset, length, (int) globalId);
       return (int) globalId;
     }
 
@@ -1506,6 +1573,7 @@ public final class ProjectionIndexBuilder {
         additions.release();
         additions = null;
       }
+      residentFront.release();
       baseHeader = null;
       storageEngineWriter = null;
     }
