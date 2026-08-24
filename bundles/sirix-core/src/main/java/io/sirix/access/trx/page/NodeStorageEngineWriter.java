@@ -3533,18 +3533,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       currentNamePage = null;
       storageEngineReader.closeCurrentPageGuard();
 
-      // Clear TransactionIntentLog - closes all modified pages
-      log.clear();
-
-      // Clear local cache (pages are already handled by log.clear())
-      pageContainerCache.clear();
-      documentRecordLocationCache.clear();
-
-      // Reset cache references since pages have been returned to pool
-      mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
-      secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
-      mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
-      clearMostRecentByIndexTypeSlots();
+      // Clear TransactionIntentLog - closes all modified pages. clear() drains the WHOLE log
+      // before rethrowing a retained page-close failure, so by the time it throws the memoized
+      // container slots below already reference closed, pooled pages — they must be reset on
+      // both exits (rollback and close guard their clears the same way), or a transaction that
+      // survives the rethrow keeps serving recycled frames out of its memo.
+      try {
+        log.clear();
+      } finally {
+        clearLocalContainerCaches();
+      }
 
       final long t5 = timing
           ? System.nanoTime()
