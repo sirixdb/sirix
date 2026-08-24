@@ -152,6 +152,7 @@ public final class ProjectionIndexFences {
     checkRowGroupCount(rowGroupCount);
     final OrderHeader header = readOrderHeader(reader.read(ORDER_HEADER_SLOT), rowGroupCount);
     final int physicalCount = header.physicalRowGroupCount();
+    int retiredBaseCount = 0;
     final int[] docNext = new int[physicalCount + 1];
     final int[] docPrev = new int[physicalCount + 1];
     final int[] freeNext = new int[physicalCount + 1];
@@ -168,6 +169,13 @@ public final class ProjectionIndexFences {
         docNext[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + DOC_NEXT_OFFSET);
         docPrev[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + DOC_PREV_OFFSET);
         freeNext[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + FREE_NEXT_OFFSET);
+        // A recycled base leaf is a permanently RETIRED number: it sits in neither the document
+        // chain nor the free list (base numbers are never reused), and its zeroed self-owner is
+        // the persisted tombstone. Count it as its own coverage category below.
+        if (slot <= header.baseRowGroupCount()
+            && ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + OWNER_BASE_OFFSET) == 0) {
+          retiredBaseCount++;
+        }
       }
     }
     final boolean[] free = new boolean[physicalCount + 1];
@@ -196,9 +204,10 @@ public final class ProjectionIndexFences {
       previous = slot;
       slot = docNext[slot];
     }
-    if (previous != header.documentTail() || count != rowGroupCount || count + freeCount != physicalCount) {
-      throw new IllegalStateException("projection document order reaches " + count + " live and " + freeCount
-          + " free of " + physicalCount + " physical leaves");
+    if (previous != header.documentTail() || count != rowGroupCount
+        || count + freeCount + retiredBaseCount != physicalCount) {
+      throw new IllegalStateException("projection document order reaches " + count + " live, " + freeCount
+          + " free and " + retiredBaseCount + " retired of " + physicalCount + " physical leaves");
     }
     return order;
   }
@@ -230,7 +239,9 @@ public final class ProjectionIndexFences {
     final int documentHead = ProjectionIndexRowGroupCodec.getIntLE(bytes, 24);
     final int documentTail = ProjectionIndexRowGroupCodec.getIntLE(bytes, 28);
     if ((rowGroupCount == 0 && (baseCount != 0 || physicalCount != 0 || documentHead != 0 || documentTail != 0))
-        || (rowGroupCount > 0 && (baseCount < 1 || baseCount > rowGroupCount || physicalCount < rowGroupCount
+        // baseCount is bounded by the PHYSICAL count, not the live one: recycled base leaves are
+        // retired numbers that stay physical while no longer live.
+        || (rowGroupCount > 0 && (baseCount < 1 || baseCount > physicalCount || physicalCount < rowGroupCount
             || documentHead < 1 || documentHead > physicalCount || documentTail < 1
             || documentTail > physicalCount))
         || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS || freeHead < 0 || freeHead > physicalCount) {
@@ -474,22 +485,39 @@ public final class ProjectionIndexFences {
       if (slot < 1 || slot > currentPhysicalRowGroupCount) {
         return false;
       }
-      if (allocatedSlots.contains(slot) || slot <= baseRowGroupCount) {
+      if (allocatedSlots.contains(slot)) {
         return true;
+      }
+      if (slot <= baseRowGroupCount) {
+        // A live base leaf owns itself (the build writes every base slot's owner as its own
+        // number); recycling clears the entry, so a zero owner is the persisted tombstone.
+        return ownerBase(slot) != 0;
       }
       return !freeSlots().contains(slot);
     }
 
     public boolean canRecycle(final int slot) {
-      return slot > baseRowGroupCount && slot <= currentPhysicalRowGroupCount;
+      if (slot < 1 || slot > currentPhysicalRowGroupCount) {
+        return false;
+      }
+      if (slot > baseRowGroupCount) {
+        return true;
+      }
+      // A base leaf is recyclable only while its numeric split chain is empty: the base ENTRY is
+      // that chain's skip-list anchor, and clearing it would strand every split reached through
+      // it. A base whose own rows died while its splits live keeps an empty row group instead.
+      return checkedNumericSuccessor(slot, 0, slot) == 0;
     }
 
     public void recycle(final int slot) {
       if (!canRecycle(slot) || !isLivePhysicalSlot(slot)) {
-        throw new IllegalArgumentException("projection row group is not a live recyclable split leaf: " + slot);
+        throw new IllegalArgumentException("projection row group is not a live recyclable leaf: " + slot);
       }
       validateDocumentLinks(slot);
-      if (hasNormal(slot)) {
+      final boolean baseLeaf = slot <= baseRowGroupCount;
+      if (!baseLeaf && hasNormal(slot)) {
+        // Splits are numeric-chain MEMBERS; a base leaf is its chain's anchor and is only
+        // recyclable with an empty chain (see canRecycle), so there is nothing to unlink.
         unlinkNumeric(slot);
       }
       final int prev = previous(slot);
@@ -505,14 +533,35 @@ public final class ProjectionIndexFences {
         setInt(next, DOC_PREV_OFFSET, prev);
       }
       clearEntry(slot);
-      setInt(slot, FREE_NEXT_OFFSET, freeHead);
-      freeHead = slot;
-      if (freeSlots != null) {
-        freeSlots.add(slot);
+      // A base number is permanently RETIRED, never pushed to the free list: split routing keys
+      // role off the slot number (set()'s linkedSplit predicate, owner ids), so handing a base
+      // number to fresh appended content would resurrect base semantics for it. clearEntry
+      // zeroed the self-owner — the persisted tombstone isLivePhysicalSlot reads.
+      if (!baseLeaf) {
+        setInt(slot, FREE_NEXT_OFFSET, freeHead);
+        freeHead = slot;
+        if (freeSlots != null) {
+          freeSlots.add(slot);
+        }
       }
       reusedSlots.remove(slot);
       allocatedSlots.remove(slot);
       liveRowGroupCount--;
+      if (liveRowGroupCount == 0) {
+        // The last live leaf died: collapse to the canonical EMPTY layout — the only zero-live
+        // shape the order header admits, and the state bootstrapFirstBase() rebuilds from when
+        // the next record arrives. Every descriptor is already unlinked and tombstoned; retiring
+        // the physical numbers wholesale lets allocation restart from slot 1, and flush()'s
+        // shrink branches tombstone every stale fence chunk.
+        baseRowGroupCount = 0;
+        currentPhysicalRowGroupCount = 0;
+        freeHead = 0;
+        if (freeSlots != null) {
+          freeSlots.clear();
+        }
+        reusedSlots.clear();
+        allocatedSlots.clear();
+      }
     }
 
     public int liveRowGroupCount() {
@@ -521,6 +570,11 @@ public final class ProjectionIndexFences {
 
     public int physicalRowGroupCount() {
       return currentPhysicalRowGroupCount;
+    }
+
+    /** The physical count as loaded — the range bound for slots recycled during this session. */
+    public int priorPhysicalRowGroupCount() {
+      return priorPhysicalRowGroupCount;
     }
 
     /** Set a physical leaf's normal-backbone fence; rows themselves remain in document order. */

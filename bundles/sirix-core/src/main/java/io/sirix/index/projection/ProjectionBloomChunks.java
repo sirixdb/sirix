@@ -602,15 +602,16 @@ public final class ProjectionBloomChunks {
   static RewriteStats rewriteTouchedChunks(final ProjectionIndexHOTStorage storage, final byte[] columnKinds,
       final int rowGroupCount, final Long2ObjectMap<long[]> changedColumnsByLeaf,
       final boolean rowGroupCountChanged) {
-    return rewriteTouchedChunks(storage, columnKinds, rowGroupCount, rowGroupCount,
+    return rewriteTouchedChunks(storage, columnKinds, rowGroupCount, rowGroupCount, rowGroupCount,
         changedColumnsByLeaf, rowGroupCountChanged);
   }
 
   static RewriteStats rewriteTouchedChunks(final ProjectionIndexHOTStorage storage, final byte[] columnKinds,
-      final int rowGroupCount, final int physicalRowGroupCount,
+      final int rowGroupCount, final int physicalRowGroupCount, final int priorPhysicalRowGroupCount,
       final Long2ObjectMap<long[]> changedColumnsByLeaf, final boolean rowGroupCountChanged) {
     checkRowGroupCount(rowGroupCount);
     checkRowGroupCount(physicalRowGroupCount);
+    checkRowGroupCount(priorPhysicalRowGroupCount);
     if (physicalRowGroupCount < rowGroupCount) {
       throw new IllegalArgumentException("physical row-group count " + physicalRowGroupCount
           + " is smaller than live count " + rowGroupCount);
@@ -629,10 +630,14 @@ public final class ProjectionBloomChunks {
         break;
       }
     }
+    // Recycled leaves may sit beyond a SHRUNKEN physical count (a base-leaf recycle can collapse
+    // the whole layout): they remain valid change witnesses as long as they were physical when
+    // they were touched, so the range check runs against the wider of the two counts.
+    final int maxKnownPhysical = Math.max(physicalRowGroupCount, priorPhysicalRowGroupCount);
     if (!hasBloomColumn) {
       for (final LongIterator iterator = changedColumnsByLeaf.keySet().iterator(); iterator.hasNext();) {
         final long slot = iterator.nextLong();
-        if (slot < 1 || slot > physicalRowGroupCount) {
+        if (slot < 1 || slot > maxKnownPhysical) {
           throw new IllegalArgumentException("changed leaf slot out of range: " + slot);
         }
       }
@@ -641,7 +646,7 @@ public final class ProjectionBloomChunks {
     final IntOpenHashSet chunkIds = new IntOpenHashSet();
     for (final LongIterator iterator = changedColumnsByLeaf.keySet().iterator(); iterator.hasNext();) {
       final long slot = iterator.nextLong();
-      if (slot < 1 || slot > physicalRowGroupCount) {
+      if (slot < 1 || slot > maxKnownPhysical) {
         throw new IllegalArgumentException("changed leaf slot out of range: " + slot);
       }
       chunkIds.add((int) ((slot - 1L) / CHUNK_LEAVES));
@@ -653,6 +658,17 @@ public final class ProjectionBloomChunks {
     for (final int chunkId : chunkIds) {
       final int firstLeaf = chunkId * CHUNK_LEAVES + 1;
       final int leafCount = Math.min(CHUNK_LEAVES, physicalRowGroupCount - firstLeaf + 1);
+      if (leafCount <= 0) {
+        // Every leaf of this chunk was retired by a shrink: its Bloom blocks describe row groups
+        // that no longer exist, so tombstone them instead of re-encoding.
+        for (int c = 0; c < columnKinds.length; c++) {
+          if (isStringKind(columnKinds[c])) {
+            storage.tombstoneRowGroup(chunkSlotKey(c, chunkId));
+            chunksWritten++;
+          }
+        }
+        continue;
+      }
       for (int c = 0; c < columnKinds.length; c++) {
         if (!isStringKind(columnKinds[c])
             || (!rowGroupCountChanged

@@ -690,4 +690,97 @@ final class ProjectionIndexFencesTest {
       }
     }
   }
+
+  @Test
+  void baseLeafRecycleRetiresTheNumberAndSurvivesReopen() {
+    final int n = 4;
+    final long[][] rng = ranges(n, 5);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        ProjectionIndexFences.write(storage, n, rng[0], rng[1], 0);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, n);
+        assertTrue(fences.canRecycle(2), "a base leaf with no split chain must be recyclable");
+        fences.recycle(2);
+        assertFalse(fences.isLivePhysicalSlot(2), "the recycled base leaf must read as dead");
+        assertEquals(n - 1, fences.liveRowGroupCount());
+        fences.flush(n - 1);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        // The reopen walk must account the retired base number as its own coverage category
+        // (live + free + retired == physical) and keep the tombstone.
+        final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, n - 1);
+        assertFalse(fences.isLivePhysicalSlot(2), "the tombstone must survive a cold reopen");
+        assertEquals(n - 1, fences.liveRowGroupCount());
+        // The retired number is never handed out again — a fresh slot extends the physical range.
+        assertEquals(n + 1, fences.allocateSlot());
+      }
+    }
+  }
+
+  @Test
+  void baseLeafAnchoringLiveSplitsRefusesRecycling() {
+    final int n = 2;
+    final long[][] rng = ranges(n, 5);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        ProjectionIndexFences.write(storage, n, rng[0], rng[1], 0);
+        final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, n);
+        final int split = fences.allocateSlot();
+        fences.linkAfter(1, split);
+        // A normal range just above base 1's numerically links the split under base 1.
+        fences.set(split, rng[1][0] + 1, rng[1][0] + 2);
+        assertFalse(fences.canRecycle(1), "the split chain's anchor must refuse recycling");
+        assertTrue(fences.canRecycle(2), "a chain-less base leaf stays recyclable");
+        assertTrue(fences.canRecycle(split), "the split itself stays recyclable");
+      }
+    }
+  }
+
+  @Test
+  void recyclingTheLastLiveLeafCollapsesToTheCanonicalEmptyLayout() {
+    final long[][] rng = ranges(1, 5);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        ProjectionIndexFences.write(storage, 1, rng[0], rng[1], 0);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 1);
+        fences.recycle(1);
+        assertEquals(0, fences.liveRowGroupCount());
+        assertEquals(0, fences.physicalRowGroupCount(),
+            "the collapse must retire every physical number — the only zero-live shape the header admits");
+        fences.flush(0);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 0);
+        assertEquals(0, fences.liveRowGroupCount());
+        assertEquals(1, fences.bootstrapFirstBase(), "the next record set re-bootstraps from slot 1");
+      }
+    }
+  }
 }

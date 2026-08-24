@@ -1772,7 +1772,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           valueDictionaryHeaderKeys);
       fences.flush(newRowGroupCount);
       final ProjectionBloomChunks.RewriteStats bloomStats = ProjectionBloomChunks.rewriteTouchedChunks(storage,
-          persistedKinds, newRowGroupCount, fences.physicalRowGroupCount(), changedColumnsByLeaf,
+          persistedKinds, newRowGroupCount, fences.physicalRowGroupCount(),
+          fences.priorPhysicalRowGroupCount(), changedColumnsByLeaf,
           newRowGroupCount != priorRowGroupCount);
       // Slot 0 is the authoritative visibility marker. Publish it only after every row group,
       // locator, dictionary, summary, fence and Bloom unit it describes has been written. A failure
