@@ -16,6 +16,7 @@ import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.Null;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.PathParser;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
@@ -5298,6 +5299,49 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Result is cached per (sourcePath, field) — hot queries pay the walk once, subsequent resolutions
    * are a {@link ConcurrentHashMap} probe.
    */
+  /** Per-source-path verdicts of {@link #sourcePathProvenAbsent} — stable for this revision. */
+  private final ConcurrentHashMap<String, Boolean> sourcePathAbsentCache = new ConcurrentHashMap<>();
+
+  /**
+   * Whether the PATH SUMMARY structurally PROVES the record-set source path resolves to no path
+   * class at all — {@code $doc.a[]} after {@code delete json $doc.a}, or a field that never
+   * existed. Every kernel treats an unresolved target path ({@code -1}) as "scan unscoped, match
+   * by name", which is correct when scoping is merely unprovable but fabricates OTHER record
+   * sets' rows when the source itself is proven absent: the FLWOR iterates nothing, so only the
+   * empty answers are correct. Unprovable states (no path summary, unparsable path) return
+   * {@code false} — never a guess.
+   */
+  private boolean sourcePathProvenAbsent(final String[] sourcePath) {
+    if (sourcePath == null || sourcePath.length == 0 || !session.getResourceConfig().withPathSummary) {
+      return false;
+    }
+    boolean hasNamedStep = false;
+    final StringBuilder pathBuilder = new StringBuilder();
+    for (final String step : sourcePath) {
+      pathBuilder.append('/').append(step);
+      hasNamedStep |= !"[]".equals(step);
+    }
+    if (!hasNamedStep) {
+      return false; // the top-level array itself — presence is not a path-class question
+    }
+    final String key = pathBuilder.toString();
+    final Boolean cached = sourcePathAbsentCache.get(key);
+    if (cached != null) {
+      return cached.booleanValue();
+    }
+    boolean absent = false;
+    try (PathSummaryReader summary = session.openPathSummary(revision)) {
+      // Qualified inline: java.nio.file.Path is already imported for resource paths.
+      final io.brackit.query.util.path.Path<QNm> parsed =
+          io.brackit.query.util.path.Path.parse(key, PathParser.Type.JSON);
+      absent = summary.getPCRsForPaths(Set.of(parsed)).isEmpty();
+    } catch (final Exception unprovable) {
+      absent = false;
+    }
+    sourcePathAbsentCache.putIfAbsent(key, Boolean.valueOf(absent));
+    return absent;
+  }
+
   private long resolveTargetPathNodeKey(final String[] sourcePath, final String field) {
     if (field == null)
       return -1L;
@@ -10470,6 +10514,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   @Override
   public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
+    if (sourcePathProvenAbsent(sourcePath)) {
+      // A proven-absent record set has zero rows and therefore zero distinct values — see
+      // executeAggregate; the unscoped fallback would count another record set's values.
+      return new Int64(0L);
+    }
     try {
       if (wtx != null) {
         // Wtx mode: projection-only, no result caches — see executeGroupByCount.
@@ -11232,6 +11281,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
       throws QueryException {
+    if (sourcePathProvenAbsent(sourcePath)) {
+      // The record set is PROVEN absent, so the FLWOR iterates nothing: fn:count/fn:sum over the
+      // empty sequence are 0; avg/min/max are the empty sequence. Every kernel below would treat
+      // the unresolved path as "match by name across the whole resource" and fabricate other
+      // record sets' values.
+      return "count".equals(func) || "sum".equals(func) ? new Int64(0L) : null;
+    }
     try {
       if (wtx != null) {
         // Wtx mode: projection-only (path-summary stats and the generic
