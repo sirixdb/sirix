@@ -263,9 +263,13 @@ class ShardedPageCacheTest {
       key.setPage(page);
 
       cache.evictUnderPressure(); // consume HOT second chance
-      final AssertionError failure = assertThrows(AssertionError.class, cache::evictUnderPressure);
-
-      assertEquals("expected release failure", failure.getMessage());
+      // Budget evictions run on behalf of operations on UNRELATED pages that already succeeded:
+      // the retirement failure stays LOUD (monotonic counter + ERROR log) without failing that
+      // caller. Owner paths (clear/remove/put) keep their throw — see the clear test below.
+      final long failuresBefore = ShardedPageCache.evictionRetirementFailureCount();
+      cache.evictUnderPressure();
+      assertTrue(ShardedPageCache.evictionRetirementFailureCount() >= failuresBefore + 1,
+          "the retirement failure must surface through the eviction-failure counter, not vanish");
       assertTrue(page.isClosed());
       assertEquals(0L, cache.size());
       assertEquals(0L, cache.getCurrentWeightBytes());
