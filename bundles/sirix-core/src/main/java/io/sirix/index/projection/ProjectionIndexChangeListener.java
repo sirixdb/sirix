@@ -591,11 +591,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // NOTE: an EMPTY root-PCR set is fine here — the record set simply has
     // no instances (yet). A change creating one arrives with a new matching
     // path class, which classifyUnseenPcr reseeds as a root.
-    if (pathNodeKey > 0) {
-      if (irrelevantPcrs.contains(pathNodeKey)) {
-        return;
-      }
-      if (!relevantPcrs.contains(pathNodeKey) && !classifyUnseenPcr(pathNodeKey)) {
+    if (pathNodeKey > 0 && !relevantPcrs.contains(pathNodeKey)) {
+      // Positive knowledge wins: a class can enter the negative cache first and be PROVEN
+      // relevant later (an ancestor registered when a younger column class appears), so
+      // relevance is consulted before irrelevance.
+      if (irrelevantPcrs.contains(pathNodeKey) || !classifyUnseenPcr(pathNodeKey)) {
         return;
       }
     }
@@ -708,13 +708,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return false;
     }
     // Unseen path class — it may be the record set's, appearing for the first time (on an empty
-    // resource EVERY class is unseen, the root's included). matchesRootPath reseeds rootPcrs.
-    if (matchesRootPath(pathNodeKey)) {
-      rootPcrs.add(pathNodeKey);
-      relevantPcrs.add(pathNodeKey);
-      return true;
+    // resource EVERY class is unseen, the root's included). Classification must prove the FULL
+    // claim before caching: a class that roots no record may still carry a projection column
+    // (a field path first materializing mid-load), and caching it as irrelevant here would make
+    // the post-load maintenance path drop that field's changes for the rest of the transaction.
+    // classifyUnseenPcr registers matching columns, reseeds rootPcrs on a root match, and only
+    // caches irrelevance for classes that match neither.
+    if (classifyUnseenPcr(pathNodeKey)) {
+      return rootPcrs.contains(pathNodeKey);
     }
-    irrelevantPcrs.add(pathNodeKey);
     return false;
   }
 
@@ -837,6 +839,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     long current = pathNodeKey;
     while (current > 0) {
       relevantPcrs.add(current);
+      // A class classified before this column's path existed may sit in the negative cache
+      // (e.g. /a seen before /a/b when /a/b is a projection field); relevance discovered later
+      // must beat that verdict, or onChange keeps dropping the ancestor's notifications.
+      irrelevantPcrs.remove(current);
       long[] words = columnWordsByPcr.get(current);
       if (words == null) {
         words = new long[allColumnWords.length];
@@ -1590,9 +1596,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           != ProjectionPersistedRecordLookup.orderException(location)) {
         return false;
       }
-      edit.recordKeys.removeLong(row);
-      edit.orderExceptions.removeBoolean(row);
-      edit.keysChanged = true;
+      edit.removeKeyAt(row);
       membershipSlots.add(slot);
       if (ProjectionPersistedRecordLookup.orderException(location) && !insertions.contains(recordKey)) {
         locator.remove(recordKey);
@@ -1658,7 +1662,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       int offset = insertionOffset;
       for (int chainIndex = 0; chainIndex < chain.size(); chainIndex++) {
         final long key = chain.getLong(chainIndex);
-        if (target.indexOf(key) >= 0) {
+        if (target.containsKey(key)) {
           return false;
         }
         boolean orderException = true;
@@ -1667,9 +1671,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           fences.extendLastBaseUpper(key);
           orderException = false;
         }
-        target.recordKeys.add(offset, key);
-        target.orderExceptions.add(offset, orderException);
-        target.keysChanged = true;
+        target.insertKeyAt(offset, key, orderException);
         offset++;
       }
       membershipSlots.add(targetSlot);
@@ -1944,6 +1946,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     private final BooleanArrayList orderExceptions;
     private boolean keysChanged;
     private boolean readCounted;
+    /**
+     * Lazily built membership index over {@link #recordKeys}, kept in sync by
+     * {@link #insertKeyAt}/{@link #removeKeyAt}. Without it, N records appended at the document
+     * tail form ONE insertion chain into ONE edit and the per-element presence probe rescans the
+     * growing list — N(N−1)/2 comparisons inside beforeCommit().
+     */
+    private @Nullable LongOpenHashSet keySet;
 
     private LeafEdit(final int slot, final boolean priorExists,
         final @Nullable ProjectionIndexRowGroupPage oldPage, final LongArrayList recordKeys,
@@ -1955,13 +1964,50 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       this.orderExceptions = orderExceptions;
     }
 
+    private LongOpenHashSet keySet() {
+      LongOpenHashSet set = keySet;
+      if (set == null) {
+        set = new LongOpenHashSet(Math.max(16, recordKeys.size()));
+        for (int row = 0; row < recordKeys.size(); row++) {
+          set.add(recordKeys.getLong(row));
+        }
+        keySet = set;
+      }
+      return set;
+    }
+
+    private boolean containsKey(final long recordKey) {
+      return keySet().contains(recordKey);
+    }
+
     private int indexOf(final long recordKey) {
+      if (keySet != null && !keySet.contains(recordKey)) {
+        return -1; // an absent key answers in O(1); the scan below only runs for present keys
+      }
       for (int row = 0; row < recordKeys.size(); row++) {
         if (recordKeys.getLong(row) == recordKey) {
           return row;
         }
       }
       return -1;
+    }
+
+    private void insertKeyAt(final int row, final long recordKey, final boolean orderException) {
+      recordKeys.add(row, recordKey);
+      orderExceptions.add(row, orderException);
+      keysChanged = true;
+      if (keySet != null) {
+        keySet.add(recordKey);
+      }
+    }
+
+    private void removeKeyAt(final int row) {
+      final long removed = recordKeys.removeLong(row);
+      orderExceptions.removeBoolean(row);
+      keysChanged = true;
+      if (keySet != null) {
+        keySet.remove(removed);
+      }
     }
 
     private int markReadOnce() {
