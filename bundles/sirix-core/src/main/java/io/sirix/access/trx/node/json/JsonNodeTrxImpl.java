@@ -200,7 +200,11 @@ final class JsonNodeTrxImpl extends
       "Insert is not allowed if parent node is not an array node!";
 
   private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
-  private static final QNm ARRAY_SIBLING_PATH_QNM = new QNm("array");
+  // A sibling array resolves the SAME __array__ path step as a first-child array: an array's
+  // path class is a property of WHERE it sits, not of which insert position created it —
+  // [[1],[2]] must put both inner arrays in ONE path class or every path-addressed consumer
+  // (summary counts, projections, CAS indexes) silently sees only the first element.
+
   private static final long UNKNOWN_NOTIFICATION_PATH_NODE_KEY = Long.MIN_VALUE;
   private static final Str STR_TRUE = new Str("true");
   private static final Str STR_FALSE = new Str("false");
@@ -1167,6 +1171,46 @@ final class JsonNodeTrxImpl extends
     }
   }
 
+  // ==== bulk-assembly seam (package-private) ==================================================
+  // The BulkJsonTreeAssembler drives the SAME factory / path-summary / notification machinery as
+  // the cursor inserts, but computes every structural pointer from its own stack before a record
+  // is first written — so it needs the collaborators, not the cursor choreography. Nothing here
+  // widens the public API, and nothing here may be called while ordinary cursor edits are in
+  // flight on this transaction.
+
+  JsonNodeFactory bulkNodeFactory() {
+    return nodeFactory;
+  }
+
+  @Nullable
+  PathSummaryWriter<JsonNodeReadOnlyTrx> bulkPathSummaryWriter() {
+    return pathSummaryWriter;
+  }
+
+  boolean bulkBuildPathSummary() {
+    return buildPathSummary;
+  }
+
+  boolean bulkStoreChildCount() {
+    return storeChildCount;
+  }
+
+  boolean bulkUseTextCompression() {
+    return useTextCompression;
+  }
+
+  boolean bulkHasPrimitiveIndexes() {
+    return indexController.hasAnyPrimitiveIndex();
+  }
+
+  void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey) {
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+  }
+
+  void bulkAccountRecord(final int mutations) {
+    bulkAccountMutations(mutations);
+  }
+
   @Override
   public JsonNodeTrx insertObjectRecordAsLeftSibling(final String key, final ObjectRecordValue<?> value) {
     requireNonNull(key);
@@ -1994,7 +2038,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getNodeKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
@@ -2041,7 +2085,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();

@@ -49,6 +49,14 @@ public enum AfterCommitState {
    * page-work bound. This second bound limits foreground index/projection maintenance even when a
    * workload modifies relatively few storage pages.
    * </p>
+   *
+   * <p>
+   * Overridable for measurement via {@code -Dsirix.asyncFlush.maxNodeCount}. The default keeps the
+   * historical bound; the ClickBench hits shape it implies is an epoch every ~78 rows, which makes a
+   * PARTITIONED parallel ingest submit a flush every few milliseconds per writer and starve on the
+   * global append executor's admissions (measured: 16 writers spent 76% of a 1M-row load in
+   * submitWait). A larger epoch trades bounded in-flight frozen-TIL memory for admission pressure.
+   * </p>
    */
-  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 14;
+  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = Integer.getInteger("sirix.asyncFlush.maxNodeCount", 1 << 14);
 }
