@@ -289,9 +289,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   static int autoCommitNodeCountThreshold(final int maxNodeCount, final AfterCommitState afterCommitState) {
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     requireNonNull(afterCommitState);
-    return afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-        ? Math.min(maxNodeCount, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT)
-        : maxNodeCount;
+    if (afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      return maxNodeCount;
+    }
+    // The async-flush epoch is a MEMORY bound on the intent log, not a commit cadence: it stays
+    // armed even when the caller requested no count-based auto-commit (maxNodeCount == 0, the
+    // beginNodeTrx(AfterCommitState) overload) — otherwise the log grows unbounded for the whole
+    // import and its pages cannot be evicted before the final commit.
+    return maxNodeCount == 0
+        ? AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT
+        : Math.min(maxNodeCount, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT);
   }
 
   protected abstract W self();
@@ -871,10 +878,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
   private boolean shouldRotateIntermediateEpoch() {
-    return maxNodeCount > 0 && compoundOperationDepth == 0
-        && (modificationCount >= autoCommitNodeCountThreshold
-            || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-                && storageEngineWriter.isAsyncFlushLogBoundaryReached()));
+    if (compoundOperationDepth != 0) {
+      return false;
+    }
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      // Storage-epoch bounds arm regardless of maxNodeCount: they bound intent-log memory,
+      // which grows whether or not the caller asked for count-based auto-commit.
+      return modificationCount >= autoCommitNodeCountThreshold
+          || storageEngineWriter.isAsyncFlushLogBoundaryReached();
+    }
+    return maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold;
   }
 
   /**
