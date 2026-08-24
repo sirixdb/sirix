@@ -151,12 +151,16 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // Allocate all ownership bookkeeping before publishing the first ACTIVE entry. Once begin()
     // returns, storing its reference in the preallocated array cannot fail and strand the owner.
     final ProjectionBulkLoad[] ownedLoads = new ProjectionBulkLoad[indexDefs.size()];
+    final IndexDef[] publishedDefs = new IndexDef[indexDefs.size()];
     int ownedCount = 0;
+    int publishedCount = 0;
     try {
       for (final IndexDef indexDef : indexDefs) {
         // Catalogues the def so it serializes on commit and is discoverable after re-open, exactly as
         // createIndexBuilders does for the walking path.
         indexes.add(indexDef);
+        publishedDefs[publishedCount] = indexDef;
+        publishedCount++;
         final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey, nodeWriteTrx,
             nodeWriteTrx.getPathSummary(), nodeWriteTrx.getStorageEngineWriter(), expectedRows);
         ownedLoads[ownedCount] = ownedLoad;
@@ -170,6 +174,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       for (int i = ownedCount - 1; i >= 0; i--) {
         try {
           ownedLoads[i].abort();
+        } catch (final Throwable cleanupFailure) {
+          if (cleanupFailure != armFailure) {
+            armFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      // Unpublish every def catalogued above. A def left behind with no bound listener would
+      // serialize on commit and answer discovery while no maintenance ever feeds it — an index
+      // that exists in name only.
+      for (int i = publishedCount - 1; i >= 0; i--) {
+        try {
+          indexes.removeIndex(publishedDefs[i]);
         } catch (final Throwable cleanupFailure) {
           if (cleanupFailure != armFailure) {
             armFailure.addSuppressed(cleanupFailure);
