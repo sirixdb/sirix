@@ -16,7 +16,11 @@ final class AsyncFlushEpochThresholdTest {
   void capsEveryLargeAsyncFlushEpoch() {
     final int cap = AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT;
 
-    assertEquals(0, threshold(0, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
+    // maxNodeCount == 0 — the beginNodeTrx(AfterCommitState) overload — asks for no COMMIT
+    // cadence, but the async-flush epoch bounds intent-log MEMORY and stays armed at the full
+    // epoch size. (It used to resolve to 0, which shouldRotateIntermediateEpoch dead-gated
+    // behind maxNodeCount > 0: the log then grew unbounded for the whole import.)
+    assertEquals(cap, threshold(0, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
     assertEquals(1, threshold(1, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
     assertEquals(cap - 1, threshold(cap - 1, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
     assertEquals(cap, threshold(cap, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH));
