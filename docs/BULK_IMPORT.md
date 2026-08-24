@@ -67,6 +67,8 @@ existing resources remains the cursor's job.
 | `sirix.parallelImport.chunkBytes` | `4 MiB` | Chunk size. Larger chunks reduce pipeline overlap; 4 MiB measured best. |
 | `sirix.asyncFlush.maxLogEntries` | `16` | Intent-log entries per flush epoch. Bulk imports benefit from `128`–`256` (fewer epoch round-trips); the default is tuned for interactive writers. |
 | `sirix.asyncFlush.maxNodeCount` | `16384` | Record-count epoch bound; raise together with `maxLogEntries` (e.g. `262144` with `256`). |
+| `sirix.asyncFlush.parallelism` | `cores/2 - 1` | Serialize-pool width, shared JVM-wide. This is the load's throughput limit (see roadmap), but it is already at its optimum: on a 20-core box, 4 measured 15.2 s and 14 measured 14.0 s against 13.1 s at the default, because serializers past that point take cores from the insert threads. |
+| `sirix.hft.telemetry` | `false` | Print per-run flush phase totals (`serializeJoinWaitTotalNs`, `kvlAppendTotalNs`, permit waits) at writer close. Off by default; the counters are the only honest way to attribute an import's wall between insert and flush. |
 | `sirix.offheap.bytes` | `24 GiB` | Off-heap arena budget. **Cap this on smaller machines for large imports** (e.g. `8g` on a 32 GB box) — the default assumes a query-serving footprint. |
 
 ### Measured (20-core box, NVMe)
@@ -82,8 +84,23 @@ are pooled, so no humongous-allocation-triggered cycles. Peak RSS for the 10M im
 
 ### Known limits and roadmap
 
-- The remaining wall is the flush pipeline's depth-1 epoch chain (serialize and append of
-  consecutive epochs never overlap); a two-generation intent-log pipeline is designed but not
-  built.
+- The remaining wall is the flush's **parallel page serialization**, not the pipeline's depth.
+  The depth-1 reading is accurate — consecutive epochs' serialize and append never overlap, and
+  the insert side really does park on the flush permit for most of a load (8.8 s of a 12.1 s 1M
+  import) — but the overlap that a two-generation intent log would buy is worth far less than
+  that number suggests. Run with `-Dsirix.hft.telemetry=true` and the per-run phase totals say
+  why: of 10.9 s of worker time across 395 epochs, **8.4 s is stalled on the serialize pool and
+  2.5 s is the append**, and only the append is strictly serialized per writer. Overlapping the
+  append is the entire prize.
+  That prize was collected the cheap way to price it. The flush's sliding window already
+  double-buffers serialize against append and simply never gets to, because its width is defined
+  as the epoch size — one window per epoch. Sizing it independently pipelines several windows per
+  epoch: the stall fell to 6.8 s and worker time to 9.7 s, and **wall time did not follow**
+  (interleaved min-of-3: 12.047 s at one window per epoch, 12.412 s at four, 13.8 s at
+  seventeen). Freed flush capacity goes straight back into contention with the insert threads —
+  the same reason raising `sirix.asyncFlush.parallelism` to 14 measured slower end to end than
+  the default 9 despite strictly less worker time. A multi-generation intent log aims at the same
+  23%, against a class that has twice produced silent cross-generation use-after-free bugs; the
+  serialize stage is where the load's throughput actually lives.
 - XML bulk import and projection maintenance riding the parallel load are planned follow-ups.
 - Import into existing resources is out of scope for both loaders.
