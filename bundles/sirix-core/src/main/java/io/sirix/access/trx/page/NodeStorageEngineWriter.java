@@ -52,6 +52,7 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
@@ -143,7 +144,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * upper bound on attempted KVL pages and matches one serializer window.
    * </p>
    */
-  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 16;
+  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT =
+      Integer.getInteger("sirix.asyncFlush.maxLogEntries", 16);
 
   /**
    * Buffered output for page writes.
@@ -1281,6 +1283,51 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         storageEngineReader.getRevisionNumber(), (SirixDeweyID) null));
     cont.getModifiedAsKeyValuePage().setRecord(delNode);
     cont.getCompleteAsKeyValuePage().setRecord(delNode);
+  }
+
+  /**
+   * Writer-scoped memo for projection value-dictionary records, keyed by node key. See the interface
+   * javadoc on {@code StorageEngineReader#cachedProjectionDictionaryRecord} for why this is sound:
+   * the dictionary sub-trie is copy-on-write with freshly minted keys, the one stable-key rewrite
+   * (the generation header) is evicted by the put hook, and this writer is single-threaded. Records
+   * memoized here are heap-materialized (bound flyweights are refused), so entries stay valid after
+   * the async flush releases the pages they were decoded from — which is exactly the moment the
+   * uncached path starts paying a full page decode per record and this memo starts earning its keep
+   * (measured: ~16% of a bulk load's CPU was radix re-reads through that path).
+   */
+  private @Nullable Long2ObjectOpenHashMap<DataRecord> projectionDictionaryRecordMemo;
+
+  @Override
+  public @Nullable DataRecord cachedProjectionDictionaryRecord(final long key) {
+    final Long2ObjectOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    return memo == null
+        ? null
+        : memo.get(key);
+  }
+
+  @Override
+  public void cacheProjectionDictionaryRecord(final long key, final DataRecord record) {
+    if (record instanceof final FlyweightNode flyweight && flyweight.isBound()) {
+      // A bound flyweight reads through its page's memory segment, which the flush lifecycle may
+      // release — memoizing it would be a use-after-free. Dictionary node classes are plain heap
+      // records, so this guard is expected to never fire; it exists so a future flyweight
+      // conversion fails safe (the read stays correct, merely unmemoized) instead of dangling.
+      return;
+    }
+    Long2ObjectOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    if (memo == null) {
+      memo = new Long2ObjectOpenHashMap<>(1 << 12);
+      projectionDictionaryRecordMemo = memo;
+    }
+    memo.put(key, record);
+  }
+
+  @Override
+  public void evictProjectionDictionaryRecord(final long key) {
+    final Long2ObjectOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    if (memo != null) {
+      memo.remove(key);
+    }
   }
 
   @Override
@@ -2444,9 +2491,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 } finally {
                   // Null the slot only once the copy is closed — a write failure must leave
                   // nothing open, and a slot nulled before the write would hide the copy from
-                  // closeWindowLeftovers.
+                  // closeWindowLeftovers. In-place (adopted) pages are NOT copies: the snapshot
+                  // cleanup is their single closer.
                   currentWindow[i - base] = null;
-                  serializationCopy.close();
+                  if (!serializationCopy.isAdoptedImmutableForFlush()) {
+                    serializationCopy.close();
+                  }
                 }
                 log.setSnapshotDiskOffset(i, shadowRef.getKey());
                 log.setSnapshotHash(i, shadowRef.getHashAsLong(), shadowRef.hasHash());
@@ -2844,9 +2894,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * of 32767 — an oversized value must degrade, not turn every write transaction into an
    * ExceptionInInitializerError).
    */
+  /**
+   * The snapshot serialize pool is shared by EVERY writer in the JVM, and its size is the hard
+   * ceiling on concurrent flush serialization. The old default of {@code min(2, cores-1)} was sized
+   * for one writer — two serializers keep pace with one insert thread's rotation cadence — but it
+   * silently capped PARTITIONED parallel ingest at ~2× one writer no matter how many partitions ran:
+   * 16 writers spent ~65% of a 1M-row load parked while exactly two threads serialized every page in
+   * the process (26.6 s). Sizing the pool to about half the machine restored scaling (18.0 s, 55.7k
+   * rows/s, within 19% of the zero-flush bound) and leaves the single-writer full load unchanged
+   * (within noise), since idle work-stealing workers cost nothing. Oversubscribing to cores (16
+   * serializers + 16 writers on 20 cores) measured WORSE than 8 — hence half, not all.
+   */
   private static final ForkJoinPool SNAPSHOT_FLUSH_POOL =
       new ForkJoinPool(Math.min(32767, Math.max(1, Integer.getInteger("sirix.asyncFlush.parallelism",
-          Math.min(2, Runtime.getRuntime().availableProcessors() - 1)))));
+          Math.max(2, Runtime.getRuntime().availableProcessors() / 2 - 1)))));
 
   /**
    * Kick off the parallel deep-copy + pre-serialize pass for the snapshot window starting at
@@ -2981,7 +3042,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           if (!(modified instanceof KeyValueLeafPage kvl)) {
             return;
           }
-          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
+          // Bulk-import ADOPTED pages are immutable post-adoption: serialize IN PLACE, skipping
+          // the defensive copy (1.4 GB of memcpy per 1M rows on the flush lane). Every refusal
+          // exit in the disposable serializer precedes the frame overwrite, so the promote path
+          // still sees an untouched page.
+          final boolean inPlace = kvl.isAdoptedImmutableForFlush();
+          final KeyValueLeafPage serializationCopy = inPlace
+              ? kvl
+              : kvl.deepCopy();
           try {
             if (!serializeDisposableSnapshotKeyValuePage(config, serializationCopy)) {
               // Overlong records still carrying NULL disk keys and identity encodings larger than
@@ -2989,14 +3057,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               // cleanupSnapshot() promotes the ORIGINAL page into the live TIL, where recursive
               // final commit either resolves the overflow or serializes with an ordinary owned
               // cache. No borrowed pooled alias is ever published on this path.
-              serializationCopy.close();
+              if (!inPlace) {
+                serializationCopy.close();
+              }
               log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
               return;
             }
           } catch (final Throwable t) {
             // A copy that never reached the window would be invisible to
             // closeWindowLeftovers — release its pooled segments before recording.
-            serializationCopy.close();
+            if (!inPlace) {
+              serializationCopy.close();
+            }
             throw t;
           }
           window[i - base] = serializationCopy;
@@ -3037,7 +3109,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final KeyValueLeafPage leftover = window[i];
       if (leftover != null) {
         window[i] = null;
-        leftover.close();
+        if (!leftover.isAdoptedImmutableForFlush()) {
+          leftover.close();
+        }
       }
     }
   }
@@ -4033,6 +4107,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (isClosed) {
       return;
     }
+    projectionDictionaryRecordMemo = null;
 
     Throwable asyncFailure = null;
     try {
@@ -4769,6 +4844,52 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (secondPage != null && !secondPage.isClosed()) {
       secondPage.retire();
     }
+  }
+
+  @Override
+  public void addNameCount(final int key, final int delta, final NodeKind nodeKind) {
+    storageEngineReader.assertNotClosed();
+    getNamePage(newRevisionRootPage).addCount(key, delta, nodeKind, this);
+  }
+
+  @Override
+  public void adoptDocumentLeafPage(final KeyValueLeafPage page) {
+    storageEngineReader.assertNotClosed();
+    final long recordPageKey = page.getPageKey();
+    final PageReference indexReference =
+        storageEngineReader.getPageReference(newRevisionRootPage, IndexType.DOCUMENT, -1);
+    // Walking the trie CoWs the indirect spine into the log exactly as an ordinary insert would.
+    final PageReference reference =
+        keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(IndexType.DOCUMENT), indexReference,
+            recordPageKey, -1, IndexType.DOCUMENT, newRevisionRootPage);
+    if (reference.getKey() != Constants.NULL_ID_LONG || log.get(reference) != null) {
+      throw new IllegalStateException(
+          "bulk adoption requires unwritten territory, but document page " + recordPageKey + " already exists");
+    }
+    // Mirror createFreshRecordPage's container shape: empty COMPLETE twin + the built MODIFIED
+    // page — read-back, flush eligibility and commit all key off that structure.
+    final KeyValueLeafPage completeTwin = new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
+        getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(), null, null, false);
+    appendLogRecord(reference, PageContainer.getInstance(completeTwin, page));
+    storageEngineReader.invalidateMostRecentlyReadRecordPage(IndexType.DOCUMENT, -1);
+    // In-place flush eligibility: no heap records (overflow values need the copy+promote route).
+    boolean hasHeapRecords = false;
+    for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+      if (page.getRecord(slot) != null) {
+        hasHeapRecords = true;
+        break;
+      }
+    }
+    if (!hasHeapRecords) {
+      page.markAdoptedImmutableForFlush();
+    }
+  }
+
+  @Override
+  public KeyValueLeafPage prepareDocumentLeafForBlit(final long recordPageKey) {
+    storageEngineReader.assertNotClosed();
+    final PageContainer container = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
+    return (KeyValueLeafPage) container.getModifiedAsKeyValuePage();
   }
 
   @Override

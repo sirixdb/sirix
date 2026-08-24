@@ -433,6 +433,11 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   @Override
+  public void setChildCount(final long childCount) {
+    this.childCount = childCount;
+  }
+
+  @Override
   public long getDescendantCount() {
     return descendantCount;
   }

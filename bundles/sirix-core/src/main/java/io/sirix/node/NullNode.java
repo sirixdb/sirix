@@ -89,6 +89,11 @@ public final class NullNode implements StructNode {
   }
 
   @Override
+  public void setChildCount(final long childCount) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public void setHash(final long hash) {
     throw new UnsupportedOperationException();
   }
