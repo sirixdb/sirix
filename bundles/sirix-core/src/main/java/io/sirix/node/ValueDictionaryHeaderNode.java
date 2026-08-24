@@ -52,6 +52,9 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
 
   private final int generation;
 
+  /** {@code false} for an {@link #unknownLayout(long, int)} carrier this build cannot interpret. */
+  private final boolean currentLayout;
+
   /**
    * Constructor.
    *
@@ -75,6 +78,38 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     this.forwardRootKey = forwardRootKey;
     this.reverseRootKey = reverseRootKey;
     this.generation = generation;
+    this.currentLayout = true;
+  }
+
+  private ValueDictionaryHeaderNode(final long nodeKey, final int version) {
+    this.nodeKey = nodeKey;
+    this.version = version;
+    this.entryCount = 0;
+    this.forwardRootKey = 0;
+    this.reverseRootKey = 0;
+    this.generation = 0;
+    this.currentLayout = false;
+  }
+
+  /**
+   * A header whose serialized layout version this build cannot interpret. Only the version is
+   * carried — the payload behind it is unreadable by definition. Every consumer declines it
+   * ({@code GlobalValueDictionary#header} answers {@code null}), and re-serializing it is refused
+   * so a newer build's data is never overwritten with a lossy reconstruction.
+   *
+   * @throws IllegalArgumentException for a negative version — that is corruption, not a future
+   *         layout, and corruption stays loud
+   */
+  public static ValueDictionaryHeaderNode unknownLayout(final long nodeKey, final int version) {
+    if (nodeKey <= 0 || version < 0 || version == VERSION) {
+      throw new IllegalArgumentException("not an unknown-layout value dictionary header: version " + version);
+    }
+    return new ValueDictionaryHeaderNode(nodeKey, version);
+  }
+
+  /** Whether this build can interpret the header's layout ({@link #getVersion()} == {@link #VERSION}). */
+  public boolean isCurrentLayout() {
+    return currentLayout;
   }
 
   @Override
