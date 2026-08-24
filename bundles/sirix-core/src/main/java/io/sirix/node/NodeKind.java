@@ -1905,6 +1905,13 @@ public enum NodeKind implements DeweyIdSerializer {
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final int version = source.readInt();
+      if (version != ValueDictionaryHeaderNode.VERSION) {
+        // A resource written by a newer build must make this one DECLINE, never misparse: the
+        // payload behind an unknown version cannot be interpreted, so stop reading here. The
+        // source is scoped to this record (NodeStorageEngineReader#getDataRecord), so the
+        // unread remainder harms nothing.
+        return ValueDictionaryHeaderNode.unknownLayout(recordID, version);
+      }
       final int entryCount = source.readInt();
       return new ValueDictionaryHeaderNode(recordID, version, entryCount, source.readLong(),
           source.readLong(), source.readInt());
@@ -1914,6 +1921,10 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ValueDictionaryHeaderNode node = (ValueDictionaryHeaderNode) record;
+      if (!node.isCurrentLayout()) {
+        throw new IllegalStateException("refusing to re-serialize a value dictionary header with unknown layout version "
+            + node.getVersion() + " — this build cannot reconstruct its payload");
+      }
       sink.writeInt(node.getVersion());
       sink.writeInt(node.getEntryCount());
       sink.writeLong(node.getForwardRootKey());
@@ -1950,7 +1961,10 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte indexKind = source.readByte();
       final byte depth = source.readByte();
       final int count = Short.toUnsignedInt(source.readShort());
-      if (count > ValueDictionaryRadixNode.FANOUT
+      // count <= 0 matches the three sibling dictionary kinds: an empty radix node is never
+      // written (an empty dictionary has no radix at all), so zero is corruption, and accepting
+      // it yielded a silent ID_ABSENT instead of a loud refusal.
+      if (count <= 0 || count > ValueDictionaryRadixNode.FANOUT
           || (long) count * (Byte.BYTES + Long.BYTES) > source.remaining()) {
         throw new IllegalStateException("invalid value dictionary radix child count " + count);
       }
