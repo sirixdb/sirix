@@ -106,6 +106,11 @@ public final class ClickBenchProjection {
 
   /** The {@code jn:create-projection-index} call for the projected columns. */
   public static String createQuery() {
+    return createQuery(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE);
+  }
+
+  /** Same call against an explicit database/resource — the per-partition composite entry point. */
+  public static String createQuery(final String database, final String resource) {
     final StringBuilder paths = new StringBuilder(PROJECTED_COLUMNS.size() * 24);
     final StringBuilder types = new StringBuilder(PROJECTED_COLUMNS.size() * 10);
     for (int i = 0; i < PROJECTED_COLUMNS.size(); i++) {
@@ -117,7 +122,7 @@ public final class ClickBenchProjection {
       paths.append('\'').append(ROOT_PATH).append('/').append(column).append('\'');
       types.append('\'').append(projectionType(column)).append('\'');
     }
-    return "let $doc := jn:doc('" + ClickBenchSchema.DATABASE + "','" + ClickBenchSchema.RESOURCE + "')\n"
+    return "let $doc := jn:doc('" + database + "','" + resource + "')\n"
         + "let $stats := jn:create-projection-index($doc, '" + ROOT_PATH + "',\n" + "    (" + paths + "),\n" + "    ("
         + types + "))\n" + "return {\"revision\": sdb:commit($doc)}";
   }
@@ -129,11 +134,24 @@ public final class ClickBenchProjection {
    * @return wall-clock seconds spent building and committing
    */
   public static double create(final Path dbDir) {
+    return create(dbDir, ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE);
+  }
+
+  /**
+   * Build and persist the projection for one explicit database/resource pair — the per-partition
+   * entry point for partitioned (composite) corpora.
+   *
+   * @param location the store location holding {@code <database>/<resource>}
+   * @param database the database directory name under {@code location}
+   * @param resource the resource to project
+   * @return wall-clock seconds spent building and committing
+   */
+  public static double create(final Path location, final String database, final String resource) {
     final long start = System.nanoTime();
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      new Query(chain, createQuery()).evaluate(ctx);
+      new Query(chain, createQuery(database, resource)).evaluate(ctx);
     }
     return (System.nanoTime() - start) / 1e9;
   }
