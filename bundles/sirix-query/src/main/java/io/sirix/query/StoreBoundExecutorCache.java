@@ -263,7 +263,9 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       return;
     }
     try {
-      executor.retire();
+      // Async join — an LRU eviction retires an executor for a DIFFERENT resource on the
+      // resolving thread; it must not block behind that executor's uncancellable warm-up read.
+      executor.retireAsync();
     } catch (final Exception ignored) {
       // Best-effort: the chain-wide terminal fence remains authoritative at final close.
     }
