@@ -752,6 +752,7 @@ public final class ProjectionColumnStore {
       if (dictEntry >= 0) {
         total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
+      total += decodedColumnResidentBytes(descriptor, columnKinds[col]);
     }
     return total;
   }
@@ -864,14 +865,47 @@ public final class ProjectionColumnStore {
     return previous;
   }
 
+  /**
+   * RESIDENT bytes ONE column of ONE leaf decodes into, on top of the raw segment bytes it is
+   * decoded from — a bit-packed long lane becomes 8 B per value plus its presence words, a boolean
+   * column two presence words, and everything else nothing extra.
+   *
+   * <p>
+   * The single place this arithmetic lives. The budget that DECLINES a fill and the cache weight
+   * that ADMITS the handle are two answers to one question — what does this column cost resident —
+   * and they were answered by two formulas: the weigher counted the decoded lane, the fill doors
+   * counted only packed bytes. A budget that prices packed bytes while the heap holds decoded ones
+   * admits roughly 8x what it believes it is admitting on a long-lane column. Both sides now call
+   * here, so they cannot disagree again.
+   * </p>
+   *
+   * @param descriptor the leaf's row-group descriptor
+   * @param kind the column's kind byte
+   * @return the decoded residency of that column in that leaf
+   */
+  public static long decodedColumnResidentBytes(final byte[] descriptor, final byte kind) {
+    final int rows = RowGroupDescriptor.rowCount(descriptor);
+    final long presenceBytes = ((rows + 63L) >>> 6) << 3;
+    // A LAYOUT question — how many bytes does a decoded slice occupy — so it asks the layout
+    // predicate. A global string column decodes to the same eight bytes per row as any other long
+    // lane, and counting it as weightless would let the cache hold more than it accounted for.
+    if (ProjectionIndexRowGroupPage.isLongLaneKind(kind)) {
+      return ((long) rows << 3) + presenceBytes;
+    }
+    if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
+      return presenceBytes << 1;
+    }
+    return 0;
+  }
+
   /** Lazily-computed per-column projected fill bytes; 0 = not yet computed (a real sum is never 0). */
   private final AtomicReference<long[]> projectedFillBytes = new AtomicReference<>();
 
   /**
-   * RAW bytes a full slice fill of {@code col} would fetch: the BODY segment's byteLen across every
-   * leaf, plus the DICT segment's where the descriptor lists one. An UNDERestimate of the resident
-   * total (decoded id/value arrays come on top), which errs toward eager — the budget itself is a
-   * quarter-heap figure precisely so that margin exists.
+   * RESIDENT bytes a full slice fill of {@code col} costs: the BODY segment's byteLen across every
+   * leaf, plus the DICT segment's where the descriptor lists one, plus what those bytes DECODE INTO
+   * ({@link #decodedColumnResidentBytes}) — the same figure the cache weigher charges for the same
+   * column, because a fill retains both halves for the store's lifetime.
    */
   public long projectedColumnFillBytes(final int col) {
     long[] cached = projectedFillBytes.get();
@@ -898,6 +932,7 @@ public final class ProjectionColumnStore {
       if (dictEntry >= 0) {
         total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
+      total += decodedColumnResidentBytes(descriptor, columnKinds[col]);
     }
     // A benign same-column race writes the identical sum twice.
     cached[col] = Math.max(1, total);
@@ -1048,6 +1083,9 @@ public final class ProjectionColumnStore {
       if (dictEntry >= 0) {
         total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
+    }
+    for (int i = 0; i < n; i++) {
+      total += decodedColumnResidentBytes(directories.get(i).descriptor(), columnKinds[col]);
     }
     if (rowLeaves > 0 && fallbackLeaves == rowLeaves) {
       return projectedColumnFillBytes(col);

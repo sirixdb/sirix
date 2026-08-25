@@ -664,19 +664,11 @@ public final class ProjectionIndexCatalog {
     for (int i = 0; i < columnSegmentCount; i++) {
       bytes += RowGroupDescriptor.entryByteLen(descriptor, i);
     }
-    final int rows = RowGroupDescriptor.rowCount(descriptor);
-    final long presenceBytes = ((rows + 63L) >>> 6) << 3;
     final int columnCount = RowGroupDescriptor.columnCount(descriptor);
     for (int c = 0; c < columnCount; c++) {
-      final byte kind = RowGroupDescriptor.kind(descriptor, c);
-      // A LAYOUT question — how many bytes does a decoded slice occupy — so it asks the layout
-      // predicate. A global string column decodes to the same eight bytes per row as any other long
-      // lane, and counting it as weightless would let the cache hold more than it accounted for.
-      if (ProjectionIndexRowGroupPage.isLongLaneKind(kind)) {
-        bytes += ((long) rows << 3) + presenceBytes;
-      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
-        bytes += presenceBytes << 1;
-      }
+      // The SAME arithmetic the store's fill doors price against, so the weight that admits a
+      // handle and the budget that declines its fills cannot disagree about what a column costs.
+      bytes += ProjectionColumnStore.decodedColumnResidentBytes(descriptor, RowGroupDescriptor.kind(descriptor, c));
     }
     return bytes;
   }
@@ -853,6 +845,10 @@ public final class ProjectionIndexCatalog {
    *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()})
    * @return {@code true} when the windowed route serves this weight
    */
+  public static boolean servesWindowedPayloads(final long projectedWeightBytes) {
+    return projectedWeightBytes > eagerMaterializeBytes;
+  }
+
   /**
    * RESIDENT bytes a handle of this projected weight can hold — the figure the {@link #DATA} weigher
    * charges. Under the eager budget that is the projection itself; over it the leaves are never
@@ -874,10 +870,6 @@ public final class ProjectionIndexCatalog {
     // ceiling self-evicts the entry on insert and makes every lookup re-decode a fresh handle,
     // which is the failure this figure exists to prevent.
     return Math.max(1L, Math.min(resident, Math.max(1L, CACHE_BYTES >> 1)));
-  }
-
-  public static boolean servesWindowedPayloads(final long projectedWeightBytes) {
-    return projectedWeightBytes > eagerMaterializeBytes;
   }
 
   /** Build the windowed payload view: one physical-order read up front, one fetch per window after. */
