@@ -147,7 +147,34 @@ public final class ChunkedBodyConfig {
     }
   }
 
-  /** Pages parsed lazily since the last {@link #resetDiag()}. Zero unless {@link #diagEnabled()}. */
+  /**
+   * Record a whole-leaf consumer served by the WINDOWED projection-column route instead of an eager
+   * whole-column materialization. Cold path — once per handle engagement — so it is counted
+   * UNCONDITIONALLY: the bench banners read these counters, and a lazy route whose witness needs a
+   * separate flag is how a feature quietly stops firing while its banner still prints zeros.
+   */
+  public static void recordWindowedColumnEngagement() {
+    LAZY_LOADS.increment();
+  }
+
+  /** Record one window of row-group payloads materialized on demand. Cold path; unconditional. */
+  public static void recordColumnWindowMaterialization() {
+    CHUNK_MATERIALIZATIONS.increment();
+  }
+
+  /**
+   * Record a lazy projection handle whose whole-leaf materialization ran EAGERLY — the
+   * under-the-budget outcome. Cold path; unconditional.
+   */
+  public static void recordEagerColumnMaterialization() {
+    EAGER_FALLBACKS.increment();
+  }
+
+  /**
+   * Pages parsed lazily since the last {@link #resetDiag()}, plus windowed projection-column
+   * engagements (counted unconditionally; the per-page body events additionally require
+   * {@link #diagEnabled()}).
+   */
   public static long lazyLoads() {
     return LAZY_LOADS.sum();
   }
