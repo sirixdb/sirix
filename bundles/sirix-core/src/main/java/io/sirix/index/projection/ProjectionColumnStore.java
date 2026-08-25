@@ -703,6 +703,16 @@ public final class ProjectionColumnStore {
     if (col < 0 || col >= columnKinds.length) {
       return 0;
     }
+    long[] cached = projectedBodyFillBytes.get();
+    if (cached == null) {
+      cached = new long[columnKinds.length];
+      projectedBodyFillBytes.compareAndSet(null, cached);
+      cached = projectedBodyFillBytes.get();
+    }
+    final long known = cached[col];
+    if (known != 0) {
+      return known;
+    }
     final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
     long total = 0;
     final int n = directories.size();
@@ -713,8 +723,19 @@ public final class ProjectionColumnStore {
         total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
       }
     }
-    return total;
+    // A benign same-column race writes the identical sum twice.
+    cached[col] = Math.max(1, total);
+    return cached[col];
   }
+
+  /**
+   * Lazily-computed per-column projected BODY-chain bytes; 0 = not yet computed (a real sum is
+   * never 0). Memoized for the same reason as {@link #projectedFillBytes}, and now for a sharper
+   * one: {@link #incrementalFillBytes} puts this walk on the PLANNER path, so every gated column of
+   * every group or aggregate query would otherwise redo a per-leaf descriptor probe over the whole
+   * store once that column's raw BODY chain is published.
+   */
+  private final AtomicReference<long[]> projectedBodyFillBytes = new AtomicReference<>();
 
   /**
    * RAW bytes a MASKED fill of {@code col} would fetch: the same BODY (+DICT) walk
