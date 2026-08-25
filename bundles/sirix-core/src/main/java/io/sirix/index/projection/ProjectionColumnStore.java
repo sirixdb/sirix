@@ -667,6 +667,37 @@ public final class ProjectionColumnStore {
             || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET);
   }
 
+  /** RAW bytes one segment chain spans across every leaf that carries it. */
+  private long projectedSegmentChainBytes(final int segId) {
+    long total = 0;
+    final int n = directories.size();
+    for (int i = 0; i < n; i++) {
+      final byte[] descriptor = directories.get(i).descriptor();
+      final int entry = RowGroupDescriptor.entryIndexOf(descriptor, segId);
+      if (entry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, entry);
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Bytes a {@link #recordKeys} fill costs: the raw KEYS chain plus the 8 B/row {@code long[]} it
+   * DECODES INTO and retains. Unlike the column doors this counts the decoded form explicitly,
+   * because that is the part that stays — a 100M-row store retains ~800 MB of keys whose raw chain
+   * is a fraction of it, and charging only the chain would leave the larger half unaccounted.
+   *
+   * @return the projected record-key fill bytes
+   */
+  public long projectedRecordKeysFillBytes() {
+    long total = projectedSegmentChainBytes(ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+    final int n = directories.size();
+    for (int i = 0; i < n; i++) {
+      total += 8L * RowGroupDescriptor.rowCount(directories.get(i).descriptor());
+    }
+    return total;
+  }
+
   /** RAW bytes the BODY chain of {@code col} spans — what a raw-bytes fill retains. */
   private long projectedColumnBodyFillBytes(final int col) {
     if (col < 0 || col >= columnKinds.length) {
@@ -940,7 +971,9 @@ public final class ProjectionColumnStore {
   private void checkFillBudget(final int col, final long projected, final String mode) {
     final long retained = retainedFillBytes.get();
     if (retained + projected > columnFillBudgetBytes) {
-      throw new FillBudgetExceededException("Column " + col + " " + mode + " projects " + projected
+      throw new FillBudgetExceededException((col < 0
+          ? "The store's "
+          : "Column " + col + " ") + mode + " projects " + projected
           + " B beside " + retained + " B already retained, over the " + columnFillBudgetBytes
           + " B budget (sirix.projection.eagerMaterializeBytes) — declining the fill; the caller falls back to the "
           + "whole-leaf windowed route");
@@ -1248,6 +1281,12 @@ public final class ProjectionColumnStore {
     if (chain != null) {
       return chain;
     }
+    // CHARGED but never REFUSED. The fingerprints are what let a predicate prune leaves before any
+    // BODY/DICT byte is fetched, so refusing them to protect the budget would forfeit the pruning
+    // that keeps fills under it — the economics invert. Charging them still keeps the ledger an
+    // honest account of residency, and the pressure lands where it belongs: on the next column fill.
+    final long projectedBloom =
+        projectedSegmentChainBytes(ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(col));
     chain = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(col),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_STRING_BLOOM, true, fetcher, null);
     synchronized (this) {
@@ -1258,6 +1297,7 @@ public final class ProjectionColumnStore {
       final byte[][][] next = bloomBytes.clone();
       next[col] = chain;
       bloomBytes = next;
+      retainedFillBytes.addAndGet(projectedBloom);
     }
     return chain;
   }
@@ -1847,6 +1887,8 @@ public final class ProjectionColumnStore {
     if (keysCorrupt) {
       throw new IllegalStateException("The KEYS chain has a known-corrupt segment");
     }
+    final long projectedKeys = projectedRecordKeysFillBytes();
+    checkFillBudget(-1, projectedKeys, "record-key fill");
     // Fill outside the monitor, first publish wins — same discipline as column fills.
     final byte[][] segments = fetchSegmentChain(-1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, false, fetcher);
@@ -1866,6 +1908,7 @@ public final class ProjectionColumnStore {
         return slices;
       }
       recordKeySlices = decoded;
+      retainedFillBytes.addAndGet(projectedKeys);
     }
     return decoded;
   }

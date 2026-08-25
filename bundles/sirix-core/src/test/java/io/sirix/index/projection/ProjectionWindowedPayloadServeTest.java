@@ -684,6 +684,72 @@ final class ProjectionWindowedPayloadServeTest {
     }
   }
 
+  @Test
+  void theRecordKeyFillIsPricedAndChargedLikeEveryOtherRetainedFill() {
+    // The KEYS chain is fetched unmasked across every leaf and DECODES into a long[] the store
+    // retains for its whole cache lifetime — 8 B/row, which at 100M rows is ~800 MB. The cache
+    // weigher's flat charge is justified by the cumulative ledger bounding every retained fill, so
+    // a door that retains a row-count-scaled array without pricing or charging it makes that
+    // justification false on exactly the workload the windowed route targets.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
+              .commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final var reader = rtx.getStorageEngineReader();
+          final ProjectionIndexMetadata metadata =
+              ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, INDEX_NUMBER, 0L));
+          assertNotNull(metadata);
+          final int leaves = metadata.rowGroupCount();
+          final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
+          final ProjectionColumnStore store = new ProjectionColumnStore(
+              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
+                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+              offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
+
+          final long keysBytes = store.projectedRecordKeysFillBytes();
+          // The decoded long[] alone is 8 B per row, so the projection must exceed it — a figure
+          // that counted only the raw chain would leave the retained half unpriced.
+          assertTrue(keysBytes >= 8L * RECORDS,
+              "the projection must include the decoded 8 B/row keys: " + keysBytes + " for " + RECORDS + " rows");
+
+          final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(keysBytes - 1);
+          try {
+            final ProjectionColumnStore.FillBudgetExceededException declined =
+                assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
+                    () -> store.recordKeys(fetcher));
+            assertTrue(declined.getMessage().contains("record-key"), declined.getMessage());
+            assertEquals(0L, store.retainedFillBytes(), "a declined fill must charge nothing");
+
+            // With room, the fill proceeds AND is charged — the ledger is what the weigher's flat
+            // charge rests on, so an uncharged retained fill is the same defect as an unpriced one.
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE);
+            assertEquals(leaves, store.recordKeys(fetcher).length);
+            assertTrue(store.retainedFillBytes() >= keysBytes,
+                "a published record-key fill must be charged: " + store.retainedFillBytes() + " < " + keysBytes);
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+          }
+        }
+      }
+    }
+  }
+
   /** Long, highly distinct names: the dictionary dwarfs the 8 B/entry hash chain beside it. */
   private static String fatDictionaryCorpus() {
     final StringBuilder json = new StringBuilder(RECORDS * 256);

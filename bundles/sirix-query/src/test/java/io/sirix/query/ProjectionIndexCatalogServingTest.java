@@ -2378,16 +2378,17 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // fill projection therefore refuses a point lookup that would have read almost nothing, and the
     // query falls all the way to the generic navigational pipeline. The route gate has to ask about
     // the fill the route will actually perform.
-    query("""
-          jn:store('json-path1','budgetpredscan.jn','[
-            {"uid": 7, "name": "a", "grp": "x"},
-            {"uid": 3, "name": "b", "grp": "y"},
-            {"uid": 7, "name": "c", "grp": "x"},
-            {"uid": 9, "name": "d"},
-            {"uid": 7, "name": "e", "grp": "z"},
-            {"uid": 3, "name": "f", "grp": "x"}
-          ]')
-        """);
+    // LONG grp values: the point of the budget here is that the whole-COLUMN fill is refused while
+    // the pruned fetch is not, so the column has to be the expensive thing in the store.
+    final StringBuilder predCorpus = new StringBuilder(4096).append('[');
+    for (int i = 0; i < 6; i++) {
+      if (i > 0) {
+        predCorpus.append(',');
+      }
+      predCorpus.append("{\"uid\":").append(i % 3 == 0 ? 7 : 3).append(",\"name\":\"n").append(i)
+                .append("\",\"grp\":\"").append("groupvalue-".repeat(24)).append(i % 3).append("\"}");
+    }
+    query("jn:store('json-path1','budgetpredscan.jn','" + predCorpus.append(']') + "')");
     query("""
           let $doc := jn:doc('json-path1','budgetpredscan.jn')
           let $stats := jn:create-projection-index($doc, '/[]',
@@ -2409,12 +2410,30 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetpredscan.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+      // A budget that refuses the WHOLE-COLUMN fill of the predicate column but admits the route's
+      // own record-key fill. Budgeting below the keys too would refuse the route for a reason that
+      // has nothing to do with the pruning under test — the keys are its result, not its cost.
+      final long grpBytes;
+      final long keysBytes;
+      try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
+                                                             .openProjectionIndex(rtx.getStorageEngineReader(),
+                                                                 new String[] {"[]"},
+                                                                 new String[] {"uid", "name", "grp"});
+        Assertions.assertNotNull(handle, "the projection must be servable");
+        final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
+        Assertions.assertNotNull(columnStore);
+        grpBytes = columnStore.projectedColumnFillBytes(handle.columnOf("grp"));
+        keysBytes = columnStore.projectedRecordKeysFillBytes();
+      }
+      Assertions.assertTrue(keysBytes < grpBytes,
+          "the record keys must be cheaper than the whole predicate column: " + keysBytes + " vs " + grpBytes);
       final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
       final String generic = evaluateQuery(genericChain, ctx, absentLookup);
-      final SirixVectorizedExecutor executor =
-          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
-      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(grpBytes - 1);
       try {
         final long servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
         Assertions.assertEquals(generic, evaluateQuery(chain, ctx, absentLookup),
