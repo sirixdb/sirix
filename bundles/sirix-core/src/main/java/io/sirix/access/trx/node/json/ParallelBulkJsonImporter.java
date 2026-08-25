@@ -821,7 +821,10 @@ public final class ParallelBulkJsonImporter {
 
       if (pageKey == heldTailPageKey) {
         // Shares the previous chunk's held tail: merge into the coordinator-owned page object.
+        // The worker page owns an allocator frame and nothing reads it after the merge, so it is
+        // retired here exactly as the page-0 blit below retires its source.
         mergeInto(heldTailPage, page);
+        page.retire();
         if (isTail && tailPartial) {
           // Whole chunk inside the held page; keep holding.
           continue;

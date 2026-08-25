@@ -307,6 +307,11 @@ public final class Names {
    * @param name the name to resolve, never {@code null}
    * @return the key for the name
    */
+  public int keyForName(final String name) {
+    assert name != null;
+    return probe(name, name.hashCode());
+  }
+
   /**
    * Adds {@code delta} occurrences to an EXISTING interned name's count in one touch — the batched
    * form of the per-occurrence increment in {@link #setName}: one
@@ -331,11 +336,6 @@ public final class Names {
     final HashCountEntryNode hashCountEntryNode =
         storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
     hashCountEntryNode.incrementValueBy(delta);
-  }
-
-  public int keyForName(final String name) {
-    assert name != null;
-    return probe(name, name.hashCode());
   }
 
   /**

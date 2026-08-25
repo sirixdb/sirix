@@ -233,4 +233,48 @@ final class ProjectionBulkSlotAccumulationTest {
     loader.clear();
     assertTrue(loader.isEmpty());
   }
+
+  /**
+   * Regression: a payload landing EXACTLY on the 1 MiB block boundary followed by a zero-length
+   * (tombstone) payload. The block-full guard only rolled over when the next payload did not fit,
+   * and a zero-length one "fits" at offset 1048576 — so the entry was recorded at an offset that no
+   * longer fits the packed position's 20 offset bits and carried into the block INDEX, sending
+   * every later read one block past the end of the arena.
+   */
+  @Test
+  void aZeroLengthPayloadOnTheBlockBoundaryStaysAddressable() {
+    final int blockBytes = 1 << 20;
+    final int maxPayload = 65_535;
+    final HOTBulkSlotLoader loader = new HOTBulkSlotLoader(1024, 8L << 20);
+
+    // Fill the first block to EXACTLY its last byte.
+    int filled = 0;
+    long key = 0L;
+    while (blockBytes - filled > maxPayload) {
+      final byte[] payload = new byte[maxPayload];
+      payload[0] = (byte) key;
+      assertTrue(loader.tryAdd(key++, payload));
+      filled += maxPayload;
+    }
+    final byte[] remainder = new byte[blockBytes - filled];
+    if (remainder.length > 0) {
+      remainder[0] = 42;
+      assertTrue(loader.tryAdd(key++, remainder));
+    }
+
+    final long tombstoneKey = key++;
+    assertTrue(loader.tryAdd(tombstoneKey, new byte[0]), "a tombstone must accumulate on the boundary");
+    assertArrayEquals(new byte[0], loader.lastPayload(tombstoneKey),
+        "the boundary tombstone must read back as a zero-length payload");
+
+    // And the arena keeps working: the next real payload is addressable too.
+    final long afterKey = key;
+    final byte[] after = new byte[] { 7, 8, 9 };
+    assertTrue(loader.tryAdd(afterKey, after));
+    assertArrayEquals(after, loader.lastPayload(afterKey));
+    if (remainder.length > 0) {
+      assertArrayEquals(remainder, loader.lastPayload(afterKey - 2),
+          "the payload that exactly closed the block must still read back");
+    }
+  }
 }

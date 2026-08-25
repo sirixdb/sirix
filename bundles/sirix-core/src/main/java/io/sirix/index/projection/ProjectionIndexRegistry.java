@@ -706,6 +706,17 @@ public final class ProjectionIndexRegistry {
      * shared — the {@code materializer} is not consulted again, so eager (pre-materialized) handles
      * accept a {@code null} one.
      *
+     * <p>
+     * ONLY a RESIDENT list is memoized. A handle lives in the catalog's process-wide cache, keyed by
+     * (resource, def, build revision) and dropped only when the resource is removed, so anything it
+     * stores outlives every session that touches it. Eager leaves are inert {@code byte[]}s and are
+     * safe to share; a {@link ProjectionWindowedRowGroupPayloads} view is NOT — it fetches its
+     * windows through the session its materializer was built from, and memoizing it would hand the
+     * next session a view bound to a closed one. Over-budget handles therefore hand each caller its
+     * own windowed view over the caller's own live session, which is also what keeps
+     * {@link #payloadsMaterialized()} meaning "resident".
+     * </p>
+     *
      * @throws IllegalStateException when a lazy handle's materializer fails (dead-session window,
      *         truncated/corrupt store) — callers decline to the generic pipeline
      */
@@ -716,9 +727,12 @@ public final class ProjectionIndexRegistry {
       }
       synchronized (materializeLock) {
         leaves = rowGroupPayloads;
-        if (leaves == null) {
-          leaves = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
-              "materializer returned null");
+        if (leaves != null) {
+          return leaves;
+        }
+        leaves = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
+            "materializer returned null");
+        if (!(leaves instanceof ProjectionWindowedRowGroupPayloads)) {
           rowGroupPayloads = leaves;
         }
         return leaves;
@@ -731,6 +745,12 @@ public final class ProjectionIndexRegistry {
      * contiguous byte-kernel scan beats scattered slice reads — the sliced routes exist to avoid the
      * materialization, not to replace the warm scan. Racy by design (a stale {@code null} just serves
      * one more query from slices).
+     *
+     * <p>
+     * A windowed view never sets this: its leaves are fetched per window and evicted under a cap, so
+     * reporting it as materialized would steer every later query off a viable sliced fill and into a
+     * byte-kernel scan that re-reads windows from disk.
+     * </p>
      */
     public boolean payloadsMaterialized() {
       return rowGroupPayloads != null;

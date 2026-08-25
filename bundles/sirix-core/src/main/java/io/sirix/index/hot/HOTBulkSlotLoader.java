@@ -5,6 +5,7 @@ package io.sirix.index.hot;
 
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
+import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
@@ -132,7 +133,7 @@ public final class HOTBulkSlotLoader {
         || arenaBytes + payload.length > maxArenaBytes) {
       return false;
     }
-    if (currentBlockOffset + payload.length > BLOCK_BYTES) {
+    if (currentBlockOffset >= BLOCK_BYTES || currentBlockOffset + payload.length > BLOCK_BYTES) {
       if (blockCount == blocks.length) {
         blocks = Arrays.copyOf(blocks, blocks.length << 1);
       }
@@ -209,8 +210,8 @@ public final class HOTBulkSlotLoader {
     // sign-flipped big-endian encoding makes unsigned byte order equal signed long order.
     final int[] winners = new int[distinct];
     int w = 0;
-    for (final int ordinal : lastOrdinalByKey.values()) {
-      winners[w++] = ordinal;
+    for (final IntIterator ordinals = lastOrdinalByKey.values().iterator(); ordinals.hasNext(); ) {
+      winners[w++] = ordinals.nextInt();
     }
     final IntComparator byKey = (a, b) -> Long.compare(keys[a], keys[b]);
     IntArrays.parallelQuickSort(winners, byKey);
@@ -226,8 +227,8 @@ public final class HOTBulkSlotLoader {
       entries.add(new HOTBulkBuilder.Entry(keyBytes,
           Arrays.copyOfRange(block, offset, offset + payloadLen[ordinal])));
     }
-    writer.spliceBulkBuiltRoot(entries);
     releaseBuffers();
+    writer.spliceBulkBuiltRoot(entries);
     return distinct;
   }
 
