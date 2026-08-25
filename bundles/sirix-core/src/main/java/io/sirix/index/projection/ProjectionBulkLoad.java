@@ -149,6 +149,20 @@ public final class ProjectionBulkLoad {
   /** Storage of the CURRENT epoch; set on entry to every method that writes. */
   private @Nullable ProjectionIndexHOTStorage storage;
 
+  /**
+   * COORDINATOR-FED mode: the parallel importer extracts rows in its build workers and appends them
+   * here directly, in document order, so the drain never re-reads a record through the transaction.
+   * Engaged by the first {@link #appendCoordinatorRow}; from then on the notification entry points
+   * refuse, because the same records must not arrive through two mechanisms.
+   */
+  private boolean coordinatorFeed;
+
+  /** Epoch-lived order-label lane of the coordinator feed; bound with {@link #storage}. */
+  private ProjectionStructuralOrderDirectory.@Nullable Accessor feedDirectory;
+
+  /** The previous record's LOCAL order label — the in-order append lane's carry state. */
+  private @Nullable SirixDeweyID feedLastRecordLocal;
+
   private boolean finished;
 
   /**
@@ -410,7 +424,64 @@ public final class ProjectionBulkLoad {
    * back into an already-extracted record), and continuing would silently drop that record's new
    * state.
    */
+  /**
+   * A chunk batch bound to this build's current field resolution — the parallel importer requests
+   * one per chunk, at dispatch, AFTER the chunk's new paths were resolved into the path summary.
+   */
+  public ProjectionChunkRowBatch newChunkBatch(final PathSummaryReader pathSummary, final int expectedRows,
+      final long recordSetKey) {
+    return builder.newChunkBatch(pathSummary, expectedRows, recordSetKey);
+  }
+
+  /**
+   * Append one worker-extracted row, in document order — the coordinator-fed replacement for the
+   * {@link #observeRecord}/{@link #drain} pair: the row's values come from the batch instead of a
+   * record re-read, and its order label from the in-order append lane instead of an ancestry walk,
+   * so nothing here reads the document. Storage and a dictionary generation are bound lazily per
+   * storage epoch; the rotation drain flushes the generation and unbinds, which is what keeps the
+   * resource-wide dictionary rotating exactly as it does for the notification-fed load.
+   */
+  public void appendCoordinatorRow(final StorageEngineWriter storageEngineWriter, final ProjectionChunkRowBatch batch,
+      final int row, final long recordKey, final long containerKey, final long documentRootKey) {
+    if (finished) {
+      throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " was fed record "
+          + recordKey + " after its load-time build was finished.");
+    }
+    if (recordKey <= lastClosedRecordKey) {
+      throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key
+          + " is coordinator-fed in document order, which is append-only: record " + recordKey
+          + " arrived after record " + lastClosedRecordKey + " had already been appended.");
+    }
+    try {
+      coordinatorFeed = true;
+      ProjectionStructuralOrderDirectory.Accessor directory = feedDirectory;
+      if (storage == null || directory == null) {
+        final ProjectionIndexHOTStorage currentStorage =
+            ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+        this.storage = currentStorage;
+        directory = ProjectionStructuralOrderDirectory.open(currentStorage);
+        this.feedDirectory = directory;
+        builder.beginStreamingDictionaryEpoch(storageEngineWriter);
+      }
+      final SirixDeweyID orderLabel =
+          directory.fullLabelForInOrderAppend(recordKey, containerKey, documentRootKey, feedLastRecordLocal);
+      builder.appendBatchRow(batch, row, recordKey, orderLabel);
+      feedLastRecordLocal = directory.lastInOrderAppendedLocal();
+      lastClosedRecordKey = recordKey;
+      diagObserved++;
+      diagClosed++;
+    } catch (final Throwable failure) {
+      poisonAfterFailure(failure);
+      throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(failure);
+    }
+  }
+
   public void observeRecord(final long recordKey) {
+    if (coordinatorFeed) {
+      throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key
+          + " is coordinator-fed; a change notification for record " + recordKey
+          + " would announce the same records through a second mechanism.");
+    }
     if (recordKey == currentRecordKey) {
       return;
     }
@@ -436,12 +507,22 @@ public final class ProjectionBulkLoad {
           + "(2) keep the load append-only and make these updates AFTER its final commit, where ordinary "
           + "incremental maintenance handles them.");
     }
+    closeCurrentRecord();
+    currentRecordKey = recordKey;
+  }
+
+  /**
+   * Close the open record without starting another. {@link #observeRecord} holds the current record
+   * back because a shredder's notification arrives mid-subtree: an extraction there would store a
+   * half-built row, so the record is closed only when a later one begins.
+   */
+  private void closeCurrentRecord() {
     if (currentRecordKey >= 0) {
       completedRecordKeys.add(currentRecordKey);
       lastClosedRecordKey = currentRecordKey;
       diagClosed++;
+      currentRecordKey = -1L;
     }
-    currentRecordKey = recordKey;
   }
 
   /**
@@ -459,6 +540,16 @@ public final class ProjectionBulkLoad {
     Throwable primaryFailure = null;
     try {
       countArrayRootRecords(rtx);
+      if (coordinatorFeed) {
+        // Rows were appended at adoption, straight from the worker batches; the drain's only jobs
+        // here are the record-count refresh above and closing the epoch: flush the dictionary
+        // generation begun by the epoch's first append — the rotation that lifts the per-append
+        // ceiling — and let the finally below unbind the epoch's storage and label lane.
+        if (storage != null) {
+          builder.flushStreamingDictionaryGeneration(storageEngineWriter);
+        }
+        return;
+      }
       if (completedRecordKeys.isEmpty()) {
         return;
       }
@@ -511,6 +602,7 @@ public final class ProjectionBulkLoad {
         cleanupFailure = failure;
       } finally {
         this.storage = null;
+        this.feedDirectory = null;
       }
       if (cleanupFailure != null) {
         if (primaryFailure != null) {
@@ -558,11 +650,7 @@ public final class ProjectionBulkLoad {
     if (finished) {
       return;
     }
-    if (currentRecordKey >= 0) {
-      completedRecordKeys.add(currentRecordKey);
-      lastClosedRecordKey = currentRecordKey;
-      currentRecordKey = -1L;
-    }
+    closeCurrentRecord();
     // EVERYTHING inside the try, the shape and row-count checks included: a build that fails one of
     // them is dead either way, and its registry entry has to be retired regardless or the definition
     // stays "already loading" for the life of the JVM and a retry cannot even arm. Failing before
