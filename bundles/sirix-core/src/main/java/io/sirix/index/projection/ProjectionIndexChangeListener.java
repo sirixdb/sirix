@@ -1673,9 +1673,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   private void abandonForOversizedDictionary(final ProjectionBulkLoad load,
       final GlobalDictionaryBudgetExceededException tooBig) {
-    LOGGER.warn("Projection index " + indexDef.getID() + " ABANDONED during the load. " + tooBig.getMessage(), tooBig);
+    // UNCONDITIONAL, not just LOGGER.warn (task #55). The shipped logback pins the root logger to
+    // ERROR, so the warning below is invisible on a default deployment — and this is the one event
+    // that turns a successful-looking load into a useless one. A silent degradation that the
+    // loader then reports as "projection built" is how a 26-hour run gets measured on the wrong
+    // code path. Anything a guard or an operator must see cannot travel by a suppressible channel.
+    System.err.println("[proj] PROJECTION ABANDONED during the load: index " + indexDef.getID() + ", column "
+        + tooBig.column() + " retained " + tooBig.retainedBytes() + " B over " + tooBig.entryCount()
+        + " distinct values, past its " + tooBig.budgetBytes() + " B budget. The load completes; the projection is"
+        + " STALE and every query will take the generic pipeline until jn:create-projection-index rebuilds it.");
+    LOGGER.warn("Projection index " + indexDef.getID() + " ABANDONED during the load. " + tooBig.getMessage() + " "
+        + ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED.remedy(), tooBig);
     load.abort();
-    invalidate();
+    invalidate(ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED);
   }
 
   @Override
@@ -3120,9 +3130,22 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * Corruption valve (and the legacy invalidation-only contract): overwrite slot 0 with the stale
    * tombstone so every reader falls back to the generic pipeline until a manual
    * {@code jn:create-projection-index} re-run. Regular maintenance never calls this — unattributable
-   * changes fail the owning transaction instead.
+   * changes fail the owning transaction instead. Callers with a KNOWN cause use the reason-carrying
+   * overload; this default records {@link ProjectionIndexMetadata.StaleReason#UNSPECIFIED}, the
+   * legacy-invalidation contract's honest answer.
    */
   private void invalidate() {
+    invalidate(ProjectionIndexMetadata.StaleReason.UNSPECIFIED);
+  }
+
+  /**
+   * As {@link #invalidate()}, recording WHY in the tombstone so a later decline can quote the
+   * writer's decision instead of guessing (task #55).
+   *
+   * @param reason what the writer decided and on what grounds; never {@code null}
+   */
+  private void invalidate(final ProjectionIndexMetadata.StaleReason reason) {
+    Objects.requireNonNull(reason, "reason");
     invalidated = true;
     dirtyRecordKeys = null;
     dirtyColumnWordsByRecord = null;
@@ -3135,8 +3158,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // keep their own immutable snapshot.
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     // The row-group slots survive the tombstone; the next rebuild reclaims them by probing what is
-    // physically live, so the marker carries nothing but "stale".
-    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+    // physically live, so the marker carries "stale" and the reason it went stale.
+    storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(reason).serialize());
   }
 
   /**
