@@ -5,6 +5,7 @@ package io.sirix.access.trx.node.json;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionChunkRowBatch;
 import io.sirix.node.NodeKind;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;
@@ -26,6 +27,7 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
 import net.openhft.hashing.LongHashFunction;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
@@ -57,6 +59,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 final class WorkerPageBuilder implements BulkRecordSink {
 
   private static final long NULL_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
+  private static final ProjectionChunkRowBatch[] NO_PROJECTION_BATCHES = new ProjectionChunkRowBatch[0];
 
   private final ResourceConfiguration resourceConfig;
   private final int revisionNumber;
@@ -65,6 +68,22 @@ final class WorkerPageBuilder implements BulkRecordSink {
   private final Object2IntOpenHashMap<String> nameKeys;
   private final long firstKey;
   private final long lastKey;
+
+  /**
+   * Armed projection batches this build feeds AS IT BUILDS — one per armed definition, empty when
+   * none is armed. The worker holds every record's primitives in hand exactly once, here, so
+   * extraction costs one hook per node instead of a per-record re-read through the transaction.
+   */
+  private final ProjectionChunkRowBatch[] projectionBatches;
+  private final long projectionRecordSetKey;
+  private final boolean projectionTrackChildValues;
+
+  /**
+   * PATH/CAS/NAME tuples this build collects AS IT BUILDS, or {@code null} when none of those
+   * families is armed. Same rationale as the projection batches: the worker holds every node's
+   * (pathNodeKey, nameKey, value) exactly once, here.
+   */
+  private final @Nullable ChunkIndexTupleBatch indexTuples;
 
   private final List<KeyValueLeafPage> pages = new ArrayList<>();
   private KeyValueLeafPage currentPage;
@@ -90,6 +109,15 @@ final class WorkerPageBuilder implements BulkRecordSink {
   WorkerPageBuilder(final ResourceConfiguration resourceConfig, final int revisionNumber,
       final LongHashFunction hashFunction, final boolean storeChildCount,
       final Object2IntOpenHashMap<String> nameKeys, final long firstKey, final long lastKey) {
+    this(resourceConfig, revisionNumber, hashFunction, storeChildCount, nameKeys, firstKey, lastKey, null,
+        NULL_KEY, null);
+  }
+
+  WorkerPageBuilder(final ResourceConfiguration resourceConfig, final int revisionNumber,
+      final LongHashFunction hashFunction, final boolean storeChildCount,
+      final Object2IntOpenHashMap<String> nameKeys, final long firstKey, final long lastKey,
+      final ProjectionChunkRowBatch @Nullable [] projectionBatches, final long projectionRecordSetKey,
+      final @Nullable ChunkIndexTupleBatch indexTuples) {
     this.resourceConfig = resourceConfig;
     this.revisionNumber = revisionNumber;
     this.hashFunction = hashFunction;
@@ -98,6 +126,16 @@ final class WorkerPageBuilder implements BulkRecordSink {
     this.firstKey = firstKey;
     this.lastKey = lastKey;
     this.nextKey = firstKey;
+    this.projectionBatches = projectionBatches == null
+        ? NO_PROJECTION_BATCHES
+        : projectionBatches;
+    this.projectionRecordSetKey = projectionRecordSetKey;
+    boolean trackChildValues = false;
+    for (final ProjectionChunkRowBatch batch : this.projectionBatches) {
+      trackChildValues |= batch.trackChildValues();
+    }
+    this.projectionTrackChildValues = trackChildValues;
+    this.indexTuples = indexTuples;
 
     this.scratchObjectNode =
         new ObjectNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, NULL_KEY, NULL_KEY, 0,
@@ -143,11 +181,51 @@ final class WorkerPageBuilder implements BulkRecordSink {
       pages.add(currentPage);
       currentPage = null;
     }
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.finishBuild();
+    }
     return pages;
+  }
+
+  // ==== projection extraction hooks (no-ops when nothing is armed) =============================
+
+  /** A structured, unnamed node: a record root when its parent is the record set, else a plain child. */
+  private void noteUnnamedStructured(final long nodeKey, final long parentKey) {
+    if (parentKey == projectionRecordSetKey) {
+      for (final ProjectionChunkRowBatch batch : projectionBatches) {
+        batch.beginRecord(nodeKey);
+      }
+    } else if (projectionTrackChildValues) {
+      for (final ProjectionChunkRowBatch batch : projectionBatches) {
+        batch.onChildNonString(parentKey);
+      }
+    }
+  }
+
+  /** An unnamed non-string leaf: a scalar record root, or a set-poisoning child. */
+  private void noteUnnamedNonString(final long nodeKey, final long parentKey) {
+    noteUnnamedStructured(nodeKey, parentKey);
+  }
+
+  private void noteUnnamedString(final long nodeKey, final long parentKey, final byte[] utf8, final int utf8Length) {
+    if (parentKey == projectionRecordSetKey) {
+      for (final ProjectionChunkRowBatch batch : projectionBatches) {
+        batch.beginRecord(nodeKey);
+      }
+    } else if (projectionTrackChildValues) {
+      for (final ProjectionChunkRowBatch batch : projectionBatches) {
+        batch.onChildValueString(parentKey, utf8, utf8Length);
+      }
+    }
   }
 
   long firstKey() {
     return firstKey;
+  }
+
+  /** The chunk's PATH/CAS/NAME tuples, for the coordinator's drain; {@code null} when unarmed. */
+  @Nullable ChunkIndexTupleBatch indexTuples() {
+    return indexTuples;
   }
 
   // ==== minting + page roll ====================================================================
@@ -187,6 +265,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
   @Override
   public long createObjectNode(final long parentKey, final long leftSibKey, final long notifyPcr) {
     final long nodeKey = mint();
+    noteUnnamedStructured(nodeKey, parentKey);
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchObjectNode.estimateSerializedSize(), 0);
     final int recordBytes = ObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -199,6 +278,10 @@ final class WorkerPageBuilder implements BulkRecordSink {
   @Override
   public long createArrayNode(final long parentKey, final long leftSibKey, final long arrayPcr) {
     final long nodeKey = mint();
+    noteUnnamedStructured(nodeKey, parentKey);
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(arrayPcr, nodeKey);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchArrayNode.estimateSerializedSize(), 0);
     final int recordBytes =
@@ -214,6 +297,13 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final String name) {
     final int nameKey = resolvedNameKey(name);
     final long nodeKey = mint();
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.onNamedObject(pathNodeKey);
+    }
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onNameEntry(nameKey, nodeKey);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNamedObjectNode.estimateSerializedSize(), 0);
     final int recordBytes = ObjectNamedObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -228,6 +318,14 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final String name) {
     final int nameKey = resolvedNameKey(name);
     final long nodeKey = mint();
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.onNamedArray(pathNodeKey, nodeKey);
+    }
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onNamedArrayMirrorCandidate(pathNodeKey, nodeKey);
+      indexTuples.onNameEntry(nameKey, nodeKey);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNamedArrayNode.estimateSerializedSize(), 0);
     final int recordBytes = ObjectNamedArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -243,6 +341,10 @@ final class WorkerPageBuilder implements BulkRecordSink {
   public long createStringNode(final long parentKey, final long leftSibKey, final long rightSibKey, final byte[] utf8,
       final int utf8Length, final long notifyPcr) {
     final long nodeKey = mint();
+    noteUnnamedString(nodeKey, parentKey, utf8, utf8Length);
+    if (indexTuples != null) {
+      indexTuples.onCasString(notifyPcr, nodeKey, utf8, utf8Length);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(55 + utf8Length, 0);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
@@ -266,6 +368,14 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final long pathNodeKey, final String name, final byte[] utf8, final int utf8Length) {
     final int nameKey = resolvedNameKey(name);
     final long nodeKey = mint();
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.onNamedString(pathNodeKey, utf8, utf8Length);
+    }
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onNameEntry(nameKey, nodeKey);
+      indexTuples.onCasString(pathNodeKey, nodeKey, utf8, utf8Length);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(64 + utf8Length, 0);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
@@ -288,6 +398,10 @@ final class WorkerPageBuilder implements BulkRecordSink {
   public long createNumberNode(final long parentKey, final long leftSibKey, final long rightSibKey, final Number value,
       final long notifyPcr) {
     final long nodeKey = mint();
+    noteUnnamedNonString(nodeKey, parentKey);
+    if (indexTuples != null) {
+      indexTuples.onCasNumber(notifyPcr, nodeKey, value);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNumberNode.estimateSerializedSize(), 0);
     final int recordBytes =
@@ -302,6 +416,14 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final long pathNodeKey, final String name, final Number value) {
     final int nameKey = resolvedNameKey(name);
     final long nodeKey = mint();
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.onNamedNumber(pathNodeKey, value);
+    }
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onNameEntry(nameKey, nodeKey);
+      indexTuples.onCasNumber(pathNodeKey, nodeKey, value);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNamedNumberNode.estimateSerializedSize(), 0);
     final int recordBytes = ObjectNamedNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -315,6 +437,10 @@ final class WorkerPageBuilder implements BulkRecordSink {
   public long createBooleanNode(final long parentKey, final long leftSibKey, final long rightSibKey,
       final boolean value, final long notifyPcr) {
     final long nodeKey = mint();
+    noteUnnamedNonString(nodeKey, parentKey);
+    if (indexTuples != null) {
+      indexTuples.onCasBoolean(notifyPcr, nodeKey, value);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchBooleanNode.estimateSerializedSize(), 0);
     final int recordBytes =
@@ -329,6 +455,14 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final long pathNodeKey, final String name, final boolean value) {
     final int nameKey = resolvedNameKey(name);
     final long nodeKey = mint();
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.onNamedBoolean(pathNodeKey, value);
+    }
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onNameEntry(nameKey, nodeKey);
+      indexTuples.onCasBoolean(pathNodeKey, nodeKey, value);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNamedBooleanNode.estimateSerializedSize(), 0);
     final int recordBytes = ObjectNamedBooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
@@ -342,6 +476,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
   public long createNullNode(final long parentKey, final long leftSibKey, final long rightSibKey,
       final long notifyPcr) {
     final long nodeKey = mint();
+    noteUnnamedNonString(nodeKey, parentKey);
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNullNode.estimateSerializedSize(), 0);
     final int recordBytes = NullNode.writeNewRecord(kvl.getSlottedPage(), absOffset, scratchNullNode.getHeapOffsets(),
@@ -355,6 +490,13 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final long pathNodeKey, final String name) {
     final int nameKey = resolvedNameKey(name);
     final long nodeKey = mint();
+    for (final ProjectionChunkRowBatch batch : projectionBatches) {
+      batch.onNamedNull(pathNodeKey);
+    }
+    if (indexTuples != null) {
+      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onNameEntry(nameKey, nodeKey);
+    }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchNamedNullNode.estimateSerializedSize(), 0);
     final int recordBytes = ObjectNamedNullNode.writeNewRecord(kvl.getSlottedPage(), absOffset,

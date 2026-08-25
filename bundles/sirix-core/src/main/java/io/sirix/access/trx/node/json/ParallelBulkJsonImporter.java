@@ -3,17 +3,29 @@
  */
 package io.sirix.access.trx.node.json;
 
+import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
+import io.sirix.index.cas.CASIndexBuilder;
+import io.sirix.index.cas.CASIndexBuilderFactory;
+import io.sirix.index.name.NameIndexBuilder;
+import io.sirix.index.name.NameIndexBuilderFactory;
+import io.sirix.index.path.PathIndexBuilder;
+import io.sirix.index.path.PathIndexBuilderFactory;
 import io.sirix.index.path.summary.PathSummaryWriter;
+import io.sirix.index.projection.ProjectionBulkLoad;
+import io.sirix.index.projection.ProjectionChunkRowBatch;
 import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 
 import java.io.CharArrayReader;
 import java.io.IOException;
@@ -26,7 +38,9 @@ import java.nio.charset.StandardCharsets;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharsetDecoder;
@@ -37,11 +51,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import org.jspecify.annotations.Nullable;
 
 /**
  * GENERAL parallel bulk import of a JSON document whose top level is a large array — the shape
@@ -72,8 +92,14 @@ import it.unimi.dsi.fastutil.objects.ObjectArrayList;
  * </ol>
  *
  * <p>
- * v1 scope: fresh resource, same refusals as {@link BulkJsonTreeAssembler}; index notifications
- * refused (no primitive indexes during import); the caller commits. This entry point is
+ * Scope: fresh resource, same refusals as {@link BulkJsonTreeAssembler}. PATH, CAS and NAME index
+ * definitions are maintained BY the load: workers collect each family's tuples from the primitives
+ * they hold, the coordinator drains them into the families' ordinary builders, and one flush per
+ * family materialises each trie before the caller's commit. A PROJECTION index armed for this
+ * transaction is likewise maintained in the same single pass, fed by the coordinator's record
+ * attribution over the workers' row batches. Only valid-time interval maintenance is refused — it
+ * is resolved by a configured-path visitor over whole records, with no chunk-local equivalent yet.
+ * The caller commits, and that final commit is what closes the builds. This entry point is
  * single-builder (the M2 pipeline); the M3 executor fan-out layers on top of the same chunk
  * protocol.
  */
@@ -84,6 +110,7 @@ public final class ParallelBulkJsonImporter {
   private static final int DEFAULT_CHUNK_CHAR_BUDGET =
       Integer.getInteger("sirix.parallelImport.chunkBytes", 4 << 20);
   private static final int ADOPT_BURST_PAGES = 16;
+  private static final ProjectionBulkLoad[] NO_PROJECTION_LOADS = new ProjectionBulkLoad[0];
 
   private final JsonNodeTrxImpl wtx;
   private final StorageEngineWriter storageEngineWriter;
@@ -104,6 +131,66 @@ public final class ParallelBulkJsonImporter {
   private KeyValueLeafPage heldTailPage;
   private long heldTailPageKey = -1;
 
+  /**
+   * Load-time projection builds this import feeds, empty when none is armed. Non-empty switches on
+   * the feeder's per-member node counts and the record attribution below; empty leaves every code
+   * path exactly as it was.
+   */
+  private final ProjectionBulkLoad[] projectionLoads;
+
+  /**
+   * Record roots and their last node keys, in document order, awaiting their row feed. A record's
+   * row is handed to the builds only once its WHOLE subtree has entered the intent log — the same
+   * watermark discipline the old key-attribution queue drained against — so the feed's document
+   * order and the storage epoch a row's dictionary interns land in stay exactly where they were.
+   * Only the row's SOURCE changed: the worker's batch, extracted during the build, instead of a
+   * coordinator re-read through the transaction.
+   */
+  private final @Nullable LongArrayList pendingRecordRoots;
+  private final @Nullable LongArrayList pendingRecordEnds;
+
+  /** Index of the oldest record in the two queues above whose row has not been fed yet. */
+  private int pendingRecordHead;
+
+  /** Worker-extracted row batches, in chunk order — one array (one batch per armed load) per chunk. */
+  private final @Nullable ArrayDeque<ProjectionChunkRowBatch[]> pendingFeedBatches;
+
+  /** Next unfed row of the head entry of {@link #pendingFeedBatches}. */
+  private int feedRowInHeadBatch;
+
+  /** The record-set container (the root array) every fed record is a child of. */
+  private long feedRecordSetKey = -1;
+
+  // ==== PATH/CAS/NAME maintenance riding the load ==============================================
+
+  private final IndexDef[] pathIndexDefs;
+  private final IndexDef[] casIndexDefs;
+  private final IndexDef[] nameIndexDefs;
+  private final PathIndexBuilder[] pathIndexBuilders;
+  private final CASIndexBuilder[] casIndexBuilders;
+  private final NameIndexBuilder[] nameIndexBuilders;
+  private final boolean indexTuplesActive;
+  private final boolean pathIndexesEverything;
+  private final boolean casIndexesEverything;
+  private final boolean collectAllNames;
+  private final Set<String> includedNameStrings;
+  private final IntOpenHashSet includedNameKeys;
+  private final @Nullable Int2ObjectOpenHashMap<QNm> qnmByNameKey;
+  private final @Nullable Long2LongOpenHashMap mirrorParentPcrMemo;
+
+  private static final Str STR_TRUE = new Str("true");
+  private static final Str STR_FALSE = new Str("false");
+
+  /** Highest node key that is live in the intent log, i.e. readable back through the wtx. */
+  private long adoptedWatermark = -1;
+
+  /**
+   * Last key of the chunk being adopted. A page is adopted whole, but the chunk that produced it may
+   * stop part-way through the page's slot range (page 0's prologue chunk does), so the watermark a
+   * page can justify is capped by what the chunk actually built.
+   */
+  private long currentChunkLastKey = -1;
+
   /** Recycled decode scratch: chars ≤ bytes for UTF-8, so one budget-sized array fits a chunk. */
   private final ArrayBlockingQueue<char[]> charScratchPool = new ArrayBlockingQueue<>(16);
 
@@ -115,15 +202,102 @@ public final class ParallelBulkJsonImporter {
     return new char[Math.max(neededChars, chunkCharBudget + (chunkCharBudget >> 2))];
   }
 
-  private ParallelBulkJsonImporter(final JsonNodeTrxImpl wtx, final int chunkCharBudget) {
+  private ParallelBulkJsonImporter(final JsonNodeTrxImpl wtx, final int chunkCharBudget,
+      final ProjectionBulkLoad[] projectionLoads) {
     this.wtx = wtx;
     this.storageEngineWriter = wtx.getStorageEngineWriter();
     this.pathSummaryWriter = wtx.bulkPathSummaryWriter();
     this.buildPathSummary = wtx.bulkBuildPathSummary();
-    this.wtxSink = new WtxBulkRecordSink(wtx);
+    // The coordinator attributes records to the armed builds itself; the spine's own handful of
+    // nodes must not additionally arrive as notifications, or the same record set would be
+    // announced twice through two different mechanisms.
+    this.wtxSink = new WtxBulkRecordSink(wtx, false);
     this.revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     this.resourceConfig = wtx.getResourceSession().getResourceConfig();
     this.chunkCharBudget = chunkCharBudget;
+    this.projectionLoads = projectionLoads;
+    this.pendingRecordRoots = projectionLoads.length == 0
+        ? null
+        : new LongArrayList(1024);
+    this.pendingRecordEnds = projectionLoads.length == 0
+        ? null
+        : new LongArrayList(1024);
+    this.pendingFeedBatches = projectionLoads.length == 0
+        ? null
+        : new ArrayDeque<>(8);
+
+    // PATH/CAS/NAME maintenance riding the load: the catalogued definitions get their ordinary
+    // builders, whose empty-tree bulk-loader arms this import feeds through the workers' tuple
+    // batches. The refusal above already rejected the one family this cannot serve (valid-time).
+    final Set<IndexDef> pathDefs = wtx.bulkIndexDefsOfType(IndexType.PATH);
+    final Set<IndexDef> casDefs = wtx.bulkIndexDefsOfType(IndexType.CAS);
+    final Set<IndexDef> nameDefs = wtx.bulkIndexDefsOfType(IndexType.NAME);
+    this.pathIndexDefs = pathDefs.toArray(IndexDef[]::new);
+    this.casIndexDefs = casDefs.toArray(IndexDef[]::new);
+    this.nameIndexDefs = nameDefs.toArray(IndexDef[]::new);
+    this.pathIndexBuilders = new PathIndexBuilder[pathIndexDefs.length];
+    final PathIndexBuilderFactory pathFactory = new PathIndexBuilderFactory(DatabaseType.JSON);
+    for (int i = 0; i < pathIndexDefs.length; i++) {
+      pathIndexBuilders[i] = pathFactory.create(storageEngineWriter, wtx.getPathSummary(), pathIndexDefs[i]);
+    }
+    this.casIndexBuilders = new CASIndexBuilder[casIndexDefs.length];
+    final CASIndexBuilderFactory casFactory = new CASIndexBuilderFactory(DatabaseType.JSON);
+    for (int i = 0; i < casIndexDefs.length; i++) {
+      casIndexBuilders[i] = casFactory.create(storageEngineWriter, wtx.getPathSummary(), casIndexDefs[i]);
+    }
+    this.nameIndexBuilders = new NameIndexBuilder[nameIndexDefs.length];
+    final NameIndexBuilderFactory nameFactory = new NameIndexBuilderFactory(DatabaseType.JSON);
+    for (int i = 0; i < nameIndexDefs.length; i++) {
+      nameIndexBuilders[i] = nameFactory.create(storageEngineWriter, nameIndexDefs[i]);
+    }
+    this.indexTuplesActive = pathIndexBuilders.length > 0 || casIndexBuilders.length > 0
+        || nameIndexBuilders.length > 0;
+
+    // NAME-family worker pre-filter: dictionary keys of the names any definition INCLUDES,
+    // maintained as names intern (a name first occurring in chunk N is interned before chunk N
+    // dispatches, so per-chunk snapshots are exact). A definition with an empty include set — or
+    // an include the JSON name space cannot express — indexes every name, so the pre-filter
+    // degrades to collect-all and the builders' own include/exclude filter decides at drain.
+    boolean collectAllNames = false;
+    final Set<String> includedNames = new HashSet<>();
+    for (final IndexDef nameDef : nameIndexDefs) {
+      if (nameDef.getIncluded().isEmpty()) {
+        collectAllNames = true;
+        break;
+      }
+      for (final QNm included : nameDef.getIncluded()) {
+        if ((included.getPrefix() != null && !included.getPrefix().isEmpty())
+            || (included.getNamespaceURI() != null && !included.getNamespaceURI().isEmpty())) {
+          collectAllNames = true;
+          break;
+        }
+        includedNames.add(included.getLocalName());
+      }
+    }
+    this.collectAllNames = collectAllNames;
+    this.includedNameStrings = includedNames;
+    this.includedNameKeys = new IntOpenHashSet(Math.max(4, includedNames.size() * 2));
+    this.qnmByNameKey = nameIndexBuilders.length > 0
+        ? new Int2ObjectOpenHashMap<>(64)
+        : null;
+    // Whether any definition of the family indexes EVERY path — then the worker collects every
+    // eligible node and each builder's own filter decides at drain.
+    boolean pathAll = false;
+    for (final IndexDef def : pathIndexDefs) {
+      pathAll |= def.getPaths().isEmpty();
+    }
+    this.pathIndexesEverything = pathAll;
+    boolean casAll = false;
+    for (final IndexDef def : casIndexDefs) {
+      casAll |= def.getPaths().isEmpty();
+    }
+    this.casIndexesEverything = casAll;
+    this.mirrorParentPcrMemo = pathIndexBuilders.length > 0
+        ? new Long2LongOpenHashMap(16)
+        : null;
+    if (mirrorParentPcrMemo != null) {
+      mirrorParentPcrMemo.defaultReturnValue(Long.MIN_VALUE);
+    }
   }
 
   /** As {@link #assemble(JsonNodeTrx, Reader, int)} with the default chunk budget. */
@@ -181,23 +355,39 @@ public final class ParallelBulkJsonImporter {
       throw new IllegalArgumentException(
           "parallel bulk import requires the standard JsonNodeTrx implementation, got " + wtx.getClass().getName());
     }
-    refuseUnsupportedShape(impl);
+    final ProjectionBulkLoad[] projectionLoads = refuseUnsupportedShape(impl);
     try {
       final PushbackInputStream stream = new PushbackInputStream(input, 1);
       if (!nextIsArray(stream)) {
         // Not a top-level array: nothing to parallelize — the sequential assembler is the
-        // general path for every other shape.
+        // general path for every other shape. Its own record sink notifies the projection
+        // listener, which feeds any armed load exactly as it does for a sequential import.
         BulkJsonTreeAssembler.assemble(wtx, new InputStreamReader(stream, StandardCharsets.UTF_8));
         return;
       }
-      new ParallelBulkJsonImporter(impl, chunkCharBudget).run(stream, Math.max(1, parallelism));
+      new ParallelBulkJsonImporter(impl, chunkCharBudget, projectionLoads).run(stream, Math.max(1, parallelism));
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
   }
 
-  /** The assembler's refusals plus the importer's own: no primitive indexes during import. */
-  private static void refuseUnsupportedShape(final JsonNodeTrxImpl wtx) {
+  /**
+   * The assembler's refusals plus the importer's own.
+   *
+   * <p>
+   * Index maintenance splits three ways here. PATH, CAS and NAME definitions are MAINTAINED by the
+   * import itself: the workers collect each family's (key, nodeKey) tuples from the primitives they
+   * already hold, and the coordinator drains them into the families' ordinary builders — the same
+   * entries the sequential path's per-node change notifications produce. A PROJECTION index is
+   * accepted when, and only when, a LOAD-TIME build is armed for it on THIS transaction
+   * ({@code createProjectionIndexAtLoadStart}), because that build is fed by the coordinator's own
+   * record attribution; a catalogued projection with no armed load would be silently left
+   * unmaintained, so it refuses. Valid-time interval maintenance remains refused — it is resolved by
+   * a configured-path visitor over whole records, which has no chunk-local equivalent yet.
+   *
+   * @return the armed loads this import must feed, empty when none
+   */
+  private static ProjectionBulkLoad[] refuseUnsupportedShape(final JsonNodeTrxImpl wtx) {
     final ResourceConfiguration config = wtx.getResourceSession().getResourceConfig();
     if (config.hashType != HashType.NONE) {
       throw new IllegalStateException("parallel bulk import supports hashType=NONE only, got " + config.hashType);
@@ -212,13 +402,39 @@ public final class ParallelBulkJsonImporter {
     if (summary != null && summary.isPathStatisticsEnabled()) {
       throw new IllegalStateException("parallel bulk import does not support path statistics");
     }
-    if (wtx.bulkHasPrimitiveIndexes()) {
+    if (wtx.bulkHasValidTimeIndex()) {
       throw new IllegalStateException(
-          "parallel bulk import does not support primitive-index maintenance during the load");
+          "parallel bulk import does not support valid-time index maintenance during the load — load with no "
+              + "valid-time index configured and build it afterwards");
     }
     if (!wtx.moveToDocumentRoot() || wtx.hasFirstChild()) {
       throw new IllegalStateException("parallel bulk import requires a FRESH resource (empty document root)");
     }
+    // Resolved LAST: every prior refusal throws before any armed load is looked up, so a refused
+    // import never leaves an armed load resolved-but-unfed behind.
+    return resolveArmedProjectionLoads(wtx);
+  }
+
+  private static ProjectionBulkLoad[] resolveArmedProjectionLoads(final JsonNodeTrxImpl wtx) {
+    final Set<IndexDef> projectionDefs = wtx.bulkProjectionIndexDefs();
+    if (projectionDefs.isEmpty()) {
+      return NO_PROJECTION_LOADS;
+    }
+    final String resourceKey = wtx.getResourceSession().getResourceConfig().getResource().toString();
+    final ProjectionBulkLoad[] loads = new ProjectionBulkLoad[projectionDefs.size()];
+    int count = 0;
+    for (final IndexDef indexDef : projectionDefs) {
+      final ProjectionBulkLoad load = ProjectionBulkLoad.active(resourceKey, indexDef.getID(), wtx);
+      if (load == null) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " is catalogued on this resource but has no load-time build armed for this transaction. The parallel "
+            + "importer feeds a projection by attributing the records IT writes, which requires the definition to be "
+            + "declared before the data through createProjectionIndexAtLoadStart. Either arm it there, or load with "
+            + "no declared projection and build the index afterwards with jn:create-projection-index.");
+      }
+      loads[count++] = load;
+    }
+    return loads;
   }
 
   /** Peeks past leading whitespace; pushes the decisive byte back either way. */
@@ -253,8 +469,21 @@ public final class ParallelBulkJsonImporter {
     final long rootArrayKey =
         wtxSink.createArrayNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), NULL_KEY, rootArrayPcr);
     rememberRootArrayPcr(rootArrayPcr);
+    // Page 0 carries the document root and this array; it enters the intent log through the ordinary
+    // transaction path above, so everything up to here is already readable back.
+    adoptedWatermark = rootArrayKey;
+    currentChunkLastKey = rootArrayKey;
+    feedRecordSetKey = rootArrayKey;
+    for (final ProjectionBulkLoad load : projectionLoads) {
+      load.noteArrayRootInstance(rootArrayKey, wtx);
+    }
+    // The root array is created by the coordinator's own sink, so no worker batch ever carries it —
+    // but the sequential leg's PATH listener indexes every ARRAY node, this one included.
+    for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
+      pathIndexBuilder.add(rootArrayPcr, rootArrayKey);
+    }
 
-    final FusedSliceAndScan fused = new FusedSliceAndScan(input, chunkCharBudget);
+    final FusedSliceAndScan fused = new FusedSliceAndScan(input, chunkCharBudget, projectionLoads.length > 0);
     fused.consumeArrayOpen();
     fused.rootStep().pcr = rootArrayPcr;
 
@@ -328,14 +557,25 @@ public final class ParallelBulkJsonImporter {
       }
       final long lastKey = firstKey + chunkNodes - 1;
       final long chunkLastMemberKey = firstKey + chunkNodes - chunk.lastMemberNodes();
+      enqueueRecordRoots(chunk, firstKey, chunkLastMemberKey, lastKey);
       final long trailingSiblingKey = chunk.isFinal()
           ? NULL_KEY
           : lastKey + 1;
 
       // --- Stage B: build — off-thread when a pool exists, inline otherwise ---------------------
+      // With a projection armed, the chunk carries a row batch per armed build: the worker extracts
+      // the rows AS IT BUILDS, from the primitives it already holds, and the coordinator replays
+      // them at adoption. The batch snapshot is taken HERE, after resolveChunkMetadata, so a field
+      // whose first occurrence is in this chunk has already acquired its path class.
+      final ProjectionChunkRowBatch[] chunkBatches = newChunkBatches((int) chunkMembers);
+      final ChunkIndexTupleBatch chunkIndexBatch = newChunkIndexBatch();
       final WorkerPageBuilder builder =
           new WorkerPageBuilder(resourceConfig, storageEngineWriter.getRevisionNumber(),
-              resourceConfig.nodeHashFunction, wtx.bulkStoreChildCount(), chunkNames, firstKey, lastKey);
+              resourceConfig.nodeHashFunction, wtx.bulkStoreChildCount(), chunkNames, firstKey, lastKey,
+              chunkBatches, feedRecordSetKey, chunkIndexBatch);
+      if (chunkBatches != null) {
+        pendingFeedBatches.addLast(chunkBatches);
+      }
       final byte[] chunkBytes = chunk.bytes();
       final int chunkByteLength = chunk.length();
       final long buildFirstKey = firstKey;
@@ -344,8 +584,10 @@ public final class ParallelBulkJsonImporter {
       final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot = copyMemo(masterPcrMemo);
 
       if (buildPool == null) {
-        stitchAndAdopt(buildChunk(fused, builder, chunkBytes, chunkByteLength, buildFirstKey, lastKey, rootArrayKey,
-            rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot), lastKey);
+        final List<KeyValueLeafPage> builtPages = buildChunk(fused, builder, chunkBytes, chunkByteLength,
+            buildFirstKey, lastKey, rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
+        drainIndexTuples(builder.indexTuples());
+        stitchAndAdopt(builtPages, lastKey);
       } else {
         final long submittedLastKey = lastKey;
         inFlight.addLast(new PendingBuild(buildPool.submit(() -> {
@@ -379,6 +621,30 @@ public final class ParallelBulkJsonImporter {
       adoptBurst(new KeyValueLeafPage[] { heldTailPage }, 1);
       heldTailPage = null;
       heldTailPageKey = -1;
+    }
+
+    // Everything built is now in the intent log, so the remaining rows — the records that were
+    // still inside a held tail page — can be fed. Nothing must be left pending: the builds' own
+    // end-of-load row count would come up short and refuse.
+    if (projectionLoads.length > 0) {
+      adoptedWatermark = expectedNextReservation - 1;
+      feedReadableRows();
+      if (pendingRecordCount() != 0) {
+        throw new IllegalStateException(
+            "the import finished with " + pendingRecordCount() + " records never handed to the projection build");
+      }
+    }
+
+    // Materialise the PATH/CAS/NAME indexes: every chunk's tuples are drained, so one flush per
+    // family builds each trie in a single pass, before the caller's commit persists it.
+    for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
+      pathIndexBuilder.finish();
+    }
+    for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
+      casIndexBuilder.finish();
+    }
+    for (final NameIndexBuilder nameIndexBuilder : nameIndexBuilders) {
+      nameIndexBuilder.finish();
     }
 
     // Root array + document fixups, once, with GLOBAL counts.
@@ -422,7 +688,9 @@ public final class ParallelBulkJsonImporter {
   private void adoptNext(final ArrayDeque<PendingBuild> inFlight) {
     final PendingBuild next = inFlight.pollFirst();
     try {
-      stitchAndAdopt(next.pages().get(), next.lastKey());
+      final List<KeyValueLeafPage> builtPages = next.pages().get();
+      drainIndexTuples(next.builder().indexTuples());
+      stitchAndAdopt(builtPages, next.lastKey());
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("interrupted while awaiting a chunk build", e);
@@ -451,7 +719,9 @@ public final class ParallelBulkJsonImporter {
     // matter are name-vs-name and path-vs-path order, both exact here).
     for (final String name : chunk.newNames()) {
       nameById.add(name);
-      nameKeyById.add(storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT));
+      final int nameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
+      nameKeyById.add(nameKey);
+      noteInternedName(name, nameKey);
     }
     // New path steps, in document order; resolution counts each step's first occurrence.
     for (final FusedSliceAndScan.PathStep step : chunk.newSteps()) {
@@ -539,6 +809,7 @@ public final class ParallelBulkJsonImporter {
   // ==== stitch + adopt =========================================================================
 
   private void stitchAndAdopt(final List<KeyValueLeafPage> pages, final long lastKey) {
+    currentChunkLastKey = lastKey;
     final KeyValueLeafPage[] burst = new KeyValueLeafPage[ADOPT_BURST_PAGES];
     int burstSize = 0;
     final boolean tailPartial = ((lastKey + 1) & 1023) != 0;
@@ -568,6 +839,7 @@ public final class ParallelBulkJsonImporter {
         // Page 0 is TIL-live (document root + root array prologue): CoW-checked blit.
         mergeInto(storageEngineWriter.prepareDocumentLeafForBlit(0), page);
         page.retire();
+        noteAdoptedPage(0);
         continue;
       }
 
@@ -580,6 +852,249 @@ public final class ParallelBulkJsonImporter {
       burstSize = enqueue(burst, burstSize, page);
     }
     flushBurst(burst, burstSize);
+  }
+
+  /**
+   * Queue this chunk's record roots with the last node key of each, derived from the feeder's
+   * per-member node counts over the chunk's contiguous reserved range.
+   */
+  private void enqueueRecordRoots(final FusedSliceAndScan.Chunk chunk, final long firstKey,
+      final long chunkLastMemberKey, final long lastKey) {
+    if (projectionLoads.length == 0) {
+      return;
+    }
+    final long[] memberNodes = chunk.memberNodes();
+    if (memberNodes == null || memberNodes.length != chunk.members()) {
+      throw new IllegalStateException("the feeder handed " + (memberNodes == null
+          ? "no"
+          : String.valueOf(memberNodes.length)) + " member node counts for a chunk of " + chunk.members()
+          + " members; a load-time projection build cannot name its records without them");
+    }
+    long recordKey = firstKey;
+    for (final long memberNodeCount : memberNodes) {
+      pendingRecordRoots.add(recordKey);
+      recordKey += memberNodeCount;
+      pendingRecordEnds.add(recordKey - 1);
+    }
+    // The two independently-derived boundaries of the same chunk must agree, or the record roots
+    // this queue names are not the ones the build produced.
+    if (recordKey - 1 != lastKey) {
+      throw new IllegalStateException("member node counts cover keys up to " + (recordKey - 1)
+          + " but the chunk's reserved range ends at " + lastKey);
+    }
+    if (chunk.members() > 0 && pendingRecordRoots.getLong(pendingRecordRoots.size() - 1) != chunkLastMemberKey) {
+      throw new IllegalStateException("the last member root derived from node counts is "
+          + pendingRecordRoots.getLong(pendingRecordRoots.size() - 1) + " but range arithmetic says "
+          + chunkLastMemberKey);
+    }
+  }
+
+  /** Per-chunk row batches for the armed builds, snapshot after the chunk's paths resolved. */
+  private ProjectionChunkRowBatch @Nullable [] newChunkBatches(final int members) {
+    if (projectionLoads.length == 0) {
+      return null;
+    }
+    final ProjectionChunkRowBatch[] batches = new ProjectionChunkRowBatch[projectionLoads.length];
+    for (int i = 0; i < projectionLoads.length; i++) {
+      batches[i] = projectionLoads[i].newChunkBatch(wtx.getPathSummary(), members, feedRecordSetKey);
+    }
+    return batches;
+  }
+
+  /**
+   * Feed every queued record whose WHOLE subtree has been adopted to the armed builds, oldest
+   * first, from the worker-extracted batches. The batch row and the queue entry describe the same
+   * record through two independent derivations — the worker's parent-key detection and the feeder's
+   * member node counts — so their root keys are cross-checked per row before the row is appended.
+   */
+  private void feedReadableRows() {
+    final int pending = pendingRecordRoots.size();
+    int head = pendingRecordHead;
+    while (head < pending && pendingRecordEnds.getLong(head) <= adoptedWatermark) {
+      ProjectionChunkRowBatch[] batches = pendingFeedBatches.peekFirst();
+      while (batches != null && feedRowInHeadBatch >= batches[0].rowCount()) {
+        pendingFeedBatches.pollFirst();
+        feedRowInHeadBatch = 0;
+        batches = pendingFeedBatches.peekFirst();
+      }
+      if (batches == null) {
+        throw new IllegalStateException("record root " + pendingRecordRoots.getLong(head)
+            + " is adopted but no chunk batch holds its row");
+      }
+      final long recordKey = pendingRecordRoots.getLong(head);
+      final int row = feedRowInHeadBatch;
+      if (batches[0].recordRootAt(row) != recordKey) {
+        throw new IllegalStateException("the worker attributed batch row " + row + " to record root "
+            + batches[0].recordRootAt(row) + " but the feeder's member counts derived root " + recordKey);
+      }
+      for (int i = 0; i < projectionLoads.length; i++) {
+        projectionLoads[i].appendCoordinatorRow(storageEngineWriter, batches[i], row, recordKey, feedRecordSetKey,
+            Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+      }
+      feedRowInHeadBatch = row + 1;
+      head++;
+    }
+    if (head == pendingRecordHead) {
+      return;
+    }
+    pendingRecordHead = head;
+    // Compact only once the consumed prefix dominates, so a chunk's worth of members costs one
+    // amortized shift rather than one per adoption burst.
+    if (pendingRecordHead > (pending >> 1)) {
+      pendingRecordRoots.removeElements(0, pendingRecordHead);
+      pendingRecordEnds.removeElements(0, pendingRecordHead);
+      pendingRecordHead = 0;
+    }
+  }
+
+  /** Records still awaiting attribution — the queue minus its already-consumed prefix. */
+  private int pendingRecordCount() {
+    return pendingRecordRoots.size() - pendingRecordHead;
+  }
+
+  // ==== PATH/CAS/NAME tuple flow ===============================================================
+
+  /** Book-keeping for a freshly interned field name: its drain-time QNm and the NAME pre-filter. */
+  private void noteInternedName(final String name, final int nameKey) {
+    if (qnmByNameKey == null) {
+      return;
+    }
+    qnmByNameKey.put(nameKey, new QNm(name));
+    if (!collectAllNames && includedNameStrings.contains(name)) {
+      includedNameKeys.add(nameKey);
+    }
+  }
+
+  /**
+   * A tuple batch for the next chunk, with the per-family union filters resolved against the LIVE
+   * path summary and name dictionary — after this chunk's Stage-A resolution, so a path class or
+   * name first occurring in this chunk is in this chunk's snapshot. The union sets are fresh (or
+   * copied) objects per chunk because the workers read them off-thread while later chunks grow the
+   * coordinator's originals.
+   */
+  private @Nullable ChunkIndexTupleBatch newChunkIndexBatch() {
+    if (!indexTuplesActive) {
+      return null;
+    }
+    final boolean pathActive = pathIndexBuilders.length > 0;
+    final boolean casActive = casIndexBuilders.length > 0;
+    final boolean nameActive = nameIndexBuilders.length > 0;
+    LongOpenHashSet pathUnion = null;
+    if (pathActive && !pathIndexesEverything) {
+      pathUnion = new LongOpenHashSet();
+      for (final IndexDef pathDef : pathIndexDefs) {
+        pathUnion.addAll(wtx.getPathSummary().getPCRsForPaths(pathDef.getPaths()));
+      }
+    }
+    LongOpenHashSet casUnion = null;
+    if (casActive && !casIndexesEverything) {
+      casUnion = new LongOpenHashSet();
+      for (final IndexDef casDef : casIndexDefs) {
+        casUnion.addAll(wtx.getPathSummary().getPCRsForPaths(casDef.getPaths()));
+      }
+    }
+    IntOpenHashSet nameUnion = null;
+    if (nameActive && !collectAllNames) {
+      nameUnion = new IntOpenHashSet(includedNameKeys);
+    }
+    return new ChunkIndexTupleBatch(pathActive, pathUnion, casActive, casUnion, nameActive, nameUnion);
+  }
+
+  /**
+   * Drain one chunk's collected tuples into every family builder, in chunk (document) order. The
+   * builders re-apply their own per-definition filters and the CAS type conversion — exactly the
+   * semantics the sequential import's listeners run per notification.
+   */
+  private void drainIndexTuples(final @Nullable ChunkIndexTupleBatch batch) {
+    if (batch == null) {
+      return;
+    }
+    // The builders cache their resolved path classes for a FROZEN summary; this feeder's summary
+    // grows between drains, so a class first minted since the previous drain (or after the
+    // prologue's root-array entry) would stay invisible behind the stale set.
+    for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
+      pathIndexBuilder.refreshIndexedPaths();
+    }
+    for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
+      casIndexBuilder.refreshIndexedPaths();
+    }
+    final int pathEntries = batch.pathEntryCount();
+    for (int i = 0; i < pathEntries; i++) {
+      final long pcr = batch.pathPcrAt(i);
+      final long nodeKey = batch.pathNodeKeyAt(i);
+      for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
+        pathIndexBuilder.add(pcr, nodeKey);
+      }
+    }
+    // OBJECT_NAMED_ARRAY plays BOTH the ARRAY and the OBJECT_KEY structural roles: mirror each
+    // entry under the parent (OBJECT_KEY-layer) path class, exactly as the sequential listener
+    // does. The parent resolution is memoised per distinct array-layer class.
+    final int mirrorEntries = batch.mirrorCandidateCount();
+    for (int i = 0; i < mirrorEntries; i++) {
+      final long objectKeyLayerPcr = mirrorObjectKeyLayerPcr(batch.mirrorArrayPcrAt(i));
+      if (objectKeyLayerPcr < 0) {
+        continue;
+      }
+      final long nodeKey = batch.mirrorNodeKeyAt(i);
+      for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
+        pathIndexBuilder.add(objectKeyLayerPcr, nodeKey);
+      }
+    }
+    final int nameEntries = batch.nameEntryCount();
+    for (int i = 0; i < nameEntries; i++) {
+      final QNm name = qnmByNameKey.get(batch.nameKeyAt(i));
+      if (name == null) {
+        throw new IllegalStateException(
+            "name key " + batch.nameKeyAt(i) + " was collected for the NAME index but never interned");
+      }
+      final long nodeKey = batch.nameNodeKeyAt(i);
+      for (final NameIndexBuilder nameIndexBuilder : nameIndexBuilders) {
+        nameIndexBuilder.add(name, nodeKey);
+      }
+    }
+    final int casEntries = batch.casEntryCount();
+    int stringOrdinal = 0;
+    int numberOrdinal = 0;
+    for (int i = 0; i < casEntries; i++) {
+      final Str value;
+      switch (batch.casKindAt(i)) {
+        case ChunkIndexTupleBatch.CAS_KIND_STRING -> {
+          final int offset = batch.casStringOffsetAt(stringOrdinal);
+          final int length = batch.casStringLengthAt(stringOrdinal);
+          stringOrdinal++;
+          value = new Str(new String(batch.casStringArena(), offset, length, StandardCharsets.UTF_8));
+        }
+        case ChunkIndexTupleBatch.CAS_KIND_NUMBER -> {
+          value = new Str(String.valueOf(batch.casNumberAt(numberOrdinal)));
+          numberOrdinal++;
+        }
+        case ChunkIndexTupleBatch.CAS_KIND_BOOLEAN_TRUE -> value = STR_TRUE;
+        case ChunkIndexTupleBatch.CAS_KIND_BOOLEAN_FALSE -> value = STR_FALSE;
+        default -> throw new IllegalStateException("unknown CAS tuple kind " + batch.casKindAt(i));
+      }
+      final long pcr = batch.casPcrAt(i);
+      final long nodeKey = batch.casNodeKeyAt(i);
+      for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
+        casIndexBuilder.add(value, pcr, nodeKey);
+      }
+    }
+  }
+
+  /**
+   * The OBJECT_KEY-layer path class above an OBJECT_NAMED_ARRAY's array-layer class, or {@code -1}
+   * when the summary holds no parent for it. Memoised: distinct array-layer classes are few.
+   */
+  private long mirrorObjectKeyLayerPcr(final long arrayLayerPcr) {
+    final long memoised = mirrorParentPcrMemo.get(arrayLayerPcr);
+    if (memoised != Long.MIN_VALUE) {
+      return memoised;
+    }
+    final var arrayPathNode = wtx.getPathSummary().getPathNodeForPathNodeKey(arrayLayerPcr);
+    final long parent = arrayPathNode == null
+        ? -1L
+        : arrayPathNode.getParentKey();
+    mirrorParentPcrMemo.put(arrayLayerPcr, parent);
+    return parent;
   }
 
   private int enqueue(final KeyValueLeafPage[] burst, final int burstSize, final KeyValueLeafPage page) {
@@ -603,11 +1118,38 @@ public final class ParallelBulkJsonImporter {
     for (int i = 0; i < burstSize; i++) {
       storageEngineWriter.adoptDocumentLeafPage(burst[i]);
       records += burst[i].populatedSlots().length;
+      noteAdoptedPage(burst[i].getPageKey());
       burst[i] = null;
     }
     // Accounting after the burst lets the ordinary predicate rotate the flush epoch — the same
     // cadence machinery the sequential path drives per top-level record.
+    if (projectionLoads.length == 0) {
+      wtx.bulkAccountRecord(records);
+      return;
+    }
+    // Feed every now-readable row to the armed builds BEFORE accounting, because accounting is
+    // what rotates the flush epoch: the rotation drain closes the builds' current dictionary
+    // generation, so feeding first keeps each row's interns in the epoch its record was adopted
+    // in. The rows themselves come from the worker batches and read nothing back, so — unlike the
+    // key-attribution design this replaced — a record straddling the held tail page no longer
+    // forces the accounting (and with it the whole flush epoch) to wait for the next chunk.
+    feedReadableRows();
     wtx.bulkAccountRecord(records);
+  }
+
+  /**
+   * Advance the readable-key watermark for a page that just entered the intent log. A page covers
+   * its whole 1024-slot range, but never past what the chunk that produced it actually built — the
+   * prologue chunk stops inside page 0.
+   */
+  private void noteAdoptedPage(final long pageKey) {
+    if (projectionLoads.length == 0) {
+      return;
+    }
+    final long covered = Math.min(((pageKey + 1) << 10) - 1, currentChunkLastKey);
+    if (covered > adoptedWatermark) {
+      adoptedWatermark = covered;
+    }
   }
 
   /** Replays every record of {@code source} into {@code target} (same page key, disjoint slots). */

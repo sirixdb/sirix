@@ -146,6 +146,54 @@ public final class CASIndexBuilder {
   }
 
   /**
+   * Invalidate the resolved path-class cache. Sound for this builder's own frozen-summary
+   * traversal, stale for an import-time feeder whose summary grows between drains — a class first
+   * minted after the previous drain would stay invisible. Called once per drained chunk.
+   */
+  public void refreshIndexedPaths() {
+    resolvedPCRs = null;
+  }
+
+  /**
+   * Primitive entry for feeders that hold no node object — the parallel bulk importer's coordinator
+   * drain, which stringifies each value from the same primitives the write path carried. Same path
+   * filter, the same KEEP-the-conversion typing discipline and skip-on-conversion-failure as
+   * {@link #process}, and the same bulk-vs-incremental arm.
+   */
+  public void add(final Str strValue, final long pathNodeKey, final long nodeKey) {
+    try {
+      if (!matchesIndexedPath(pathNodeKey)) {
+        return;
+      }
+      Atomic typedValue = strValue;
+      try {
+        if (type != Type.STR) {
+          typedValue = AtomicUtil.toType(strValue, type);
+        }
+      } catch (final SirixRuntimeException e) {
+        LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", strValue, type, nodeKey, e);
+        return;
+      }
+      final CASValue value = new CASValue(typedValue, type, pathNodeKey);
+      if (useHOT) {
+        assert hotWriter != null;
+        if (bulkLoader != null) {
+          bulkLoader.add(value, nodeKey);
+        } else {
+          hotWriter.indexNodeKey(value, nodeKey);
+        }
+      } else {
+        assert rbTreeWriter != null;
+        final Optional<NodeReferences> references = rbTreeWriter.get(value, SearchMode.EQUAL);
+        rbTreeWriter.index(value, references.orElseGet(NodeReferences::new).addNodeKey(nodeKey),
+            RBTreeReader.MoveCursor.NO_MOVE);
+      }
+    } catch (final PathException | SirixIOException e) {
+      LOGGER.error(e.getMessage(), e);
+    }
+  }
+
+  /**
    * Whether {@code pathNodeKey} is one of the path-class records this index covers. An empty path
    * configuration means "index every path".
    *

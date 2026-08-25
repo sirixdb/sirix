@@ -100,6 +100,44 @@ public final class PathIndexBuilder {
   }
 
   /**
+   * Invalidate the resolved path-class cache. The cache is sound for this builder's own use — one
+   * traversal of an already-shredded revision, whose summary cannot grow — but an import-time
+   * feeder resolves paths as it loads, so a class first minted after the previous drain would stay
+   * invisible behind a stale set. Called once per drained chunk; the next {@link #add} re-resolves.
+   */
+  public void refreshIndexedPaths() {
+    resolvedPCRs = null;
+  }
+
+  /**
+   * Primitive entry for feeders that hold no node object — the parallel bulk importer's coordinator
+   * drain. Same path filter, same HOT-vs-RBTree dispatch, same bulk-vs-incremental arm as
+   * {@link #process}; only the {@code ImmutableNode} indirection is gone.
+   */
+  public void add(final long pathNodeKey, final long nodeKey) {
+    try {
+      if (!matchesIndexedPath(pathNodeKey)) {
+        return;
+      }
+      if (useHOT) {
+        assert hotWriter != null;
+        if (bulkLoader != null) {
+          bulkLoader.add(pathNodeKey, nodeKey);
+        } else {
+          hotWriter.indexNodeKey(pathNodeKey, nodeKey);
+        }
+      } else {
+        assert rbTreeWriter != null;
+        final Optional<NodeReferences> references = rbTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
+        rbTreeWriter.index(pathNodeKey, references.orElseGet(NodeReferences::new).addNodeKey(nodeKey),
+            MoveCursor.NO_MOVE);
+      }
+    } catch (final PathException | SirixIOException e) {
+      LOGGER.error(e.getMessage(), e);
+    }
+  }
+
+  /**
    * Returns the {@link PathSummaryReader} backing this builder. Used by JSON-specific dispatch (e.g.
    * fused {@code OBJECT_NAMED_ARRAY} which must index its host record at both the OBJECT_KEY layer
    * and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
