@@ -136,7 +136,15 @@ final class BetaIsDiscBitRoutingProbe {
         bc.nodeRef.setPage(foldedNode);
 
         // ---- Q1: STRICT no-fallback routing of K from the real root ----
-        final HOTLeafPage routed = strictDescend(root, k);
+        // Depth-0 folds replace the ROOT itself: the real writer re-points the spine
+        // reference and every later descent goes through it, but this probe's `root` is a
+        // plain Page variable — descending the stale pre-fold object would report a false
+        // misroute. (Unreachable before the highest-fitting-subtree leaf cut: canonical
+        // roots were always FULL and full nodes divert to the Q4 decomposition.)
+        final Page descentRoot = bc.node == root
+            ? foldedNode
+            : root;
+        final HOTLeafPage routed = strictDescend(descentRoot, k);
         if (routed != null && routed.findEntry(k) >= 0) {
           strictRouteOk++;
         } else {

@@ -110,7 +110,10 @@ final class HOTIntegrateTest {
   @DisplayName("a full root: integrate cascades — split the root, integrate, grow a new root")
   void integratesViaCascadeToNewRoot() {
     final AtomicLong allocator = new AtomicLong(1);
-    final List<Long> keys = randomKeys(5_000, 33L);
+    // 32 key-designed groups of 400 → exactly one leaf per group under a FULL height-1 root
+    // (see groupedKeys): the precondition no longer emerges from random keys now that the
+    // builder cuts leaves at the highest fitting R(S) subtree.
+    final List<Long> keys = groupedKeys(400, 33L);
     final HOTBulkBuilder.BuildResult built = build(keys, allocator);
     final HOTIndirectPage root = (HOTIndirectPage) built.rootPage();
     assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, root.getNumChildren(), "root is full");
@@ -138,10 +141,13 @@ final class HOTIntegrateTest {
   @DisplayName("a two-level full trie: the cascade propagates mid -> root -> new root")
   void integratesViaMultiLevelCascade() {
     final AtomicLong allocator = new AtomicLong(1);
-    final List<Long> keys = randomKeys(50_000, 44L);
+    // 32×32 key-designed groups of 300 → a FULL height-2 root over FULL height-1 mids over
+    // multi-entry leaves (see groupedKeys2) — the full-path-cascade precondition by key
+    // design, independent of the builder's leaf-packing policy.
+    final List<Long> keys = groupedKeys2(300, 44L);
     final HOTBulkBuilder.BuildResult built = build(keys, allocator);
     final HOTIndirectPage root = (HOTIndirectPage) built.rootPage();
-    assertEquals(2, root.getHeight(), "50k keys must yield a height-2 root");
+    assertEquals(2, root.getHeight(), "grouped keys must yield a height-2 root");
 
     assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, root.getNumChildren(), "root is full");
     // Pick a full mid child and a splittable leaf inside it, so the cascade propagates
@@ -249,6 +255,47 @@ final class HOTIntegrateTest {
     final Random random = new Random(seed);
     while (set.size() < count) {
       set.add(random.nextLong());
+    }
+    return new ArrayList<>(set);
+  }
+
+  /**
+   * Keys whose top 5 bits carry a group id 0..31: the {@code R(S)} recursion consumes those
+   * bits first, so the build yields exactly one leaf per group under a FULL 32-child height-1
+   * root — the cascade scenario's precondition, forced by the keys themselves rather than by
+   * any leaf-packing heuristic. Requires {@code 256 < perGroup ≤ 512}: a single group must fit
+   * one leaf page while a PAIR of groups must not, or the highest-fitting-subtree cut lands a
+   * level higher and halves the child count.
+   */
+  private static List<Long> groupedKeys(final int perGroup, final long seed) {
+    final TreeSet<Long> set = new TreeSet<>(Long::compareUnsigned);
+    final Random random = new Random(seed);
+    for (int g = 0; g < HOTIndirectPage.MAX_NODE_ENTRIES; g++) {
+      final long prefix = (long) g << 59;
+      final int before = set.size();
+      while (set.size() < before + perGroup) {
+        set.add(prefix | (random.nextLong() >>> 5));
+      }
+    }
+    return new ArrayList<>(set);
+  }
+
+  /**
+   * Two-level variant: bits 63–59 root group, bits 58–54 mid group — a FULL height-2 root whose
+   * 32 children are each FULL height-1 nodes over 32 multi-entry leaves. Same pair-overflow
+   * constraint as {@link #groupedKeys}: {@code 256 < perLeaf ≤ 512}.
+   */
+  private static List<Long> groupedKeys2(final int perLeaf, final long seed) {
+    final TreeSet<Long> set = new TreeSet<>(Long::compareUnsigned);
+    final Random random = new Random(seed);
+    for (int g = 0; g < HOTIndirectPage.MAX_NODE_ENTRIES; g++) {
+      for (int m = 0; m < HOTIndirectPage.MAX_NODE_ENTRIES; m++) {
+        final long prefix = ((long) g << 59) | ((long) m << 54);
+        final int before = set.size();
+        while (set.size() < before + perLeaf) {
+          set.add(prefix | (random.nextLong() >>> 10));
+        }
+      }
     }
     return new ArrayList<>(set);
   }
