@@ -352,6 +352,132 @@ final class ProjectionWindowedPayloadServeTest {
     }
   }
 
+  @Test
+  void oneWindowedViewPerHANDLE_NotPerQueryRevision() {
+    // A handle is cached on the BUILD revision, so ONE handle serves every query revision since the
+    // build. Keying the session memo on the query revision instead builds a fresh view — its own
+    // resident-window cap, its own full physical-order walk — per revision, over byte-identical
+    // leaves. That is the exact multiplication the session memo exists to prevent, surviving along
+    // the revision axis.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
+              .commitAfterwards().build().call();
+        }
+        final IndexDef def = projectionDef();
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(def), wtx);
+          wtx.commit();
+        }
+        final int buildRevision = session.getMostRecentRevisionNumber();
+        // A later revision that does NOT rebuild the projection: the same handle must serve it.
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.commit();
+        }
+        final int laterRevision = session.getMostRecentRevisionNumber();
+        assertTrue(laterRevision > buildRevision, "the second commit must produce a later revision");
+
+        priorWindowLeaves = ProjectionIndexCatalog.setWindowLeavesForTesting(TEST_WINDOW_LEAVES);
+        priorEagerBudget = ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(1L);
+        ChunkedBodyConfig.resetDiag();
+
+        final ProjectionIndexRegistry.Handle atBuild = ProjectionIndexCatalog.load(session, buildRevision, def);
+        final ProjectionIndexRegistry.Handle atLater = ProjectionIndexCatalog.load(session, laterRevision, def);
+        assertNotNull(atBuild);
+        assertSame(atBuild, atLater, "one handle, cached on the BUILD revision, serves both query revisions");
+
+        final int rowGroupCount = atBuild.rowGroupCount();
+        final List<byte[]> viewAtBuild =
+            ProjectionIndexCatalog.rowGroupMaterializer(session, buildRevision, atBuild, rowGroupCount).get();
+        final List<byte[]> viewAtLater =
+            ProjectionIndexCatalog.rowGroupMaterializer(session, laterRevision, atLater, rowGroupCount).get();
+        assertTrue(viewAtBuild instanceof ProjectionWindowedRowGroupPayloads);
+        assertSame(viewAtBuild, viewAtLater,
+            "the memo owner is the HANDLE; a second query revision on the same handle must not build a second view");
+        assertEquals(1, ChunkedBodyConfig.lazyLoads(),
+            "the windowed route must be ENGAGED once per handle, not once per query revision");
+        assertEquals(RECORDS, ProjectionIndexByteScan.countRows(viewAtLater));
+      }
+    }
+  }
+
+  @Test
+  void aFatDictionaryColumnIsViableInDISTINCT_IDENTITYModeWhenItsFullFillIsNot() {
+    // The COUNT(DISTINCT) operand is filled in distinct-identity mode: BODY plus the ~8 B/entry
+    // hash chain, with NO dictionary bytes. Judging that operand by the whole-column projection
+    // (BODY + DICTIONARY) rejects the sliced arm over bytes its fill never fetches.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(fatDictionaryCorpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final var reader = rtx.getStorageEngineReader();
+          final ProjectionIndexMetadata metadata =
+              ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, INDEX_NUMBER, 0L));
+          assertNotNull(metadata);
+          final int[] physicalOrder =
+              ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, metadata.rowGroupCount());
+          final ProjectionColumnStore store = new ProjectionColumnStore(
+              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER,
+                  metadata.rowGroupCount(), physicalOrder, worker -> worker.accept(reader)));
+          final int nameColumn = 0;
+          final long full = store.projectedColumnFillBytes(nameColumn);
+          final long identity = store.projectedColumnIdentityFillBytes(nameColumn);
+          assertTrue(identity < full,
+              "a fat dictionary must project a SMALLER identity fill than a whole-column fill: " + identity + " vs "
+                  + full);
+
+          // A budget between the two modes: the whole-column fill is refused, the identity fill is
+          // affordable — so the route gate must disagree with itself across the two predicates.
+          final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(identity);
+          try {
+            assertFalse(store.columnFillable(nameColumn), "the whole-column fill is over budget here");
+            assertTrue(store.columnIdentityFillable(nameColumn),
+                "the identity fill fits, so a distinct operand on this column is still route-viable");
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+          }
+        }
+      }
+    }
+  }
+
+  /** Long, highly distinct names: the dictionary dwarfs the 8 B/entry hash chain beside it. */
+  private static String fatDictionaryCorpus() {
+    final StringBuilder json = new StringBuilder(RECORDS * 256);
+    json.append('[');
+    for (int record = 0; record < RECORDS; record++) {
+      if (record > 0) {
+        json.append(',');
+      }
+      json.append("{\"name\":\"n").append(record).append('-').append("abcdefghij".repeat(20)).append('"');
+      json.append(",\"score\":").append(record * 3L).append('}');
+    }
+    return json.append(']').toString();
+  }
+
   private static int rowGroupCount(final JsonResourceSession session, final int revision) {
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final byte[] raw = ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0L);

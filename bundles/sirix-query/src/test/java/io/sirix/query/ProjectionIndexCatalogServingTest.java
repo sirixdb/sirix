@@ -2278,6 +2278,64 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void aBloomPrunedPointLookupStillServesWhenTheWholeColumnFillIsOverBudget() throws IOException {
+    // A predicate column is fetched MASKED once the bloom fingerprints prune leaves — a fraction of
+    // the column, and no budget door stands in front of it. Gating that route on the WHOLE-column
+    // fill projection therefore refuses a point lookup that would have read almost nothing, and the
+    // query falls all the way to the generic navigational pipeline. The route gate has to ask about
+    // the fill the route will actually perform.
+    query("""
+          jn:store('json-path1','budgetpredscan.jn','[
+            {"uid": 7, "name": "a", "grp": "x"},
+            {"uid": 3, "name": "b", "grp": "y"},
+            {"uid": 7, "name": "c", "grp": "x"},
+            {"uid": 9, "name": "d"},
+            {"uid": 7, "name": "e", "grp": "z"},
+            {"uid": 3, "name": "f", "grp": "x"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','budgetpredscan.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid', '/[]/name', '/[]/grp'),
+              ('long', 'string', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    // An ABSENT literal: every leaf's fingerprint misses, so the prune drops them all and the
+    // masked fetch reads no segment at all — the cheapest possible serve, and the one the
+    // whole-column budget was rejecting.
+    final String absentLookup =
+        "let $doc := jn:doc('json-path1','budgetpredscan.jn')\n" + "for $r in $doc[] where $r.grp = \"nowhere\" return $r";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetpredscan.jn");
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, absentLookup);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, absentLookup),
+            "the answer must not change with the fill budget");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
+            "a bloom-pruned point lookup must still be SERVED by the predicate-scan route");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void predicateScansServeFilteredRowsInDocumentOrder() throws IOException {
     // Stage 7d: `for $r in P where p return $r [.field]` — record keys straight from the
     // predicate mask, materialized per record. Document order is the contract; multi-match

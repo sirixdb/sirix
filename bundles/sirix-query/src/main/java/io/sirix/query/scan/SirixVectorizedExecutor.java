@@ -2316,7 +2316,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       preds = fuseRangePredicates(extracted);
     }
-    if (store != null && predsSliceable(store, preds)) {
+    if (store != null && predsFillable(store, preds)) {
       try {
         return sliceAggregateParallel(store, preds, col, fetcher, aggMask);
       } catch (final IllegalStateException ise) {
@@ -2393,7 +2393,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // SLICED first: only the aggregate + predicate columns' segments are read — the whole-leaf
     // materialization below is the cold-start whale and exists only as the fallback.
     final ProjectionColumnStore store = handle.columnStoreOrNull();
-    if (store != null && store.columnFillable(col) && predsSliceable(store, preds)) {
+    if (store != null && store.columnFillable(col) && predsFillable(store, preds)) {
       try {
         final int rgc = store.rowGroupCount();
         final int effS = Math.min(threads, Math.max(1, (rgc + 63) / 64));
@@ -2683,14 +2683,58 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static final int SLICED_PROMOTE_AFTER = Integer.getInteger("sirix.projection.slicedPromoteAfter", 2);
 
   /**
-   * Every listed column servable from slices (fail-closed gate for the sliced group route) —
-   * viability, not just kind: an over-budget column's fill declines inside the store, so gating on
-   * {@link ProjectionColumnStore#columnFillable} keeps this route from selecting an arm that cannot
-   * complete.
+   * Every listed column servable by a WHOLE-COLUMN slice fill (fail-closed gate for the sliced group
+   * route) — viability, not just kind: an over-budget column's fill declines inside the store, so
+   * gating on {@link ProjectionColumnStore#columnFillable} keeps this route from selecting an arm
+   * that cannot complete. Only for columns that reach {@code store.column(...)}; a column filled in
+   * a cheaper mode has its own gate.
    */
   private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
     for (final int col : cols) {
       if (!store.columnFillable(col)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The aggregate columns' gate, asking each column about the mode it will ACTUALLY be filled in:
+   * the {@code COUNT(DISTINCT)} operand at {@code identityOperandIndex} goes through
+   * {@link ProjectionColumnStore#columnDistinctIdentity} (BODY + the ~8 B/entry hash chain, no
+   * dictionary), every other lane through a whole-column fill. Judging the operand by the
+   * whole-column projection rejects a fat dictionary column on bytes its fill never fetches.
+   *
+   * @param identityOperandIndex index into {@code cols} of the distinct-identity operand, or
+   *        {@code -1} when no lane is filled in that mode
+   */
+  private static boolean aggColumnsFillable(final ProjectionColumnStore store, final int[] cols,
+      final int identityOperandIndex) {
+    for (int i = 0; i < cols.length; i++) {
+      final boolean viable = i == identityOperandIndex
+          ? store.columnIdentityFillable(cols[i])
+          : store.columnFillable(cols[i]);
+      if (!viable) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Every predicate column sliceable AND affordable as a whole-column fill. The strict twin of
+   * {@link #predsSliceable}, for the routes that PREFILL every predicate column
+   * ({@link #prefillColumns}, {@link #resolveTreeCols}) rather than fetching it masked — a masked
+   * fetch after a keep-mask prune reads a fraction of the column, so judging it by the whole-column
+   * projection turns a bloom-pruned point lookup into a full navigational fallback.
+   */
+  private static boolean predsFillable(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds) {
+    if (!predsSliceable(store, preds)) {
+      return false;
+    }
+    for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+      if (!store.columnFillable(p.column)) {
         return false;
       }
     }
@@ -2703,7 +2747,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static boolean treeSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree) {
-    if (!predsSliceable(store, tree.leaves)) {
+    if (!predsFillable(store, tree.leaves)) {
       return false;
     }
     for (final ProjectionIndexScan.ColumnPredicate leaf : tree.leaves) {
@@ -2744,7 +2788,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      if (!store.columnFillable(p.column)) {
+      if (!store.columnSliceable(p.column)) {
         return false;
       }
       // A SET column takes a string literal too — membership. Left out, it fell to the
@@ -8008,8 +8052,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // Budget-aware: a handle whose worst-case resident bytes exceed the eager budget is served by
     // the windowed payload view — the route that lets fat string columns answer whole-leaf query
     // shapes (LIKE, distinct) at 100M instead of OOMing the whole-column materialization.
-    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount(),
-        handle.projectedWeightBytes());
+    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle, store.rowGroupCount());
   }
 
   /** The write transaction's index controller (wtx mode only). */
@@ -12045,7 +12088,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
-          && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
+          && allColumnsSliceable(groupStore, groupCols) && aggColumnsFillable(groupStore, aggColsFlat, cdStringDict
+              ? cdBlock
+              : -1);
       if (promoteNow && !projectionWarmupPool.isShutdown()) {
         // ASYNC promotion: materialize on the owned warm-up lane while THIS query still serves
         // sliced — the synchronous form stalled the promoting query for the whole assembly

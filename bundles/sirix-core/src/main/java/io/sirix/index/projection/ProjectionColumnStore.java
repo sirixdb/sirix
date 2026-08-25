@@ -826,6 +826,95 @@ public final class ProjectionColumnStore {
     return col >= 0 && col < slots.length && slots[col] != null;
   }
 
+  /** Whether {@code col}'s DISTINCT-IDENTITY slices are already filled and cached. */
+  public boolean columnIdentityFilled(final int col) {
+    final ColumnSlice[][] slots = identityColumns;
+    return col >= 0 && col < slots.length && slots[col] != null;
+  }
+
+  /** Lazily-computed per-column projected DISTINCT-IDENTITY fill bytes; 0 = not yet computed. */
+  private final AtomicReference<long[]> projectedIdentityFillBytes = new AtomicReference<>();
+
+  /**
+   * RAW bytes a {@link #columnDistinctIdentity} fill of {@code col} would fetch, which is a
+   * different — and on a fat dictionary a far smaller — figure than
+   * {@link #projectedColumnFillBytes}: the BODY chain plus the ~8 B/entry
+   * {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_DICT_HASHES} chain, and the DICTIONARY only
+   * for the leaves that carry no hash segment (exactly the fallback keep-mask
+   * {@code fillIdentityColumn} builds).
+   *
+   * <p>
+   * Falls back to {@link #projectedColumnFillBytes} for a non-STRING_DICT column and for the case
+   * {@code fillIdentityColumn} declines outright — NO row-bearing leaf carries hashes — because that
+   * is when the identity request becomes a full fill.
+   * </p>
+   *
+   * @param col the column
+   * @return the projected identity fill bytes
+   */
+  public long projectedColumnIdentityFillBytes(final int col) {
+    if (col < 0 || col >= columnKinds.length
+        || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      return projectedColumnFillBytes(col);
+    }
+    long[] cached = projectedIdentityFillBytes.get();
+    if (cached == null) {
+      cached = new long[columnKinds.length];
+      projectedIdentityFillBytes.compareAndSet(null, cached);
+      cached = projectedIdentityFillBytes.get();
+    }
+    final long known = cached[col];
+    if (known != 0) {
+      return known;
+    }
+    final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
+    final int hashSegId = ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(col);
+    long total = 0;
+    int rowLeaves = 0;
+    int fallbackLeaves = 0;
+    final int n = directories.size();
+    for (int i = 0; i < n; i++) {
+      final byte[] descriptor = directories.get(i).descriptor();
+      final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
+      if (bodyEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+      }
+      if (RowGroupDescriptor.rowCount(descriptor) == 0) {
+        continue;
+      }
+      rowLeaves++;
+      final int hashEntry = RowGroupDescriptor.entryIndexOf(descriptor, hashSegId);
+      if (hashEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, hashEntry);
+        continue;
+      }
+      fallbackLeaves++;
+      final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
+      if (dictEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+      }
+    }
+    if (rowLeaves > 0 && fallbackLeaves == rowLeaves) {
+      return projectedColumnFillBytes(col);
+    }
+    cached[col] = Math.max(1, total);
+    return cached[col];
+  }
+
+  /**
+   * Whether the sliced route is VIABLE for {@code col} when it will be filled in DISTINCT-IDENTITY
+   * mode — the {@code COUNT(DISTINCT)} operand's mode. Asking {@link #columnFillable} instead
+   * rejects a fat dictionary column on a projection the identity fill never fetches.
+   *
+   * @param col the column
+   * @return {@code true} when the identity fill can actually serve this column
+   */
+  public boolean columnIdentityFillable(final int col) {
+    return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col)
+        || projectedColumnIdentityFillBytes(col) <= columnFillBudgetBytes);
+  }
+
   /**
    * A STRING_DICT column's slices in DISTINCT-IDENTITY mode: per-row dict ids beside the
    * {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_DICT_HASHES} segment's precomputed content
