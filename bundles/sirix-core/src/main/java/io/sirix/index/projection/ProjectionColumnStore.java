@@ -12,6 +12,7 @@ import org.jspecify.annotations.Nullable;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -666,6 +667,24 @@ public final class ProjectionColumnStore {
             || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET);
   }
 
+  /** RAW bytes the BODY chain of {@code col} spans — what a raw-bytes fill retains. */
+  private long projectedColumnBodyFillBytes(final int col) {
+    if (col < 0 || col >= columnKinds.length) {
+      return 0;
+    }
+    final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    long total = 0;
+    final int n = directories.size();
+    for (int i = 0; i < n; i++) {
+      final byte[] descriptor = directories.get(i).descriptor();
+      final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
+      if (bodyEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+      }
+    }
+    return total;
+  }
+
   /**
    * RAW bytes a MASKED fill of {@code col} would fetch: the same BODY (+DICT) walk
    * {@link #projectedColumnFillBytes} does, restricted to the leaves the keep mask leaves standing.
@@ -714,7 +733,8 @@ public final class ProjectionColumnStore {
    * @return {@code true} when {@link #projectedColumnFillBytes} is within the budget
    */
   public boolean columnFillWithinBudget(final int col) {
-    return col >= 0 && col < columnKinds.length && projectedColumnFillBytes(col) <= columnFillBudgetBytes;
+    return col >= 0 && col < columnKinds.length
+        && retainedFillBytes.get() + projectedColumnFillBytes(col) <= columnFillBudgetBytes;
   }
 
   /**
@@ -769,11 +789,7 @@ public final class ProjectionColumnStore {
     // the store — the projected size is a property of the column, recomputed cheaply, and a later
     // caller with a raised budget must be able to fill.
     final long projected = projectedColumnFillBytes(col);
-    if (projected > columnFillBudgetBytes) {
-      throw new FillBudgetExceededException("Column " + col + " slice fill projects " + projected + " B over the "
-          + columnFillBudgetBytes + " B budget (sirix.projection.eagerMaterializeBytes) — declining the "
-          + "whole-column fill so the whole-leaf windowed route serves instead");
-    }
+    checkFillBudget(col, projected, "slice fill");
     // Fill OUTSIDE the monitor: the fetch+decode is the store's only I/O and must not
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
@@ -787,6 +803,7 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = columns.clone();
       next[col] = slices;
       columns = next;
+      retainedFillBytes.addAndGet(projected);
     }
     return slices;
   }
@@ -888,6 +905,48 @@ public final class ProjectionColumnStore {
     }
   }
 
+  /**
+   * Bytes this store has RETAINED across every published fill — the cumulative half of the budget.
+   *
+   * <p>
+   * {@code columnFillBudgetBytes} is a per-column figure, but published fills are kept for the
+   * store's whole cache lifetime, so a handle's residency is the SUM over the columns a query mix
+   * touches, not any one of them. Without this ledger a ten-column projection with eight columns
+   * each just under the budget retains eight budgets' worth while the cache weigher charges one.
+   * Charging every publish makes that weight an honest upper bound by construction.
+   * </p>
+   *
+   * <p>
+   * The charge is per PUBLISH and may double-count BODY bytes shared between a raw-bytes fill and
+   * an identity fill of the same column. That direction is deliberate: over-counting declines
+   * earlier, which is the safe side of a residency cap.
+   * </p>
+   */
+  private final AtomicLong retainedFillBytes = new AtomicLong();
+
+  /** Bytes retained by published fills so far — observability for the budget witness. */
+  public long retainedFillBytes() {
+    return retainedFillBytes.get();
+  }
+
+  /**
+   * Refuse a fill whose bytes would not fit beside what this store already retains.
+   *
+   * @param col the column
+   * @param projected the fill's projected bytes
+   * @param mode names the fill mode in the decline message
+   * @throws FillBudgetExceededException when the cumulative cap would be exceeded
+   */
+  private void checkFillBudget(final int col, final long projected, final String mode) {
+    final long retained = retainedFillBytes.get();
+    if (retained + projected > columnFillBudgetBytes) {
+      throw new FillBudgetExceededException("Column " + col + " " + mode + " projects " + projected
+          + " B beside " + retained + " B already retained, over the " + columnFillBudgetBytes
+          + " B budget (sirix.projection.eagerMaterializeBytes) — declining the fill; the caller falls back to the "
+          + "whole-leaf windowed route");
+    }
+  }
+
   /** Whether {@code col}'s DISTINCT-IDENTITY slices are already filled and cached. */
   public boolean columnIdentityFilled(final int col) {
     final ColumnSlice[][] slots = identityColumns;
@@ -974,7 +1033,7 @@ public final class ProjectionColumnStore {
    */
   public boolean columnIdentityFillable(final int col) {
     return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col)
-        || projectedColumnIdentityFillBytes(col) <= columnFillBudgetBytes);
+        || retainedFillBytes.get() + projectedColumnIdentityFillBytes(col) <= columnFillBudgetBytes);
   }
 
   /**
@@ -1023,6 +1082,8 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
+    final long projectedIdentity = projectedColumnIdentityFillBytes(col);
+    checkFillBudget(col, projectedIdentity, "distinct-identity fill");
     slices = fillIdentityColumn(col, fetcher);
     if (slices == null) {
       return column(col, fetcher); // no leaf carries hashes — the whole column falls back
@@ -1035,6 +1096,7 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = identityColumns.clone();
       next[col] = slices;
       identityColumns = next;
+      retainedFillBytes.addAndGet(projectedIdentity);
     }
     return slices;
   }
@@ -1222,12 +1284,7 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
-    final long projected = projectedMaskedFillBytes(col, keepWords);
-    if (projected > columnFillBudgetBytes) {
-      throw new FillBudgetExceededException("Column " + col + " masked slice fill projects " + projected
-          + " B over the " + columnFillBudgetBytes + " B budget (sirix.projection.eagerMaterializeBytes) — the "
-          + "keep mask did not prune enough to bring it under, so the whole-leaf windowed route serves instead");
-    }
+    checkFillBudget(col, projectedMaskedFillBytes(col, keepWords), "masked slice fill");
     final byte[][] segments = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords);
     final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
@@ -1511,6 +1568,8 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
+    final long projectedBody = projectedColumnBodyFillBytes(col);
+    checkFillBudget(col, projectedBody, "raw BODY fill");
     segments = fetchColumnBytes(col, fetcher);
     synchronized (this) {
       final byte[][] existing = columnBytes[col];
@@ -1520,6 +1579,7 @@ public final class ProjectionColumnStore {
       final byte[][][] next = columnBytes.clone();
       next[col] = segments;
       columnBytes = next;
+      retainedFillBytes.addAndGet(projectedBody);
     }
     return segments;
   }
