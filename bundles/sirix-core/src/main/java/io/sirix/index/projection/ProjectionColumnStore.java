@@ -667,6 +667,46 @@ public final class ProjectionColumnStore {
   }
 
   /**
+   * RAW bytes a MASKED fill of {@code col} would fetch: the same BODY (+DICT) walk
+   * {@link #projectedColumnFillBytes} does, restricted to the leaves the keep mask leaves standing.
+   * Exact rather than scaled, because the mask names the surviving leaf set and the descriptors are
+   * already in hand — and because a prune that drops only the rowless leaves of a 3.5 GB column
+   * leaves 3.5 GB, which a leaf-count ratio would not reveal.
+   *
+   * @param col the column
+   * @param keepWords bitset over leaf indices; {@code null} means every leaf survives
+   * @return the projected masked fill bytes
+   */
+  public long projectedMaskedFillBytes(final int col, final long @Nullable [] keepWords) {
+    if (keepWords == null) {
+      return projectedColumnFillBytes(col);
+    }
+    if (col < 0 || col >= columnKinds.length) {
+      return 0;
+    }
+    final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
+    long total = 0;
+    final int n = directories.size();
+    for (int i = 0; i < n; i++) {
+      final int word = i >>> 6;
+      if (word >= keepWords.length || (keepWords[word] & (1L << (i & 63))) == 0) {
+        continue;
+      }
+      final byte[] descriptor = directories.get(i).descriptor();
+      final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
+      if (bodyEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+      }
+      final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
+      if (dictEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+      }
+    }
+    return total;
+  }
+
+  /**
    * Whether a WHOLE-COLUMN fill of {@code col} fits the fill budget — the size half of route
    * viability, which {@link #columnSliceable} (a KIND predicate) deliberately does not answer.
    *
@@ -730,7 +770,7 @@ public final class ProjectionColumnStore {
     // caller with a raised budget must be able to fill.
     final long projected = projectedColumnFillBytes(col);
     if (projected > columnFillBudgetBytes) {
-      throw new IllegalStateException("Column " + col + " slice fill projects " + projected + " B over the "
+      throw new FillBudgetExceededException("Column " + col + " slice fill projects " + projected + " B over the "
           + columnFillBudgetBytes + " B budget (sirix.projection.eagerMaterializeBytes) — declining the "
           + "whole-column fill so the whole-leaf windowed route serves instead");
     }
@@ -824,6 +864,28 @@ public final class ProjectionColumnStore {
   public boolean columnFilled(final int col) {
     final ColumnSlice[][] slots = columns;
     return col >= 0 && col < slots.length && slots[col] != null;
+  }
+
+  /**
+   * A fill DECLINED because its projected bytes exceed {@link #columnFillBudgetBytes} — not
+   * corruption, and deliberately never memoized as such.
+   *
+   * <p>
+   * A distinct type because the two conditions that reach a caller's {@code IllegalStateException}
+   * handler mean opposite things: a corrupt or truncated segment is a defect worth counting and
+   * logging, whereas this is the store REFUSING a fill it can price, so the caller should fall back
+   * to the whole-leaf windowed route the budget declined it toward — quietly, and without ticking a
+   * defect counter. It stays an {@code IllegalStateException} so every existing fail-soft handler
+   * keeps working unchanged; handlers that distinguish declines catch this first.
+   * </p>
+   */
+  public static final class FillBudgetExceededException extends IllegalStateException {
+
+    private static final long serialVersionUID = 1L;
+
+    FillBudgetExceededException(final String message) {
+      super(message);
+    }
   }
 
   /** Whether {@code col}'s DISTINCT-IDENTITY slices are already filled and cached. */
@@ -1159,6 +1221,12 @@ public final class ProjectionColumnStore {
     }
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    }
+    final long projected = projectedMaskedFillBytes(col, keepWords);
+    if (projected > columnFillBudgetBytes) {
+      throw new FillBudgetExceededException("Column " + col + " masked slice fill projects " + projected
+          + " B over the " + columnFillBudgetBytes + " B budget (sirix.projection.eagerMaterializeBytes) — the "
+          + "keep mask did not prune enough to bring it under, so the whole-leaf windowed route serves instead");
     }
     final byte[][] segments = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords);

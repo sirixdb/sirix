@@ -8052,7 +8052,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // Budget-aware: a handle whose worst-case resident bytes exceed the eager budget is served by
     // the windowed payload view — the route that lets fat string columns answer whole-leaf query
     // shapes (LIKE, distinct) at 100M instead of OOMing the whole-column materialization.
-    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle, store.rowGroupCount());
+    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount(),
+        handle.projectedWeightBytes());
   }
 
   /** The write transaction's index controller (wtx mode only). */
@@ -13093,6 +13094,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         System.err.println("[proj] groupAgg overflow at " + firstSirixFrame(overflow));
       }
       return declineGroupAgg("per-group sum overflowed a long");
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // Expected decline, not a defect: the store priced a column fill this arm would have needed
+      // and refused it, so the whole-leaf windowed route serves instead. Counting it would put a
+      // permanent false corruption signal under every query on a fat string column.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] groupAgg sliced fill declined by budget: " + declined.getMessage());
+      }
+      return null;
     } catch (final RuntimeException e) {
       // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
       // here (unlike a gate decline) means a defect or corruption, and a silent 100%
@@ -13332,6 +13341,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } catch (final ArithmeticException overflow) {
       // Expected decline: an overflowing sum or shift routes to the interpreter's
       // decimal-promoting arithmetic via the generic pipeline.
+      return null;
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // Expected decline: the store refused a priced column fill; the whole-leaf windowed route
+      // serves instead, and no defect counter ticks.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] const-groupAgg sliced fill declined by budget: " + declined.getMessage());
+      }
       return null;
     } catch (final RuntimeException e) {
       GROUP_AGG_FAILED.increment();
