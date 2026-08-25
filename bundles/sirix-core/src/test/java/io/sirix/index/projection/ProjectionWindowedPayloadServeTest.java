@@ -249,13 +249,14 @@ final class ProjectionWindowedPayloadServeTest {
   }
 
   @Test
-  void aWindowedViewIsNeverMemoizedOnTheSharedHandle() {
+  void aWindowedViewIsSessionScopedAndNeverPinnedOnTheSharedHandle() {
     // A handle lives in the catalog's PROCESS-WIDE cache, keyed by (resource, def, build revision)
     // and dropped only when the resource is removed — so anything it memoizes outlives every
     // session that touched it. The eager list is inert bytes and is safe to share; a windowed view
     // is not, because it fetches each window through the session its materializer was built from.
-    // Memoizing one would hand the NEXT session a view bound to a CLOSED one, so over budget the
-    // handle must consult every caller's own materializer and must keep reporting "not resident".
+    // The view's owner is therefore the SESSION: not the handle (it would outlive the session and
+    // fetch through a closed one) and not the caller (N views over one session permit N times the
+    // residency each view's window cap was sized for).
     Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
       db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
@@ -264,24 +265,30 @@ final class ProjectionWindowedPayloadServeTest {
                                              .storeNodeHistory(false)
                                              .buildPathSummary(true)
                                              .build());
+      final IndexDef def = projectionDef();
+      final int revision;
+      final int rowGroupCount;
+      final ProjectionIndexRegistry.Handle sharedHandle;
+      final List<byte[]> firstSessionView;
+
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
               .commitAfterwards().build().call();
         }
-        final IndexDef def = projectionDef();
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(def), wtx);
           wtx.commit();
         }
-        final int revision = session.getMostRecentRevisionNumber();
-        final int rowGroupCount = rowGroupCount(session, revision);
+        revision = session.getMostRecentRevisionNumber();
+        rowGroupCount = rowGroupCount(session, revision);
         priorWindowLeaves = ProjectionIndexCatalog.setWindowLeavesForTesting(TEST_WINDOW_LEAVES);
         priorEagerBudget = ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(1L);
+        ChunkedBodyConfig.resetDiag();
 
-        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(session, revision, def);
-        assertNotNull(handle, "the persisted projection must load");
-        assertFalse(handle.payloadsMaterialized(), "a freshly loaded column-lazy handle holds no leaves");
+        sharedHandle = ProjectionIndexCatalog.load(session, revision, def);
+        assertNotNull(sharedHandle, "the persisted projection must load");
+        assertFalse(sharedHandle.payloadsMaterialized(), "a freshly loaded column-lazy handle holds no leaves");
 
         final AtomicInteger consulted = new AtomicInteger();
         final Supplier<List<byte[]>> callerMaterializer = () -> {
@@ -290,34 +297,57 @@ final class ProjectionWindowedPayloadServeTest {
                                        .get();
         };
 
-        final List<byte[]> first = handle.rowGroupPayloads(callerMaterializer);
-        assertTrue(first instanceof ProjectionWindowedRowGroupPayloads,
-            "over budget the handle must serve the windowed view; got " + first.getClass().getSimpleName());
-        assertFalse(handle.payloadsMaterialized(),
+        firstSessionView = sharedHandle.rowGroupPayloads(callerMaterializer);
+        assertTrue(firstSessionView instanceof ProjectionWindowedRowGroupPayloads,
+            "over budget the handle must serve the windowed view; got " + firstSessionView.getClass().getSimpleName());
+        assertFalse(sharedHandle.payloadsMaterialized(),
             "a windowed view is NOT resident — reporting it as materialized steers later queries off the "
                 + "sliced route and pins a session-bound view on the shared handle");
 
-        final List<byte[]> second = handle.rowGroupPayloads(callerMaterializer);
-        assertEquals(2, consulted.get(),
-            "each caller must build its view from ITS OWN live session; the handle memoized one instead");
-        assertNotSame(first, second, "the memoized view would be handed to the next session verbatim");
-        assertFalse(handle.payloadsMaterialized());
+        // The handle re-consults every caller's own materializer (it memoizes nothing session-bound)
+        // and the SESSION hands back the one view it already owns.
+        final List<byte[]> again = sharedHandle.rowGroupPayloads(callerMaterializer);
+        assertEquals(2, consulted.get(), "the handle must not memoize a session-bound view");
+        assertSame(firstSessionView, again, "one windowed view per session, not per consult");
+        assertFalse(sharedHandle.payloadsMaterialized());
 
-        // Both views still answer the corpus arithmetic — the fix must not degrade serving.
-        assertEquals(RECORDS, ProjectionIndexByteScan.countRows(first));
-        assertEquals(RECORDS, ProjectionIndexByteScan.countRows(second));
+        // Two INDEPENDENT materializers — what two concurrent compile chains over one session build
+        // — must resolve to that same single view, or each brings its own resident-window budget.
+        final List<byte[]> chainA =
+            ProjectionIndexCatalog.rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount, 1L << 20).get();
+        final List<byte[]> chainB =
+            ProjectionIndexCatalog.rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount, 1L << 20).get();
+        assertSame(firstSessionView, chainA, "a second chain over the same session must reuse the session's view");
+        assertSame(chainA, chainB, "a third chain over the same session must reuse the session's view");
+        assertEquals(1, ChunkedBodyConfig.lazyLoads(),
+            "the windowed route must be ENGAGED once per session, not once per caller");
+
+        assertEquals(RECORDS, ProjectionIndexByteScan.countRows(firstSessionView));
+      }
+
+      // ==== the reported failure: a NEW session on the SAME cached handle ====
+      try (JsonResourceSession reopened = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final ProjectionIndexRegistry.Handle again = ProjectionIndexCatalog.load(reopened, revision, def);
+        assertSame(sharedHandle, again, "the catalog's DATA cache must still serve the same handle instance");
+        assertFalse(again.payloadsMaterialized());
+
+        final List<byte[]> reopenedView = again.rowGroupPayloads(
+            ProjectionIndexCatalog.rowGroupMaterializer(reopened, revision, INDEX_NUMBER, rowGroupCount, 1L << 20));
+        assertNotSame(firstSessionView, reopenedView,
+            "the closed session's view must not be handed to its successor");
+        assertEquals(RECORDS, ProjectionIndexByteScan.countRows(reopenedView),
+            "the new session must serve its windows through ITS OWN live transactions");
 
         // The eager arm is the contrast: under the budget the leaves ARE inert bytes, so the handle
         // memoizes them and reports resident.
         ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(Long.MAX_VALUE);
-        final int consultedBeforeEager = consulted.get();
-        final List<byte[]> eager = handle.rowGroupPayloads(callerMaterializer);
+        final Supplier<List<byte[]>> eagerMaterializer =
+            ProjectionIndexCatalog.rowGroupMaterializer(reopened, revision, INDEX_NUMBER, rowGroupCount, 1L << 20);
+        final List<byte[]> eager = again.rowGroupPayloads(eagerMaterializer);
         assertFalse(eager instanceof ProjectionWindowedRowGroupPayloads);
-        assertTrue(handle.payloadsMaterialized(), "resident leaves must flip the predicate");
-        assertEquals(consultedBeforeEager + 1, consulted.get());
-        assertSame(eager, handle.rowGroupPayloads(callerMaterializer),
+        assertTrue(again.payloadsMaterialized(), "resident leaves must flip the predicate");
+        assertSame(eager, again.rowGroupPayloads(eagerMaterializer),
             "resident leaves must be memoized and served without re-consulting the materializer");
-        assertEquals(consultedBeforeEager + 1, consulted.get());
       }
     }
   }

@@ -33,6 +33,7 @@ import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionIndex;
@@ -1002,6 +1003,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       nodeTrxMap.clear();
       storageEngineReaderMap.clear();
       storageEngineWriterMap.clear();
+      ProjectionIndexCatalog.invalidateSessionWindowedPayloads(this);
       resourceStore.closeResourceSession(resourceConfig.getResource());
 
       storage.close();
