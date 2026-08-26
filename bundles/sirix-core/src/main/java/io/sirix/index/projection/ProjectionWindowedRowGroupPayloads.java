@@ -53,15 +53,16 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 public final class ProjectionWindowedRowGroupPayloads {
 
   /**
-   * Opens a read transaction on the resource and revision this view's leaves live in.
+   * Opens a read transaction on the resource and revision this cache's leaves live in.
    *
    * <p>
-   * The view holds no session of its own. A session outlives neither the process-wide handle the
-   * view is memoized on nor, necessarily, the next query — so capturing one would pin a view to a
-   * lifetime shorter than its own. Instead each CONSULT rebinds the source to the calling reader's
-   * own live session ({@code bindReaderSource}), and a window fetch opens its transaction through
-   * whatever source is bound at that moment. The bytes are identical whichever session reads them:
-   * the revision is fixed at construction and its pages are immutable.
+   * The cache holds no session of its own. A session outlives neither the process-wide handle the
+   * cache is memoized on nor, necessarily, the next query — so capturing one would pin the cache to
+   * a lifetime shorter than its own. A source instead lives on the PER-CALLER view
+   * {@link #boundTo} returns, and is passed into {@link #payload(int, ReaderSource)} on every
+   * access, so two concurrent callers never read through each other's session. The bytes are
+   * identical whichever session reads them: the revision is fixed at construction and its pages are
+   * immutable.
    * </p>
    */
   @FunctionalInterface

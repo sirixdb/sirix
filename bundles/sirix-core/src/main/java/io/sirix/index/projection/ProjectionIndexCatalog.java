@@ -862,15 +862,18 @@ public final class ProjectionIndexCatalog {
    * @return the resident bytes to charge
    */
   static long windowedResidentWeightBytes(final long projectedWeightBytes) {
-    if (servesWindowedPayloads(projectedWeightBytes)) {
-      // The window cap is a quarter of the budget and the store's cumulative retained fills are
-      // capped at the budget; charge both so the figure bounds what the handle can actually hold.
-      return eagerMaterializeBytes + eagerMaterializeBytes / 4;
-    }
-    // An under-budget handle materializes its leaves, so the projection IS its residency — but
-    // clamp it to what this cache can admit, or a handle heavier than maximumWeight self-evicts on
-    // insert and every lookup re-decodes it.
-    return Math.min(projectedWeightBytes, Math.max(1L, CACHE_BYTES >> 1));
+    final long resident = servesWindowedPayloads(projectedWeightBytes)
+        // The window cap is a quarter of the budget and the store's cumulative retained fills are
+        // capped at the budget; charge both so the figure bounds what the handle can actually hold.
+        ? eagerMaterializeBytes + (eagerMaterializeBytes >> 2)
+        // An under-budget handle materializes its leaves, so the projection IS its residency.
+        : projectedWeightBytes;
+    // Clamp ONCE, after the branch — EITHER branch can exceed what this cache admits, and the
+    // windowed one is the likelier: eagerMaterializeBytes is settable, so 1.25x it can pass
+    // maximumWeight while the eager branch is bounded by that same budget. A charge above the
+    // ceiling self-evicts the entry on insert and makes every lookup re-decode a fresh handle,
+    // which is the failure this figure exists to prevent.
+    return Math.max(1L, Math.min(resident, Math.max(1L, CACHE_BYTES >> 1)));
   }
 
   public static boolean servesWindowedPayloads(final long projectedWeightBytes) {

@@ -13158,6 +13158,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       Long.getLong("sirix.projection.groupDistinct.maxValues", 1L << 24);
 
   /** Constant-key group-bys served in one scalar pass (test oracle, same doctrine as the rest). */
+  /**
+   * The const-group twin of {@link #declineGroupAgg}: a decline that falls to the generic pipeline
+   * must move a counter, or a route that stopped serving reads exactly like one that was never
+   * asked. Shares {@code GROUP_AGG_DECLINED} because both arms answer the same question.
+   *
+   * @param reason names the gate; keep it stable and cheap
+   * @return {@code null}, always — the caller's decline value
+   */
+  private static @Nullable Sequence declineConstGroupAgg(final String reason) {
+    GROUP_AGG_DECLINED.increment();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] const-groupAgg decline: " + reason);
+    }
+    return null;
+  }
+
   private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
 
   /** Test observability for {@link #CONST_GROUP_AGG_SERVED}. */
@@ -13388,7 +13404,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         System.err.println("[proj] const-groupAgg sliced fill declined by budget: " + declined.getMessage());
       }
       if (wholeLeafOnly) {
-        return null;
+        return declineConstGroupAgg("column fill over budget on the whole-leaf route too");
       }
       return constGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames, true);
     } catch (final RuntimeException e) {
