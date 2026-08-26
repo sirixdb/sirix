@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -127,8 +128,8 @@ final class ProjectionWindowedPayloadServeTest {
                 projectedWeight);
         final List<byte[]> windowed = windowedSupplier.get();
         assertEquals(rowGroupCount, windowed.size());
-        assertTrue(windowed instanceof ProjectionWindowedRowGroupPayloads,
-            "over budget, the supplier must return the windowed view; got " + windowed.getClass().getSimpleName());
+        assertNotNull(ProjectionWindowedRowGroupPayloads.cacheOf(windowed),
+            "over budget, the supplier must return a windowed view; got " + windowed.getClass().getSimpleName());
 
         // Byte-for-byte identical payloads at every index — sequential AND shuffled access order,
         // because the windowed view materializes and may evict as it goes.
@@ -225,11 +226,20 @@ final class ProjectionWindowedPayloadServeTest {
     final int windowSize = 2;
     final AtomicInteger fetches = new AtomicInteger();
     final AtomicInteger sourcesSeen = new AtomicInteger();
-    final ProjectionWindowedRowGroupPayloads view =
+    final AtomicInteger sourcesA = new AtomicInteger();
+    final AtomicInteger sourcesB = new AtomicInteger();
+    final java.util.Set<ProjectionWindowedRowGroupPayloads.ReaderSource> sourcesOfA =
+        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    final ProjectionWindowedRowGroupPayloads cache =
         new ProjectionWindowedRowGroupPayloads(rowGroups, windowSize, 2, (source, from, toExclusive) -> {
           fetches.incrementAndGet();
           if (source != null) {
             sourcesSeen.incrementAndGet();
+            if (sourcesOfA.contains(source)) {
+              sourcesA.incrementAndGet();
+            } else {
+              sourcesB.incrementAndGet();
+            }
           }
           final byte[][] window = new byte[toExclusive - from][];
           for (int i = from; i < toExclusive; i++) {
@@ -237,28 +247,49 @@ final class ProjectionWindowedPayloadServeTest {
           }
           return window;
         });
-    // The view captures no session: consulting one before a source is bound is a programming error
-    // it must name, not a silent read through a stale binding.
-    final IllegalStateException unbound = assertThrows(IllegalStateException.class, () -> view.get(0));
-    assertTrue(unbound.getMessage().contains("reader source"), unbound.getMessage());
-    view.bindReaderSource(() -> {
+    assertEquals(rowGroups, cache.size());
+    assertEquals(8, cache.windowCount());
+
+    // TWO callers, each with its OWN source. A shared mutable source field would make every fetch
+    // use whichever caller bound last — the dead-session failure with the arrow reversed — so each
+    // view's fetches must arrive carrying that view's own source and no other.
+    final ProjectionWindowedRowGroupPayloads.ReaderSource sourceA = () -> {
       throw new UnsupportedOperationException("the synthetic fetcher never opens a reader");
-    });
-    assertEquals(rowGroups, view.size());
-    assertEquals(8, view.windowCount());
-    // Two full passes plus a scatter: every access must see its own row group's bytes.
+    };
+    sourcesOfA.add(sourceA);
+    final ProjectionWindowedRowGroupPayloads.ReaderSource sourceB = () -> {
+      throw new UnsupportedOperationException("the synthetic fetcher never opens a reader");
+    };
+    final List<byte[]> viewA = cache.boundTo(sourceA);
+    final List<byte[]> viewB = cache.boundTo(sourceB);
+    assertNotSame(viewA, viewB, "each consult gets its own thin view");
+    assertSame(cache, ProjectionWindowedRowGroupPayloads.cacheOf(viewA));
+    assertSame(cache, ProjectionWindowedRowGroupPayloads.cacheOf(viewB),
+        "both views must share ONE window cache, or the resident cap is multiplied");
+    assertSame(sourceA, ProjectionWindowedRowGroupPayloads.sourceOf(viewA));
+    assertSame(sourceB, ProjectionWindowedRowGroupPayloads.sourceOf(viewB));
+
+    // Two full passes plus a scatter: every access must see its own row group's bytes. The passes
+    // alternate views, so a shared-source implementation would be caught by the per-source tally.
     for (int pass = 0; pass < 2; pass++) {
+      final List<byte[]> view = pass == 0
+          ? viewA
+          : viewB;
       for (int i = 0; i < rowGroups; i++) {
         assertArrayEquals(new byte[] { (byte) i, (byte) (i >> 8) }, view.get(i));
       }
     }
     IntStream.of(15, 0, 7, 3, 12, 1, 14, 2).forEach(i -> assertArrayEquals(new byte[] { (byte) i, (byte) (i >> 8) },
-        view.get(i)));
-    assertTrue(fetches.get() > view.windowCount(),
+        viewA.get(i)));
+    assertTrue(fetches.get() > cache.windowCount(),
         "a 2-window resident cap over 8 windows must have re-materialized evicted windows; fetches=" + fetches.get());
-    assertTrue(view.residentWindows() <= 3,
-        "residency must stay near the cap (cap 2, plus one in-flight); resident=" + view.residentWindows());
-    assertEquals(fetches.get(), sourcesSeen.get(), "every fetch must be handed the bound reader source");
+    assertTrue(cache.residentWindows() <= 3,
+        "residency must stay near the cap (cap 2, plus one in-flight); resident=" + cache.residentWindows());
+    assertEquals(fetches.get(), sourcesSeen.get(), "every fetch must be handed a reader source");
+    assertTrue(sourcesA.get() > 0 && sourcesB.get() > 0,
+        "both callers' sources must have been used; A=" + sourcesA.get() + " B=" + sourcesB.get());
+    assertEquals(fetches.get(), sourcesA.get() + sourcesB.get(),
+        "every fetch must carry the source of the view that triggered it, never another caller's");
   }
 
   @Test
@@ -303,15 +334,25 @@ final class ProjectionWindowedPayloadServeTest {
         assertFalse(sharedHandle.payloadsMaterialized(), "a freshly loaded column-lazy handle holds no leaves");
 
         final AtomicInteger consulted = new AtomicInteger();
-        final Supplier<List<byte[]>> callerMaterializer = () -> {
-          consulted.incrementAndGet();
-          return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount, 1L << 20)
-                                       .get();
-        };
+        final var delegate = (ProjectionWindowedRowGroupPayloads.BoundMaterializer) ProjectionIndexCatalog
+            .rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount, 1L << 20);
+        final Supplier<List<byte[]>> callerMaterializer =
+            new ProjectionWindowedRowGroupPayloads.BoundMaterializer() {
+              @Override
+              public List<byte[]> get() {
+                consulted.incrementAndGet();
+                return delegate.get();
+              }
+
+              @Override
+              public ProjectionWindowedRowGroupPayloads.ReaderSource readerSource() {
+                return delegate.readerSource();
+              }
+            };
 
         firstSessionView = sharedHandle.rowGroupPayloads(callerMaterializer);
-        assertTrue(firstSessionView instanceof ProjectionWindowedRowGroupPayloads,
-            "over budget the handle must serve the windowed view; got " + firstSessionView.getClass().getSimpleName());
+        assertNotNull(ProjectionWindowedRowGroupPayloads.cacheOf(firstSessionView),
+            "over budget the handle must serve a windowed view; got " + firstSessionView.getClass().getSimpleName());
         assertFalse(sharedHandle.payloadsMaterialized(),
             "a windowed view is NOT resident — reporting it as materialized steers later queries off the "
                 + "sliced route into a byte-kernel scan that re-reads windows from disk");
@@ -319,8 +360,10 @@ final class ProjectionWindowedPayloadServeTest {
         // Memoized ON THE HANDLE: a second consult neither rebuilds the view nor re-walks the
         // physical order, so the materializer is not consulted again.
         final List<byte[]> again = sharedHandle.rowGroupPayloads(callerMaterializer);
-        assertEquals(1, consulted.get(), "a memoized view must not be rebuilt per consult");
-        assertSame(firstSessionView, again, "one windowed view per handle");
+        assertEquals(1, consulted.get(), "a memoized cache must not be rebuilt per consult");
+        assertNotSame(firstSessionView, again, "each consult gets its OWN thin view, never a shared bound one");
+        assertSame(ProjectionWindowedRowGroupPayloads.cacheOf(firstSessionView),
+            ProjectionWindowedRowGroupPayloads.cacheOf(again), "one window cache per handle");
         assertFalse(sharedHandle.payloadsMaterialized());
         assertEquals(1, ChunkedBodyConfig.lazyLoads(),
             "the windowed route must be ENGAGED once per handle, not once per caller");
@@ -338,20 +381,24 @@ final class ProjectionWindowedPayloadServeTest {
 
         final List<byte[]> reopenedView = again.rowGroupPayloads(
             ProjectionIndexCatalog.rowGroupMaterializer(reopened, revision, INDEX_NUMBER, rowGroupCount, 1L << 20));
-        assertSame(firstSessionView, reopenedView,
-            "the handle's memoized view is the successor's view too — it captured no session to go stale");
+        assertSame(ProjectionWindowedRowGroupPayloads.cacheOf(firstSessionView),
+            ProjectionWindowedRowGroupPayloads.cacheOf(reopenedView),
+            "the handle's memoized CACHE is the successor's too — it captured no session to go stale");
+        assertNotSame(firstSessionView, reopenedView, "the successor reads through its OWN source");
         assertEquals(RECORDS, ProjectionIndexByteScan.countRows(reopenedView),
             "the new session must serve its windows through ITS OWN live transactions");
 
-        // A handle that went windowed STAYS windowed for its lifetime: raising the budget must not
-        // silently turn the next consult into the multi-GB materialization the handle was created
-        // to avoid. The promotion is a cache-lifetime decision, so it takes a fresh handle.
-        ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(Long.MAX_VALUE);
-        assertSame(firstSessionView,
-            again.rowGroupPayloads(
-                ProjectionIndexCatalog.rowGroupMaterializer(reopened, revision, INDEX_NUMBER, rowGroupCount, 1L << 20)),
-            "a raised budget must not re-materialize a handle that is already serving windowed");
+        // A windowed handle keeps serving windowed while callers hand it windowed materializers.
+        // It is PROMOTED only when a caller's materializer actually produces resident leaves — the
+        // handle never decides on its own to pay for a whole-leaf materialization.
         assertFalse(again.payloadsMaterialized());
+        ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(Long.MAX_VALUE);
+        final List<byte[]> promoted = again.rowGroupPayloads(
+            ProjectionIndexCatalog.rowGroupMaterializer(reopened, revision, INDEX_NUMBER, rowGroupCount, 1L << 20));
+        assertNull(ProjectionWindowedRowGroupPayloads.cacheOf(promoted),
+            "a materializer that produced resident leaves must promote the handle off the windowed route");
+        assertTrue(again.payloadsMaterialized(), "promotion must flip the resident predicate");
+        assertEquals(RECORDS, ProjectionIndexByteScan.countRows(promoted));
 
         // The eager arm is the contrast, on a handle that never went windowed: under the budget the
         // leaves ARE inert bytes, so the handle memoizes them and reports resident.
@@ -361,7 +408,7 @@ final class ProjectionWindowedPayloadServeTest {
         final Supplier<List<byte[]>> eagerMaterializer =
             ProjectionIndexCatalog.rowGroupMaterializer(reopened, revision, INDEX_NUMBER, rowGroupCount, 1L << 20);
         final List<byte[]> eager = fresh.rowGroupPayloads(eagerMaterializer);
-        assertFalse(eager instanceof ProjectionWindowedRowGroupPayloads);
+        assertNull(ProjectionWindowedRowGroupPayloads.cacheOf(eager));
         assertTrue(fresh.payloadsMaterialized(), "resident leaves must flip the predicate");
         assertSame(eager, fresh.rowGroupPayloads(eagerMaterializer),
             "resident leaves must be memoized and served without re-consulting the materializer");
@@ -418,9 +465,10 @@ final class ProjectionWindowedPayloadServeTest {
         final List<byte[]> viewAtLater = atLater.rowGroupPayloads(
             ProjectionIndexCatalog.rowGroupMaterializer(session, laterRevision, INDEX_NUMBER, rowGroupCount,
                 1L << 20));
-        assertTrue(viewAtBuild instanceof ProjectionWindowedRowGroupPayloads);
-        assertSame(viewAtBuild, viewAtLater,
-            "the memo owner is the HANDLE; a second query revision on the same handle must not build a second view");
+        assertNotNull(ProjectionWindowedRowGroupPayloads.cacheOf(viewAtBuild));
+        assertSame(ProjectionWindowedRowGroupPayloads.cacheOf(viewAtBuild),
+            ProjectionWindowedRowGroupPayloads.cacheOf(viewAtLater),
+            "the memo owner is the HANDLE; a second query revision on the same handle must not build a second cache");
         assertEquals(1, ChunkedBodyConfig.lazyLoads(),
             "the windowed route must be ENGAGED once per handle, not once per query revision");
         assertEquals(RECORDS, ProjectionIndexByteScan.countRows(viewAtLater));
@@ -553,6 +601,81 @@ final class ProjectionWindowedPayloadServeTest {
             // fills the same mask.
             ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE);
             assertEquals(leaves, store.columnMasked(nameColumn, fetcher, keepAll).length);
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void columnFillsArePricedCUMULATIVELY_NotOnePerColumn() {
+    // The fill budget is a per-column figure, but a published fill is RETAINED for the store's whole
+    // cache lifetime — so a handle's residency is the SUM over the columns a query mix touches. With
+    // only a per-column check, a projection whose columns each sit just under the budget retains
+    // several budgets' worth while the cache weigher charges one, and the 8 G envelope the windowed
+    // route exists to hold is gone.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
+              .commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final var reader = rtx.getStorageEngineReader();
+          final ProjectionIndexMetadata metadata =
+              ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, INDEX_NUMBER, 0L));
+          assertNotNull(metadata);
+          final int leaves = metadata.rowGroupCount();
+          final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
+          final ProjectionColumnStore store = new ProjectionColumnStore(
+              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
+                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+              offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
+          final int nameColumn = 0;
+          final int scoreColumn = 1;
+          final long nameBytes = store.projectedColumnFillBytes(nameColumn);
+          final long scoreBytes = store.projectedColumnFillBytes(scoreColumn);
+
+          // A budget each column fits ALONE but the two together do not.
+          final long budget = Math.max(nameBytes, scoreBytes) + Math.min(nameBytes, scoreBytes) / 2;
+          assertTrue(budget >= nameBytes && budget >= scoreBytes && budget < nameBytes + scoreBytes,
+              "the budget must admit either column alone and neither pair: " + budget + " vs " + nameBytes + "+"
+                  + scoreBytes);
+          final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(budget);
+          try {
+            assertEquals(0L, store.retainedFillBytes(), "a fresh store retains nothing");
+            assertTrue(store.columnFillWithinBudget(nameColumn), "the first column alone must fit");
+            assertEquals(leaves, store.column(nameColumn, fetcher).length);
+            assertTrue(store.retainedFillBytes() >= nameBytes, "a published fill must be charged");
+
+            // The second column's OWN projection still fits the budget; what does not fit is the
+            // pair, and that is the question the store has to be asking.
+            assertTrue(scoreBytes <= budget, "the second column alone would fit");
+            assertFalse(store.columnFillWithinBudget(scoreColumn),
+                "beside what is already retained, the second column must not fit");
+            final ProjectionColumnStore.FillBudgetExceededException declined =
+                assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
+                    () -> store.column(scoreColumn, fetcher));
+            assertTrue(declined.getMessage().contains("already retained"), declined.getMessage());
+
+            // Not memoized as corruption: with room restored the same store fills the same column.
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE);
+            assertEquals(leaves, store.column(scoreColumn, fetcher).length);
           } finally {
             ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
           }

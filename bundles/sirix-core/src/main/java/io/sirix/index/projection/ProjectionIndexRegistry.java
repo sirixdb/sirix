@@ -90,9 +90,10 @@ public final class ProjectionIndexRegistry {
     private volatile List<byte[]> rowGroupPayloads;
 
     /**
-     * The bounded windowed view of the same leaves, for a handle whose whole-leaf materialization is
-     * over the eager budget. Separate from {@link #rowGroupPayloads} because it is NOT resident:
-     * every route predicate that asks "are the leaves in memory" must answer no for it.
+     * The bounded WINDOW CACHE over the same leaves, for a handle whose whole-leaf materialization
+     * is over the eager budget. Separate from {@link #rowGroupPayloads} because it is NOT resident:
+     * every route predicate that asks "are the leaves in memory" must answer no for it. It holds no
+     * session-derived state, which is what makes it safe on a process-wide handle.
      */
     private volatile ProjectionWindowedRowGroupPayloads windowedPayloads;
     /**
@@ -724,10 +725,12 @@ public final class ProjectionIndexRegistry {
      * </p>
      *
      * <p>
-     * A windowed view captures no session; every consult rebinds it to the CALLER's own live reader
-     * source, which is what makes memoizing it on a process-wide handle safe. A handle that has gone
-     * windowed STAYS windowed for its cache lifetime: raising the budget afterwards must not turn
-     * the next consult into the whole-leaf materialization this handle exists to avoid.
+     * What the handle memoizes on the windowed route is the WINDOW CACHE, never a list bound to a
+     * session: the cache holds no session-derived field, and each consult wraps it in a thin
+     * per-caller view carrying THAT caller's reader source. A handle that has gone windowed keeps
+     * serving through that cache for as long as callers hand it windowed materializers; it is
+     * promoted to resident leaves only when a caller's materializer actually produces them, never
+     * by the handle deciding on its own to pay for a whole-leaf materialization.
      * </p>
      *
      * @throws IllegalStateException when a lazy handle's materializer fails (dead-session window,
@@ -740,7 +743,7 @@ public final class ProjectionIndexRegistry {
       }
       final ProjectionWindowedRowGroupPayloads windowed = windowedPayloads;
       if (windowed != null) {
-        return bindTo(windowed, materializer);
+        return boundView(windowed, materializer);
       }
       synchronized (materializeLock) {
         final List<byte[]> raced = rowGroupPayloads;
@@ -749,13 +752,13 @@ public final class ProjectionIndexRegistry {
         }
         final ProjectionWindowedRowGroupPayloads racedWindow = windowedPayloads;
         if (racedWindow != null) {
-          return bindTo(racedWindow, materializer);
+          return boundView(racedWindow, materializer);
         }
         final List<byte[]> built = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
             "materializer returned null");
-        if (built instanceof ProjectionWindowedRowGroupPayloads view) {
-          bindTo(view, materializer);
-          windowedPayloads = view;
+        final ProjectionWindowedRowGroupPayloads cache = ProjectionWindowedRowGroupPayloads.cacheOf(built);
+        if (cache != null) {
+          windowedPayloads = cache;
         } else {
           rowGroupPayloads = built;
         }
@@ -764,16 +767,26 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
-     * Point a memoized windowed view at THIS caller's reader source before handing it over. A
-     * materializer that carries no source leaves the previous binding standing — which is what a
-     * pre-materialized (eager) handle and the test seams pass.
+     * Wrap the memoized cache for THIS caller. The caller's source comes from its materializer, and
+     * a windowed materializer carries one, so the common path allocates one thin view and reads no
+     * bytes. A materializer that carries none is consulted: if it still built a windowed view, its
+     * cache is discarded in favour of the memoized one and only its source is kept; if it built
+     * RESIDENT leaves instead — a raised budget, or an eager handle — the handle is PROMOTED to
+     * them, because the materialization is already paid for and resident leaves beat windows.
      */
-    private static ProjectionWindowedRowGroupPayloads bindTo(final ProjectionWindowedRowGroupPayloads view,
+    private List<byte[]> boundView(final ProjectionWindowedRowGroupPayloads cache,
         final Supplier<List<byte[]>> materializer) {
       if (materializer instanceof ProjectionWindowedRowGroupPayloads.BoundMaterializer bound) {
-        view.bindReaderSource(bound.readerSource());
+        return cache.boundTo(bound.readerSource());
       }
-      return view;
+      final List<byte[]> built = Objects.requireNonNull(materializer, "materializer").get();
+      final ProjectionWindowedRowGroupPayloads.ReaderSource source =
+          ProjectionWindowedRowGroupPayloads.sourceOf(built);
+      if (source != null) {
+        return cache.boundTo(source);
+      }
+      rowGroupPayloads = built;
+      return built;
     }
 
     /**

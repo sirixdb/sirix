@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.page.ChunkedBodyConfig;
+import org.jspecify.annotations.Nullable;
 
 import java.util.AbstractList;
 import java.util.List;
@@ -37,17 +38,19 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * windows plus whatever consumers transiently pin — which is exactly the bound the budget asked
  * for, not a guarantee the GC could not give anyway.
  *
- * <h2>Ownership</h2> The view captures NO session: its {@link WindowFetcher} is handed a
- * {@link ReaderSource} per fetch, and each consult rebinds that source to the calling reader's own
- * live session. That is what lets the view be memoized on the process-wide handle whose
- * {@code (resource, def, build revision)} key is its natural identity, instead of on some shorter-
- * lived owner that would multiply the residency this class's cap exists to bound.
+ * <h2>Ownership</h2> This object is the WINDOW CACHE, and it captures no session: its
+ * {@link WindowFetcher} is handed a {@link ReaderSource} per fetch. That is what lets it be
+ * memoized on the process-wide handle whose {@code (resource, def, build revision)} key is its
+ * natural identity, instead of on some shorter-lived owner that would multiply the residency this
+ * class's cap exists to bound. A caller never touches the cache directly: {@link #boundTo} wraps it
+ * in a thin immutable {@code List} carrying THAT caller's source, so the binding is genuinely
+ * per-caller and no shared object holds a session-derived field.
  *
  * <h2>Failure contract</h2> A missing leaf inside a window throws {@link IllegalStateException}
  * from {@link #get}, the same truncated-store verdict the eager materializer throws — callers
  * decline serving and the generic pipeline answers.
  */
-public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[]> implements RandomAccess {
+public final class ProjectionWindowedRowGroupPayloads {
 
   /**
    * Opens a read transaction on the resource and revision this view's leaves live in.
@@ -89,7 +92,6 @@ public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[
   private final int windowLeaves;
   private final int residentCap;
   private final WindowFetcher fetcher;
-  private volatile ReaderSource readerSource;
 
   private final AtomicReferenceArray<byte[][]> windows;
   /** CLOCK touched bits, one int per window ({@code 1} = referenced since the hand last passed). */
@@ -119,30 +121,40 @@ public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[
   }
 
   /**
-   * Bind the source a subsequent window fetch opens its transaction through. Called by every
-   * consult site with its OWN live session, so a view memoized on a shared handle is never left
-   * pointing at a closed one.
+   * A {@code List<byte[]>} over this shared cache that reads through {@code source} — the object a
+   * consult site hands to the byte-scan kernels.
    *
-   * @param source the caller's reader source, never {@code null}
+   * <p>
+   * The source lives HERE, on a per-caller object, and never on the cache. A single mutable source
+   * field on the shared cache would make "per-caller" mean "per most recent caller": two live
+   * sessions over one resource path are ordinary (a {@code Database} handle dedupes sessions only
+   * within itself, and the REST and MCP front ends open one store per request), so the second
+   * caller's bind would redirect the first caller's in-flight window fetches — and, once the second
+   * session closes, into a closed one. The view is immutable and cheap: two fields, allocated once
+   * per consult, against a scan that reads leaves.
+   * </p>
+   *
+   * @param source the caller's own live reader source
+   * @return a list view bound to that source
    */
-  public void bindReaderSource(final ReaderSource source) {
-    readerSource = Objects.requireNonNull(source, "source");
+  public List<byte[]> boundTo(final ReaderSource source) {
+    return new BoundView(this, Objects.requireNonNull(source, "source"));
   }
 
-  @Override
+  /** Number of row groups this cache spans. */
   public int size() {
     return rowGroupCount;
   }
 
-  @Override
-  public byte[] get(final int index) {
+  /** The payload of one row group, materializing its window through {@code source} if not resident. */
+  byte[] payload(final int index, final ReaderSource source) {
     if (index < 0 || index >= rowGroupCount) {
       throw new IndexOutOfBoundsException("row group " + index + " of " + rowGroupCount);
     }
     final int window = index / windowLeaves;
     byte[][] payloads = windows.get(window);
     if (payloads == null) {
-      payloads = materialize(window);
+      payloads = materialize(window, source);
     }
     touched.set(window, 1);
     final byte[] payload = payloads[index - window * windowLeaves];
@@ -153,14 +165,49 @@ public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[
     return payload;
   }
 
-  private byte[][] materialize(final int window) {
+  /**
+   * The per-caller half of the split: an immutable pair of the SHARED window cache and ONE caller's
+   * reader source. Every window it materializes lands in the shared cache, so residency stays
+   * single-instance and the cap keeps meaning what it says.
+   */
+  private static final class BoundView extends AbstractList<byte[]> implements RandomAccess {
+
+    private final ProjectionWindowedRowGroupPayloads cache;
+    private final ReaderSource source;
+
+    BoundView(final ProjectionWindowedRowGroupPayloads cache, final ReaderSource source) {
+      this.cache = cache;
+      this.source = source;
+    }
+
+    @Override
+    public byte[] get(final int index) {
+      return cache.payload(index, source);
+    }
+
+    @Override
+    public int size() {
+      return cache.size();
+    }
+  }
+
+  /** The shared window cache behind {@code view}, or {@code null} when it is not a bound view. */
+  public static @Nullable ProjectionWindowedRowGroupPayloads cacheOf(final List<byte[]> view) {
+    return view instanceof BoundView bound
+        ? bound.cache
+        : null;
+  }
+
+  /** The reader source {@code view} was bound to, or {@code null} when it is not a bound view. */
+  public static @Nullable ReaderSource sourceOf(final List<byte[]> view) {
+    return view instanceof BoundView bound
+        ? bound.source
+        : null;
+  }
+
+  private byte[][] materialize(final int window, final ReaderSource source) {
     final int from = window * windowLeaves;
     final int toExclusive = Math.min(from + windowLeaves, rowGroupCount);
-    final ReaderSource source = readerSource;
-    if (source == null) {
-      throw new IllegalStateException("projection windowed payloads consulted before a reader source was bound — "
-          + "every consult must rebind the caller's own live session");
-    }
     final byte[][] fetched = fetcher.fetch(source, from, toExclusive);
     if (fetched == null || fetched.length != toExclusive - from) {
       throw new IllegalStateException("window fetcher returned " + (fetched == null

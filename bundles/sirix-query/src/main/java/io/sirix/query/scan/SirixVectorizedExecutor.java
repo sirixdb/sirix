@@ -11726,7 +11726,30 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return null;
     }
+    return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
+        keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false);
+  }
 
+  /**
+   * The group-aggregate body, with the sliced arm suppressible.
+   *
+   * <p>
+   * {@code wholeLeafOnly} exists for ONE transition: a column fill the store refuses on budget. The
+   * sliced arm cannot complete without those bytes, but the whole-leaf arm right beside it can —
+   * over an over-budget handle that arm IS the windowed byte-kernel scan the budget declined toward.
+   * Re-entering with the arm suppressed takes it, instead of dropping a query that has a viable
+   * projection route in hand all the way to the generic navigational pipeline.
+   * </p>
+   */
+  private ServedGroups groupByAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final int[] orderIndexes,
+      final boolean[] orderAsc, final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets,
+      final int[] keySubstr, final String[] keyCondFields, final long[] keyCondLits,
+      final String[] keyCondElse, final String[] keyRegexPattern, final String[] keyRegexRepl,
+      final long[] keyDivMod, final boolean[] keyStringify, final long[] having,
+      final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return declineGroupAgg("no projection available");
@@ -12077,15 +12100,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // ticking only on a successful slice would move the trigger point. What must not lie about
       // real serves is a different instrument: GROUP_AGG_SLICED_SERVED, ticked at the kernels
       // themselves and read by groupAggSlicedServedCount().
-      final boolean promoteNow = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
-          && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      final boolean promoteNow = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
+          && !handle.payloadsMaterialized() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
       // Latch the ROUTE before the promotion is kicked, so the code enforces the invariant the
       // comment below states ("KEEP SERVING SLICED until it lands") rather than re-deriving it from
       // payloadsMaterialized() after the kick. This is hardening of a documented-but-unenforced
       // guarantee, NOT the fix for a reproducing race: the suspected intra-query window — the
       // background assembly landing between the kick and the re-read, demoting the very query that
       // triggered it — did not reproduce even at -Dsirix.projection.slicedPromoteAfter=1.
-      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
+      final boolean groupSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
+          && !handle.payloadsMaterialized()
           && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
@@ -13095,13 +13119,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return declineGroupAgg("per-group sum overflowed a long");
     } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
-      // Expected decline, not a defect: the store priced a column fill this arm would have needed
-      // and refused it, so the whole-leaf windowed route serves instead. Counting it would put a
-      // permanent false corruption signal under every query on a fat string column.
+      // Expected decline, not a defect: the store priced a column fill this arm needed and refused
+      // it. Counting it would put a permanent false corruption signal under every query on a fat
+      // string column. Re-enter over the WHOLE-LEAF arm, which for such a handle is the windowed
+      // byte-kernel scan — returning null here would hand a servable query to the generic
+      // navigational pipeline instead.
       if (PROJ_DIAG) {
         System.err.println("[proj] groupAgg sliced fill declined by budget: " + declined.getMessage());
       }
-      return null;
+      if (wholeLeafOnly) {
+        return declineGroupAgg("column fill over budget on the whole-leaf route too");
+      }
+      return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
+        keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, true);
     } catch (final RuntimeException e) {
       // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
       // here (unlike a gate decline) means a defect or corruption, and a silent 100%
@@ -13154,7 +13185,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return null;
     }
+    return constGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames, false);
+  }
 
+  /** As above, with the sliced arm suppressible — see {@link #groupByAggregate}. */
+  private Sequence constGroupAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields, final long[] offsets,
+      final String[] outNames, final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -13229,11 +13266,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // conditions (and in the very order) it always did, while the route itself is latched before
       // the kick so "keep serving sliced until it lands" is enforced by the code and not only
       // promised by a comment. Hardening; the suspected intra-query demotion did not reproduce.
-      final boolean constPromoteNow = GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
-          && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
-      final boolean constSliced =
-          GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
-              && predsSliceable(constStore, preds) && allColumnsSliceable(constStore, aggCols);
+      final boolean constPromoteNow = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null
+          && !handle.payloadsMaterialized() && !projectionWarmupPool.isShutdown()
+          && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      final boolean constSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !anyStrlenAgg
+          && !handle.payloadsMaterialized() && predsSliceable(constStore, preds)
+          && allColumnsSliceable(constStore, aggCols);
       if (constPromoteNow) {
         handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
       }
@@ -13343,12 +13381,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // decimal-promoting arithmetic via the generic pipeline.
       return null;
     } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
-      // Expected decline: the store refused a priced column fill; the whole-leaf windowed route
-      // serves instead, and no defect counter ticks.
+      // Expected decline: the store refused a priced column fill. Re-enter over the whole-leaf arm
+      // (the windowed byte-kernel scan for such a handle) rather than dropping to the generic
+      // pipeline, and tick no defect counter.
       if (PROJ_DIAG) {
         System.err.println("[proj] const-groupAgg sliced fill declined by budget: " + declined.getMessage());
       }
-      return null;
+      if (wholeLeafOnly) {
+        return null;
+      }
+      return constGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames, true);
     } catch (final RuntimeException e) {
       GROUP_AGG_FAILED.increment();
       if (PROJ_DIAG) {

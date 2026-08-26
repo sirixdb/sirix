@@ -2347,10 +2347,22 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         Assertions.assertTrue(deptBytes <= cityBytes - 1, "the group key must stay within the chosen budget");
         final long failedBefore = SirixVectorizedExecutor.groupAggFailedCount();
+        final long declinedBefore = SirixVectorizedExecutor.groupAggregateDeclinedCount();
+        final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
         Assertions.assertEquals(generic, evaluateQuery(chain, ctx, containsGroupBy),
             "the answer must not change with the fill budget");
         Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggFailedCount() - failedBefore,
             "a priced fill refusal is a routing decision, not a corruption signal");
+        // The refusal must land on the WHOLE-LEAF arm, which for this handle is the byte-kernel
+        // scan over projection leaves — not on the generic navigational pipeline. Returning null
+        // here would leave both of these flat and walk every record instead.
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
+            "the query must still be SERVED from the projection, by the whole-leaf arm");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the sliced arm cannot serve a column whose fill the store refuses");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggregateDeclinedCount() - declinedBefore,
+            "a decline that re-routes successfully must not count as a route decline");
       } finally {
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
         SequentialPipelineStrategy.setVectorizedExecutor(null);

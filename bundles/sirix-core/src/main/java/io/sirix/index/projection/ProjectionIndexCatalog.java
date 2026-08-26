@@ -145,11 +145,12 @@ public final class ProjectionIndexCatalog {
                     long bytes = 64;
                     if (handle.columnStoreOrNull() != null) {
                       // A handle over the eager budget never materializes those leaves: it serves
-                      // through bounded windows, so its RESIDENT bytes are the budget that bounds
-                      // both the window cap (a quarter of it) and each column fill (all of it) —
-                      // not the whole-leaf projection it declines to hold. Charging the projection
-                      // put a 10 GB handle over this cache's own maximumWeight, so Caffeine evicted
-                      // it on insert and every lookup re-decoded a fresh one.
+                      // through bounded windows, so its RESIDENT bytes are the window cap plus what
+                      // its store retains in filled columns — and the store's CUMULATIVE retained-
+                      // fill budget caps that sum at eagerMaterializeBytes, which is what makes this
+                      // flat charge an upper bound rather than a hope. Charging the whole-leaf
+                      // projection instead put a 10 GB handle over this cache's own maximumWeight,
+                      // so Caffeine evicted it on insert and every lookup re-decoded a fresh one.
                       bytes += windowedResidentWeightBytes(handle.projectedWeightBytes());
                     } else {
                       // Eager handle: leaves are pre-materialized, so no materializer is needed.
@@ -816,12 +817,10 @@ public final class ProjectionIndexCatalog {
       return new ProjectionWindowedRowGroupPayloads.BoundMaterializer() {
         @Override
         public List<byte[]> get() {
-          final ProjectionWindowedRowGroupPayloads view =
-              windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes);
-          // Bind at the BUILD too, not only when a handle rebinds a memoized view, so a caller that
-          // consults this supplier directly gets a usable view.
-          view.bindReaderSource(readerSource());
-          return view;
+          // The BUILD yields the shared cache; what leaves this method is always a thin view over
+          // it carrying THIS caller's source, so no shared object ever holds one.
+          return windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes)
+              .boundTo(readerSource());
         }
 
         @Override
@@ -863,9 +862,15 @@ public final class ProjectionIndexCatalog {
    * @return the resident bytes to charge
    */
   static long windowedResidentWeightBytes(final long projectedWeightBytes) {
-    return servesWindowedPayloads(projectedWeightBytes)
-        ? eagerMaterializeBytes
-        : projectedWeightBytes;
+    if (servesWindowedPayloads(projectedWeightBytes)) {
+      // The window cap is a quarter of the budget and the store's cumulative retained fills are
+      // capped at the budget; charge both so the figure bounds what the handle can actually hold.
+      return eagerMaterializeBytes + eagerMaterializeBytes / 4;
+    }
+    // An under-budget handle materializes its leaves, so the projection IS its residency — but
+    // clamp it to what this cache can admit, or a handle heavier than maximumWeight self-evicts on
+    // insert and every lookup re-decodes it.
+    return Math.min(projectedWeightBytes, Math.max(1L, CACHE_BYTES >> 1));
   }
 
   public static boolean servesWindowedPayloads(final long projectedWeightBytes) {
