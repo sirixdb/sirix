@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.HashAccesses;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
@@ -122,7 +123,9 @@ public final class GlobalValueDictionary {
   }
 
   static long secondaryValueHash(final byte[] utf8, final int off, final int len) {
-    return SECONDARY_HASH.hashBytes(utf8, off, len);
+    // Same xx3 function, Unsafe-free access — identical hash values, minus the per-read
+    // beforeMemoryAccess() deprecation check JDK 25 charges the library's default access.
+    return SECONDARY_HASH.hash(utf8, HashAccesses.BYTES, off, len);
   }
 
   /**
