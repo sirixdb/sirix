@@ -44,17 +44,111 @@ ParallelBulkJsonImporter.assemble(wtx, new NdjsonAsArrayInputStream(inputStream)
 new NdjsonAsArrayInputStream(inputStream, recordLimit)
 ```
 
-### Scope (v1)
+### Scope
 
 Both loaders refuse, up front, configurations they do not faithfully reproduce: `hashType` other
 than `NONE`, stored DeweyIDs, node history, path statistics, a non-empty target document. The
-parallel importer additionally refuses primitive-index maintenance during the load. Mutating
-existing resources remains the cursor's job.
+parallel importer additionally refuses **path, CAS, name and valid-time** index maintenance during
+the load — those families are fed by per-node change notifications, and its workers mint records off
+the transaction entirely, so no notification exists to feed them. **Projection indexes are
+supported** (see below). Mutating existing resources remains the cursor's job.
+
+### One-pass projections riding chunks
+
+A projection index declared BEFORE the data is built by the parallel load itself, in the same single
+pass, instead of by a second full walk of the finished resource. One pass is also the FASTER route
+(see the cost section below), and the index is byte-identical either way.
+
+```java
+try (var wtx = session.beginNodeTrx(nodes, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+  session.getWtxIndexController(wtx.getRevisionNumber())
+         .createProjectionIndexAtLoadStart(projectionDef, wtx, expectedRows);
+  ParallelBulkJsonImporter.assemble(wtx, inputStream);
+  wtx.commit();   // the final commit closes the build: dictionaries, fences, metadata
+}
+```
+
+Rows are extracted WHERE THE DATA IS: each chunk's build worker fills a columnar row batch
+(`ProjectionChunkRowBatch`) from the same primitives it writes into page bytes — field matching by
+path class, cell classification by the row extractor's own shared helpers — so extraction costs one
+hook per node instead of a per-record re-read through the transaction. The coordinator replays the
+batches into the armed build in document order at adoption, and mints each record's structural-order
+label through the directory's in-order append lane, which is pure label algebra: no document lookup
+anywhere on the feed path. The rows are then PACKED by exactly the machinery the post-pass build
+uses — leaves, dictionary election, fences, Bloom chunks, metadata — which is what makes the two
+indexes identical rather than merely equivalent: `ParallelBulkProjectionEquivalenceTest` compares
+them slot for slot (row-group descriptors and leaves, fence chunks and the physical-order header,
+per-column Bloom manifests and chunks, set-summary chunks, the record locator, the structural-order
+directory and the dictionary blobs) and fails on a single differing byte.
+
+Under the async-flush pipeline, a record's row is fed only once its whole subtree has entered the
+intent log — the chunk's tail page is deliberately held out of the log until its successor's head
+merges into it, and the feed drains against that adopted-key watermark. The batch rows themselves
+read nothing back, so the feed discipline exists to keep document order and to land each row's
+dictionary interns in the storage epoch its record was adopted in, not to keep pages readable; the
+old design's second invariant — withholding the epoch's record accounting while a record straddled
+the held tail page — is gone with the re-read that needed it.
+
+Arming is optional and changes nothing when absent: an unarmed parallel import runs the same code
+path as before, and the feeder does not even collect per-member node counts. A projection that is
+catalogued but has NO load-time build armed for the transaction is refused rather than silently left
+unmaintained.
+
+The load-time build is **append-only**: rows are appended in document order exactly once, so an
+update that reaches back into an already-indexed record fails loudly. Build the index with
+`jn:create-projection-index` afterwards if the write order is not document order.
+
+One reproduction caveat, deliberate and narrow: the read-back extractor's work-list visits nested
+sibling subtrees in reverse order, while a worker streams document order. For any field matched at
+most once per record — every gate corpus, and ClickBench — the two are indistinguishable. A
+duplicate match poisons the cell identically in both orders; only the residual value bytes of such a
+poisoned cell (and the element order of a set column fed by several arrays of one record) can
+differ, and no consumer reads through a poisoned cell.
+
+#### Cost: measured — one pass beats bare-then-post-pass by 2.8×
+
+Three arms over the first 1M REAL ClickBench hits rows (2.36 GB JSON, array-wrapped), interleaved
+bare/onepass/postpass per rep, minimum of 3, `-Dsirix.projection.globalDict=never`,
+`-Xmx6g`:
+
+| Arm | min | median | vs bare |
+|---|---|---|---|
+| parallel import, no projection | **12.54 s** | 12.88 s | — |
+| parallel import, projection armed one-pass | **23.77 s** | 24.47 s | +11.2 s (+89.5%) |
+| parallel import bare, then post-pass build | **66.98 s** | 67.42 s | +54.4 s |
+
+Both projection arms produce the identical index — 977 row groups, live metadata, verified per rep.
+**One pass is 2.82× faster end to end than loading bare and building afterwards**, at 1.9× the bare
+import's wall. The previous design — the coordinator re-reading every record through the write
+transaction at drain time — measured 497 s one-pass on this workload's synthetic twin, ~8× SLOWER
+than the post-pass; moving extraction into the build workers and order labels onto the in-order
+append lane removed the entire regression (the rotation witness's 147k-record one-pass arm fell
+from 67 s to 3 s in the same change).
+
+#### Why one pass also lifts a hard ceiling
+
+A resource-wide value dictionary is appended in generations, and one generation admits at most
+16,384 distinct entries. The post-pass build appends the whole corpus as a SINGLE generation, so any
+elected string column with more distinct values than that kills the build outright — the standing
+workaround being `-Dsirix.projection.globalDict=never`. A load-time build flushes a generation per
+storage epoch, so generations rotate with the load. Measured on one corpus of 147,456 records with
+36,864 distinct values in the elected column: the one-pass parallel load publishes a live
+`STRING_GLOBAL` column over 144 row groups, while the post-pass build on the same data dies with
+`append entry 16,385 exceeds the safe per-append limit of 16,384`.
+
+This raises the ceiling from "the whole corpus" to "one storage epoch"; it does not remove it. A
+column that is ~100% distinct still saturates a generation inside the dictionary's own 16-leaf
+sample window, whatever the epoch size.
 
 ### Verification guarantees
 
 - Per-chunk builds verify their reserved range exactly (final minted key == range end AND
   populated slots == reserved count) — a count/build divergence refuses loudly per chunk.
+- With a projection armed, THREE independent derivations of the record roots must agree: the
+  feeder's per-member node counts, the range arithmetic that names the chunk's last member, and the
+  build worker's own parent-key record detection (checked per row at feed time). The build's
+  end-of-load check additionally compares rows emitted against the record-set array's child count —
+  so a load that mis-attributes records refuses instead of publishing a short index.
 - The equivalence oracle compares parallel imports against sequential loads field-by-field,
   including path-summary reference counts, across adversarial chunkings (one-member chunks,
   boundaries mid-page, names first appearing in late chunks).
@@ -109,5 +203,6 @@ totaling 4.4 s of a 1,145 s wall (0.38%), max single pause 3.7 ms.
   the default 9 despite strictly less worker time. A multi-generation intent log aims at the same
   23%, against a class that has twice produced silent cross-generation use-after-free bugs; the
   serialize stage is where the load's throughput actually lives.
-- XML bulk import and projection maintenance riding the parallel load are planned follow-ups.
+- XML bulk import is a planned follow-up. Projection maintenance riding the parallel load has
+  landed (see above); the other index families still refuse.
 - Import into existing resources is out of scope for both loaders.
