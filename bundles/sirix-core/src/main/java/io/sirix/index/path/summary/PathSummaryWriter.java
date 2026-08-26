@@ -350,6 +350,25 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param parentPathNodeKey path node key of the OBJECT_KEY parent (must be a valid path node)
    * @return path node key of the {@code __array__/ARRAY} child (existing or freshly inserted)
    */
+  public long getArrayChildPathNodeKey(final long parentPathNodeKey) {
+    if (parentPathNodeKey < 0) {
+      throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
+    }
+    final QNm arrayName = ARRAY_PATH_QNM;
+    final long existing = pathSummaryReader.findChild(parentPathNodeKey, arrayName, NodeKind.ARRAY);
+    if (existing >= 0) {
+      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(existing, IndexType.PATH_SUMMARY, 0);
+      pathNode.incrementReferenceCount();
+      persistPathSummaryRecord(pathNode);
+      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+      return existing;
+    }
+    pathSummaryReader.moveTo(parentPathNodeKey);
+    final int level = pathSummaryReader.getLevel();
+    insertPathAsFirstChild(arrayName, NodeKind.ARRAY, level + 1);
+    return pathSummaryReader.getNodeKey();
+  }
+
   /**
    * Apply {@code delta} deferred reference-count increments to an existing path node in ONE record
    * touch. The bulk assembler resolves a path class once (which counts its first occurrence via the
@@ -369,25 +388,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     pathNode.setReferenceCount(pathNode.getReferences() + delta);
     persistPathSummaryRecord(pathNode);
     pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
-  }
-
-  public long getArrayChildPathNodeKey(final long parentPathNodeKey) {
-    if (parentPathNodeKey < 0) {
-      throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
-    }
-    final QNm arrayName = ARRAY_PATH_QNM;
-    final long existing = pathSummaryReader.findChild(parentPathNodeKey, arrayName, NodeKind.ARRAY);
-    if (existing >= 0) {
-      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(existing, IndexType.PATH_SUMMARY, 0);
-      pathNode.incrementReferenceCount();
-      persistPathSummaryRecord(pathNode);
-      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
-      return existing;
-    }
-    pathSummaryReader.moveTo(parentPathNodeKey);
-    final int level = pathSummaryReader.getLevel();
-    insertPathAsFirstChild(arrayName, NodeKind.ARRAY, level + 1);
-    return pathSummaryReader.getNodeKey();
   }
 
   /** Canonical name of the synthetic {@code __array__/ARRAY} path-summary layer. */

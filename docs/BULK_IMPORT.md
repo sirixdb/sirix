@@ -47,11 +47,17 @@ new NdjsonAsArrayInputStream(inputStream, recordLimit)
 ### Scope
 
 Both loaders refuse, up front, configurations they do not faithfully reproduce: `hashType` other
-than `NONE`, stored DeweyIDs, node history, path statistics, a non-empty target document. The
-parallel importer additionally refuses **path, CAS, name and valid-time** index maintenance during
-the load — those families are fed by per-node change notifications, and its workers mint records off
-the transaction entirely, so no notification exists to feed them. **Projection indexes are
-supported** (see below). Mutating existing resources remains the cursor's job.
+than `NONE`, stored DeweyIDs, node history, path statistics, a non-empty target document.
+
+The parallel importer **maintains PATH, CAS and NAME** index definitions during the load: each
+chunk's build worker collects that family's tuples from the primitives it already holds, the
+coordinator drains them per chunk into the families' ordinary bulk loaders, and one flush per family
+materialises each trie before the caller's commit — the same entries the sequential path's per-node
+change notifications produce, byte-identical against a sequential oracle across 20 probes, at a
+measured +10.2% import cost for four real definitions. **Projection indexes are supported** too (see
+below). Only **valid-time** interval maintenance is still refused, and the refusal is def-based with
+an exact-family message: that family is resolved by a configured-path visitor over whole records,
+which has no chunk-local equivalent yet. Mutating existing resources remains the cursor's job.
 
 ### One-pass projections riding chunks
 
@@ -203,6 +209,6 @@ totaling 4.4 s of a 1,145 s wall (0.38%), max single pause 3.7 ms.
   the default 9 despite strictly less worker time. A multi-generation intent log aims at the same
   23%, against a class that has twice produced silent cross-generation use-after-free bugs; the
   serialize stage is where the load's throughput actually lives.
-- XML bulk import is a planned follow-up. Projection maintenance riding the parallel load has
-  landed (see above); the other index families still refuse.
+- XML bulk import is a planned follow-up. Projection, PATH, CAS and NAME maintenance riding the
+  parallel load has landed (see above); valid-time is the one family that still refuses.
 - Import into existing resources is out of scope for both loaders.

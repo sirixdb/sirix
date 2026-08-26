@@ -8003,9 +8003,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // Budget-aware: a handle whose worst-case resident bytes exceed the eager budget is served by
     // the windowed payload view — the route that lets fat string columns answer whole-leaf query
     // shapes (LIKE, distinct) at 100M instead of OOMing the whole-column materialization.
-    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount(),
-        handle.projectedWeightBytes());
+    final Supplier<List<byte[]>> materializer = ProjectionIndexCatalog.rowGroupMaterializer(session, revision,
+        handle.defId(), store.rowGroupCount(), handle.projectedWeightBytes());
+    if (!ProjectionIndexCatalog.servesWindowedPayloads(handle.projectedWeightBytes())) {
+      return materializer;
+    }
+    // The shared handle deliberately does not memoize a windowed view (it would outlive this
+    // session and fetch through a closed one), so THIS executor memoizes it for its own lifetime —
+    // the exact lifetime of the session the view's fetcher is bound to. Without it every consult
+    // would redo the physical-order read and start from a cold window set.
+    return () -> windowedPayloadViews.computeIfAbsent(handle, memoized -> materializer.get());
   }
+
+  /**
+   * Per-executor memo of the WINDOWED whole-leaf views, keyed by handle IDENTITY (a handle carries
+   * no value equality) — see {@link #rowGroupMaterializer(ProjectionIndexRegistry.Handle)}. Bounded
+   * by the number of projection handles this executor's queries touch, and dropped with the
+   * executor, so it holds nothing past its session. Only windowed views land here; an eager handle
+   * memoizes its own resident leaves and never consults the materializer again.
+   */
+  private final ConcurrentHashMap<ProjectionIndexRegistry.Handle, List<byte[]>> windowedPayloadViews =
+      new ConcurrentHashMap<>();
 
   /** The write transaction's index controller (wtx mode only). */
   private JsonIndexController wtxIndexController() {

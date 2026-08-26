@@ -130,6 +130,10 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param len length of the value
    * @return the encoded bytes to store with the compressed flag, or {@code null} to store raw
    */
+  default byte[] encodeStringValueForInsert(KeyValueLeafPage page, byte[] value, int off, int len) {
+    return null;
+  }
+
   /**
    * Adds {@code delta} occurrences to an EXISTING interned name's count in one record touch — the
    * batched sibling of the per-occurrence counting in {@code createNameKey}; the parallel bulk
@@ -169,10 +173,6 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   default KeyValueLeafPage prepareDocumentLeafForBlit(long recordPageKey) {
     throw new UnsupportedOperationException("bulk page blitting is not supported by this writer");
-  }
-
-  default byte[] encodeStringValueForInsert(KeyValueLeafPage page, byte[] value, int off, int len) {
-    return null;
   }
 
   /**

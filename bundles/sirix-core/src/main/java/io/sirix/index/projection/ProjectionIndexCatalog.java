@@ -802,7 +802,7 @@ public final class ProjectionIndexCatalog {
    */
   public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
       final int defId, final int rowGroupCount, final long projectedWeightBytes) {
-    if (projectedWeightBytes > eagerMaterializeBytes) {
+    if (servesWindowedPayloads(projectedWeightBytes)) {
       return () -> windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes);
     }
     return () -> {
@@ -819,6 +819,27 @@ public final class ProjectionIndexCatalog {
           ? persisted
           : new ArrayList<>(persisted.subList(0, rowGroupCount));
     };
+  }
+
+  /**
+   * Whether a handle of this projected weight is served by the WINDOWED payload view rather than by
+   * whole-column eager materialization.
+   *
+   * <p>
+   * A windowed view is bound to the session its fetcher was built from and is therefore never
+   * memoized on the shared handle (see
+   * {@link ProjectionIndexRegistry.Handle#rowGroupPayloads(Supplier)}). Callers that consult a
+   * handle's payloads more than once within ONE session use this to memoize the view for that
+   * session's lifetime, which is what keeps the physical-order read and the resident windows from
+   * being redone per call.
+   * </p>
+   *
+   * @param projectedWeightBytes the handle's worst-case resident bytes
+   *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()})
+   * @return {@code true} when the windowed route serves this weight
+   */
+  public static boolean servesWindowedPayloads(final long projectedWeightBytes) {
+    return projectedWeightBytes > eagerMaterializeBytes;
   }
 
   /** Build the windowed payload view: one physical-order read up front, one fetch per window after. */
