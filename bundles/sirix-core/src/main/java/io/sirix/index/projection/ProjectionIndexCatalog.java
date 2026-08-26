@@ -736,16 +736,15 @@ public final class ProjectionIndexCatalog {
    * <p>
    * Derived, not invented: an eager {@code List<byte[]>} of every leaf lives inside the {@link #DATA}
    * cache's byte budget ({@code sirix.projection.cacheBytes}) — an entry heavier than half that
-   * budget is guaranteed cache-thrash — and it must also fit the heap beside the off-heap arena, so
-   * a quarter of {@code Runtime.maxMemory()} bounds it from the other side. At 100M rows a
-   * fat-string projection's leaves total ~8-10 GB; the first whole-leaf consumer (string LIKE,
-   * distinct over strings) OOMed the materializer inside the catalog load. The projected weight
-   * compared against this is the handle's worst-case RESIDENT bytes — the same conservative figure
-   * the cache weigher uses — so the route flips to windowed strictly BEFORE the eager list could
-   * have fit.
+   * budget is guaranteed cache-thrash — and it must also fit the heap beside the off-heap arena, so a
+   * quarter of {@code Runtime.maxMemory()} bounds it from the other side. At 100M rows a fat-string
+   * projection's leaves total ~8-10 GB; the first whole-leaf consumer (string LIKE, distinct over
+   * strings) OOMed the materializer inside the catalog load. The projected weight compared against
+   * this is the handle's worst-case RESIDENT bytes — the same conservative figure the cache weigher
+   * uses — so the route flips to windowed strictly BEFORE the eager list could have fit.
    */
-  private static final long EAGER_MATERIALIZE_BYTES_DEFAULT = Long.getLong(
-      "sirix.projection.eagerMaterializeBytes", Math.min(CACHE_BYTES / 2, Runtime.getRuntime().maxMemory() / 4));
+  private static final long EAGER_MATERIALIZE_BYTES_DEFAULT = Long.getLong("sirix.projection.eagerMaterializeBytes",
+      Math.min(CACHE_BYTES / 2, Runtime.getRuntime().maxMemory() / 4));
 
   private static volatile long eagerMaterializeBytes = EAGER_MATERIALIZE_BYTES_DEFAULT;
 
@@ -797,8 +796,8 @@ public final class ProjectionIndexCatalog {
    * whole-column residency that OOMed fat string columns at 100M.
    *
    * @param projectedWeightBytes the handle's worst-case resident bytes
-   *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()}), or {@code 0} to force
-   *        the eager route
+   *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()}), or {@code 0} to force the
+   *        eager route
    */
   public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
       final int defId, final int rowGroupCount, final long projectedWeightBytes) {
@@ -811,8 +810,8 @@ public final class ProjectionIndexCatalog {
         public List<byte[]> get() {
           // The BUILD yields the shared cache; what leaves this method is always a thin view over
           // it carrying THIS caller's source, so no shared object ever holds one.
-          return windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes)
-              .boundTo(readerSource());
+          return windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes).boundTo(
+              readerSource());
         }
 
         @Override
@@ -872,7 +871,9 @@ public final class ProjectionIndexCatalog {
     return Math.max(1L, Math.min(resident, Math.max(1L, CACHE_BYTES >> 1)));
   }
 
-  /** Build the windowed payload view: one physical-order read up front, one fetch per window after. */
+  /**
+   * Build the windowed payload view: one physical-order read up front, one fetch per window after.
+   */
   private static ProjectionWindowedRowGroupPayloads windowedRowGroupPayloads(final ResourceSession<?, ?> session,
       final int revision, final int defId, final int rowGroupCount, final long projectedWeightBytes) {
     ChunkedBodyConfig.recordWindowedColumnEngagement();
@@ -885,8 +886,7 @@ public final class ProjectionIndexCatalog {
     // sized by the projected per-leaf weight (conservative — includes decode expansion, so the cap
     // errs toward fewer resident windows), and never below the machine's worker count so a parallel
     // shard sweep does not thrash at its shard boundaries.
-    final long projectedWindowBytes =
-        Math.max(1L, projectedWeightBytes / Math.max(1, rowGroupCount)) * windowSize;
+    final long projectedWindowBytes = Math.max(1L, projectedWeightBytes / Math.max(1, rowGroupCount)) * windowSize;
     final int residentCap = (int) Math.min(Integer.MAX_VALUE,
         Math.max(Runtime.getRuntime().availableProcessors(), (eagerMaterializeBytes / 4) / projectedWindowBytes));
     if (DIAG) {
@@ -895,26 +895,26 @@ public final class ProjectionIndexCatalog {
     }
     // The fetcher captures the physical order and the definition id — both inert — and NOTHING
     // session-scoped: its transaction comes from the source the consult site binds.
-    return new ProjectionWindowedRowGroupPayloads(rowGroupCount, windowSize, residentCap, (source, from,
-        toExclusive) -> {
-      final byte[][] window = new byte[toExclusive - from][];
-      // A transaction PER WINDOW: concurrent read transactions are supported, one is not
-      // thread-safe, and parallel kernels touch disjoint windows concurrently.
-      try (NodeReadOnlyTrx windowRtx = source.openReader()) {
-        final StorageEngineReader reader = windowRtx.getStorageEngineReader();
-        for (int logical = from; logical < toExclusive; logical++) {
-          final byte[] payload =
-              ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, physicalOrder[logical]);
-          if (payload == null) {
-            throw new IllegalStateException("Projection definition #" + defId + " truncated during windowed "
-                + "materialization: logical row group " + logical + " (physical slot " + physicalOrder[logical]
-                + ") has no payload");
+    return new ProjectionWindowedRowGroupPayloads(rowGroupCount, windowSize, residentCap,
+        (source, from, toExclusive) -> {
+          final byte[][] window = new byte[toExclusive - from][];
+          // A transaction PER WINDOW: concurrent read transactions are supported, one is not
+          // thread-safe, and parallel kernels touch disjoint windows concurrently.
+          try (NodeReadOnlyTrx windowRtx = source.openReader()) {
+            final StorageEngineReader reader = windowRtx.getStorageEngineReader();
+            for (int logical = from; logical < toExclusive; logical++) {
+              final byte[] payload =
+                  ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, physicalOrder[logical]);
+              if (payload == null) {
+                throw new IllegalStateException("Projection definition #" + defId + " truncated during windowed "
+                    + "materialization: logical row group " + logical + " (physical slot " + physicalOrder[logical]
+                    + ") has no payload");
+              }
+              window[logical - from] = payload;
+            }
           }
-          window[logical - from] = payload;
-        }
-      }
-      return window;
-    });
+          return window;
+        });
   }
 
   /** Above this many row groups the slot walk partitions across per-thread readers. */

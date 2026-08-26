@@ -101,8 +101,9 @@ final class AsyncFlushHftPhaseTelemetryTest {
         "hftMaxWorkerEpochSerializeJoinWaitNanos"), "serialize-join total must cover the slowest epoch's share");
     assertTrue(longField(measuredWriter, "hftKvlAppendNanosTotal") >= longField(measuredWriter,
         "hftMaxWorkerEpochKvlAppendNanos"), "KVL-append total must cover the slowest epoch's share");
-    assertTrue(longField(measuredWriter, "hftSideNanosTotal") >= longField(measuredWriter,
-        "hftMaxWorkerEpochSideNanos"), "side-page total must cover the slowest epoch's share");
+    assertTrue(
+        longField(measuredWriter, "hftSideNanosTotal") >= longField(measuredWriter, "hftMaxWorkerEpochSideNanos"),
+        "side-page total must cover the slowest epoch's share");
     assertTrue(longField(measuredWriter, "hftFinalFlushNanosTotal") >= longField(measuredWriter,
         "hftMaxWorkerEpochFinalFlushNanos"), "final-flush total must cover the slowest epoch's share");
     // Both phases run in every combined epoch, so with more than one epoch the totals must exceed

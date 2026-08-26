@@ -1050,8 +1050,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void anOverBudgetColumnRoutesToTheWholeLeafKernelInsteadOfDecliningIntoTheSlicedArm()
-      throws IOException {
+  public void anOverBudgetColumnRoutesToTheWholeLeafKernelInsteadOfDecliningIntoTheSlicedArm() throws IOException {
     // A whole-column slice fill declines through the store's budget door. Kind-sliceability knows
     // nothing about that budget, so a planner gating on kind alone selects the sliced arm, the fill
     // then throws, and the exception lands in the group route's fail-soft catch — which increments
@@ -2301,8 +2300,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String sortedQuery = "let $doc := jn:doc('json-path1','budgetsorted.jn')\n"
-        + "for $r in $doc[] order by $r.age return $r";
+    final String sortedQuery =
+        "let $doc := jn:doc('json-path1','budgetsorted.jn')\n" + "for $r in $doc[] order by $r.age return $r";
     try (
         final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
@@ -2314,8 +2313,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       final long ageBytes;
       try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
         final ProjectionIndexRegistry.Handle handle =
-            session.getRtxIndexController(revision).openProjectionIndex(rtx.getStorageEngineReader(),
-                new String[] {"[]"}, new String[] {"age", "tag"});
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"}, new String[] {"age", "tag"});
         Assertions.assertNotNull(handle, "the projection must be servable");
         final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
         Assertions.assertNotNull(columnStore);
@@ -2362,8 +2361,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       }
       // A SHORT group key beside a LONG predicate column, so one column's fill fits a budget the
       // other's does not — which is the whole point: the arm is selected, then the door refuses.
-      corpus.append("{\"dept\":\"d").append(i % 4).append("\",\"age\":").append(20 + i)
-            .append(",\"city\":\"").append("metropolis-").append("qwertyuiop".repeat(12)).append(i).append("\"}");
+      corpus.append("{\"dept\":\"d")
+            .append(i % 4)
+            .append("\",\"age\":")
+            .append(20 + i)
+            .append(",\"city\":\"")
+            .append("metropolis-")
+            .append("qwertyuiop".repeat(12))
+            .append(i)
+            .append("\"}");
     }
     query("jn:store('json-path1','budgetcontains.jn','" + corpus.append(']') + "')");
     query("""
@@ -2395,10 +2401,10 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       final long deptBytes;
       final long cityBytes;
       try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
-        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
-                                                             .openProjectionIndex(rtx.getStorageEngineReader(),
-                                                                 new String[] {"[]"},
-                                                                 new String[] {"dept", "age", "city"});
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"},
+                       new String[] {"dept", "age", "city"});
         Assertions.assertNotNull(handle, "the projection must be servable");
         final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
         Assertions.assertNotNull(columnStore, "the handle must be column-lazy for this test to price columns");
@@ -2456,8 +2462,16 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       if (i > 0) {
         predCorpus.append(',');
       }
-      predCorpus.append("{\"uid\":").append(i % 3 == 0 ? 7 : 3).append(",\"name\":\"n").append(i)
-                .append("\",\"grp\":\"").append("groupvalue-".repeat(24)).append(i % 3).append("\"}");
+      predCorpus.append("{\"uid\":")
+                .append(i % 3 == 0
+                    ? 7
+                    : 3)
+                .append(",\"name\":\"n")
+                .append(i)
+                .append("\",\"grp\":\"")
+                .append("groupvalue-".repeat(24))
+                .append(i % 3)
+                .append("\"}");
     }
     query("jn:store('json-path1','budgetpredscan.jn','" + predCorpus.append(']') + "')");
     query("""
@@ -2472,8 +2486,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // An ABSENT literal: every leaf's fingerprint misses, so the prune drops them all and the
     // masked fetch reads no segment at all — the cheapest possible serve, and the one the
     // whole-column budget was rejecting.
-    final String absentLookup =
-        "let $doc := jn:doc('json-path1','budgetpredscan.jn')\n" + "for $r in $doc[] where $r.grp = \"nowhere\" return $r";
+    final String absentLookup = "let $doc := jn:doc('json-path1','budgetpredscan.jn')\n"
+        + "for $r in $doc[] where $r.grp = \"nowhere\" return $r";
     try (
         final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
@@ -2488,10 +2502,10 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       final long grpBytes;
       final long keysBytes;
       try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
-        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
-                                                             .openProjectionIndex(rtx.getStorageEngineReader(),
-                                                                 new String[] {"[]"},
-                                                                 new String[] {"uid", "name", "grp"});
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"},
+                       new String[] {"uid", "name", "grp"});
         Assertions.assertNotNull(handle, "the projection must be servable");
         final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
         Assertions.assertNotNull(columnStore);

@@ -759,7 +759,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(SirixVectorizedExecutor.class);
 
-  /** Shared daemon reaper joining retired executors' pools off the compile path — see {@link #retireAsync()}. */
+  /**
+   * Shared daemon reaper joining retired executors' pools off the compile path — see
+   * {@link #retireAsync()}.
+   */
   private static final ExecutorService RETIREMENT_REAPER = Executors.newSingleThreadExecutor(r -> {
     final Thread thread = new Thread(r, "sirix-executor-retirement");
     thread.setDaemon(true);
@@ -1064,14 +1067,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Retire without blocking the caller. {@link #retire()} joins the warm-up and worker pools, and
-   * a running whole-leaf warm-up materialization is uncancellable (its parallel arm runs through
+   * Retire without blocking the caller. {@link #retire()} joins the warm-up and worker pools, and a
+   * running whole-leaf warm-up materialization is uncancellable (its parallel arm runs through
    * {@code ForkJoinTask.invoke}, which ignores interrupts) — retiring synchronously on the compile
    * path serialized every compile of the chain, and every executor-cache overflow, behind a
    * potentially multi-GB read. The queue drain and shutdown still run HERE, synchronously (see
-   * {@link #initiatePoolShutdown}); only the join moves to the shared reaper. The caller has
-   * already unpublished this executor, so no new work reaches it, and in-flight scans complete
-   * exactly as under a synchronous retire.
+   * {@link #initiatePoolShutdown}); only the join moves to the shared reaper. The caller has already
+   * unpublished this executor, so no new work reaches it, and in-flight scans complete exactly as
+   * under a synchronous retire.
    */
   public void retireAsync() {
     initiatePoolShutdown(false);
@@ -1120,8 +1123,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /**
    * The non-blocking half of a shutdown: reject new work, drain queued warm-ups, and run their
    * cancellation hooks. Runs synchronously in every retirement flavour — queued warm-ups carry
-   * cancellation hooks whose one-shot latches in-flight readers may await, so this must never
-   * queue behind another executor's slow termination.
+   * cancellation hooks whose one-shot latches in-flight readers may await, so this must never queue
+   * behind another executor's slow termination.
    */
   private void initiatePoolShutdown(final boolean terminal) {
     synchronized (workerPoolLifecycleLock) {
@@ -2686,8 +2689,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Every listed column servable by a WHOLE-COLUMN slice fill (fail-closed gate for the sliced group
    * route) — viability, not just kind: an over-budget column's fill declines inside the store, so
    * gating on {@link ProjectionColumnStore#columnFillable} keeps this route from selecting an arm
-   * that cannot complete. Only for columns that reach {@code store.column(...)}; a column filled in
-   * a cheaper mode has its own gate.
+   * that cannot complete. Only for columns that reach {@code store.column(...)}; a column filled in a
+   * cheaper mode has its own gate.
    */
   private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
     for (final int col : cols) {
@@ -2699,8 +2702,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * The aggregate columns' gate, asking each column about the mode it will ACTUALLY be filled in:
-   * the {@code COUNT(DISTINCT)} operand at {@code identityOperandIndex} goes through
+   * The aggregate columns' gate, asking each column about the mode it will ACTUALLY be filled in: the
+   * {@code COUNT(DISTINCT)} operand at {@code identityOperandIndex} goes through
    * {@link ProjectionColumnStore#columnDistinctIdentity} (BODY + the ~8 B/entry hash chain, no
    * dictionary), every other lane through a whole-column fill. Judging the operand by the
    * whole-column projection rejects a fat dictionary column on bytes its fill never fetches.
@@ -11727,8 +11730,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
-        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
-        keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false);
+        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
+        keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false);
   }
 
   /**
@@ -11736,20 +11739,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *
    * <p>
    * {@code wholeLeafOnly} exists for ONE transition: a column fill the store refuses on budget. The
-   * sliced arm cannot complete without those bytes, but the whole-leaf arm right beside it can —
-   * over an over-budget handle that arm IS the windowed byte-kernel scan the budget declined toward.
+   * sliced arm cannot complete without those bytes, but the whole-leaf arm right beside it can — over
+   * an over-budget handle that arm IS the windowed byte-kernel scan the budget declined toward.
    * Re-entering with the arm suppressed takes it, instead of dropping a query that has a viable
    * projection route in hand all the way to the generic navigational pipeline.
    * </p>
    */
   private ServedGroups groupByAggregate(final QueryContext ctx, final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
-      final String[] funcs, final String[] aggFields, final String[] outNames, final int[] orderIndexes,
-      final boolean[] orderAsc, final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets,
-      final int[] keySubstr, final String[] keyCondFields, final long[] keyCondLits,
-      final String[] keyCondElse, final String[] keyRegexPattern, final String[] keyRegexRepl,
-      final long[] keyDivMod, final boolean[] keyStringify, final long[] having,
-      final boolean wholeLeafOnly) {
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
+      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
+      final long[] having, final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return declineGroupAgg("no projection available");
@@ -12109,8 +12111,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // background assembly landing between the kick and the re-read, demoting the very query that
       // triggered it — did not reproduce even at -Dsirix.projection.slicedPromoteAfter=1.
       final boolean groupSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
-          && !handle.payloadsMaterialized()
-          && (tree == null
+          && !handle.payloadsMaterialized() && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
           && allColumnsSliceable(groupStore, groupCols) && aggColumnsFillable(groupStore, aggColsFlat, cdStringDict
@@ -13131,8 +13132,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return declineGroupAgg("column fill over budget on the whole-leaf route too");
       }
       return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
-        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
-        keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, true);
+          orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
+          keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, true);
     } catch (final RuntimeException e) {
       // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
       // here (unlike a gate decline) means a defect or corruption, and a silent 100%
@@ -13162,8 +13163,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * The const-group twin of {@link #declineGroupAgg}: a decline that falls to the generic pipeline
-   * must move a counter, or a route that stopped serving reads exactly like one that was never
-   * asked. Shares {@code GROUP_AGG_DECLINED} because both arms answer the same question.
+   * must move a counter, or a route that stopped serving reads exactly like one that was never asked.
+   * Shares {@code GROUP_AGG_DECLINED} because both arms answer the same question.
    *
    * @param reason names the gate; keep it stable and cheap
    * @return {@code null}, always — the caller's decline value
@@ -13282,9 +13283,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // conditions (and in the very order) it always did, while the route itself is latched before
       // the kick so "keep serving sliced until it lands" is enforced by the code and not only
       // promised by a comment. Hardening; the suspected intra-query demotion did not reproduce.
-      final boolean constPromoteNow = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null
-          && !handle.payloadsMaterialized() && !projectionWarmupPool.isShutdown()
-          && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      final boolean constPromoteNow =
+          GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !handle.payloadsMaterialized()
+              && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
       final boolean constSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !anyStrlenAgg
           && !handle.payloadsMaterialized() && predsSliceable(constStore, preds)
           && allColumnsSliceable(constStore, aggCols);

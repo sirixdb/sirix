@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -27,10 +28,10 @@ import org.jspecify.annotations.Nullable;
  * distinct name for the whole load.</li>
  * <li>Each name entry carries its own tiny {@code parentPCR → fieldPCR} map, so the per-occurrence
  * path cost is one long-hash probe instead of a String-keyed memo lookup; misses resolve through
- * the REAL summary writer on the coordinator (global first-occurrence order preserved:
- * path-resolve before name-intern, the sequential path's exact dictionary call order).</li>
- * <li>Reference-count deltas accumulate per path node and flush per chunk (before any rotation
- * can flush summary pages cold).</li>
+ * the REAL summary writer on the coordinator (global first-occurrence order preserved: path-resolve
+ * before name-intern, the sequential path's exact dictionary call order).</li>
+ * <li>Reference-count deltas accumulate per path node and flush per chunk (before any rotation can
+ * flush summary pages cold).</li>
  * </ul>
  *
  * <p>
@@ -40,12 +41,12 @@ import org.jspecify.annotations.Nullable;
 final class FusedSliceAndScan {
 
   /**
-   * One node of the feeder-owned PATH TRIE: scan context is tracked by trie-node IDENTITY, never
-   * by PCR values, so the feeder needs no access to the path summary at all. The coordinator
-   * resolves {@link #pcr} for NEW nodes at chunk handoff, in first-occurrence order — the exact
-   * order a sequential load inserts paths. Field ownership is disjoint across the two threads:
-   * the feeder mutates the children maps and tallies, the coordinator writes {@code pcr}; the
-   * handoff queue's put/take pair is the fence that publishes each chunk's new nodes.
+   * One node of the feeder-owned PATH TRIE: scan context is tracked by trie-node IDENTITY, never by
+   * PCR values, so the feeder needs no access to the path summary at all. The coordinator resolves
+   * {@link #pcr} for NEW nodes at chunk handoff, in first-occurrence order — the exact order a
+   * sequential load inserts paths. Field ownership is disjoint across the two threads: the feeder
+   * mutates the children maps and tallies, the coordinator writes {@code pcr}; the handoff queue's
+   * put/take pair is the fence that publishes each chunk's new nodes.
    */
   static final class PathStep {
     final PathStep parent;
@@ -142,9 +143,9 @@ final class FusedSliceAndScan {
   private long memberStartNodes;
 
   /**
-   * Per-member node counts for the CURRENT chunk, or {@code null} when the coordinator does not
-   * need them. Reserved once at the requested capacity and reused for every chunk, so a load that
-   * does need them still allocates no per-chunk array beyond the handed-off copy.
+   * Per-member node counts for the CURRENT chunk, or {@code null} when the coordinator does not need
+   * them. Reserved once at the requested capacity and reused for every chunk, so a load that does
+   * need them still allocates no per-chunk array beyond the handed-off copy.
    */
   private final @Nullable LongArrayList memberNodes;
 
@@ -164,9 +165,9 @@ final class FusedSliceAndScan {
   private final PathStep rootStep = new PathStep(null, -1, null);
 
   /**
-   * Recycled chunk buffers: a fresh multi-MB {@code byte[]} per chunk is a G1 humongous
-   * allocation — measured at ~2.8 GB of churn every 1.7 s on a 1M import, driving 10 of 12
-   * collections. Receivers return buffers via {@link #releaseChunkBuffer} once the build is done.
+   * Recycled chunk buffers: a fresh multi-MB {@code byte[]} per chunk is a G1 humongous allocation —
+   * measured at ~2.8 GB of churn every 1.7 s on a 1M import, driving 10 of 12 collections. Receivers
+   * return buffers via {@link #releaseChunkBuffer} once the build is done.
    */
   private final ArrayBlockingQueue<byte[]> chunkBufferPool = new ArrayBlockingQueue<>(16);
 
@@ -188,8 +189,8 @@ final class FusedSliceAndScan {
   }
 
   /**
-   * @param trackMemberNodes whether each chunk should carry its members' node counts — the only way
-   *        a coordinator can name every record's root key by range arithmetic
+   * @param trackMemberNodes whether each chunk should carry its members' node counts — the only way a
+   *        coordinator can name every record's root key by range arithmetic
    */
   FusedSliceAndScan(final InputStream in, final int chunkByteBudget, final boolean trackMemberNodes) {
     this.in = in;
@@ -541,7 +542,7 @@ final class FusedSliceAndScan {
     final List<int[]> tallies = new ArrayList<>(touchedNameCount);
     for (int i = 0; i < touchedNameCount; i++) {
       final int nameId = touchedNameSlots[i];
-      tallies.add(new int[] { nameId, nameChunkOccurrencesById[nameId] });
+      tallies.add(new int[] {nameId, nameChunkOccurrencesById[nameId]});
       nameChunkOccurrencesById[nameId] = 0;
     }
     touchedNameCount = 0;
@@ -629,7 +630,7 @@ final class FusedSliceAndScan {
   }
 
   private static String decodeName(final byte[] raw) {
-    final String utf8 = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+    final String utf8 = new String(raw, StandardCharsets.UTF_8);
     if (utf8.indexOf('\\') < 0) {
       return utf8;
     }

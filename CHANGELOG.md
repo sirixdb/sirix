@@ -16,11 +16,23 @@ All notable changes to SirixDB are documented in this file.
   so nested columns sharing a trailing name with another path are accepted. See
   `docs/PROJECTION_INDEXES.md` and `docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md`.
 - **Load-time projection builds** — `BasicJsonDBStore#create(collection, resource, reader|parser,
-  ProjectionSpec)` catalogues a projection on the still-empty resource and lets the shred's own
-  change notifications fill it, so a load plus its projection is ONE pass instead of a shred
-  followed by a full `jn:create-projection-index` walk. Until the load's final commit the
-  projection's metadata slot holds the stale tombstone, so an interrupted load leaves queries on
-  the generic pipeline rather than on a half-filled index. See `docs/PROJECTION_INDEXES.md`.
+  ProjectionSpec)` catalogues a projection on the still-empty resource and lets the load fill it,
+  so a load plus its projection is ONE pass instead of a shred followed by a full
+  `jn:create-projection-index` walk. Until the load's final commit the projection's metadata slot
+  holds the stale tombstone, so an interrupted load leaves queries on the generic pipeline rather
+  than on a half-filled index. See `docs/PROJECTION_INDEXES.md`.
+- **Bulk JSON loaders for fresh resources** — `BulkJsonTreeAssembler` (sequential) and
+  `ParallelBulkJsonImporter` (feeder scan + worker page builders + ordered adoption, for corpora
+  whose top level is an array; NDJSON rides `NdjsonAsArrayInputStream`). Both build trees
+  structurally identical to cursor-based insertion, enforced by a full-field differential oracle,
+  and refuse up front what they do not reproduce faithfully (`hashType` other than `NONE`, stored
+  DeweyIDs, node history, path statistics, a non-empty target). The parallel importer **maintains
+  PATH, CAS and NAME definitions and armed projection builds in the load's single pass** — the
+  workers extract each family's tuples from the primitives they already hold and the coordinator
+  drains them into the families' ordinary bulk loaders; a catalogued projection with no armed
+  load-time build is refused rather than silently left unmaintained, and valid-time interval
+  maintenance is the one family that still refuses. API, scope, verification, tuning and measured
+  numbers: `docs/BULK_IMPORT.md`.
 - **Asynchronous durable commits** (`AfterCommitState.KEEP_OPEN_ASYNC_COMMIT`) — the middle
   ground between synchronous auto-commits and the async pre-flush: every threshold crossing
   creates a real, durable, queryable revision, but the durability barriers (index-catalogue
@@ -45,6 +57,21 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **Wide projection string columns serve through windowed leaf loads** instead of whole-column
+  eager materialization. A projection whose worst-case resident size exceeds
+  `-Dsirix.projection.eagerMaterializeBytes` (default: the smaller of half the projection cache
+  budget and a quarter of the heap) is served from bounded 128-leaf windows, and a column fill
+  that would exceed the budget declines — the query re-enters the windowed whole-leaf route where
+  one exists, otherwise the record path answers. A decline is a routing decision, not a corruption
+  signal, so the index stays valid. Whole-column materialization is unchanged below the budget.
+  See `docs/PROJECTION_INDEXES.md`.
+- **A projection abandoned mid-load reports unconditionally.** The one silent load-degradation —
+  a resource-wide value dictionary breaching its byte budget, which abandons the projection while
+  the load still succeeds — now prints `[proj] PROJECTION ABANDONED` on stderr with the quantity
+  that breached the budget (the shipped log configuration discards the warning), and the stale
+  tombstone records a machine-readable `StaleReason` plus its remedy. The reason rides previously
+  reserved flag bits, so the `PIXM` wire format is unchanged for existing tombstones
+  (`docs/DISK_FORMAT.md`).
 - **JSON revision-diff sidecars carry an integrity envelope** (`sirix-diff-format`,
   `operation-count`, `operations-sha256`). Readers (`jn:diff`, the REST diff handler,
   multi-revision resource copy) validate identity, count and digest before use and fall back to

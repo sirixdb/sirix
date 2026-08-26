@@ -10,26 +10,26 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * One chunk's projection rows, extracted WHERE THE DATA IS: in the parallel importer's build worker,
- * from the same primitives the worker writes into page bytes, instead of read back node-by-node
- * through the transaction afterwards. The worker feeds this batch as it builds; the coordinator
- * replays the rows into the armed {@link ProjectionBulkLoad}'s streaming builder in document order
- * at adoption.
+ * One chunk's projection rows, extracted WHERE THE DATA IS: in the parallel importer's build
+ * worker, from the same primitives the worker writes into page bytes, instead of read back
+ * node-by-node through the transaction afterwards. The worker feeds this batch as it builds; the
+ * coordinator replays the rows into the armed {@link ProjectionBulkLoad}'s streaming builder in
+ * document order at adoption.
  *
  * <h2>Semantics contract</h2> Cell classification reproduces {@link ProjectionIndexRowExtractor}
  * exactly — same field matching (by PATH CLASS, the {@code pathNodeKey} every named node carries),
- * same presence/poison discipline, same numeric provenance flags, via the same shared classification
- * helpers. The one intentional divergence: the extractor's work-list DFS visits nested sibling
- * subtrees in REVERSE order, while a worker streams document order. For any field matched at most
- * once per record — every corpus the gates cover — the two are indistinguishable. A duplicate match
- * poisons the cell identically in both orders; only the residual VALUE bytes stored for such a
- * poisoned cell (and the element order of a set column fed by several arrays of one record) can
- * differ, and consumers never read either through a poisoned cell.
+ * same presence/poison discipline, same numeric provenance flags, via the same shared
+ * classification helpers. The one intentional divergence: the extractor's work-list DFS visits
+ * nested sibling subtrees in REVERSE order, while a worker streams document order. For any field
+ * matched at most once per record — every corpus the gates cover — the two are indistinguishable. A
+ * duplicate match poisons the cell identically in both orders; only the residual VALUE bytes stored
+ * for such a poisoned cell (and the element order of a set column fed by several arrays of one
+ * record) can differ, and consumers never read either through a poisoned cell.
  *
- * <h2>Memory discipline</h2> All row-indexed storage is allocated ONCE per chunk, pre-sized from the
- * feeder's member count: flat flag bytes, per-numeric-column long lanes, one growing UTF-8 arena per
- * string column. The per-record hot path allocates nothing; only set columns (absent from typical
- * corpora) allocate per row, mirroring the read-back extractor's own trim allocation.
+ * <h2>Memory discipline</h2> All row-indexed storage is allocated ONCE per chunk, pre-sized from
+ * the feeder's member count: flat flag bytes, per-numeric-column long lanes, one growing UTF-8
+ * arena per string column. The per-record hot path allocates nothing; only set columns (absent from
+ * typical corpora) allocate per row, mirroring the read-back extractor's own trim allocation.
  */
 public final class ProjectionChunkRowBatch {
 
@@ -67,7 +67,9 @@ public final class ProjectionChunkRowBatch {
   /** Numeric/boolean-encoded lanes, allocated only for numeric column kinds. */
   private final long[][] longLanes;
 
-  /** String lanes: one arena plus per-row (offset, length) per string column; length -1 = no value. */
+  /**
+   * String lanes: one arena plus per-row (offset, length) per string column; length -1 = no value.
+   */
   private final byte[][] stringArenas;
   private final int[][] stringOffsets;
   private final int[][] stringLengths;
@@ -109,7 +111,8 @@ public final class ProjectionChunkRowBatch {
     for (int column = 0; column < columns; column++) {
       switch (columnKinds[column]) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE -> longLanes[column] = new long[expectedRows];
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          longLanes[column] = new long[expectedRows];
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
           stringArenas[column] = new byte[Math.max(64, expectedRows * 8)];
@@ -141,7 +144,7 @@ public final class ProjectionChunkRowBatch {
         }
         final int[] existing = extras.get(pcr);
         if (existing == null) {
-          extras.put(pcr, new int[] { mapping });
+          extras.put(pcr, new int[] {mapping});
         } else {
           final int[] grown = Arrays.copyOf(existing, existing.length + 1);
           grown[existing.length] = mapping;
@@ -193,7 +196,8 @@ public final class ProjectionChunkRowBatch {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         byte updated = (byte) (cellFlags | FLAG_PRESENT);
-        if (ProjectionIndexRowExtractor.isNonIntegral(value) || ProjectionIndexRowExtractor.isLossyLongConversion(value)) {
+        if (ProjectionIndexRowExtractor.isNonIntegral(value)
+            || ProjectionIndexRowExtractor.isLossyLongConversion(value)) {
           updated |= FLAG_NON_INTEGRAL;
         }
         flags[cell] = updated;
@@ -317,8 +321,8 @@ public final class ProjectionChunkRowBatch {
         scratch = new String[8];
         setScratch[column] = scratch;
       } else if (elementCount == scratch.length) {
-        scratch = Arrays.copyOf(scratch, Math.min(ProjectionIndexRowExtractor.MAX_STRING_SET_ELEMENTS_PER_ROW,
-            elementCount * 2));
+        scratch = Arrays.copyOf(scratch,
+            Math.min(ProjectionIndexRowExtractor.MAX_STRING_SET_ELEMENTS_PER_ROW, elementCount * 2));
         setScratch[column] = scratch;
       }
       scratch[elementCount] = new String(utf8, 0, length, StandardCharsets.UTF_8);

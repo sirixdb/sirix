@@ -413,11 +413,9 @@ final class HOTIndirectPageSplitFaithfulTest {
       }
       HOTIndirectPage root = canonical;
       for (int slot = 0; slot < root.getNumChildren(); slot++) {
-        if (root.getChildReference(slot).getPage() instanceof HOTLeafPage splittable
-            && splittable.getEntryCount() >= 2
+        if (root.getChildReference(slot).getPage() instanceof HOTLeafPage splittable && splittable.getEntryCount() >= 2
             && Arrays.binarySearch(HOTIncrementalInsert.discriminativeBits(root),
-                HOTBulkBuilder.msdb(splittable.getKey(0),
-                    splittable.getKey(splittable.getEntryCount() - 1))) < 0) {
+                HOTBulkBuilder.msdb(splittable.getKey(0), splittable.getKey(splittable.getEntryCount() - 1))) < 0) {
           final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(splittable,
               splittable.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
           root = HOTIncrementalInsert.addEntry(root, leafSplit, slot, 1, allocator::getAndIncrement);

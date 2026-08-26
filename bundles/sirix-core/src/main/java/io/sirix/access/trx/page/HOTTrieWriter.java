@@ -93,10 +93,10 @@ import java.util.Objects;
 public final class HOTTrieWriter {
 
   /**
-   * In-place leaf splits performed — the task #57 split path, where the left half keeps its
-   * original {@link PageReference} and therefore its pre-split fragment chain. Observability only;
-   * a test that claims to exercise that path must prove it reached THIS split and not one of the
-   * two immune implementations that allocate fresh references.
+   * In-place leaf splits performed — the task #57 split path, where the left half keeps its original
+   * {@link PageReference} and therefore its pre-split fragment chain. Observability only; a test that
+   * claims to exercise that path must prove it reached THIS split and not one of the two immune
+   * implementations that allocate fresh references.
    *
    * <p>
    * OFF unless {@code -Dsirix.hot.mergeDiag=true} — the same switch that gates the fragment-merge

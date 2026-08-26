@@ -34,15 +34,16 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * BOTH-ARMS WITNESS for bulk slot accumulation (campaign #76 phase 2): the same operation
- * sequence runs once with accumulation engaged and once on the plain per-entry path; the two
- * storages must be READ-IDENTICAL (in-transaction and after a real commit) while their
- * construction counters prove the two arms genuinely took different routes.
+ * BOTH-ARMS WITNESS for bulk slot accumulation (campaign #76 phase 2): the same operation sequence
+ * runs once with accumulation engaged and once on the plain per-entry path; the two storages must
+ * be READ-IDENTICAL (in-transaction and after a real commit) while their construction counters
+ * prove the two arms genuinely took different routes.
  *
- * <p>Covers the contract corners individually: read-through of accumulated point keys,
- * last-writer-wins re-puts, tombstones, inline blobs, a REFERENCED blob whose side-page attach
- * is DEFERRED (read back through the pending map mid-accumulation, attached after the splice),
- * and the malformed-subtree oracle over the spliced tree.
+ * <p>
+ * Covers the contract corners individually: read-through of accumulated point keys,
+ * last-writer-wins re-puts, tombstones, inline blobs, a REFERENCED blob whose side-page attach is
+ * DEFERRED (read back through the pending map mid-accumulation, attached after the splice), and the
+ * malformed-subtree oracle over the spliced tree.
  */
 final class ProjectionBulkSlotAccumulationTest {
 
@@ -236,10 +237,10 @@ final class ProjectionBulkSlotAccumulationTest {
 
   /**
    * Regression: a payload landing EXACTLY on the 1 MiB block boundary followed by a zero-length
-   * (tombstone) payload. The block-full guard only rolled over when the next payload did not fit,
-   * and a zero-length one "fits" at offset 1048576 — so the entry was recorded at an offset that no
-   * longer fits the packed position's 20 offset bits and carried into the block INDEX, sending
-   * every later read one block past the end of the arena.
+   * (tombstone) payload. The block-full guard only rolled over when the next payload did not fit, and
+   * a zero-length one "fits" at offset 1048576 — so the entry was recorded at an offset that no
+   * longer fits the packed position's 20 offset bits and carried into the block INDEX, sending every
+   * later read one block past the end of the arena.
    */
   @Test
   void aZeroLengthPayloadOnTheBlockBoundaryStaysAddressable() {
@@ -269,7 +270,7 @@ final class ProjectionBulkSlotAccumulationTest {
 
     // And the arena keeps working: the next real payload is addressable too.
     final long afterKey = key;
-    final byte[] after = new byte[] { 7, 8, 9 };
+    final byte[] after = new byte[] {7, 8, 9};
     assertTrue(loader.tryAdd(afterKey, after));
     assertArrayEquals(after, loader.lastPayload(afterKey));
     if (remainder.length > 0) {

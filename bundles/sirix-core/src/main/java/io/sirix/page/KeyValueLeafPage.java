@@ -328,10 +328,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Set when a bulk-import ADOPTED page enters the intent log: nothing mutates the page after
-   * adoption, so the async snapshot flush may serialize it IN PLACE (skipping the defensive deep
-   * copy that exists to protect concurrently mutated pages) — the disposable encode then clobbers
-   * this page's own frame, which is fine because the snapshot cleanup is its single closer and
-   * nothing reads the frame after the flush.
+   * adoption, so the async snapshot flush may serialize it IN PLACE (skipping the defensive deep copy
+   * that exists to protect concurrently mutated pages) — the disposable encode then clobbers this
+   * page's own frame, which is fine because the snapshot cleanup is its single closer and nothing
+   * reads the frame after the flush.
    */
   private boolean adoptedImmutableForFlush;
 

@@ -373,9 +373,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Apply {@code delta} deferred reference-count increments to an existing path node in ONE record
    * touch. The bulk assembler resolves a path class once (which counts its first occurrence via the
    * ordinary resolution path) and counts repeats locally; this applies the accumulated repeats at
-   * epoch boundaries, so committed reference counts are EXACTLY what per-occurrence counting
-   * produces while the per-occurrence record modifications disappear. The equivalence oracle's
-   * path-summary dump (references included) pins that equality.
+   * epoch boundaries, so committed reference counts are EXACTLY what per-occurrence counting produces
+   * while the per-occurrence record modifications disappear. The equivalence oracle's path-summary
+   * dump (references included) pins that equality.
    *
    * @param pathNodeKey the existing path node
    * @param delta how many additional references to record; must be positive

@@ -28,27 +28,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
- * PHASE-2 PERF GATE (campaign #76): per-entry {@code writeSlotValue} vs the bulk
- * build-and-splice path for the two projection write shapes the campaign targets.
+ * PHASE-2 PERF GATE (campaign #76): per-entry {@code writeSlotValue} vs the bulk build-and-splice
+ * path for the two projection write shapes the campaign targets.
  *
  * <ul>
- * <li><b>label</b> — order-directory shape: strictly ascending {@code 2^50 + k}, ~30 B
- * payloads (one slot per record);</li>
- * <li><b>segslot</b> — column-segment shape: {@code (rowGroupId << 16) | slotKind} with ~200
- * slots per row group, ascending overall.</li>
+ * <li><b>label</b> — order-directory shape: strictly ascending {@code 2^50 + k}, ~30 B payloads
+ * (one slot per record);</li>
+ * <li><b>segslot</b> — column-segment shape: {@code (rowGroupId << 16) | slotKind} with ~200 slots
+ * per row group, ascending overall.</li>
  * </ul>
  *
- * <p>Both arms run the PRODUCTION paths inside a real transaction: per-entry =
- * {@link ProjectionIndexHOTStorage#writeSlotValue} (descent + dispatch + put + split cascade);
- * bulk = key serialization + entry-list assembly + {@code spliceBulkBuiltRoot} (via
+ * <p>
+ * Both arms run the PRODUCTION paths inside a real transaction: per-entry =
+ * {@link ProjectionIndexHOTStorage#writeSlotValue} (descent + dispatch + put + split cascade); bulk
+ * = key serialization + entry-list assembly + {@code spliceBulkBuiltRoot} (via
  * {@link BulkSpliceTestBridge}), i.e. everything a slot loader would do after accumulation.
  *
- * <p>Protocol: per shape and scale, a JIT warmup round of both arms (100 k), then interleaved
- * measured repetitions (per-entry, bulk, per-entry, bulk at 1 M; one repetition each at 10 M,
- * per-entry FIRST so any thermal drift penalizes the bulk arm — conservative for the claim under
- * test). Reported number = best repetition. Correctness witnesses run OUTSIDE the timed
- * regions: sampled read-back equality across arms and a zero-malformed-subtree check on the
- * bulk tree.
+ * <p>
+ * Protocol: per shape and scale, a JIT warmup round of both arms (100 k), then interleaved measured
+ * repetitions (per-entry, bulk, per-entry, bulk at 1 M; one repetition each at 10 M, per-entry
+ * FIRST so any thermal drift penalizes the bulk arm — conservative for the claim under test).
+ * Reported number = best repetition. Correctness witnesses run OUTSIDE the timed regions: sampled
+ * read-back equality across arms and a zero-malformed-subtree check on the bulk tree.
  */
 final class ProjectionBulkVsPerEntryBench {
 
@@ -124,10 +125,11 @@ final class ProjectionBulkVsPerEntryBench {
     }
   }
 
-  private record TimedStorage(long nanos, ProjectionIndexHOTStorage storage) {}
+  private record TimedStorage(long nanos, ProjectionIndexHOTStorage storage) {
+  }
 
-  private TimedStorage timePerEntry(final StorageEngineWriter sew, final int indexNumber,
-      final LongUnaryOperator keyOf, final int entries) {
+  private TimedStorage timePerEntry(final StorageEngineWriter sew, final int indexNumber, final LongUnaryOperator keyOf,
+      final int entries) {
     final long start = System.nanoTime();
     final ProjectionIndexHOTStorage storage = runPerEntry(sew, indexNumber, keyOf, entries);
     return new TimedStorage(System.nanoTime() - start, storage);
@@ -153,9 +155,9 @@ final class ProjectionBulkVsPerEntryBench {
   }
 
   /**
-   * Bulk arm: everything a slot loader does after accumulation — serialize each key
-   * (sign-flipped 8-byte BE), copy the payload, assemble the exact-size entry list, build and
-   * splice through the production {@code spliceBulkBuiltRoot}.
+   * Bulk arm: everything a slot loader does after accumulation — serialize each key (sign-flipped
+   * 8-byte BE), copy the payload, assemble the exact-size entry list, build and splice through the
+   * production {@code spliceBulkBuiltRoot}.
    */
   private ProjectionIndexHOTStorage runBulk(final StorageEngineWriter sew, final int indexNumber,
       final LongUnaryOperator keyOf, final int entries) {
@@ -208,7 +210,7 @@ final class ProjectionBulkVsPerEntryBench {
     final String ratioText = Double.isNaN(ratio)
         ? "-"
         : String.format("%.2fx", ratio);
-    System.out.printf("%-8s %-9d %-10s %13.1f %10.1f   %s%n", shape, entries, arm, nsPerEntry,
-        nanos / 1_000_000.0, ratioText);
+    System.out.printf("%-8s %-9d %-10s %13.1f %10.1f   %s%n", shape, entries, arm, nsPerEntry, nanos / 1_000_000.0,
+        ratioText);
   }
 }

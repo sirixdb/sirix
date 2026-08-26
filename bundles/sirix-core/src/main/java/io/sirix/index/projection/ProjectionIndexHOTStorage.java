@@ -120,9 +120,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private final boolean stageFreshSidePages;
 
   /**
-   * Entry-count cap for bulk slot accumulation ({@code docs/HOT_BULK_BUILD.md} §Seam 2a: at
-   * 8 M entries the transient footprint — arena plus the not-yet-spill-eligible built pages —
-   * stays ≈1.6 GB).
+   * Entry-count cap for bulk slot accumulation ({@code docs/HOT_BULK_BUILD.md} §Seam 2a: at 8 M
+   * entries the transient footprint — arena plus the not-yet-spill-eligible built pages — stays ≈1.6
+   * GB).
    */
   private static final int BULK_SLOT_MAX_ENTRIES = 8_000_000;
 
@@ -130,10 +130,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final long BULK_SLOT_MAX_ARENA_BYTES = 512L << 20;
 
   /**
-   * Active bulk slot accumulator, or {@code null} on the ordinary per-entry path. Engaged only on
-   * a VIRGIN tree ({@link #beginBulkSlotAccumulation}); while active, every slot write funnels
-   * into it and point reads of accumulated keys are served from it (read-through), so the
-   * accumulator and the empty tree partition the key space. See {@link HOTBulkSlotLoader}.
+   * Active bulk slot accumulator, or {@code null} on the ordinary per-entry path. Engaged only on a
+   * VIRGIN tree ({@link #beginBulkSlotAccumulation}); while active, every slot write funnels into it
+   * and point reads of accumulated keys are served from it (read-through), so the accumulator and the
+   * empty tree partition the key space. See {@link HOTBulkSlotLoader}.
    */
   private @Nullable HOTBulkSlotLoader bulkSlotLoader;
 
@@ -145,8 +145,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * Deferred side-page attaches while bulk slot accumulation is active, keyed by side-map refKey
-   * ({@code (ownerSlotKey << 16) | columnSegmentId}), insertion-ordered, last-writer-wins.
-   * Payload arrays are RETAINED, not copied — the exact ownership contract of the immediate
+   * ({@code (ownerSlotKey << 16) | columnSegmentId}), insertion-ordered, last-writer-wins. Payload
+   * arrays are RETAINED, not copied — the exact ownership contract of the immediate
    * {@code new OverflowPage(bytes)} attach they stand in for.
    */
   private final Long2ObjectLinkedOpenHashMap<byte[]> pendingSideAttaches = new Long2ObjectLinkedOpenHashMap<>();
@@ -250,20 +250,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * Engage bulk slot accumulation for a FRESH build: subsequent slot writes are collected in a
-   * {@link HOTBulkSlotLoader} and materialized in ONE canonical {@code HOTBulkBuilder} pass
-   * (9–14× the per-entry path at 1 M–10 M slots — {@code docs/HOT_BULK_BUILD.md} §Seam 2a)
-   * instead of paying a descent per slot. A no-op unless the tree is VIRGIN — that is the
-   * positive witness the read-through contract rests on: while accumulating, a key is either in
-   * the loader or it was never written, so point reads serve accumulated keys from the loader
-   * and everything else from the (empty) tree.
+   * {@link HOTBulkSlotLoader} and materialized in ONE canonical {@code HOTBulkBuilder} pass (9–14×
+   * the per-entry path at 1 M–10 M slots — {@code docs/HOT_BULK_BUILD.md} §Seam 2a) instead of paying
+   * a descent per slot. A no-op unless the tree is VIRGIN — that is the positive witness the
+   * read-through contract rests on: while accumulating, a key is either in the loader or it was never
+   * written, so point reads serve accumulated keys from the loader and everything else from the
+   * (empty) tree.
    *
    * <p>
    * Self-defending behavior keeps every other contract intact: a capacity trip
-   * ({@link HOTBulkSlotLoader#tryAdd} refusing) splices the accumulated prefix — the tree is
-   * still virgin at that moment, so the splice is legal — and falls back to the per-entry path;
-   * side-page attaches against accumulated owner slots ({@link #putSegmentPage}) are DEFERRED
-   * (payloads retained under the side budget, served read-through, attached through the
-   * production path right after the splice); {@link #resetTree} discards the accumulator.
+   * ({@link HOTBulkSlotLoader#tryAdd} refusing) splices the accumulated prefix — the tree is still
+   * virgin at that moment, so the splice is legal — and falls back to the per-entry path; side-page
+   * attaches against accumulated owner slots ({@link #putSegmentPage}) are DEFERRED (payloads
+   * retained under the side budget, served read-through, attached through the production path right
+   * after the splice); {@link #resetTree} discards the accumulator.
    * </p>
    */
   public void beginBulkSlotAccumulation() {
@@ -274,11 +274,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Materialize everything accumulated since {@link #beginBulkSlotAccumulation} as this index's
-   * tree (production {@code spliceBulkBuiltRoot}: empty-tree guard, canonical build,
-   * fresh-subtree TIL registration) and leave accumulation mode. A no-op when accumulation is
-   * not active; safe in {@code finally} blocks — on a failed build it persists exactly the
-   * prefix the per-entry path would have persisted.
+   * Materialize everything accumulated since {@link #beginBulkSlotAccumulation} as this index's tree
+   * (production {@code spliceBulkBuiltRoot}: empty-tree guard, canonical build, fresh-subtree TIL
+   * registration) and leave accumulation mode. A no-op when accumulation is not active; safe in
+   * {@code finally} blocks — on a failed build it persists exactly the prefix the per-entry path
+   * would have persisted.
    */
   public void finalizeBulkSlotAccumulation() {
     final HOTBulkSlotLoader loader = bulkSlotLoader;
@@ -292,8 +292,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * Attach every deferred side page against the freshly spliced leaves, through the production
-   * {@link #putSegmentPage} path (owner-residency check, replace semantics, append-pipeline
-   * staging). Runs with the loader already disabled, so the attaches hit real pages.
+   * {@link #putSegmentPage} path (owner-residency check, replace semantics, append-pipeline staging).
+   * Runs with the loader already disabled, so the attaches hit real pages.
    */
   private void attachPendingSidePages() {
     if (pendingSideAttaches.isEmpty()) {
@@ -312,14 +312,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * Move an active bulk-slot accumulation from {@code source} onto this storage — the epoch-rebind
    * transplant. A post-pass build rides the writer's async-flush epochs
-   * ({@code ProjectionIndexBuilder.BulkBuildEpoch#rebind} constructs a fresh storage per epoch);
-   * the accumulator holds only un-materialized slot writes for the SAME still-virgin tree, so it
-   * is tree-state-independent and moves wholesale: loader, deferred side attaches (insertion
-   * order preserved — this map is empty on a freshly bound storage), byte accounting and the
-   * splice witness counter. A no-op when {@code source} is this storage or holds no accumulation.
+   * ({@code ProjectionIndexBuilder.BulkBuildEpoch#rebind} constructs a fresh storage per epoch); the
+   * accumulator holds only un-materialized slot writes for the SAME still-virgin tree, so it is
+   * tree-state-independent and moves wholesale: loader, deferred side attaches (insertion order
+   * preserved — this map is empty on a freshly bound storage), byte accounting and the splice witness
+   * counter. A no-op when {@code source} is this storage or holds no accumulation.
    *
-   * @throws IllegalStateException if BOTH storages accumulate — two accumulators over one tree
-   *         would fork the read-through truth
+   * @throws IllegalStateException if BOTH storages accumulate — two accumulators over one tree would
+   *         fork the read-through truth
    */
   void adoptBulkSlotAccumulation(final ProjectionIndexHOTStorage source) {
     if (source == this || source == null || source.bulkSlotLoader == null) {
@@ -3624,8 +3624,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
     if (bulkSlotLoader != null) {
-      if (bulkSlotLoader.containsKey(ownerSlotKey)
-          && pendingSideBytes + bytes.length <= BULK_SIDE_PENDING_MAX_BYTES) {
+      if (bulkSlotLoader.containsKey(ownerSlotKey) && pendingSideBytes + bytes.length <= BULK_SIDE_PENDING_MAX_BYTES) {
         // The owning slot exists only in the accumulator, so a physical attach is impossible —
         // and splicing here would forfeit the rest of the build's accumulation. Defer instead:
         // retain the payload (the same ownership contract as the immediate OverflowPage attach)

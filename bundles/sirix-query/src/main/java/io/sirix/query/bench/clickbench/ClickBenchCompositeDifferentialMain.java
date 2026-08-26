@@ -46,12 +46,10 @@ import java.util.Locale;
  */
 public final class ClickBenchCompositeDifferentialMain {
 
-  private ClickBenchCompositeDifferentialMain() {
-  }
+  private ClickBenchCompositeDifferentialMain() {}
 
   public static void main(final String[] args) {
-    if (args.length != 5
-        && !(args.length == 6 && ("--timings-only".equals(args[5]) || "--union".equals(args[5])))) {
+    if (args.length != 5 && !(args.length == 6 && ("--timings-only".equals(args[5]) || "--union".equals(args[5])))) {
       System.err.println("usage: ClickBenchCompositeDifferentialMain <location> <singleDb> <singleResource>"
           + " <compositeDb> <partitions> [--timings-only|--union]");
       System.exit(2);
@@ -87,8 +85,8 @@ public final class ClickBenchCompositeDifferentialMain {
         String verdict;
         int rows = -1;
         try {
-          final String originalFull = ClickBenchQueries.wrap(singleDb, singleResource,
-              stripSubsequence(originals.get(q).jsoniq(0)));
+          final String originalFull =
+              ClickBenchQueries.wrap(singleDb, singleResource, stripSubsequence(originals.get(q).jsoniq(0)));
           final ArmDigest truth = items(chain, ctx, originalFull);
           rows = (int) truth.count();
           if (!unionMode && composite.singleFull() != null) {
@@ -145,8 +143,8 @@ public final class ClickBenchCompositeDifferentialMain {
         } catch (final RuntimeException e) {
           note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
         }
-        System.out.printf(Locale.ROOT, "%-4d | %10.3f | %10.3f | %6d %s%n", q, t1, t2,
-            servedTotal() - servedBefore, note);
+        System.out.printf(Locale.ROOT, "%-4d | %10.3f | %10.3f | %6d %s%n", q, t1, t2, servedTotal() - servedBefore,
+            note);
       }
       System.out.printf("# production served delta: %d (43 queries x %d legs x 2 tries = %d max)%n",
           servedTotal() - served0, partitions, 43 * partitions * 2);
@@ -163,8 +161,8 @@ public final class ClickBenchCompositeDifferentialMain {
    * Streamed order-insensitive multiset digest of a result. Small results additionally keep the
    * serialized rows so a mismatch can name its first difference; large results are compared by
    * {@code (count, ΣhashA, ΣhashB)} alone — two independent 64-bit per-item hashes summed, which is
-   * multiset-invariant and holds nothing in memory (the first run of this gate was OOM-killed
-   * holding 147k serialized rows per arm).
+   * multiset-invariant and holds nothing in memory (the first run of this gate was OOM-killed holding
+   * 147k serialized rows per arm).
    */
   private record ArmDigest(long count, long sumA, long sumB, List<String> rows) {
   }

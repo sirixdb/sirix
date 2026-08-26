@@ -146,9 +146,9 @@ public final class CASIndexBuilder {
   }
 
   /**
-   * Invalidate the resolved path-class cache. Sound for this builder's own frozen-summary
-   * traversal, stale for an import-time feeder whose summary grows between drains — a class first
-   * minted after the previous drain would stay invisible. Called once per drained chunk.
+   * Invalidate the resolved path-class cache. Sound for this builder's own frozen-summary traversal,
+   * stale for an import-time feeder whose summary grows between drains — a class first minted after
+   * the previous drain would stay invisible. Called once per drained chunk.
    */
   public void refreshIndexedPaths() {
     resolvedPCRs = null;

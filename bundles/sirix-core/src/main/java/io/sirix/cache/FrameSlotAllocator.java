@@ -412,7 +412,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // its full slab capacity.
     this.oversizedHeadroomBytes = configuredHeadroom >= 0
         ? Math.min(configuredHeadroom, budgetBytes)
-        : (budgetBytes >= 64L * 1024 * 1024 ? Math.min(budgetBytes / 16, 1L << 30) : 0L);
+        : (budgetBytes >= 64L * 1024 * 1024
+            ? Math.min(budgetBytes / 16, 1L << 30)
+            : 0L);
     final SizeClass[] cls = new SizeClass[SIZE_CLASSES.length];
     // Per-class virtual reservation is workload-independent; MAP_NORESERVE means physical pages
     // only commit when touched. Cap the number of slots to bound version metadata; its fixed-size
@@ -575,8 +577,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Fresh-slot (slab) commitment is permanent until shutdown, so it may never consume the
-   * oversized headroom — the slice that keeps large-value buffers allocatable after a slab peak.
+   * Fresh-slot (slab) commitment is permanent until shutdown, so it may never consume the oversized
+   * headroom — the slice that keeps large-value buffers allocatable after a slab peak.
    * Package-private so the witness test can drive the decision table directly.
    */
   boolean reserveSlabCommittedBytes(final long bytes) {

@@ -7,16 +7,16 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * Presents an NDJSON stream (one JSON value per line) as a single top-level JSON ARRAY — the
- * shape the parallel bulk importer parallelizes. The transform is exact and 1:1 in the body:
- * JSON forbids raw control characters inside strings, so a literal {@code '\n'} can only separate
- * records and maps to {@code ','}; the only insertions are the opening {@code '['} and the
- * closing {@code ']'}. A trailing newline yields a trailing comma, which the importer's slicer
- * treats as separator noise.
+ * Presents an NDJSON stream (one JSON value per line) as a single top-level JSON ARRAY — the shape
+ * the parallel bulk importer parallelizes. The transform is exact and 1:1 in the body: JSON forbids
+ * raw control characters inside strings, so a literal {@code '\n'} can only separate records and
+ * maps to {@code ','}; the only insertions are the opening {@code '['} and the closing {@code ']'}.
+ * A trailing newline yields a trailing comma, which the importer's slicer treats as separator
+ * noise.
  *
  * <p>
- * An optional record limit truncates the stream after N records — for bounded imports of a
- * prefix of a large corpus (the array closes cleanly at the cut).
+ * An optional record limit truncates the stream after N records — for bounded imports of a prefix
+ * of a large corpus (the array closes cleanly at the cut).
  */
 public final class NdjsonAsArrayInputStream extends InputStream {
 

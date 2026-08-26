@@ -51,15 +51,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * resource.
  *
  * <p>
- * "Identical" is taken literally here rather than at the row-group level the sequential gate settled
- * for: {@link ProjectionStorageSnapshot} sweeps every slot family the projection sub-tree owns —
- * metadata, row-group descriptors, column-segment slots, the assembled leaves, fence chunks
+ * "Identical" is taken literally here rather than at the row-group level the sequential gate
+ * settled for: {@link ProjectionStorageSnapshot} sweeps every slot family the projection sub-tree
+ * owns — metadata, row-group descriptors, column-segment slots, the assembled leaves, fence chunks
  * including the physical-order header, per-column Bloom manifests and chunks, set-summary chunks,
  * the sparse record locator, the structural-order directory and the value-dictionary blobs — and
  * compares the raw bytes of each. The one field deliberately excluded is the metadata's
- * {@code buildRevision}: it records WHICH revision built the index, and a post-pass build cannot run
- * in the load's own revision by construction (it walks a resource that must already be committed).
- * Every byte that encodes DATA is compared.
+ * {@code buildRevision}: it records WHICH revision built the index, and a post-pass build cannot
+ * run in the load's own revision by construction (it walks a resource that must already be
+ * committed). Every byte that encodes DATA is compared.
  */
 final class ParallelBulkProjectionEquivalenceTest {
 
@@ -68,9 +68,8 @@ final class ParallelBulkProjectionEquivalenceTest {
   private static final int INDEX_NUMBER = 0;
 
   private static final String ROOT_PATH = "/[]";
-  private static final List<String> FIELD_PATHS =
-      List.of("/[]/name", "/[]/dept", "/[]/score", "/[]/ratio", "/[]/active", "/[]/tags/[]", "/[]/latecomer",
-          "/[]/nested/inner");
+  private static final List<String> FIELD_PATHS = List.of("/[]/name", "/[]/dept", "/[]/score", "/[]/ratio",
+      "/[]/active", "/[]/tags/[]", "/[]/latecomer", "/[]/nested/inner");
   private static final List<Type> FIELD_TYPES =
       List.of(Type.STR, Type.STR, Type.LON, Type.DBL, Type.BOOL, Type.STR, Type.STR, Type.LON);
 
@@ -247,9 +246,10 @@ final class ParallelBulkProjectionEquivalenceTest {
       }
       json.append("{\"name\":\"n").append(record).append('-').append("x".repeat(record % 17)).append('"');
       json.append(",\"dept\":\"d").append(record % 7).append('"');
-      json.append(",\"score\":").append(record == mutatedRecord
-          ? 999999
-          : record * 3L);
+      json.append(",\"score\":")
+          .append(record == mutatedRecord
+              ? 999999
+              : record * 3L);
       if (record % 5 != 0) {
         json.append(",\"ratio\":").append(record).append('.').append(record % 100);
       }
@@ -280,8 +280,8 @@ final class ParallelBulkProjectionEquivalenceTest {
   // ==== the slot-for-slot comparator ===========================================================
 
   /**
-   * Every persisted byte of one projection sub-tree, keyed by a human-readable slot name so a
-   * failure names the family that diverged.
+   * Every persisted byte of one projection sub-tree, keyed by a human-readable slot name so a failure
+   * names the family that diverged.
    */
   private record ProjectionStorageSnapshot(String rootPath, String[] fieldPaths, String[] fieldNames,
       byte[] columnKinds, int rowGroupCount, boolean stale, long[] valueDictionaryHeaderKeys,
@@ -322,8 +322,7 @@ final class ParallelBulkProjectionEquivalenceTest {
 
       // Bloom manifests + chunks, and set summaries, per column.
       for (int column = 0; column < columns; column++) {
-        put(slots, "bloomManifest[" + column + "]",
-            blob(storage, ProjectionIndexHOTStorage.bloomBlockSlotKey(column)));
+        put(slots, "bloomManifest[" + column + "]", blob(storage, ProjectionIndexHOTStorage.bloomBlockSlotKey(column)));
         put(slots, "setSummary[" + column + "]", blob(storage, ProjectionSetSummaryChunks.slotKey(column)));
         for (int chunk = 0; chunk < chunkSweep(rowGroups); chunk++) {
           put(slots, "bloomChunk[" + column + "][" + chunk + "]",
@@ -352,8 +351,8 @@ final class ParallelBulkProjectionEquivalenceTest {
       for (final long recordKey : recordKeys(wtx)) {
         final int locator = ProjectionRecordLocator.read(writer, INDEX_NUMBER, recordKey);
         if (locator != 0) {
-          slots.put("recordLocator[" + recordKey + "]", new byte[] { (byte) locator, (byte) (locator >>> 8),
-              (byte) (locator >>> 16), (byte) (locator >>> 24) });
+          slots.put("recordLocator[" + recordKey + "]",
+              new byte[] {(byte) locator, (byte) (locator >>> 8), (byte) (locator >>> 16), (byte) (locator >>> 24)});
         }
         put(slots, "structuralOrder[" + recordKey + "]",
             structuralOrderSlot(storage, ProjectionStructuralOrderDirectory.BASE + recordKey));
@@ -371,10 +370,10 @@ final class ParallelBulkProjectionEquivalenceTest {
   }
 
   /**
-   * A blob slot's bytes, or {@code null} when the slot holds nothing OR holds something that is not
-   * a blob. The sweep deliberately probes past the end of every family, and a slot key one past a
-   * family's last entry can land on an unrelated raw slot; that is "absent" for this comparison,
-   * and both arms are probed identically, so a real divergence still shows.
+   * A blob slot's bytes, or {@code null} when the slot holds nothing OR holds something that is not a
+   * blob. The sweep deliberately probes past the end of every family, and a slot key one past a
+   * family's last entry can land on an unrelated raw slot; that is "absent" for this comparison, and
+   * both arms are probed identically, so a real divergence still shows.
    */
   private static byte[] blob(final ProjectionIndexHOTStorage storage, final long slotKey) {
     try {
@@ -404,7 +403,7 @@ final class ParallelBulkProjectionEquivalenceTest {
     assertTrue(rtx.moveToFirstChild(), "the resource must expose its top-level array");
     final long arrayKey = rtx.getNodeKey();
     if (!rtx.moveToFirstChild()) {
-      return new long[] { arrayKey };
+      return new long[] {arrayKey};
     }
     final java.util.ArrayList<Long> keys = new java.util.ArrayList<>();
     keys.add(arrayKey);
@@ -453,7 +452,9 @@ final class ParallelBulkProjectionEquivalenceTest {
     final Map<String, Integer> census = new java.util.TreeMap<>();
     for (final String name : onePass.slots().keySet()) {
       final int bracket = name.indexOf('[');
-      census.merge(bracket < 0 ? name : name.substring(0, bracket), 1, Integer::sum);
+      census.merge(bracket < 0
+          ? name
+          : name.substring(0, bracket), 1, Integer::sum);
     }
     System.out.println("PROJECTION DIFFERENTIAL: " + onePass.slots().size() + " slots compared byte-for-byte across "
         + census.size() + " families " + census + "; rowGroups=" + onePass.rowGroupCount() + ", columnKinds="

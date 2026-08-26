@@ -6,21 +6,21 @@ package io.sirix.access.trx.node.json;
 /**
  * The record-emission backend of {@link BulkJsonTreeAssembler}: everything the assembler's
  * prediction/container machinery needs from the storage layer, and nothing else. Three
- * implementations are planned — the transaction-backed sink (the original sequential behavior),
- * a counting sink (the parallel importer's Stage-A node counter, so count and build share ONE
- * code path), and a worker page builder emitting standalone {@code KeyValueLeafPage}s.
+ * implementations are planned — the transaction-backed sink (the original sequential behavior), a
+ * counting sink (the parallel importer's Stage-A node counter, so count and build share ONE code
+ * path), and a worker page builder emitting standalone {@code KeyValueLeafPage}s.
  *
  * <p>
  * CONTRACT — written for the hottest call path in a bulk load (~one call per node):
  * <ul>
- * <li>Primitives only: {@code long} keys/PCRs, {@code byte[]+length} string values. The lone
- * object parameters are the field-name {@link String} (canonical instance from the scanner's
- * intern table) and the heterogeneous {@link Number} a JSON number decodes to — both exactly what
- * the underlying encoders take.</li>
- * <li>Every creation returns the key the record MINTED AT; the assembler asserts it against its
- * own prediction, so a sink that mints out of sequence fails loudly, never silently.</li>
- * <li>A sink may bind returned state to reusable flyweights internally, so callers must not
- * retain anything a creation call produced beyond the NEXT sink call.</li>
+ * <li>Primitives only: {@code long} keys/PCRs, {@code byte[]+length} string values. The lone object
+ * parameters are the field-name {@link String} (canonical instance from the scanner's intern table)
+ * and the heterogeneous {@link Number} a JSON number decodes to — both exactly what the underlying
+ * encoders take.</li>
+ * <li>Every creation returns the key the record MINTED AT; the assembler asserts it against its own
+ * prediction, so a sink that mints out of sequence fails loudly, never silently.</li>
+ * <li>A sink may bind returned state to reusable flyweights internally, so callers must not retain
+ * anything a creation call produced beyond the NEXT sink call.</li>
  * <li>Notification PCRs ride the creation calls; a sink that does not notify ignores them.</li>
  * </ul>
  */
@@ -38,8 +38,7 @@ interface BulkRecordSink {
 
   // ==== leaves (created with FINAL pointers) ===================================================
 
-  long createStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] utf8, int utf8Length,
-      long notifyPcr);
+  long createStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] utf8, int utf8Length, long notifyPcr);
 
   long createObjectNamedStringNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey, String name,
       byte[] utf8, int utf8Length);

@@ -113,8 +113,8 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
         // Parallel leg: same definitions, worker-collected tuples, adversarial chunking.
         try (JsonNodeTrx wtx = parallelSession.beginNodeTrx()) {
           parallelSession.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(indexDefs(), wtx);
-          ParallelBulkJsonImporter.assembleBytes(wtx,
-              new ByteArrayInputStream(corpus.getBytes(StandardCharsets.UTF_8)), CHUNK_BUDGET_BYTES, BUILDERS);
+          ParallelBulkJsonImporter.assembleBytes(wtx, new ByteArrayInputStream(corpus.getBytes(StandardCharsets.UTF_8)),
+              CHUNK_BUDGET_BYTES, BUILDERS);
           wtx.commit();
         }
 
@@ -141,12 +141,9 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
         compareNameProbe(sequentialSession, parallelSession, NAME_SELECTIVE_DEF_NO, "name", 0);
 
         // ==== CAS ====
-        compareCasProbe(sequentialSession, parallelSession, CAS_DEPT_DEF_NO, "/[]/dept", Type.STR, "d3",
-            countDept(3));
-        compareCasProbe(sequentialSession, parallelSession, CAS_DEPT_DEF_NO, "/[]/dept", Type.STR, "d6",
-            countDept(6));
-        compareCasProbe(sequentialSession, parallelSession, CAS_SCORE_DEF_NO, "/[]/score", Type.LON, "300",
-            1);
+        compareCasProbe(sequentialSession, parallelSession, CAS_DEPT_DEF_NO, "/[]/dept", Type.STR, "d3", countDept(3));
+        compareCasProbe(sequentialSession, parallelSession, CAS_DEPT_DEF_NO, "/[]/dept", Type.STR, "d6", countDept(6));
+        compareCasProbe(sequentialSession, parallelSession, CAS_SCORE_DEF_NO, "/[]/score", Type.LON, "300", 1);
         compareCasProbe(sequentialSession, parallelSession, CAS_TAG_ELEMENT_DEF_NO, "/[]/tags/[]", Type.STR, "t7",
             countTagElements("t7"));
         // Strings that cannot convert to xs:long are SKIPPED by both legs, not indexed as garbage.
@@ -166,10 +163,10 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         session.getWtxIndexController(wtx.getRevisionNumber())
                .getIndexes()
-               .add(IndexDefs.createValidTimeIdxDef(
-                   Set.of(Path.parse("/[]/from", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON));
-        final IllegalStateException refusal = assertThrows(IllegalStateException.class,
-            () -> ParallelBulkJsonImporter.assembleBytes(wtx,
+               .add(IndexDefs.createValidTimeIdxDef(Set.of(Path.parse("/[]/from", PathParser.Type.JSON)), 0,
+                   IndexDef.DbType.JSON));
+        final IllegalStateException refusal =
+            assertThrows(IllegalStateException.class, () -> ParallelBulkJsonImporter.assembleBytes(wtx,
                 new ByteArrayInputStream(corpus().getBytes(StandardCharsets.UTF_8)), CHUNK_BUDGET_BYTES, 1));
         assertTrue(refusal.getMessage().contains("valid-time"),
             "expected the exact valid-time refusal, got: " + refusal.getMessage());
@@ -179,8 +176,8 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
 
   // ==== probes =================================================================================
 
-  private void comparePathProbe(final JsonResourceSession sequentialSession,
-      final JsonResourceSession parallelSession, final int defNumber, final String path, final int expectedCount) {
+  private void comparePathProbe(final JsonResourceSession sequentialSession, final JsonResourceSession parallelSession,
+      final int defNumber, final String path, final int expectedCount) {
     final TreeSet<Long> sequential = pathProbe(sequentialSession, defNumber, path);
     final TreeSet<Long> parallel = pathProbe(parallelSession, defNumber, path);
     assertEquals(expectedCount, sequential.size(),
@@ -188,8 +185,8 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
     assertEquals(sequential, parallel, "PATH probe " + path + " (def " + defNumber + ") differs across arms");
   }
 
-  private void compareNameProbe(final JsonResourceSession sequentialSession,
-      final JsonResourceSession parallelSession, final int defNumber, final String name, final int expectedCount) {
+  private void compareNameProbe(final JsonResourceSession sequentialSession, final JsonResourceSession parallelSession,
+      final int defNumber, final String name, final int expectedCount) {
     final TreeSet<Long> sequential = nameProbe(sequentialSession, defNumber, name);
     final TreeSet<Long> parallel = nameProbe(parallelSession, defNumber, name);
     assertEquals(expectedCount, sequential.size(),
@@ -197,9 +194,8 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
     assertEquals(sequential, parallel, "NAME probe " + name + " (def " + defNumber + ") differs across arms");
   }
 
-  private void compareCasProbe(final JsonResourceSession sequentialSession,
-      final JsonResourceSession parallelSession, final int defNumber, final String path, final Type type,
-      final String lexicalValue, final int expectedCount) {
+  private void compareCasProbe(final JsonResourceSession sequentialSession, final JsonResourceSession parallelSession,
+      final int defNumber, final String path, final Type type, final String lexicalValue, final int expectedCount) {
     final TreeSet<Long> sequential = casProbe(sequentialSession, defNumber, path, type, lexicalValue);
     final TreeSet<Long> parallel = casProbe(parallelSession, defNumber, path, type, lexicalValue);
     assertEquals(expectedCount, sequential.size(), "sequential CAS probe " + path + " = " + lexicalValue + " (def "
@@ -223,13 +219,15 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
       final IndexDef indexDef = controller.getIndexes().getIndexDef(defNumber, IndexType.NAME);
       if (indexDef == null) {
         throw new IllegalStateException("NAME def " + defNumber + " missing after reopen; registry holds: "
-            + controller.getIndexes().getIndexDefs().stream()
+            + controller.getIndexes()
+                        .getIndexDefs()
+                        .stream()
                         .map(def -> def.getType() + "#" + def.getID())
                         .sorted()
                         .toList());
       }
-      return collect(controller.openNameIndex(trx.getStorageEngineReader(), indexDef,
-          controller.createNameFilter(Set.of(name))));
+      return collect(
+          controller.openNameIndex(trx.getStorageEngineReader(), indexDef, controller.createNameFilter(Set.of(name))));
     }
   }
 
@@ -272,14 +270,12 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
   }
 
   private static Set<IndexDef> indexDefs() {
-    return Set.of(
-        IndexDefs.createPathIdxDef(Set.of(), PATH_ALL_DEF_NO, IndexDef.DbType.JSON),
+    return Set.of(IndexDefs.createPathIdxDef(Set.of(), PATH_ALL_DEF_NO, IndexDef.DbType.JSON),
         IndexDefs.createPathIdxDef(
             Set.of(Path.parse("/[]/tags", PathParser.Type.JSON), Path.parse("/[]/nested", PathParser.Type.JSON)),
             PATH_SELECTIVE_DEF_NO, IndexDef.DbType.JSON),
         IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON),
-        IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("dept"), new QNm("latecomer")), 1,
-            IndexDef.DbType.JSON),
+        IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("dept"), new QNm("latecomer")), 1, IndexDef.DbType.JSON),
         IndexDefs.createCASIdxDef(false, Type.STR, Set.of(Path.parse("/[]/dept", PathParser.Type.JSON)),
             CAS_DEPT_DEF_NO, IndexDef.DbType.JSON),
         IndexDefs.createCASIdxDef(false, Type.LON, Set.of(Path.parse("/[]/score", PathParser.Type.JSON)),
@@ -294,8 +290,8 @@ final class ParallelBulkPrimitiveIndexEquivalenceTest {
 
   /**
    * Same adversarial shape as the projection equivalence corpus: varying record widths, absent
-   * fields, a nested object, a named string array, and a field whose FIRST occurrence is in the
-   * last quarter of the records.
+   * fields, a nested object, a named string array, and a field whose FIRST occurrence is in the last
+   * quarter of the records.
    */
   private static String corpus() {
     final StringBuilder json = new StringBuilder(RECORDS * 160);

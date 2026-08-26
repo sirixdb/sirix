@@ -653,8 +653,7 @@ class FrameSlotAllocatorTest {
     // Drive the slab arm to its cap: slab commitments are permanent until shutdown, so they must
     // refuse beyond budget − headroom…
     assertTrue(allocator.reserveSlabCommittedBytes(budget - headroom));
-    assertFalse(allocator.reserveSlabCommittedBytes(1),
-        "slab commitment must stop short of the oversized headroom");
+    assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
     // …while the oversized arm still admits inside the headroom — the retry that could never say
     // yes after a slab peak now can.
     assertTrue(allocator.reserveCommittedBytes(headroom),

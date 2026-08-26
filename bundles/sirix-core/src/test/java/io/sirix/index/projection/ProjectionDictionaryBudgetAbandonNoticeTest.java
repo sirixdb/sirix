@@ -38,19 +38,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The one silent load-degradation that is not allowed to stay silent: a resource-wide value
- * dictionary that breaches its byte budget mid-load abandons the projection, and the operator has to
- * learn that from the process itself.
+ * dictionary that breaches its byte budget mid-load abandons the projection, and the operator has
+ * to learn that from the process itself.
  *
  * <h2>What is under test</h2>
  *
  * The stderr line emitted by {@code ProjectionIndexChangeListener#abandonForOversizedDictionary} is
  * an OPERATOR-FACING OUTPUT CONTRACT, not an implementation detail: the load goes on to report
- * success, so without the notice a projection that never finished is indistinguishable from one that
- * did, and a long benchmark run is silently measured on the generic pipeline. It is deliberately a
- * {@code System.err.println} rather than a log call, because the shipped logback configuration pins
- * the root logger to ERROR and would swallow the warning that accompanies it. The loud arm therefore
- * runs with the root logger switched OFF — if the notice travelled by any suppressible channel, that
- * arm would capture nothing.
+ * success, so without the notice a projection that never finished is indistinguishable from one
+ * that did, and a long benchmark run is silently measured on the generic pipeline. It is
+ * deliberately a {@code System.err.println} rather than a log call, because the shipped logback
+ * configuration pins the root logger to ERROR and would swallow the warning that accompanies it.
+ * The loud arm therefore runs with the root logger switched OFF — if the notice travelled by any
+ * suppressible channel, that arm would capture nothing.
  *
  * <h2>How the breach is reached (no fault injection)</h2>
  *
@@ -61,12 +61,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * every value {@link #ROWS_PER_VALUE} times, which is under the election's per-leaf deduplication
  * factor, so AUTO promotes the column to a resource-wide dictionary after the leading sample — the
  * control arm asserts exactly that by checking the published column kind. The load is armed with no
- * row-count hint ({@code -1}), the documented state in which the election-time decline cannot run and
- * "the writer's runtime cap is the only protection"; see the {@code expectedRows} contract on
- * {@link ProjectionIndexBuilder#setExpectedRows(long)}. The budget is CALIBRATED from the real writer
- * rather than hard-coded: it sits above what the sample's distinct values cost to flush and below
- * what the whole corpus costs, so the election succeeds and a later value breaches. Both ends of that
- * window are asserted before the load runs, so drift in the writer's arithmetic fails as a
+ * row-count hint ({@code -1}), the documented state in which the election-time decline cannot run
+ * and "the writer's runtime cap is the only protection"; see the {@code expectedRows} contract on
+ * {@link ProjectionIndexBuilder#setExpectedRows(long)}. The budget is CALIBRATED from the real
+ * writer rather than hard-coded: it sits above what the sample's distinct values cost to flush and
+ * below what the whole corpus costs, so the election succeeds and a later value breaches. Both ends
+ * of that window are asserted before the load runs, so drift in the writer's arithmetic fails as a
  * calibration error instead of quietly turning this into a test of nothing.
  */
 final class ProjectionDictionaryBudgetAbandonNoticeTest {

@@ -26,21 +26,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verification of {@link HOTBulkBuilder} against the eight-invariant oracle
- * {@link HOTInvariantValidator} and a routing oracle (descend each key and assert it lands in
- * the leaf that actually holds it).
+ * {@link HOTInvariantValidator} and a routing oracle (descend each key and assert it lands in the
+ * leaf that actually holds it).
  *
- * <p>This is the executable form of Theorem 1 / Theorem 2 from {@code
+ * <p>
+ * This is the executable form of Theorem 1 / Theorem 2 from {@code
  * docs/HOT_FORMAL_FOUNDATION.md}: {@code HOTBulkBuilder.build} of any adversarial key set must
- * produce a HOT with zero invariant violations, and every stored key must PEXT-route
- * (descend via {@link HOTIndirectPage#findChildIndex}) from the root to the leaf that holds it.
- * The adversarial key-set generators mirror {@code HOTFormalModelTest} — ascending, descending,
- * uniform random, bimodal, common-prefix, and sparse distributions — plus variable-length keys
- * and tombstone entries, which the model (fixed 64-bit keys) does not exercise.
+ * produce a HOT with zero invariant violations, and every stored key must PEXT-route (descend via
+ * {@link HOTIndirectPage#findChildIndex}) from the root to the leaf that holds it. The adversarial
+ * key-set generators mirror {@code HOTFormalModelTest} — ascending, descending, uniform random,
+ * bimodal, common-prefix, and sparse distributions — plus variable-length keys and tombstone
+ * entries, which the model (fixed 64-bit keys) does not exercise.
  *
- * <p>The validator needs a {@link StorageEngineReader}; since every page produced by
+ * <p>
+ * The validator needs a {@link StorageEngineReader}; since every page produced by
  * {@code HOTBulkBuilder} is swizzled into its {@link PageReference} via
- * {@link PageReference#setPage}, a lenient Mockito stub suffices — its {@code loadHOTPage}
- * returns {@code null}, and the validator falls through to the in-memory page.
+ * {@link PageReference#setPage}, a lenient Mockito stub suffices — its {@code loadHOTPage} returns
+ * {@code null}, and the validator falls through to the in-memory page.
  */
 @DisplayName("HOTBulkBuilder — invariant and routing verification")
 final class HOTBulkBuilderTest {
@@ -58,14 +60,26 @@ final class HOTBulkBuilderTest {
 
   private static final Gen[] GENERATORS = {
       // dense low — values 0..n-1
-      (n, r, out) -> { for (int i = 0; i < n; i++) out.add((long) i); },
+      (n, r, out) -> {
+        for (int i = 0; i < n; i++)
+          out.add((long) i);
+      },
       // dense high — values shifted into the top bits
-      (n, r, out) -> { for (int i = 0; i < n; i++) out.add(((long) i) << 40); },
+      (n, r, out) -> {
+        for (int i = 0; i < n; i++)
+          out.add(((long) i) << 40);
+      },
       // descending dense — same key set as dense-low but generated high-to-low (the sorted
       // input is identical; this exercises that build() is insertion-order-independent)
-      (n, r, out) -> { for (int i = n - 1; i >= 0; i--) out.add((long) i); },
+      (n, r, out) -> {
+        for (int i = n - 1; i >= 0; i--)
+          out.add((long) i);
+      },
       // uniform random over the full 64-bit domain (straddles the sign bit)
-      (n, r, out) -> { while (out.size() < n) out.add(r.nextLong()); },
+      (n, r, out) -> {
+        while (out.size() < n)
+          out.add(r.nextLong());
+      },
       // bimodal — two far-apart clusters
       (n, r, out) -> {
         while (out.size() < n) {
@@ -76,17 +90,18 @@ final class HOTBulkBuilderTest {
       },
       // common high prefix — differ only in the low bits (the CAS value/nodeKey case)
       (n, r, out) -> {
-        while (out.size() < n) out.add(0x1234_5678_9ABC_0000L | (r.nextLong() & 0xFFFFL));
+        while (out.size() < n)
+          out.add(0x1234_5678_9ABC_0000L | (r.nextLong() & 0xFFFFL));
       },
       // sparse — a handful of set bits, so R(S) is deep and unbalanced
       (n, r, out) -> {
         while (out.size() < n) {
           long k = 0;
-          for (int b = 0; b < 4; b++) k |= 1L << r.nextInt(64);
+          for (int b = 0; b < 4; b++)
+            k |= 1L << r.nextInt(64);
           out.add(k);
         }
-      },
-  };
+      },};
 
   // ======================================================================
   // V1 — construction soundness: validate(build(S)) is empty for adversarial key sets.
@@ -109,14 +124,13 @@ final class HOTBulkBuilderTest {
             continue;
           }
           final List<HOTBulkBuilder.Entry> entries = entriesFromLongs(set, seed);
-          final HOTBulkBuilder.BuildResult result = HOTBulkBuilder.build(
-              entries, /*revision*/ 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
+          final HOTBulkBuilder.BuildResult result =
+              HOTBulkBuilder.build(entries, /* revision */ 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
           checked++;
           if (treeHeight(result.rootPage()) >= 3) {
             multiLevelTries++;
           }
-          final String failure = checkAll(result, entries, "gen=" + g + " n=" + entries.size()
-              + " seed=" + seed);
+          final String failure = checkAll(result, entries, "gen=" + g + " n=" + entries.size() + " seed=" + seed);
           if (failure != null && failures.size() < 12) {
             failures.add(failure);
           }
@@ -125,13 +139,12 @@ final class HOTBulkBuilderTest {
       }
     }
     assertTrue(failures.isEmpty(),
-        "construction violated invariants in " + checked + " trials:\n"
-            + String.join("\n", failures));
+        "construction violated invariants in " + checked + " trials:\n" + String.join("\n", failures));
     // Sanity: the large key sets must actually exercise multi-level (indirect-of-indirect)
     // tries, otherwise V1 would only test shallow structure.
     assertTrue(multiLevelTries > 0, "no multi-level tries were exercised — coverage gap");
-    System.out.println("[V1] " + checked + " adversarial key sets — 0 invariant violations ("
-        + multiLevelTries + " multi-level tries)");
+    System.out.println("[V1] " + checked + " adversarial key sets — 0 invariant violations (" + multiLevelTries
+        + " multi-level tries)");
   }
 
   // ======================================================================
@@ -169,8 +182,8 @@ final class HOTBulkBuilderTest {
           entries.add(new HOTBulkBuilder.Entry(keyList.get(i), v));
         }
       }
-      final HOTBulkBuilder.BuildResult result = HOTBulkBuilder.build(
-          entries, /*revision*/ 3, IndexType.PATH, new AtomicLong(1000)::getAndIncrement);
+      final HOTBulkBuilder.BuildResult result =
+          HOTBulkBuilder.build(entries, /* revision */ 3, IndexType.PATH, new AtomicLong(1000)::getAndIncrement);
       checked++;
       final String failure = checkAll(result, entries, "varlen seed=" + seed + " n=" + n);
       if (failure != null && failures.size() < 12) {
@@ -190,10 +203,9 @@ final class HOTBulkBuilderTest {
   @DisplayName("V3: degenerate sizes (1 entry, single-page key sets) build correctly")
   void v3DegenerateSizes() {
     // Single entry — root is a leaf page.
-    final List<HOTBulkBuilder.Entry> one = List.of(
-        new HOTBulkBuilder.Entry(beKey(42L), new byte[] {1, 2, 3}));
-    final HOTBulkBuilder.BuildResult single = HOTBulkBuilder.build(
-        one, 1, IndexType.NAME, new AtomicLong()::getAndIncrement);
+    final List<HOTBulkBuilder.Entry> one = List.of(new HOTBulkBuilder.Entry(beKey(42L), new byte[] {1, 2, 3}));
+    final HOTBulkBuilder.BuildResult single =
+        HOTBulkBuilder.build(one, 1, IndexType.NAME, new AtomicLong()::getAndIncrement);
     assertTrue(single.rootPage() instanceof HOTLeafPage, "single-entry root must be a leaf");
     assertEquals(1, single.leafCount());
     assertEquals(0, single.indirectCount());
@@ -205,8 +217,8 @@ final class HOTBulkBuilderTest {
     for (long k = 0; k < 50; k++) {
       few.add(new HOTBulkBuilder.Entry(beKey(k), new byte[] {(byte) k}));
     }
-    final HOTBulkBuilder.BuildResult fewResult = HOTBulkBuilder.build(
-        few, 1, IndexType.NAME, new AtomicLong()::getAndIncrement);
+    final HOTBulkBuilder.BuildResult fewResult =
+        HOTBulkBuilder.build(few, 1, IndexType.NAME, new AtomicLong()::getAndIncrement);
     assertTrue(fewResult.rootPage() instanceof HOTLeafPage, "50-entry root must be a leaf");
     assertEquals(null, checkAll(fewResult, few, "fifty-entries"));
     closeLeaves(fewResult.rootPage());
@@ -228,12 +240,11 @@ final class HOTBulkBuilderTest {
       }
       final List<HOTBulkBuilder.Entry> a = entriesFromLongs(set, 0);
       final List<HOTBulkBuilder.Entry> b = entriesFromLongs(set, 0);
-      final HOTBulkBuilder.BuildResult ra = HOTBulkBuilder.build(
-          a, 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
-      final HOTBulkBuilder.BuildResult rb = HOTBulkBuilder.build(
-          b, 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
-      assertTrue(structurallyEqual(ra.rootPage(), rb.rootPage()),
-          "gen=" + g + ": build is not deterministic");
+      final HOTBulkBuilder.BuildResult ra =
+          HOTBulkBuilder.build(a, 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
+      final HOTBulkBuilder.BuildResult rb =
+          HOTBulkBuilder.build(b, 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
+      assertTrue(structurallyEqual(ra.rootPage(), rb.rootPage()), "gen=" + g + ": build is not deterministic");
       assertEquals(ra.leafCount(), rb.leafCount(), "gen=" + g + " leaf count differs");
       assertEquals(ra.indirectCount(), rb.indirectCount(), "gen=" + g + " indirect count differs");
       closeLeaves(ra.rootPage());
@@ -272,13 +283,14 @@ final class HOTBulkBuilderTest {
           // A distinct low tail keeps keys unique without disturbing the wide MSDB spread.
           key[span] = (byte) (low >>> 8);
           key[span + 1] = (byte) low;
-          entries.add(new HOTBulkBuilder.Entry(key,
-              (low % 9 == 4) ? TOMBSTONE : beKey(r.nextLong())));
+          entries.add(new HOTBulkBuilder.Entry(key, (low % 9 == 4)
+              ? TOMBSTONE
+              : beKey(r.nextLong())));
         }
       }
       entries.sort((a, b) -> java.util.Arrays.compareUnsigned(a.key(), b.key()));
-      final HOTBulkBuilder.BuildResult result = HOTBulkBuilder.build(
-          entries, /*revision*/ 2, IndexType.CAS, new AtomicLong()::getAndIncrement);
+      final HOTBulkBuilder.BuildResult result =
+          HOTBulkBuilder.build(entries, /* revision */ 2, IndexType.CAS, new AtomicLong()::getAndIncrement);
       assertEquals(null, checkAll(result, entries, "multimask variant=" + variant));
       assertTrue(countMultiMaskIndirects(result.rootPage()) > 0,
           "variant=" + variant + ": expected the MultiMask layout to be exercised");
@@ -293,12 +305,12 @@ final class HOTBulkBuilderTest {
 
   /**
    * Returns {@code null} if the built HOT passes every check, otherwise a one-line failure
-   * description. Checks: (1) all eight {@link HOTInvariantValidator} invariants; (2) every
-   * stored key descends to the leaf that holds it (I6, against the production routing); (3)
-   * the leaf key set equals the input key set exactly (no key lost, no key invented).
+   * description. Checks: (1) all eight {@link HOTInvariantValidator} invariants; (2) every stored key
+   * descends to the leaf that holds it (I6, against the production routing); (3) the leaf key set
+   * equals the input key set exactly (no key lost, no key invented).
    */
-  private static String checkAll(final HOTBulkBuilder.BuildResult result,
-      final List<HOTBulkBuilder.Entry> entries, final String label) {
+  private static String checkAll(final HOTBulkBuilder.BuildResult result, final List<HOTBulkBuilder.Entry> entries,
+      final String label) {
     final PageReference rootRef = result.rootReference();
     assertNotNull(rootRef.getPage(), label + ": root page not swizzled");
 
@@ -316,8 +328,8 @@ final class HOTBulkBuilderTest {
         return label + " -> I6: key " + hex(e.key()) + " did not route to any leaf";
       }
       if (routed.findEntry(e.key()) < 0) {
-        return label + " -> I6: key " + hex(e.key()) + " routed to leaf "
-            + routed.getPageKey() + " which does not hold it";
+        return label + " -> I6: key " + hex(e.key()) + " routed to leaf " + routed.getPageKey()
+            + " which does not hold it";
       }
     }
 
@@ -329,8 +341,7 @@ final class HOTBulkBuilderTest {
     final Set<String> leafKeys = new HashSet<>(entries.size() * 2);
     collectLeafKeys(rootRef.getPage(), leafKeys);
     if (!leafKeys.equals(inputKeys)) {
-      return label + " -> key-set: leaf keys (" + leafKeys.size() + ") != input keys ("
-          + inputKeys.size() + ")";
+      return label + " -> key-set: leaf keys (" + leafKeys.size() + ") != input keys (" + inputKeys.size() + ")";
     }
     return null;
   }
@@ -353,7 +364,9 @@ final class HOTBulkBuilderTest {
       }
       page = childRef.getPage();
     }
-    return page instanceof HOTLeafPage leaf ? leaf : null;
+    return page instanceof HOTLeafPage leaf
+        ? leaf
+        : null;
   }
 
   private static void collectLeafKeys(final Page page, final Set<String> out) {
@@ -372,9 +385,9 @@ final class HOTBulkBuilderTest {
   }
 
   /**
-   * Release the off-heap {@code MemorySegment} of every leaf page in a built subtree. The
-   * builder allocates real 64 KiB leaf pages; a test that builds thousands of trees must free
-   * them or it transiently exhausts the off-heap budget.
+   * Release the off-heap {@code MemorySegment} of every leaf page in a built subtree. The builder
+   * allocates real 64 KiB leaf pages; a test that builds thousands of trees must free them or it
+   * transiently exhausts the off-heap budget.
    */
   private static void closeLeaves(final Page page) {
     if (page instanceof HOTLeafPage leaf) {
@@ -410,8 +423,7 @@ final class HOTBulkBuilderTest {
         return false;
       }
       for (int i = 0; i < ia.getNumChildren(); i++) {
-        if (!structurallyEqual(ia.getChildReference(i).getPage(),
-            ib.getChildReference(i).getPage())) {
+        if (!structurallyEqual(ia.getChildReference(i).getPage(), ib.getChildReference(i).getPage())) {
           return false;
         }
       }
@@ -425,12 +437,11 @@ final class HOTBulkBuilderTest {
   // ======================================================================
 
   /**
-   * Build a sorted, distinct entry list from a set of long keys. Keys are 8-byte big-endian
-   * (so unsigned-lexicographic order on the bytes equals unsigned order on the longs). Every
-   * 5th entry is a tombstone; the rest get a small deterministic value derived from the key.
+   * Build a sorted, distinct entry list from a set of long keys. Keys are 8-byte big-endian (so
+   * unsigned-lexicographic order on the bytes equals unsigned order on the longs). Every 5th entry is
+   * a tombstone; the rest get a small deterministic value derived from the key.
    */
-  private static List<HOTBulkBuilder.Entry> entriesFromLongs(final Set<Long> set,
-      final int valueSalt) {
+  private static List<HOTBulkBuilder.Entry> entriesFromLongs(final Set<Long> set, final int valueSalt) {
     final long[] longs = set.stream().mapToLong(Long::longValue).toArray();
     // Sort unsigned (flip the sign bit so signed sort agrees with unsigned).
     for (int i = 0; i < longs.length; i++) {
@@ -446,8 +457,7 @@ final class HOTBulkBuilderTest {
       if (i % 5 == 2) {
         entries.add(new HOTBulkBuilder.Entry(key, TOMBSTONE));
       } else {
-        entries.add(new HOTBulkBuilder.Entry(key,
-            beKey(longs[i] * 0x9E37_79B9_7F4A_7C15L + valueSalt)));
+        entries.add(new HOTBulkBuilder.Entry(key, beKey(longs[i] * 0x9E37_79B9_7F4A_7C15L + valueSalt)));
       }
     }
     return entries;
@@ -458,7 +468,9 @@ final class HOTBulkBuilderTest {
     if (!(page instanceof HOTIndirectPage indirect)) {
       return 0;
     }
-    int count = indirect.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK ? 1 : 0;
+    int count = indirect.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK
+        ? 1
+        : 0;
     for (int i = 0; i < indirect.getNumChildren(); i++) {
       final PageReference ref = indirect.getChildReference(i);
       if (ref != null && ref.getPage() != null) {

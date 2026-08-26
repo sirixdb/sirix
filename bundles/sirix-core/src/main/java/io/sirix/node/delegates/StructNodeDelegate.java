@@ -118,8 +118,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild,
-      final long rightSibling, final long leftSibling, final long childCount,
-      final long descendantCount) {
+      final long rightSibling, final long leftSibling, final long childCount, final long descendantCount) {
     assert nodeDelegate != null : "del must not be null!";
     this.nodeDelegate = nodeDelegate;
     this.firstChild = firstChild;
@@ -254,14 +253,14 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("first child", getFirstChildKey())
-                      .add("last child", getLastChildKey())
-                      .add("left sib", getLeftSiblingKey())
-                      .add("right sib", getRightSiblingKey())
-                      .add("child count", getChildCount())
-                      .add("descendant count", getDescendantCount())
-                      .add("node delegate", getNodeDelegate().toString())
-                      .toString();
+                         .add("first child", getFirstChildKey())
+                         .add("last child", getLastChildKey())
+                         .add("left sib", getLeftSiblingKey())
+                         .add("right sib", getRightSiblingKey())
+                         .add("child count", getChildCount())
+                         .add("descendant count", getDescendantCount())
+                         .add("node delegate", getNodeDelegate().toString())
+                         .toString();
   }
 
   @Override

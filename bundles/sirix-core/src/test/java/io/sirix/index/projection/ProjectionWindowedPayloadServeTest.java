@@ -94,8 +94,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -110,9 +110,8 @@ final class ProjectionWindowedPayloadServeTest {
         priorEagerBudget = ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(Long.MAX_VALUE);
         priorWindowLeaves = ProjectionIndexCatalog.setWindowLeavesForTesting(TEST_WINDOW_LEAVES);
         ChunkedBodyConfig.resetDiag();
-        final Supplier<List<byte[]>> eagerSupplier =
-            ProjectionIndexCatalog.rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount,
-                projectedWeight);
+        final Supplier<List<byte[]>> eagerSupplier = ProjectionIndexCatalog.rowGroupMaterializer(session, revision,
+            INDEX_NUMBER, rowGroupCount, projectedWeight);
         final List<byte[]> eager = eagerSupplier.get();
         assertEquals(rowGroupCount, eager.size());
         assertEquals(0, ChunkedBodyConfig.lazyLoads(), "the eager arm must not engage the windowed route");
@@ -123,9 +122,8 @@ final class ProjectionWindowedPayloadServeTest {
         // ==== windowed arm ====
         ProjectionIndexCatalog.setEagerMaterializeBytesForTesting(1L);
         ChunkedBodyConfig.resetDiag();
-        final Supplier<List<byte[]>> windowedSupplier =
-            ProjectionIndexCatalog.rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount,
-                projectedWeight);
+        final Supplier<List<byte[]>> windowedSupplier = ProjectionIndexCatalog.rowGroupMaterializer(session, revision,
+            INDEX_NUMBER, rowGroupCount, projectedWeight);
         final List<byte[]> windowed = windowedSupplier.get();
         assertEquals(rowGroupCount, windowed.size());
         assertNotNull(ProjectionWindowedRowGroupPayloads.cacheOf(windowed),
@@ -170,8 +168,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -198,9 +196,8 @@ final class ProjectionWindowedPayloadServeTest {
 
           final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(projected - 1);
           try {
-            final IllegalStateException decline =
-                org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                    () -> store.column(nameColumn, fetcher));
+            final IllegalStateException decline = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalStateException.class, () -> store.column(nameColumn, fetcher));
             assertTrue(decline.getMessage().contains("budget"),
                 "the decline must name the budget, got: " + decline.getMessage());
             assertTrue(store.projectedColumnFillBytes(nameColumn) == projected,
@@ -243,7 +240,7 @@ final class ProjectionWindowedPayloadServeTest {
           }
           final byte[][] window = new byte[toExclusive - from][];
           for (int i = from; i < toExclusive; i++) {
-            window[i - from] = new byte[] { (byte) i, (byte) (i >> 8) };
+            window[i - from] = new byte[] {(byte) i, (byte) (i >> 8)};
           }
           return window;
         });
@@ -276,11 +273,11 @@ final class ProjectionWindowedPayloadServeTest {
           ? viewA
           : viewB;
       for (int i = 0; i < rowGroups; i++) {
-        assertArrayEquals(new byte[] { (byte) i, (byte) (i >> 8) }, view.get(i));
+        assertArrayEquals(new byte[] {(byte) i, (byte) (i >> 8)}, view.get(i));
       }
     }
-    IntStream.of(15, 0, 7, 3, 12, 1, 14, 2).forEach(i -> assertArrayEquals(new byte[] { (byte) i, (byte) (i >> 8) },
-        viewA.get(i)));
+    IntStream.of(15, 0, 7, 3, 12, 1, 14, 2)
+             .forEach(i -> assertArrayEquals(new byte[] {(byte) i, (byte) (i >> 8)}, viewA.get(i)));
     assertTrue(fetches.get() > cache.windowCount(),
         "a 2-window resident cap over 8 windows must have re-materialized evicted windows; fetches=" + fetches.get());
     assertTrue(cache.residentWindows() <= 3,
@@ -316,8 +313,8 @@ final class ProjectionWindowedPayloadServeTest {
 
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(def), wtx);
@@ -334,21 +331,21 @@ final class ProjectionWindowedPayloadServeTest {
         assertFalse(sharedHandle.payloadsMaterialized(), "a freshly loaded column-lazy handle holds no leaves");
 
         final AtomicInteger consulted = new AtomicInteger();
-        final var delegate = (ProjectionWindowedRowGroupPayloads.BoundMaterializer) ProjectionIndexCatalog
-            .rowGroupMaterializer(session, revision, INDEX_NUMBER, rowGroupCount, 1L << 20);
-        final Supplier<List<byte[]>> callerMaterializer =
-            new ProjectionWindowedRowGroupPayloads.BoundMaterializer() {
-              @Override
-              public List<byte[]> get() {
-                consulted.incrementAndGet();
-                return delegate.get();
-              }
+        final var delegate =
+            (ProjectionWindowedRowGroupPayloads.BoundMaterializer) ProjectionIndexCatalog.rowGroupMaterializer(session,
+                revision, INDEX_NUMBER, rowGroupCount, 1L << 20);
+        final Supplier<List<byte[]>> callerMaterializer = new ProjectionWindowedRowGroupPayloads.BoundMaterializer() {
+          @Override
+          public List<byte[]> get() {
+            consulted.incrementAndGet();
+            return delegate.get();
+          }
 
-              @Override
-              public ProjectionWindowedRowGroupPayloads.ReaderSource readerSource() {
-                return delegate.readerSource();
-              }
-            };
+          @Override
+          public ProjectionWindowedRowGroupPayloads.ReaderSource readerSource() {
+            return delegate.readerSource();
+          }
+        };
 
         firstSessionView = sharedHandle.rowGroupPayloads(callerMaterializer);
         assertNotNull(ProjectionWindowedRowGroupPayloads.cacheOf(firstSessionView),
@@ -433,8 +430,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         final IndexDef def = projectionDef();
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -460,11 +457,9 @@ final class ProjectionWindowedPayloadServeTest {
 
         final int rowGroupCount = atBuild.rowGroupCount();
         final List<byte[]> viewAtBuild = atBuild.rowGroupPayloads(
-            ProjectionIndexCatalog.rowGroupMaterializer(session, buildRevision, INDEX_NUMBER, rowGroupCount,
-                1L << 20));
+            ProjectionIndexCatalog.rowGroupMaterializer(session, buildRevision, INDEX_NUMBER, rowGroupCount, 1L << 20));
         final List<byte[]> viewAtLater = atLater.rowGroupPayloads(
-            ProjectionIndexCatalog.rowGroupMaterializer(session, laterRevision, INDEX_NUMBER, rowGroupCount,
-                1L << 20));
+            ProjectionIndexCatalog.rowGroupMaterializer(session, laterRevision, INDEX_NUMBER, rowGroupCount, 1L << 20));
         assertNotNull(ProjectionWindowedRowGroupPayloads.cacheOf(viewAtBuild));
         assertSame(ProjectionWindowedRowGroupPayloads.cacheOf(viewAtBuild),
             ProjectionWindowedRowGroupPayloads.cacheOf(viewAtLater),
@@ -506,15 +501,14 @@ final class ProjectionWindowedPayloadServeTest {
           assertNotNull(metadata);
           final int[] physicalOrder =
               ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, metadata.rowGroupCount());
-          final ProjectionColumnStore store = new ProjectionColumnStore(
-              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER,
-                  metadata.rowGroupCount(), physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore store =
+              new ProjectionColumnStore(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                  reader, INDEX_NUMBER, metadata.rowGroupCount(), physicalOrder, worker -> worker.accept(reader)));
           final int nameColumn = 0;
           final long full = store.projectedColumnFillBytes(nameColumn);
           final long identity = store.projectedColumnIdentityFillBytes(nameColumn);
-          assertTrue(identity < full,
-              "a fat dictionary must project a SMALLER identity fill than a whole-column fill: " + identity + " vs "
-                  + full);
+          assertTrue(identity < full, "a fat dictionary must project a SMALLER identity fill than a whole-column fill: "
+              + identity + " vs " + full);
 
           // A budget between the two modes: the whole-column fill is refused, the identity fill is
           // affordable — so the route gate must disagree with itself across the two predicates.
@@ -548,8 +542,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -564,9 +558,9 @@ final class ProjectionWindowedPayloadServeTest {
           final int leaves = metadata.rowGroupCount();
           assertTrue(leaves >= 3, "the corpus must span several leaves; got " + leaves);
           final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
-          final ProjectionColumnStore store = new ProjectionColumnStore(
-              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
-                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore store =
+              new ProjectionColumnStore(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                  reader, INDEX_NUMBER, leaves, physicalOrder, worker -> worker.accept(reader)));
           final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
               offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
           final int nameColumn = 0;
@@ -626,8 +620,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -641,9 +635,9 @@ final class ProjectionWindowedPayloadServeTest {
           assertNotNull(metadata);
           final int leaves = metadata.rowGroupCount();
           final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
-          final ProjectionColumnStore store = new ProjectionColumnStore(
-              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
-                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore store =
+              new ProjectionColumnStore(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                  reader, INDEX_NUMBER, leaves, physicalOrder, worker -> worker.accept(reader)));
           final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
               offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
           final int nameColumn = 0;
@@ -668,9 +662,8 @@ final class ProjectionWindowedPayloadServeTest {
             assertTrue(scoreBytes <= budget, "the second column alone would fit");
             assertFalse(store.columnFillWithinBudget(scoreColumn),
                 "beside what is already retained, the second column must not fit");
-            final ProjectionColumnStore.FillBudgetExceededException declined =
-                assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
-                    () -> store.column(scoreColumn, fetcher));
+            final ProjectionColumnStore.FillBudgetExceededException declined = assertThrows(
+                ProjectionColumnStore.FillBudgetExceededException.class, () -> store.column(scoreColumn, fetcher));
             assertTrue(declined.getMessage().contains("already retained"), declined.getMessage());
 
             // Not memoized as corruption: with room restored the same store fills the same column.
@@ -701,8 +694,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -716,9 +709,9 @@ final class ProjectionWindowedPayloadServeTest {
           assertNotNull(metadata);
           final int leaves = metadata.rowGroupCount();
           final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
-          final ProjectionColumnStore store = new ProjectionColumnStore(
-              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
-                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore store =
+              new ProjectionColumnStore(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                  reader, INDEX_NUMBER, leaves, physicalOrder, worker -> worker.accept(reader)));
           final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
               offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
 
@@ -731,8 +724,7 @@ final class ProjectionWindowedPayloadServeTest {
           final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(keysBytes - 1);
           try {
             final ProjectionColumnStore.FillBudgetExceededException declined =
-                assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
-                    () -> store.recordKeys(fetcher));
+                assertThrows(ProjectionColumnStore.FillBudgetExceededException.class, () -> store.recordKeys(fetcher));
             assertTrue(declined.getMessage().contains("record-key"), declined.getMessage());
             assertEquals(0L, store.retainedFillBytes(), "a declined fill must charge nothing");
 
@@ -768,8 +760,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -783,9 +775,9 @@ final class ProjectionWindowedPayloadServeTest {
           assertNotNull(metadata);
           final int leaves = metadata.rowGroupCount();
           final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
-          final ProjectionColumnStore store = new ProjectionColumnStore(
-              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
-                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore store =
+              new ProjectionColumnStore(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                  reader, INDEX_NUMBER, leaves, physicalOrder, worker -> worker.accept(reader)));
           final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
               offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
           final int scoreColumn = 1;
@@ -877,8 +869,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
@@ -928,8 +920,8 @@ final class ProjectionWindowedPayloadServeTest {
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
-              .commitAfterwards().build().call();
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
         }
         try (JsonNodeTrx wtx = session.beginNodeTrx()) {
           session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);

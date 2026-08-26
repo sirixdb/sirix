@@ -83,8 +83,8 @@ public final class ClickBenchPrimitiveIndexImportCostMain {
         final long rows = runArm(arm, corpus, dbPath);
         final double seconds = (System.nanoTime() - nanos) / 1e9;
         samples[arm.ordinal()][rep] = seconds;
-        System.out.printf(Locale.ROOT, "rep %d  %-8s %8.3f s   rows=%d%n", rep + 1,
-            arm.name().toLowerCase(Locale.ROOT), seconds, rows);
+        System.out.printf(Locale.ROOT, "rep %d  %-8s %8.3f s   rows=%d%n", rep + 1, arm.name().toLowerCase(Locale.ROOT),
+            seconds, rows);
         System.out.flush();
         deleteRecursively(dbPath);
       }
@@ -117,8 +117,9 @@ public final class ClickBenchPrimitiveIndexImportCostMain {
                                              .buildPathSummary(true)
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
-        try (JsonNodeTrx wtx = session.beginNodeTrx(NODES_BEFORE_EPOCH_ROTATION,
-            AfterCommitState.KEEP_OPEN_ASYNC_FLUSH); InputStream in = openCorpus(corpus)) {
+        try (
+            JsonNodeTrx wtx = session.beginNodeTrx(NODES_BEFORE_EPOCH_ROTATION, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+            InputStream in = openCorpus(corpus)) {
           if (arm == Arm.INDEXED) {
             session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(indexDefs(), wtx);
           }
@@ -144,8 +145,8 @@ public final class ClickBenchPrimitiveIndexImportCostMain {
         final long pathEntries = countPostings(controller.openPathIndex(trx.getStorageEngineReader(), pathDef,
             controller.createPathFilter(Set.of("/[]/URL"), trx)));
         final IndexDef nameDef =
-            controller.getIndexes().getIndexDef(IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID(),
-                IndexType.NAME);
+            controller.getIndexes()
+                      .getIndexDef(IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID(), IndexType.NAME);
         final long nameEntries = countPostings(controller.openNameIndex(trx.getStorageEngineReader(), nameDef,
             controller.createNameFilter(Set.of("URL"))));
         if (pathEntries != rows || nameEntries != rows) {
@@ -169,10 +170,11 @@ public final class ClickBenchPrimitiveIndexImportCostMain {
 
   private static Set<IndexDef> indexDefs() {
     return Set.of(
-        IndexDefs.createPathIdxDef(Set.of(Path.parse("/[]/URL", PathParser.Type.JSON),
-            Path.parse("/[]/EventTime", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
-        IndexDefs.createSelectiveNameIdxDef(
-            Set.of(new QNm("URL"), new QNm("EventTime"), new QNm("CounterID")), 0, IndexDef.DbType.JSON),
+        IndexDefs.createPathIdxDef(
+            Set.of(Path.parse("/[]/URL", PathParser.Type.JSON), Path.parse("/[]/EventTime", PathParser.Type.JSON)), 0,
+            IndexDef.DbType.JSON),
+        IndexDefs.createSelectiveNameIdxDef(Set.of(new QNm("URL"), new QNm("EventTime"), new QNm("CounterID")), 0,
+            IndexDef.DbType.JSON),
         IndexDefs.createCASIdxDef(false, Type.LON, Set.of(Path.parse("/[]/CounterID", PathParser.Type.JSON)), 0,
             IndexDef.DbType.JSON),
         IndexDefs.createCASIdxDef(false, Type.STR, Set.of(Path.parse("/[]/URL", PathParser.Type.JSON)), 1,

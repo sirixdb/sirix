@@ -144,8 +144,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * upper bound on attempted KVL pages and matches one serializer window.
    * </p>
    */
-  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT =
-      Integer.getInteger("sirix.asyncFlush.maxLogEntries", 16);
+  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = Integer.getInteger("sirix.asyncFlush.maxLogEntries", 16);
 
   /**
    * Buffered output for page writes.
@@ -599,9 +598,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * The per-epoch tuples above retain only the slowest and the most-blocking epoch, and on a bulk
    * import both are the very first one — the epoch that pays JIT warm-up. Attributing the pipeline
    * from those alone therefore describes warm-up rather than steady state. These totals answer what
-   * the flush actually spends its time on across the whole transaction, which is what decides
-   * whether widening the pipeline can pay: only the append phase is strictly serialized per writer,
-   * so the overlap a deeper pipeline can win is bounded by it.
+   * the flush actually spends its time on across the whole transaction, which is what decides whether
+   * widening the pipeline can pay: only the append phase is strictly serialized per writer, so the
+   * overlap a deeper pipeline can win is bounded by it.
    * </p>
    */
   private long hftSerializeJoinWaitNanosTotal;
@@ -2273,32 +2272,32 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * pre-serialized in parallel before the sequential append pass writes and closes them. Two windows
    * are in flight at once (double buffering), so the transient draw on the shared segment-allocator
    * budget is bounded by {@code 2 × WINDOW} copies, each holding a pooled slotted segment
-   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. The double buffering keeps
-   * the flush pool's workers serializing while this thread appends; widening the window past the
-   * pool's appetite only inflates the footprint.
+   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. The double buffering
+   * keeps the flush pool's workers serializing while this thread appends; widening the window past
+   * the pool's appetite only inflates the footprint.
    *
    * <p>
    * <b>Equal to the epoch on purpose, and measured that way.</b> Defining the width as the epoch size
-   * makes an epoch exactly one window, so the loop below joins its only serialization, appends it, and
-   * finds no successor started — the double buffering never actually overlaps anything. That reads
-   * like a defect, and the obvious repair is to size the window independently so several windows per
-   * epoch pipeline against each other. It was tried, on a 1M-row ClickBench bulk import at
-   * {@code maxLogEntries=256} (395 epochs, 264 KVL pages each). The overlap is real and visible in the
-   * phase telemetry — a 64-page window cut the serialization-join stall from 8.1 s to 6.8 s and total
-   * worker time from 10.6 s to 9.7 s — and it bought nothing: interleaved min-of-3 wall time was
-   * 12.047 s at one window per epoch against 12.412 s at four, and a 16-page window (17 windows per
-   * epoch) regressed to 13.8 s as per-window fork/join overhead took over.
+   * makes an epoch exactly one window, so the loop below joins its only serialization, appends it,
+   * and finds no successor started — the double buffering never actually overlaps anything. That
+   * reads like a defect, and the obvious repair is to size the window independently so several
+   * windows per epoch pipeline against each other. It was tried, on a 1M-row ClickBench bulk import
+   * at {@code maxLogEntries=256} (395 epochs, 264 KVL pages each). The overlap is real and visible in
+   * the phase telemetry — a 64-page window cut the serialization-join stall from 8.1 s to 6.8 s and
+   * total worker time from 10.6 s to 9.7 s — and it bought nothing: interleaved min-of-3 wall time
+   * was 12.047 s at one window per epoch against 12.412 s at four, and a 16-page window (17 windows
+   * per epoch) regressed to 13.8 s as per-window fork/join overhead took over.
    * </p>
    *
    * <p>
-   * The reason is that the append pass this would overlap is the small phase: the flush spends ~77% of
-   * its time waiting on the parallel serialize pool and ~23% appending, and the pool is the throughput
-   * limit for the whole load. Recovering the append window hands the freed capacity straight back to
-   * contention with the insert threads, which is the same effect that makes oversizing
-   * {@code sirix.asyncFlush.parallelism} lose (14 serializers measured slower end to end than 9,
-   * despite a strictly lower worker time). Anyone reaching for a deeper flush pipeline — a wider
-   * window here, or a multi-generation intent log so consecutive epochs overlap — is aiming at the
-   * 23%, and should first check what the serialize stage costs.
+   * The reason is that the append pass this would overlap is the small phase: the flush spends ~77%
+   * of its time waiting on the parallel serialize pool and ~23% appending, and the pool is the
+   * throughput limit for the whole load. Recovering the append window hands the freed capacity
+   * straight back to contention with the insert threads, which is the same effect that makes
+   * oversizing {@code sirix.asyncFlush.parallelism} lose (14 serializers measured slower end to end
+   * than 9, despite a strictly lower worker time). Anyone reaching for a deeper flush pipeline — a
+   * wider window here, or a multi-generation intent log so consecutive epochs overlap — is aiming at
+   * the 23%, and should first check what the serialize stage costs.
    * </p>
    */
   private static final int SNAPSHOT_FLUSH_WINDOW = MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;

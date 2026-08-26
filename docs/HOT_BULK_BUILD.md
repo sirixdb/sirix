@@ -1,6 +1,13 @@
 # HOT Bulk Construction for Secondary Structures — Design (Campaign #76, Phase 1)
 
-**Status:** design + measured evidence; nothing here is committed. Companion probe:
+**Status:** design record — the v1 design and the measured evidence behind it. It has since
+LANDED: the §2.1 leaf-packing fix, Seam 1 (the importer now maintains PATH/CAS/NAME during the
+load), and Seam 2's slot accumulator (`HOTBulkSlotLoader`, engaged by the post-pass
+`ProjectionIndexBuilder`; the load-time rider still writes per entry — see Seam 2b). What the
+shipped loaders actually do, refuse and cost is owned by
+[`BULK_IMPORT.md`](BULK_IMPORT.md); read this one for WHY. Every "today"/"currently"/"this
+worktree" statement below describes the tree at `226ceaac8`, the base this design was written
+against. Companion probe:
 `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInsertionOrderShapeProbe.java`.
 
 **Scope v1:** fresh subtrees only — no merge into populated trees, no tombstone
@@ -71,7 +78,8 @@ What does **not** exist — the actual campaign gap. The campaign is therefore N
   `indexController.hasAnyPrimitiveIndex()` via JsonNodeTrxImpl.java:1202–1204; the
   non-parallel sink honors the same signal — WtxBulkRecordSink.java:40); lifting it
   wants per-family accumulation in workers + one flush into the EXISTING
-  `create*BulkLoader()` per family at load end.
+  `create*BulkLoader()` per family at load end. **Lifted since** (Seam 1): PATH, CAS and NAME
+  are maintained by the load, valid-time is the one family that still refuses.
 - The existing `HOTBulkBuilder` **under-packed leaves by ~7×** on realistic
   dense/strided key sets (§3; fixed in this worktree) — feeding it 100M-scale
   projection slots without the packing fix would have multiplied page count, TIL
@@ -199,7 +207,12 @@ verifies 13/13 depth-0 folds route 100 % strict — coverage the old shapes neve
 
 ### Seam 1 — importer-side PATH/CAS/NAME materialization (the refusal lift)
 
-`ParallelBulkJsonImporter` currently refuses secondary-index maintenance. The
+> **Landed.** The importer maintains PATH, CAS and NAME during the load exactly as planned here
+> (workers collect tuples, the coordinator drains them into `create*BulkLoader()` and flushes once
+> before the commit); valid-time still refuses. Shipped scope and cost:
+> [`BULK_IMPORT.md`](BULK_IMPORT.md). The design below is kept for the reasoning.
+
+`ParallelBulkJsonImporter` refused secondary-index maintenance at the time of writing. The
 EXISTING loaders make the lift mechanical; the per-family entry shape each loader
 needs, and where a worker can produce it:
 
@@ -330,7 +343,7 @@ Arithmetic (label lane, 8 B keys + 30 B payloads; slot-loader arena ≈ 70 B/ent
   bulk win at any scale; gate is semantic + detector (per §1, the appended shape need
   not equal `bulkBuild(S_union)`).
 
-### Seam 2b — v1 implementation (this worktree, uncommitted)
+### Seam 2b — v1 implementation (as designed; landed)
 
 - **`io.sirix.index.hot.HOTBulkSlotLoader`** — the slot-store sibling of the loader
   family: long-key + opaque-payload block-arena accumulation, `Long2IntOpenHashMap`
@@ -532,7 +545,9 @@ Answers to the three campaign questions:
 - The parallel importer's refusal: `ParallelBulkJsonImporter.refuseUnsupportedShape`
   (ParallelBulkJsonImporter.java:215–218) throws on `bulkHasPrimitiveIndexes()`; it
   also requires a FRESH resource (:219–221), so at load end every index tree is
-  virgin — the bulk loaders' empty-tree precondition holds by construction.
+  virgin — the bulk loaders' empty-tree precondition holds by construction. (Since Seam 1
+  landed, only valid-time and an unarmed projection are refused there; the fresh-resource
+  requirement — and with it the empty-tree precondition — is unchanged.)
 - `ProjectionBulkLoad` keeps the real `ProjectionIndexBuilder` machinery alive across
   auto-commit windows and streams full leaves through
   `putRowGroupAsColumnSegmentSlots` — i.e., it batches BUILD state, not WRITES; every

@@ -107,8 +107,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   private static final int VALIDTIME_REFERENCE_OFFSET = 10;
 
   /**
-   * Number of sibling references held in this revision root page (the highest reference offset
-   * plus one). Kept in sync with the {@code *_REFERENCE_OFFSET} constants above and with the
+   * Number of sibling references held in this revision root page (the highest reference offset plus
+   * one). Kept in sync with the {@code *_REFERENCE_OFFSET} constants above and with the
    * {@code BitmapReferencesPage} deserialization in {@code PageKind.REVISIONROOTPAGE}.
    */
   public static final int REVISION_ROOT_PAGE_REFERENCE_COUNT = 11;
@@ -393,12 +393,12 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   /**
-   * Reserves {@code count} consecutive document-index node keys and returns the FIRST reserved
-   * key. The parallel bulk importer assigns each build chunk an exact contiguous range up front so
-   * workers can encode final record bytes off-thread; the single-writer mint
-   * ({@link #incrementAndGetMaxNodeKeyInDocumentIndex()}) and this reservation share the one
-   * counter, so the field equals the true high-water mark at all times — the invariant the commit
-   * relies on when it serializes this page.
+   * Reserves {@code count} consecutive document-index node keys and returns the FIRST reserved key.
+   * The parallel bulk importer assigns each build chunk an exact contiguous range up front so workers
+   * can encode final record bytes off-thread; the single-writer mint
+   * ({@link #incrementAndGetMaxNodeKeyInDocumentIndex()}) and this reservation share the one counter,
+   * so the field equals the true high-water mark at all times — the invariant the commit relies on
+   * when it serializes this page.
    *
    * @param count how many keys to reserve; must be positive
    * @return the first key of the reserved contiguous range
@@ -525,19 +525,19 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("revisionTimestamp", revisionTimestamp)
-                      .add("maxNodeKey", maxNodeKeyInDocumentIndex)
-                      .add("delegate", delegate)
-                      .add("nodePage", getOrCreateReference(INDIRECT_DOCUMENT_INDEX_REFERENCE_OFFSET))
-                      .add("namePage", getOrCreateReference(NAME_REFERENCE_OFFSET))
-                      .add("pathSummaryPage", getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET))
-                      .add("pathPage", getOrCreateReference(PATH_REFERENCE_OFFSET))
-                      .add("CASPage", getOrCreateReference(CAS_REFERENCE_OFFSET))
-                      .add("deweyIDPage", getOrCreateReference(DEWEYID_REFERENCE_OFFSET))
-                      .add("vectorPage", getOrCreateReference(VECTOR_REFERENCE_OFFSET))
-                      .add("projectionPage", getOrCreateReference(PROJECTION_REFERENCE_OFFSET))
-                      .add("validTimePage", getOrCreateReference(VALIDTIME_REFERENCE_OFFSET))
-                      .toString();
+                         .add("revisionTimestamp", revisionTimestamp)
+                         .add("maxNodeKey", maxNodeKeyInDocumentIndex)
+                         .add("delegate", delegate)
+                         .add("nodePage", getOrCreateReference(INDIRECT_DOCUMENT_INDEX_REFERENCE_OFFSET))
+                         .add("namePage", getOrCreateReference(NAME_REFERENCE_OFFSET))
+                         .add("pathSummaryPage", getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET))
+                         .add("pathPage", getOrCreateReference(PATH_REFERENCE_OFFSET))
+                         .add("CASPage", getOrCreateReference(CAS_REFERENCE_OFFSET))
+                         .add("deweyIDPage", getOrCreateReference(DEWEYID_REFERENCE_OFFSET))
+                         .add("vectorPage", getOrCreateReference(VECTOR_REFERENCE_OFFSET))
+                         .add("projectionPage", getOrCreateReference(PROJECTION_REFERENCE_OFFSET))
+                         .add("validTimePage", getOrCreateReference(VALIDTIME_REFERENCE_OFFSET))
+                         .toString();
   }
 
   @Override
@@ -569,8 +569,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param storageEngineReader {@link StorageEngineReader} instance
    * @param log the transaction intent log
    */
-  public void createChangedNodesIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
-      final TransactionIntentLog log) {
+  public void createChangedNodesIndexTree(final DatabaseType databaseType,
+      final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
@@ -586,8 +586,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param storageEngineReader {@link StorageEngineReader} instance
    * @param log the transaction intent log
    */
-  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
-      final TransactionIntentLog log) {
+  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType,
+      final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {

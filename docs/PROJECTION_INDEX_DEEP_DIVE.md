@@ -554,7 +554,7 @@ Slot-0 states are deliberately distinct:
 | State | Representation | Meaning |
 |---|---|---|
 | Valid metadata | `PIXB` → current-version `PIXM`, stale bit clear | projection serves |
-| Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE` | dropped definition, unfinished load-time build, or corruption valve; rebuild on the next same-shape create |
+| Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE`, plus the writer's `StaleReason` in the reason bits (see `DISK_FORMAT.md`) | dropped definition, unfinished load-time build, a load-time build abandoned by an over-budget global dictionary, or corruption valve; the reason carries the remedy the writer knew, so a report need not guess it, and a rebuild on the next same-shape create clears the tombstone |
 | Truthful empty store | valid metadata, `leafCount = 0` | zero-record root; still valid |
 | Unsupported/corrupt layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ 0 | decline; maintenance fails closed |
 

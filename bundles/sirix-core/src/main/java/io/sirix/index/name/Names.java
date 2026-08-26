@@ -315,10 +315,10 @@ public final class Names {
   /**
    * Adds {@code delta} occurrences to an EXISTING interned name's count in one touch — the batched
    * form of the per-occurrence increment in {@link #setName}: one
-   * {@code prepareRecordForModification} on the shared count record instead of {@code delta} of
-   * them. The parallel bulk importer accumulates per-chunk occurrence deltas and applies them at
-   * the pre-rotation flush point (the same point path-reference deltas use), so the count pages
-   * stay hot in the intent log across async flush epochs.
+   * {@code prepareRecordForModification} on the shared count record instead of {@code delta} of them.
+   * The parallel bulk importer accumulates per-chunk occurrence deltas and applies them at the
+   * pre-rotation flush point (the same point path-reference deltas use), so the count pages stay hot
+   * in the intent log across async flush epochs.
    *
    * @param key the name key returned by {@link #setName}/{@link #keyForName}; must be interned
    * @param delta how many additional occurrences to record; must be positive

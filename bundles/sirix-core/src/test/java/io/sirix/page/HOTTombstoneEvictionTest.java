@@ -34,13 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>Why this exists separately from {@link HOTCompleteDumpMergeTest}</h2>
  *
- * Every probe in the task #57 investigation WROTE or UPDATED slots; not one ever DELETED one. So two
- * surfaces went entirely unexercised: tombstones, and the eviction path
+ * Every probe in the task #57 investigation WROTE or UPDATED slots; not one ever DELETED one. So
+ * two surfaces went entirely unexercised: tombstones, and the eviction path
  * ({@code carryForwardAgingHOTEntries}) which is a different method from the merge walk. The
- * dangerous case is their interaction — if the carry-forward re-emitted the live value of a key that
- * a newer fragment had tombstoned, a deleted row would come back and be written into the HEAD
- * fragment, where it can never age out again. That is the same resurrection shape as #57 but through
- * eviction rather than merge, and it would be a wrong answer on the shipping default
+ * dangerous case is their interaction — if the carry-forward re-emitted the live value of a key
+ * that a newer fragment had tombstoned, a deleted row would come back and be written into the HEAD
+ * fragment, where it can never age out again. That is the same resurrection shape as #57 but
+ * through eviction rather than merge, and it would be a wrong answer on the shipping default
  * (SLIDING_SNAPSHOT, {@code revisionsToRestore = 3}).
  *
  * <h2>The witness is the specific mechanism, not "something ran"</h2>
@@ -208,8 +208,8 @@ final class HOTTombstoneEvictionTest {
       assertNull(ProjectionIndexHOTStorage.readBlob(reader, 0, DELETED_KEY),
           where + ": the deleted key came back. " + counters());
       assertNotNull(ProjectionIndexHOTStorage.readBlob(reader, 0, UNTOUCHED_KEY),
-          where + ": an untouched live key was LOST, so the absence above is not evidence of "
-              + "correct deletion. " + counters());
+          where + ": an untouched live key was LOST, so the absence above is not evidence of " + "correct deletion. "
+              + counters());
       assertNotNull(ProjectionIndexHOTStorage.readBlob(reader, 0, CHURN_KEY),
           where + ": the churned key was lost. " + counters());
     }
@@ -218,9 +218,8 @@ final class HOTTombstoneEvictionTest {
   private static String counters() {
     return "single=" + VersioningType.singleFragmentReads() + " merges=" + VersioningType.multiFragmentMerges()
         + " walked=" + VersioningType.fragmentsWalked() + " shortCircuit=" + VersioningType.completeDumpShortCircuits()
-        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast()
-        + " inPlaceSplits=" + HOTTrieWriter.inPlaceLeafSplits()
-        + " carryFwdRotations=" + VersioningType.carryForwardRotations()
+        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " inPlaceSplits="
+        + HOTTrieWriter.inPlaceLeafSplits() + " carryFwdRotations=" + VersioningType.carryForwardRotations()
         + " carryFwdReemitted=" + VersioningType.carryForwardEntriesReemitted();
   }
 

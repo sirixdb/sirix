@@ -47,11 +47,13 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
@@ -75,15 +77,14 @@ import org.jspecify.annotations.Nullable;
  * <li><b>Slice</b>: a lightweight structural scanner cuts the stream into member-aligned char
  * chunks (strings/escapes tracked; no tokenization).</li>
  * <li><b>Count + resolve (coordinator)</b>: the fused pass produces exact node counts, member
- * boundaries, names (the only decoded text) and path resolution in the SAME byte sweep that
- * slices — reference deltas flush per chunk, before any rotation can flush summary pages
- * cold.</li>
+ * boundaries, names (the only decoded text) and path resolution in the SAME byte sweep that slices
+ * — reference deltas flush per chunk, before any rotation can flush summary pages cold.</li>
  * <li><b>Reserve</b>: the chunk's exact contiguous key range via
  * {@link RevisionRootPage#reserveKeyRangeInDocumentIndex(long)} — dense keys, so the result is
  * record-identical to a sequential load.</li>
- * <li><b>Build (worker)</b>: the same assembler core with a {@link WorkerPageBuilder} emits
- * FINAL record bytes into standalone pages; pre-resolved names/PCRs; range/slot verification
- * always on.</li>
+ * <li><b>Build (worker)</b>: the same assembler core with a {@link WorkerPageBuilder} emits FINAL
+ * record bytes into standalone pages; pre-resolved names/PCRs; range/slot verification always
+ * on.</li>
  * <li><b>Stitch + adopt (coordinator)</b>: pages sharing a page key with already-live territory
  * (page 0's prologue records, the previous chunk's held tail) are merged record-by-record through
  * the CoW-checked blit seam; whole pages are adopted via
@@ -107,8 +108,7 @@ public final class ParallelBulkJsonImporter {
 
   private static final long NULL_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
   private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
-  private static final int DEFAULT_CHUNK_CHAR_BUDGET =
-      Integer.getInteger("sirix.parallelImport.chunkBytes", 4 << 20);
+  private static final int DEFAULT_CHUNK_CHAR_BUDGET = Integer.getInteger("sirix.parallelImport.chunkBytes", 4 << 20);
   private static final int ADOPT_BURST_PAGES = 16;
   private static final ProjectionBulkLoad[] NO_PROJECTION_LOADS = new ProjectionBulkLoad[0];
 
@@ -123,7 +123,7 @@ public final class ParallelBulkJsonImporter {
 
   /** Interned dictionary keys by the feeder's STABLE dense name id, in first-occurrence order. */
   private final ArrayList<String> nameById = new ArrayList<>(64);
-  private final it.unimi.dsi.fastutil.ints.IntArrayList nameKeyById = new it.unimi.dsi.fastutil.ints.IntArrayList(64);
+  private final IntArrayList nameKeyById = new IntArrayList(64);
 
   /** The coordinator's growing (parentPCR, name) → PCR view, snapshot per chunk for the builder. */
   private Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> masterPcrMemo = new Long2ObjectOpenHashMap<>();
@@ -139,12 +139,12 @@ public final class ParallelBulkJsonImporter {
   private final ProjectionBulkLoad[] projectionLoads;
 
   /**
-   * Record roots and their last node keys, in document order, awaiting their row feed. A record's
-   * row is handed to the builds only once its WHOLE subtree has entered the intent log — the same
-   * watermark discipline the old key-attribution queue drained against — so the feed's document
-   * order and the storage epoch a row's dictionary interns land in stay exactly where they were.
-   * Only the row's SOURCE changed: the worker's batch, extracted during the build, instead of a
-   * coordinator re-read through the transaction.
+   * Record roots and their last node keys, in document order, awaiting their row feed. A record's row
+   * is handed to the builds only once its WHOLE subtree has entered the intent log — the same
+   * watermark discipline the old key-attribution queue drained against — so the feed's document order
+   * and the storage epoch a row's dictionary interns land in stay exactly where they were. Only the
+   * row's SOURCE changed: the worker's batch, extracted during the build, instead of a coordinator
+   * re-read through the transaction.
    */
   private final @Nullable LongArrayList pendingRecordRoots;
   private final @Nullable LongArrayList pendingRecordEnds;
@@ -152,7 +152,9 @@ public final class ParallelBulkJsonImporter {
   /** Index of the oldest record in the two queues above whose row has not been fed yet. */
   private int pendingRecordHead;
 
-  /** Worker-extracted row batches, in chunk order — one array (one batch per armed load) per chunk. */
+  /**
+   * Worker-extracted row batches, in chunk order — one array (one batch per armed load) per chunk.
+   */
   private final @Nullable ArrayDeque<ProjectionChunkRowBatch[]> pendingFeedBatches;
 
   /** Next unfed row of the head entry of {@link #pendingFeedBatches}. */
@@ -250,8 +252,8 @@ public final class ParallelBulkJsonImporter {
     for (int i = 0; i < nameIndexDefs.length; i++) {
       nameIndexBuilders[i] = nameFactory.create(storageEngineWriter, nameIndexDefs[i]);
     }
-    this.indexTuplesActive = pathIndexBuilders.length > 0 || casIndexBuilders.length > 0
-        || nameIndexBuilders.length > 0;
+    this.indexTuplesActive =
+        pathIndexBuilders.length > 0 || casIndexBuilders.length > 0 || nameIndexBuilders.length > 0;
 
     // NAME-family worker pre-filter: dictionary keys of the names any definition INCLUDES,
     // maintained as names intern (a name first occurring in chunk N is interned before chunk N
@@ -310,9 +312,11 @@ public final class ParallelBulkJsonImporter {
     assembleBytes(wtx, input, DEFAULT_CHUNK_CHAR_BUDGET, defaultParallelism());
   }
 
-  /** Builder threads: builds are cheap relative to the flush pipeline's parallel serialization,
-   * so the default leaves MOST cores to the snapshot flush pool — measured: an oversized build
-   * pool starves serialization (serializeJoinWait dominated the flush worker at builders=16). */
+  /**
+   * Builder threads: builds are cheap relative to the flush pipeline's parallel serialization, so the
+   * default leaves MOST cores to the snapshot flush pool — measured: an oversized build pool starves
+   * serialization (serializeJoinWait dominated the flush worker at builders=16).
+   */
   private static int defaultParallelism() {
     final int configured = Integer.getInteger("sirix.parallelImport.builders", -1);
     if (configured > 0) {
@@ -322,9 +326,9 @@ public final class ParallelBulkJsonImporter {
   }
 
   /**
-   * Imports ONE top-level JSON value from {@code input} into the fresh resource behind
-   * {@code wtx}, building member chunks through the parallel page pipeline when the top level is
-   * an array and falling back to the sequential assembler otherwise. The caller commits.
+   * Imports ONE top-level JSON value from {@code input} into the fresh resource behind {@code wtx},
+   * building member chunks through the parallel page pipeline when the top level is an array and
+   * falling back to the sequential assembler otherwise. The caller commits.
    *
    * @param wtx a write transaction on a FRESH resource (standard implementation)
    * @param input the character source
@@ -519,98 +523,97 @@ public final class ParallelBulkJsonImporter {
     long expectedNextReservation = rootArrayKey + 1;
 
     try {
-    while (true) {
-      final Object taken;
-      try {
-        taken = handoff.take();
-      } catch (final InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("interrupted awaiting the feeder", e);
-      }
-      if (taken == FEEDER_DONE) {
-        break;
-      }
-      if (taken instanceof Throwable failure) {
-        if (failure instanceof RuntimeException runtime) {
-          throw runtime;
+      while (true) {
+        final Object taken;
+        try {
+          taken = handoff.take();
+        } catch (final InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException("interrupted awaiting the feeder", e);
         }
-        if (failure instanceof IOException io) {
-          throw io;
+        if (taken == FEEDER_DONE) {
+          break;
         }
-        throw new IllegalStateException("feeder failed", failure);
-      }
-      final FusedSliceAndScan.Chunk chunk = (FusedSliceAndScan.Chunk) taken;
-
-      final long chunkNodes = chunk.nodes();
-      final long chunkMembers = chunk.members();
-      if (chunkNodes == 0) {
-        continue;
-      }
-      // --- Resolve this chunk's metadata on the coordinator, in document order ------------------
-      final Object2IntOpenHashMap<String> chunkNames = resolveChunkMetadata(chunk);
-
-      // --- Reserve the exact dense range ---------------------------------------------------
-      final long firstKey = revisionRootPage.reserveKeyRangeInDocumentIndex(chunkNodes);
-      if (firstKey != expectedNextReservation) {
-        throw new IllegalStateException(
-            "reserved range starts at " + firstKey + " but the pipeline expected " + expectedNextReservation);
-      }
-      final long lastKey = firstKey + chunkNodes - 1;
-      final long chunkLastMemberKey = firstKey + chunkNodes - chunk.lastMemberNodes();
-      enqueueRecordRoots(chunk, firstKey, chunkLastMemberKey, lastKey);
-      final long trailingSiblingKey = chunk.isFinal()
-          ? NULL_KEY
-          : lastKey + 1;
-
-      // --- Stage B: build — off-thread when a pool exists, inline otherwise ---------------------
-      // With a projection armed, the chunk carries a row batch per armed build: the worker extracts
-      // the rows AS IT BUILDS, from the primitives it already holds, and the coordinator replays
-      // them at adoption. The batch snapshot is taken HERE, after resolveChunkMetadata, so a field
-      // whose first occurrence is in this chunk has already acquired its path class.
-      final ProjectionChunkRowBatch[] chunkBatches = newChunkBatches((int) chunkMembers);
-      final ChunkIndexTupleBatch chunkIndexBatch = newChunkIndexBatch();
-      final WorkerPageBuilder builder =
-          new WorkerPageBuilder(resourceConfig, storageEngineWriter.getRevisionNumber(),
-              resourceConfig.nodeHashFunction, wtx.bulkStoreChildCount(), chunkNames, firstKey, lastKey,
-              chunkBatches, feedRecordSetKey, chunkIndexBatch);
-      if (chunkBatches != null) {
-        pendingFeedBatches.addLast(chunkBatches);
-      }
-      final byte[] chunkBytes = chunk.bytes();
-      final int chunkByteLength = chunk.length();
-      final long buildFirstKey = firstKey;
-      final long buildLastMemberBoundary = lastMemberKey;
-      final long buildTrailing = trailingSiblingKey;
-      final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot = copyMemo(masterPcrMemo);
-
-      if (buildPool == null) {
-        final List<KeyValueLeafPage> builtPages = buildChunk(fused, builder, chunkBytes, chunkByteLength,
-            buildFirstKey, lastKey, rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
-        drainIndexTuples(builder.indexTuples());
-        stitchAndAdopt(builtPages, lastKey);
-      } else {
-        final long submittedLastKey = lastKey;
-        inFlight.addLast(new PendingBuild(buildPool.submit(() -> {
-          // The chunk's own UTF-8 decode happens HERE, on the pool thread — the whole corpus
-          // decode parallelizes across builders, into POOLED scratch (no per-chunk large arrays).
-          return buildChunk(fused, builder, chunkBytes, chunkByteLength, buildFirstKey, submittedLastKey, rootArrayKey,
-              rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
-        }), builder, lastKey, chunkLastMemberKey, chunkMembers));
-        // Admission control: never more than P+2 chunks of frames in flight; adoption is strictly
-        // in chunk order, which the tail-hold stitch chain requires anyway.
-        while (inFlight.size() >= maxInFlight) {
-          adoptNext(inFlight);
+        if (taken instanceof Throwable failure) {
+          if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+          }
+          if (failure instanceof IOException io) {
+            throw io;
+          }
+          throw new IllegalStateException("feeder failed", failure);
         }
+        final FusedSliceAndScan.Chunk chunk = (FusedSliceAndScan.Chunk) taken;
+
+        final long chunkNodes = chunk.nodes();
+        final long chunkMembers = chunk.members();
+        if (chunkNodes == 0) {
+          continue;
+        }
+        // --- Resolve this chunk's metadata on the coordinator, in document order ------------------
+        final Object2IntOpenHashMap<String> chunkNames = resolveChunkMetadata(chunk);
+
+        // --- Reserve the exact dense range ---------------------------------------------------
+        final long firstKey = revisionRootPage.reserveKeyRangeInDocumentIndex(chunkNodes);
+        if (firstKey != expectedNextReservation) {
+          throw new IllegalStateException(
+              "reserved range starts at " + firstKey + " but the pipeline expected " + expectedNextReservation);
+        }
+        final long lastKey = firstKey + chunkNodes - 1;
+        final long chunkLastMemberKey = firstKey + chunkNodes - chunk.lastMemberNodes();
+        enqueueRecordRoots(chunk, firstKey, chunkLastMemberKey, lastKey);
+        final long trailingSiblingKey = chunk.isFinal()
+            ? NULL_KEY
+            : lastKey + 1;
+
+        // --- Stage B: build — off-thread when a pool exists, inline otherwise ---------------------
+        // With a projection armed, the chunk carries a row batch per armed build: the worker extracts
+        // the rows AS IT BUILDS, from the primitives it already holds, and the coordinator replays
+        // them at adoption. The batch snapshot is taken HERE, after resolveChunkMetadata, so a field
+        // whose first occurrence is in this chunk has already acquired its path class.
+        final ProjectionChunkRowBatch[] chunkBatches = newChunkBatches((int) chunkMembers);
+        final ChunkIndexTupleBatch chunkIndexBatch = newChunkIndexBatch();
+        final WorkerPageBuilder builder = new WorkerPageBuilder(resourceConfig, storageEngineWriter.getRevisionNumber(),
+            resourceConfig.nodeHashFunction, wtx.bulkStoreChildCount(), chunkNames, firstKey, lastKey, chunkBatches,
+            feedRecordSetKey, chunkIndexBatch);
+        if (chunkBatches != null) {
+          pendingFeedBatches.addLast(chunkBatches);
+        }
+        final byte[] chunkBytes = chunk.bytes();
+        final int chunkByteLength = chunk.length();
+        final long buildFirstKey = firstKey;
+        final long buildLastMemberBoundary = lastMemberKey;
+        final long buildTrailing = trailingSiblingKey;
+        final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot = copyMemo(masterPcrMemo);
+
+        if (buildPool == null) {
+          final List<KeyValueLeafPage> builtPages = buildChunk(fused, builder, chunkBytes, chunkByteLength,
+              buildFirstKey, lastKey, rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
+          drainIndexTuples(builder.indexTuples());
+          stitchAndAdopt(builtPages, lastKey);
+        } else {
+          final long submittedLastKey = lastKey;
+          inFlight.addLast(new PendingBuild(buildPool.submit(() -> {
+            // The chunk's own UTF-8 decode happens HERE, on the pool thread — the whole corpus
+            // decode parallelizes across builders, into POOLED scratch (no per-chunk large arrays).
+            return buildChunk(fused, builder, chunkBytes, chunkByteLength, buildFirstKey, submittedLastKey,
+                rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
+          }), builder, lastKey, chunkLastMemberKey, chunkMembers));
+          // Admission control: never more than P+2 chunks of frames in flight; adoption is strictly
+          // in chunk order, which the tail-hold stitch chain requires anyway.
+          while (inFlight.size() >= maxInFlight) {
+            adoptNext(inFlight);
+          }
+        }
+
+        totalMembers += chunkMembers;
+        lastMemberKey = chunkLastMemberKey;
+        expectedNextReservation = lastKey + 1;
       }
 
-      totalMembers += chunkMembers;
-      lastMemberKey = chunkLastMemberKey;
-      expectedNextReservation = lastKey + 1;
-    }
-
-    while (!inFlight.isEmpty()) {
-      adoptNext(inFlight);
-    }
+      while (!inFlight.isEmpty()) {
+        adoptNext(inFlight);
+      }
     } finally {
       if (buildPool != null) {
         buildPool.shutdownNow();
@@ -618,7 +621,7 @@ public final class ParallelBulkJsonImporter {
     }
 
     if (heldTailPage != null) {
-      adoptBurst(new KeyValueLeafPage[] { heldTailPage }, 1);
+      adoptBurst(new KeyValueLeafPage[] {heldTailPage}, 1);
       heldTailPage = null;
       heldTailPageKey = -1;
     }
@@ -694,7 +697,7 @@ public final class ParallelBulkJsonImporter {
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("interrupted while awaiting a chunk build", e);
-    } catch (final java.util.concurrent.ExecutionException e) {
+    } catch (final ExecutionException e) {
       throw new IllegalStateException("chunk build failed", e.getCause());
     }
   }
@@ -705,11 +708,11 @@ public final class ParallelBulkJsonImporter {
   private static final Object FEEDER_DONE = new Object();
 
   /**
-   * Resolves a chunk's deferred metadata IN DOCUMENT ORDER on the coordinator — the sequential
-   * path's exact dictionary/summary call sequence, batched: new paths resolve through the real
-   * summary writer (each miss counts its first occurrence), new names intern via createNameKey,
-   * repeat occurrences land as reference/count deltas, and the master memo gains every new
-   * (parentPCR, name) → PCR pair for the build worker's snapshot.
+   * Resolves a chunk's deferred metadata IN DOCUMENT ORDER on the coordinator — the sequential path's
+   * exact dictionary/summary call sequence, batched: new paths resolve through the real summary
+   * writer (each miss counts its first occurrence), new names intern via createNameKey, repeat
+   * occurrences land as reference/count deltas, and the master memo gains every new (parentPCR, name)
+   * → PCR pair for the build worker's snapshot.
    *
    * @return the chunk's name → dictionary-key table for the build worker
    */
@@ -905,10 +908,10 @@ public final class ParallelBulkJsonImporter {
   }
 
   /**
-   * Feed every queued record whose WHOLE subtree has been adopted to the armed builds, oldest
-   * first, from the worker-extracted batches. The batch row and the queue entry describe the same
-   * record through two independent derivations — the worker's parent-key detection and the feeder's
-   * member node counts — so their root keys are cross-checked per row before the row is appended.
+   * Feed every queued record whose WHOLE subtree has been adopted to the armed builds, oldest first,
+   * from the worker-extracted batches. The batch row and the queue entry describe the same record
+   * through two independent derivations — the worker's parent-key detection and the feeder's member
+   * node counts — so their root keys are cross-checked per row before the row is appended.
    */
   private void feedReadableRows() {
     final int pending = pendingRecordRoots.size();
@@ -921,8 +924,8 @@ public final class ParallelBulkJsonImporter {
         batches = pendingFeedBatches.peekFirst();
       }
       if (batches == null) {
-        throw new IllegalStateException("record root " + pendingRecordRoots.getLong(head)
-            + " is adopted but no chunk batch holds its row");
+        throw new IllegalStateException(
+            "record root " + pendingRecordRoots.getLong(head) + " is adopted but no chunk batch holds its row");
       }
       final long recordKey = pendingRecordRoots.getLong(head);
       final int row = feedRowInHeadBatch;
@@ -970,9 +973,9 @@ public final class ParallelBulkJsonImporter {
 
   /**
    * A tuple batch for the next chunk, with the per-family union filters resolved against the LIVE
-   * path summary and name dictionary — after this chunk's Stage-A resolution, so a path class or
-   * name first occurring in this chunk is in this chunk's snapshot. The union sets are fresh (or
-   * copied) objects per chunk because the workers read them off-thread while later chunks grow the
+   * path summary and name dictionary — after this chunk's Stage-A resolution, so a path class or name
+   * first occurring in this chunk is in this chunk's snapshot. The union sets are fresh (or copied)
+   * objects per chunk because the workers read them off-thread while later chunks grow the
    * coordinator's originals.
    */
   private @Nullable ChunkIndexTupleBatch newChunkIndexBatch() {
@@ -1141,8 +1144,8 @@ public final class ParallelBulkJsonImporter {
   }
 
   /**
-   * Advance the readable-key watermark for a page that just entered the intent log. A page covers
-   * its whole 1024-slot range, but never past what the chunk that produced it actually built — the
+   * Advance the readable-key watermark for a page that just entered the intent log. A page covers its
+   * whole 1024-slot range, but never past what the chunk that produced it actually built — the
    * prologue chunk stops inside page 0.
    */
   private void noteAdoptedPage(final long pageKey) {
@@ -1163,8 +1166,7 @@ public final class ParallelBulkJsonImporter {
       final int kindId = source.getSlotNodeKindId(slot);
       final long absOffset = target.prepareHeapForDirectWriteOrOverflow((int) record.byteSize(), 0);
       if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
-        throw new IllegalStateException(
-            "boundary merge overflowed page " + target.getPageKey() + " at slot " + slot);
+        throw new IllegalStateException("boundary merge overflowed page " + target.getPageKey() + " at slot " + slot);
       }
       MemorySegment.copy(record, 0, target.getSlottedPage(), absOffset, record.byteSize());
       target.completeDirectWrite((byte) kindId, pageBase | slot, slot, (int) record.byteSize(), null);

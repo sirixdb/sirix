@@ -31,42 +31,40 @@ import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
  * {@code prepareRecordForModification} page-container resolutions (parent childCount/firstChild,
  * left sibling rightSib), cursor repositioning, a per-node epoch check, and — when notifications
  * need it — a parent walk for the path class. This assembler computes every pointer from its own
- * container stack BEFORE a record is first written, so leaves are created with FINAL pointers,
- * and each CONTAINER takes exactly ONE in-place fixup at its close
+ * container stack BEFORE a record is first written, so leaves are created with FINAL pointers, and
+ * each CONTAINER takes exactly ONE in-place fixup at its close
  * (firstChild/lastChild/childCount/rightSib together) instead of one per child.
  *
  * <p>
  * <b>The sink seam.</b> Record emission goes through a {@link BulkRecordSink}: the
  * transaction-backed sink is the original sequential behavior; a counting sink gives the parallel
  * importer's Stage-A its node counts through the SAME code path that later builds (so a count can
- * never disagree with a build by construction); a worker page-builder sink emits standalone
- * pages for pre-reserved key ranges. The assembler core — scanner drive, key prediction,
- * container stack, PCR memoization — is identical for all three.
+ * never disagree with a build by construction); a worker page-builder sink emits standalone pages
+ * for pre-reserved key ranges. The assembler core — scanner drive, key prediction, container stack,
+ * PCR memoization — is identical for all three.
  *
  * <p>
- * <b>Key prediction.</b> Node keys mint sequentially and deterministically. The assembler
- * predicts forward references — a record's right sibling — as {@code expectedNextKey} under
- * one-token lookahead, and ASSERTS the prediction against the key the sink actually minted at
- * every creation. A violated prediction is a hard {@link IllegalStateException}; a silent
- * mis-pointer is impossible by construction.
+ * <b>Key prediction.</b> Node keys mint sequentially and deterministically. The assembler predicts
+ * forward references — a record's right sibling — as {@code expectedNextKey} under one-token
+ * lookahead, and ASSERTS the prediction against the key the sink actually minted at every creation.
+ * A violated prediction is a hard {@link IllegalStateException}; a silent mis-pointer is impossible
+ * by construction.
  *
  * <p>
  * <b>Path summary.</b> Resolution uses only the KEYED writer API
  * ({@link PathSummaryWriter#getPathNodeKey(long, QNm, NodeKind)} under a stack-carried context
  * PCR), never the cursor-positional variant. The context rules mirror the cursor path exactly,
- * including its as-built quirks: plain {@code OBJECT} is transparent (inherits the parent
- * context), the four stop kinds anchor their own; ALL arrays resolve one {@code __array__} step
- * under the parent context (user-ruled unification); a fused named array stores the
- * {@code __array__}-layer PCR obtained via
- * {@link PathSummaryWriter#getArrayChildPathNodeKey(long)}. The keyed calls are made once per
- * record occurrence — the writer's reference counting must observe the same call sequence the
- * cursor path produces.
+ * including its as-built quirks: plain {@code OBJECT} is transparent (inherits the parent context),
+ * the four stop kinds anchor their own; ALL arrays resolve one {@code __array__} step under the
+ * parent context (user-ruled unification); a fused named array stores the {@code __array__}-layer
+ * PCR obtained via {@link PathSummaryWriter#getArrayChildPathNodeKey(long)}. The keyed calls are
+ * made once per record occurrence — the writer's reference counting must observe the same call
+ * sequence the cursor path produces.
  *
  * <p>
- * <b>Scope guard.</b> Refuses up front — before writing anything — any configuration this
- * version does not faithfully reproduce: hashes, DeweyIDs, path statistics, node history, or a
- * non-empty target document. Mutating existing nodes is permanently out of scope; that is the
- * cursor's job.
+ * <b>Scope guard.</b> Refuses up front — before writing anything — any configuration this version
+ * does not faithfully reproduce: hashes, DeweyIDs, path statistics, node history, or a non-empty
+ * target document. Mutating existing nodes is permanently out of scope; that is the cursor's job.
  */
 public final class BulkJsonTreeAssembler {
 
@@ -102,13 +100,13 @@ public final class BulkJsonTreeAssembler {
   private String pendingName;
 
   /**
-   * (parent PCR, step name) → PCR memo with DEFERRED reference counting: a miss resolves through
-   * the ordinary summary path (which counts that first occurrence), a hit only bumps a local
-   * pending counter, and {@link #flushPendingPathReferences()} applies the accumulated repeats in
-   * one record touch per path node BEFORE every epoch rotation and at the end of the run. The
-   * committed reference counts are exactly per-occurrence counting's — the oracle's summary dump
-   * (references included) pins it — while the measured 13.7%% of fill time spent in per-node
-   * summary resolution collapses to a hash probe.
+   * (parent PCR, step name) → PCR memo with DEFERRED reference counting: a miss resolves through the
+   * ordinary summary path (which counts that first occurrence), a hit only bumps a local pending
+   * counter, and {@link #flushPendingPathReferences()} applies the accumulated repeats in one record
+   * touch per path node BEFORE every epoch rotation and at the end of the run. The committed
+   * reference counts are exactly per-occurrence counting's — the oracle's summary dump (references
+   * included) pins it — while the measured 13.7%% of fill time spent in per-node summary resolution
+   * collapses to a hash probe.
    */
   private final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> pcrMemo = new Long2ObjectOpenHashMap<>();
 
@@ -129,8 +127,8 @@ public final class BulkJsonTreeAssembler {
 
   /**
    * MEMBER MODE (parallel import): frame 0 is a pre-existing top-level ARRAY rather than the
-   * document, the drive consumes a sequence of that array's members, and the final member's
-   * right sibling comes from OUTSIDE (the next chunk's first key) instead of the lookahead.
+   * document, the drive consumes a sequence of that array's members, and the final member's right
+   * sibling comes from OUTSIDE (the next chunk's first key) instead of the lookahead.
    */
   private final boolean memberMode;
   private final long memberRootKey;
@@ -191,8 +189,8 @@ public final class BulkJsonTreeAssembler {
   }
 
   /**
-   * Assemble ONE top-level JSON value from {@code input} into the fresh resource behind
-   * {@code wtx}. The caller commits.
+   * Assemble ONE top-level JSON value from {@code input} into the fresh resource behind {@code wtx}.
+   * The caller commits.
    *
    * @param wtx a write transaction on a FRESH resource; must be the standard implementation, since
    *        bulk assembly drives its internal factory/summary/notification machinery
@@ -210,8 +208,8 @@ public final class BulkJsonTreeAssembler {
     }
     refuseUnsupportedShape(impl);
     try {
-      new BulkJsonTreeAssembler(new WtxBulkRecordSink(impl), impl.bulkPathSummaryWriter(),
-          impl.bulkBuildPathSummary(), scanner, impl.getMaxNodeKey() + 1).run();
+      new BulkJsonTreeAssembler(new WtxBulkRecordSink(impl), impl.bulkPathSummaryWriter(), impl.bulkBuildPathSummary(),
+          scanner, impl.getMaxNodeKey() + 1).run();
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -407,8 +405,8 @@ public final class BulkJsonTreeAssembler {
       final String name = takePendingName();
       final long fieldPcr = resolveFieldPcr(name);
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createObjectNamedStringNode(levelContainerKey[depth],
-          levelLastChild[depth], rightSibKey, fieldPcr, name, utf8, utf8Length)));
+      recordChildInParent(assertMinted(sink.createObjectNamedStringNode(levelContainerKey[depth], levelLastChild[depth],
+          rightSibKey, fieldPcr, name, utf8, utf8Length)));
     } else {
       final long rightSibKey = predictedLeafRightSibling();
       recordChildInParent(assertMinted(sink.createStringNode(levelContainerKey[depth], levelLastChild[depth],
@@ -421,8 +419,8 @@ public final class BulkJsonTreeAssembler {
       final String name = takePendingName();
       final long fieldPcr = resolveFieldPcr(name);
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createObjectNamedNumberNode(levelContainerKey[depth],
-          levelLastChild[depth], rightSibKey, fieldPcr, name, value)));
+      recordChildInParent(assertMinted(sink.createObjectNamedNumberNode(levelContainerKey[depth], levelLastChild[depth],
+          rightSibKey, fieldPcr, name, value)));
     } else {
       final long rightSibKey = predictedLeafRightSibling();
       recordChildInParent(assertMinted(sink.createNumberNode(levelContainerKey[depth], levelLastChild[depth],
@@ -461,8 +459,8 @@ public final class BulkJsonTreeAssembler {
   // ==== shared mechanics ======================================================================
 
   /**
-   * A leaf occupies exactly one key, so if the lookahead shows another sibling, that sibling's key
-   * is the one AFTER this leaf's. The prediction is verified when the sibling actually mints.
+   * A leaf occupies exactly one key, so if the lookahead shows another sibling, that sibling's key is
+   * the one AFTER this leaf's. The prediction is verified when the sibling actually mints.
    */
   private long predictedLeafRightSibling() throws IOException {
     if (peekSiblingFollows()) {
