@@ -12,9 +12,9 @@ package io.sirix.index.projection;
  * is an agreement between them, which is a WRITER's mistake and is repaired by rebuilding, not by
  * quarantining a column. The distinction is the entire point of the type. Task #45 spent four
  * rounds chasing "known-corrupt BODY segment" before the actual fault turned out to be a leaf
- * descriptor that maintenance had rewritten with the declared column kind while the payload and
- * the metadata still carried the elected one; the message blamed the bytes because the code had no
- * way to say anything else.
+ * descriptor that maintenance had rewritten with the declared column kind while the payload and the
+ * metadata still carried the elected one; the message blamed the bytes because the code had no way
+ * to say anything else.
  * </p>
  *
  * <p>

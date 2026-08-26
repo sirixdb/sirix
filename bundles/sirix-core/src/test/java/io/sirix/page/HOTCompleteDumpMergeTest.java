@@ -98,19 +98,18 @@ final class HOTCompleteDumpMergeTest {
    *
    * <p>
    * MEASURED, and the number matters. At 400 nothing splits at all: the fixture ran clean and
-   * "passed" while covering nothing, which is the decoration these tests exist to avoid. A probe
-   * over 400 / 2000 / 8000 showed the in-place split first appears at 2000. Do not lower this
-   * without re-running that probe; the split, not the row count, is the trigger — and
+   * "passed" while covering nothing, which is the decoration these tests exist to avoid. A probe over
+   * 400 / 2000 / 8000 showed the in-place split first appears at 2000. Do not lower this without
+   * re-running that probe; the split, not the row count, is the trigger — and
    * {@link #assertVulnerablePathRan} now enforces that mechanically rather than by comment.
    * </p>
    *
    * <p>
    * RETRACTED: an earlier revision of this comment also claimed the probe showed {@code
-   * completeDumpsWalkedPast=1} at 2000. It did not. That reading came from an over-broad counter
-   * that fired on ENCOUNTERING a complete dump anywhere in the chain, including as the last
-   * fragment, which is harmless. Under the counter's current (and correct) definition — fragments
-   * visited BEHIND one that declared the chain complete — the probe reads zero, as everything else
-   * has.
+   * completeDumpsWalkedPast=1} at 2000. It did not. That reading came from an over-broad counter that
+   * fired on ENCOUNTERING a complete dump anywhere in the chain, including as the last fragment,
+   * which is harmless. Under the counter's current (and correct) definition — fragments visited
+   * BEHIND one that declared the chain complete — the probe reads zero, as everything else has.
    * </p>
    */
   private static final int ROW_GROUPS = 2000;
@@ -217,9 +216,9 @@ final class HOTCompleteDumpMergeTest {
   }
 
   /**
-   * Historical reads are believed correct — at the split revision the newest fragment IS the dump,
-   * so the head check fires and the read is sound. Asserted rather than assumed, because it is
-   * precisely the property a careless fix could break.
+   * Historical reads are believed correct — at the split revision the newest fragment IS the dump, so
+   * the head check fires and the read is sound. Asserted rather than assumed, because it is precisely
+   * the property a careless fix could break.
    */
   @Test
   void readingTheRevisionAtWhichTheSplitHappenedStaysCorrect() throws IOException {
@@ -246,8 +245,7 @@ final class HOTCompleteDumpMergeTest {
       // READER, because readBlob takes no revision of its own.
       try (JsonNodeReadOnlyTrx atSplitTrx = session.beginNodeReadOnlyTrx(splitRevision)) {
         assertEquals(splitRevision, atSplitTrx.getRevisionNumber(),
-            "the probe must actually be positioned at the split revision, or this case is testing "
-                + "the head again");
+            "the probe must actually be positioned at the split revision, or this case is testing " + "the head again");
         final Set<Long> atSplit = readAllRowGroups(atSplitTrx.getStorageEngineReader());
         assertEquals(ROW_GROUPS, atSplit.size(),
             "the revision at which the split happened must read correctly — the head check fires there");
@@ -288,8 +286,8 @@ final class HOTCompleteDumpMergeTest {
   /**
    * The coverage guard: the in-place leaf split is the only split that reuses the original
    * {@code PageReference}, and it is what makes a stale fragment chain reachable at all. If a
-   * refactor stops taking that path this fixture still passes every other assertion while
-   * exercising nothing — so the split is asserted, not assumed.
+   * refactor stops taking that path this fixture still passes every other assertion while exercising
+   * nothing — so the split is asserted, not assumed.
    */
   private static void assertVulnerablePathRan(final VersioningType versioning) {
     assertTrue(HOTTrieWriter.inPlaceLeafSplits() > 0,
@@ -301,9 +299,8 @@ final class HOTCompleteDumpMergeTest {
   private static String counters() {
     return "single=" + VersioningType.singleFragmentReads() + " merges=" + VersioningType.multiFragmentMerges()
         + " walked=" + VersioningType.fragmentsWalked() + " shortCircuit=" + VersioningType.completeDumpShortCircuits()
-        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast()
-        + " inPlaceSplits=" + HOTTrieWriter.inPlaceLeafSplits()
-        + " carryFwd=" + VersioningType.carryForwardRotations();
+        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " inPlaceSplits="
+        + HOTTrieWriter.inPlaceLeafSplits() + " carryFwd=" + VersioningType.carryForwardRotations();
   }
 
   /**
@@ -400,17 +397,17 @@ final class HOTCompleteDumpMergeTest {
    * Read every row group and key the result on the CONTENT, not on the loop counter.
    *
    * <p>
-   * The earlier version added {@code i + 1} — the key it had just asked for — so the set counted
-   * "how many slots answered non-null" and nothing more. A slot returning some OTHER row group's
-   * payload was structurally invisible, which is precisely the failure this class exists to detect.
-   * The payload encodes its own row-group index in bytes 0..1 (see {@link #write}), so the identity
-   * is checked against the key that was requested and the set is built from what came back.
+   * The earlier version added {@code i + 1} — the key it had just asked for — so the set counted "how
+   * many slots answered non-null" and nothing more. A slot returning some OTHER row group's payload
+   * was structurally invisible, which is precisely the failure this class exists to detect. The
+   * payload encodes its own row-group index in bytes 0..1 (see {@link #write}), so the identity is
+   * checked against the key that was requested and the set is built from what came back.
    * </p>
    *
    * <p>
-   * SCOPE, stated because the earlier comment overclaimed: point reads cannot see DUPLICATION —
-   * two stored copies of one key still answer once. Duplicate detection needs the range enumeration
-   * over descriptor and column-segment slots, which lives outside this class.
+   * SCOPE, stated because the earlier comment overclaimed: point reads cannot see DUPLICATION — two
+   * stored copies of one key still answer once. Duplicate detection needs the range enumeration over
+   * descriptor and column-segment slots, which lives outside this class.
    * </p>
    */
   private static Set<Long> readAllRowGroups(final StorageEngineReader reader) {
@@ -422,8 +419,8 @@ final class HOTCompleteDumpMergeTest {
         final long identityInPayload = ((blob[0] & 0xFFL) | ((blob[1] & 0xFFL) << 8)) + 1L;
         assertEquals(requestedKey, identityInPayload,
             "slot " + requestedKey + " answered with row group " + identityInPayload
-                + "'s payload — a wrong-content read, which keying on the loop counter would have "
-                + "hidden. " + counters());
+                + "'s payload — a wrong-content read, which keying on the loop counter would have " + "hidden. "
+                + counters());
         seen.add(identityInPayload);
       }
     }

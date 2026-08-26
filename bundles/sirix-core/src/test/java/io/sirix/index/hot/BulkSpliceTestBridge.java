@@ -24,8 +24,8 @@ public final class BulkSpliceTestBridge {
 
   /**
    * Splice {@code sortedEntries} as {@code writer}'s whole index tree — the production
-   * {@code spliceBulkBuiltRoot} path (empty-tree guard, {@link HOTBulkBuilder#build},
-   * fresh-subtree TIL registration).
+   * {@code spliceBulkBuiltRoot} path (empty-tree guard, {@link HOTBulkBuilder#build}, fresh-subtree
+   * TIL registration).
    *
    * @param writer a writer whose index tree is still empty
    * @param sortedEntries entries sorted strictly ascending by unsigned key, no duplicates
@@ -38,10 +38,10 @@ public final class BulkSpliceTestBridge {
   }
 
   /**
-   * Run {@link HOTMalformedSubtreeDetector} over {@code writer}'s in-transaction tree and return
-   * the number of malformed subtrees (0 = clean). The resolver consults the transaction-intent
-   * log for pages whose in-memory reference was nulled by {@code log.put}, swizzling them back
-   * so the walk sees the whole tree.
+   * Run {@link HOTMalformedSubtreeDetector} over {@code writer}'s in-transaction tree and return the
+   * number of malformed subtrees (0 = clean). The resolver consults the transaction-intent log for
+   * pages whose in-memory reference was nulled by {@code log.put}, swizzling them back so the walk
+   * sees the whole tree.
    */
   public static int malformedSubtreeCount(final AbstractHOTIndexWriter<?> writer) {
     Objects.requireNonNull(writer, "writer");

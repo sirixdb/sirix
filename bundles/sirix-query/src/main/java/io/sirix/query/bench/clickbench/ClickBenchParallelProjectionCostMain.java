@@ -40,8 +40,8 @@ import java.util.Set;
  * resource.</li>
  * </ol>
  *
- * Arms are INTERLEAVED (bare, onepass, postpass, bare, onepass, ...) rather than run in blocks, so a
- * machine whose clock or background load drifts over the session penalises every arm equally. The
+ * Arms are INTERLEAVED (bare, onepass, postpass, bare, onepass, ...) rather than run in blocks, so
+ * a machine whose clock or background load drifts over the session penalises every arm equally. The
  * reported figure per arm is the MINIMUM over repetitions, which is the least noise-contaminated
  * estimator available when the box is shared.
  *
@@ -91,8 +91,8 @@ public final class ClickBenchParallelProjectionCostMain {
         final long rows = runArm(arm, corpus, dbPath, expectedRows);
         final double seconds = (System.nanoTime() - nanos) / 1e9;
         samples.get(arm.ordinal())[rep] = seconds;
-        System.out.printf(Locale.ROOT, "rep %d  %-8s  %8.3f s   rows=%d%n", rep + 1, arm.name().toLowerCase(Locale.ROOT),
-            seconds, rows);
+        System.out.printf(Locale.ROOT, "rep %d  %-8s  %8.3f s   rows=%d%n", rep + 1,
+            arm.name().toLowerCase(Locale.ROOT), seconds, rows);
         System.out.flush();
         deleteRecursively(dbPath);
       }
@@ -128,8 +128,9 @@ public final class ClickBenchParallelProjectionCostMain {
                                              .buildPathSummary(true)
                                              .build());
       try (JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
-        try (JsonNodeTrx wtx = session.beginNodeTrx(NODES_BEFORE_EPOCH_ROTATION,
-            AfterCommitState.KEEP_OPEN_ASYNC_FLUSH); InputStream in = openCorpus(corpus)) {
+        try (
+            JsonNodeTrx wtx = session.beginNodeTrx(NODES_BEFORE_EPOCH_ROTATION, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+            InputStream in = openCorpus(corpus)) {
           if (arm == Arm.ONEPASS) {
             final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
             controller.createProjectionIndexAtLoadStart(projectionDef(expectedRows), wtx, expectedRows);
@@ -165,7 +166,8 @@ public final class ClickBenchParallelProjectionCostMain {
         throw new IllegalStateException(arm + " produced an empty record set");
       }
       if (arm != Arm.BARE) {
-        final byte[] raw = ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), PROJECTION_INDEX_NUMBER, 0L);
+        final byte[] raw =
+            ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), PROJECTION_INDEX_NUMBER, 0L);
         if (raw == null) {
           throw new IllegalStateException(arm + " published no projection metadata");
         }

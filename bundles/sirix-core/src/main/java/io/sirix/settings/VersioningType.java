@@ -1272,10 +1272,10 @@ public enum VersioningType {
    * {@code mergeHOTFragmentsByKey} is the DEFAULT READ path — its single-fragment branch runs on
    * every versioned page read — and {@code carryForwardAgingHOTEntries} runs inside the COMMIT path
    * once per entry of an aging fragment (measured: 1018 entries in one ordinary commit). A shared
-   * atomic on either is a contended cache line on a hot path, which is precisely what the
-   * performance rules in CLAUDE.md forbid. The gate is a {@code static final} read of a
-   * non-constant, so the branch is folded away entirely once C2 sees it: with diagnostics off these
-   * counters cost nothing at all.
+   * atomic on either is a contended cache line on a hot path, which is precisely what the performance
+   * rules in CLAUDE.md forbid. The gate is a {@code static final} read of a non-constant, so the
+   * branch is folded away entirely once C2 sees it: with diagnostics off these counters cost nothing
+   * at all.
    *
    * <h2>And nothing shared is touched per iteration, even when ON</h2>
    *
@@ -1296,8 +1296,8 @@ public enum VersioningType {
    * complete dump — a dump is a replacement snapshot, and walking past it could resurrect keys a
    * split relocated (task #57) — so this counter is structurally zero today. It is kept as a
    * permanent sentinel: if a future change removes or weakens that break, the counter goes nonzero
-   * and the tests asserting on it point back at this investigation, instead of at a corrupt
-   * database months later. Observability only — nothing here changes what the merge does.
+   * and the tests asserting on it point back at this investigation, instead of at a corrupt database
+   * months later. Observability only — nothing here changes what the merge does.
    * </p>
    */
   private static final boolean HOT_MERGE_DIAG = Boolean.getBoolean("sirix.hot.mergeDiag");
@@ -1361,10 +1361,10 @@ public enum VersioningType {
   }
 
   /**
-   * Older fragments walked THROUGH despite a fragment having declared the chain complete — the
-   * task #57 precondition. Structurally zero while the merge loop's complete-dump break stands; it
-   * is kept as a permanent sentinel so that if the break is ever removed or weakened, a test fails
-   * instead of a database quietly corrupting.
+   * Older fragments walked THROUGH despite a fragment having declared the chain complete — the task
+   * #57 precondition. Structurally zero while the merge loop's complete-dump break stands; it is kept
+   * as a permanent sentinel so that if the break is ever removed or weakened, a test fails instead of
+   * a database quietly corrupting.
    */
   public static long completeDumpsWalkedPast() {
     return COMPLETE_DUMPS_WALKED_PAST.sum();

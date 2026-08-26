@@ -196,8 +196,8 @@ final class BulkAssemblyEquivalenceOracleTest {
 
   /**
    * The parallel-import arm: same input, chunked through the coordinator/worker pipeline with a
-   * DELIBERATELY tiny chunk budget so even small fixtures exercise many chunks, page-0 stitches
-   * and cross-chunk sibling boundaries.
+   * DELIBERATELY tiny chunk budget so even small fixtures exercise many chunks, page-0 stitches and
+   * cross-chunk sibling boundaries.
    */
   static Consumer<JsonNodeTrx> parallelLoader(final String json, final int chunkCharBudget) {
     return wtx -> ParallelBulkJsonImporter.assemble(wtx, new StringReader(json), chunkCharBudget);
@@ -227,8 +227,13 @@ final class BulkAssemblyEquivalenceOracleTest {
       if (i > 0) {
         json.append(',');
       }
-      json.append("{\"id\":").append(i).append(",\"name\":\"row").append(i).append("\",\"flag\":")
-          .append((i & 1) == 0).append(",\"note\":null}");
+      json.append("{\"id\":")
+          .append(i)
+          .append(",\"name\":\"row")
+          .append(i)
+          .append("\",\"flag\":")
+          .append((i & 1) == 0)
+          .append(",\"note\":null}");
     }
     final String corpus = json.append(']').toString();
     assertEquals(dumpAfterLoad("p-seq-pages", bulkLoader(corpus)),

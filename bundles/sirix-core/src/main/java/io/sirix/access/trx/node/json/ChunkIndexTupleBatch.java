@@ -22,10 +22,10 @@ import java.util.Arrays;
  * the union of every PATH/CAS definition's resolved path classes and of every NAME definition's
  * included dictionary name keys ({@code null} union = a definition indexes everything, collect
  * all). The exact per-definition filter, include/exclude semantics and CAS type conversion run at
- * drain, inside the builders themselves — the one place those semantics already live. The
- * snapshots are exact for their chunk by the importer's standing argument: a chunk's paths and
- * names are resolved into the summary and the dictionary BEFORE the chunk is dispatched, so a
- * class first occurring in this chunk is in this chunk's snapshot.
+ * drain, inside the builders themselves — the one place those semantics already live. The snapshots
+ * are exact for their chunk by the importer's standing argument: a chunk's paths and names are
+ * resolved into the summary and the dictionary BEFORE the chunk is dispatched, so a class first
+ * occurring in this chunk is in this chunk's snapshot.
  *
  * <h2>Memory discipline</h2> Primitive parallel lists grown amortized, one UTF-8 arena for CAS
  * string values, {@code Number} references reused from the parser's own boxes — no per-record
@@ -70,8 +70,8 @@ final class ChunkIndexTupleBatch {
   private byte[] casStringArena = new byte[1024];
   private int casStringArenaUsed;
 
-  ChunkIndexTupleBatch(final boolean pathActive, final @Nullable LongOpenHashSet pathPcrUnion,
-      final boolean casActive, final @Nullable LongOpenHashSet casPcrUnion, final boolean nameActive,
+  ChunkIndexTupleBatch(final boolean pathActive, final @Nullable LongOpenHashSet pathPcrUnion, final boolean casActive,
+      final @Nullable LongOpenHashSet casPcrUnion, final boolean nameActive,
       final @Nullable IntOpenHashSet nameKeyUnion) {
     this.pathActive = pathActive;
     this.pathPcrUnion = pathPcrUnion;

@@ -41,12 +41,16 @@ final class ProjectionPostPassBoundedRetentionTest {
 
   private static final String FLUSH_PROPERTY = "sirix.projection.buildIntermediateFlush";
 
-  /** 40 full row groups (1024 rows each) — enough leaves that an unbounded build's live intent-log
-   * entry count separates from the epoch bound by a wide, drift-tolerant margin. */
+  /**
+   * 40 full row groups (1024 rows each) — enough leaves that an unbounded build's live intent-log
+   * entry count separates from the epoch bound by a wide, drift-tolerant margin.
+   */
   private static final int COMMITTED_RECORD_COUNT = 40 * 1024;
 
-  /** Crosses the flush boundary dozens of times with full rotation+cleanup cycles, so the
-   * read-back-after-rotation contract is exercised for real, not just in the final epoch. */
+  /**
+   * Crosses the flush boundary dozens of times with full rotation+cleanup cycles, so the
+   * read-back-after-rotation contract is exercised for real, not just in the final epoch.
+   */
   private static final int UNCOMMITTED_RECORD_COUNT = 40 * 1024;
 
   @TempDir
@@ -124,8 +128,10 @@ final class ProjectionPostPassBoundedRetentionTest {
     }
   }
 
-  /** The checksum {@link #projectionRowsAndChecksum} computes, folded over the generated corpus
-   * directly: records carry {@code a = 0..n-1} in insertion order. */
+  /**
+   * The checksum {@link #projectionRowsAndChecksum} computes, folded over the generated corpus
+   * directly: records carry {@code a = 0..n-1} in insertion order.
+   */
   private static long expectedNumericChecksum(final int recordCount) {
     long checksum = 1469598103934665603L;
     for (long value = 0; value < recordCount; value++) {
@@ -134,8 +140,10 @@ final class ProjectionPostPassBoundedRetentionTest {
     return checksum;
   }
 
-  /** Shreds and commits the corpus into a fresh resource, then builds the projection in a new
-   * transaction, returning the intent log's live entry count captured right before the commit. */
+  /**
+   * Shreds and commits the corpus into a fresh resource, then builds the projection in a new
+   * transaction, returning the intent log's live entry count captured right before the commit.
+   */
   private int buildOverCommittedCorpus(final Database<JsonResourceSession> database, final String resource,
       final String flushProperty) throws Exception {
     createResource(database, resource);

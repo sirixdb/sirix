@@ -425,8 +425,8 @@ public final class ProjectionBulkLoad {
    * state.
    */
   /**
-   * A chunk batch bound to this build's current field resolution — the parallel importer requests
-   * one per chunk, at dispatch, AFTER the chunk's new paths were resolved into the path summary.
+   * A chunk batch bound to this build's current field resolution — the parallel importer requests one
+   * per chunk, at dispatch, AFTER the chunk's new paths were resolved into the path summary.
    */
   public ProjectionChunkRowBatch newChunkBatch(final PathSummaryReader pathSummary, final int expectedRows,
       final long recordSetKey) {
@@ -436,9 +436,9 @@ public final class ProjectionBulkLoad {
   /**
    * Append one worker-extracted row, in document order — the coordinator-fed replacement for the
    * {@link #observeRecord}/{@link #drain} pair: the row's values come from the batch instead of a
-   * record re-read, and its order label from the in-order append lane instead of an ancestry walk,
-   * so nothing here reads the document. Storage and a dictionary generation are bound lazily per
-   * storage epoch; the rotation drain flushes the generation and unbinds, which is what keeps the
+   * record re-read, and its order label from the in-order append lane instead of an ancestry walk, so
+   * nothing here reads the document. Storage and a dictionary generation are bound lazily per storage
+   * epoch; the rotation drain flushes the generation and unbinds, which is what keeps the
    * resource-wide dictionary rotating exactly as it does for the notification-fed load.
    */
   public void appendCoordinatorRow(final StorageEngineWriter storageEngineWriter, final ProjectionChunkRowBatch batch,

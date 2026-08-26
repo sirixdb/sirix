@@ -39,20 +39,22 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * SHAPE-CANONICITY PROBE (task #76 phase 1): is a live sirix HOT trie's structure a function of
- * its key set alone, or of the insertion order?
+ * SHAPE-CANONICITY PROBE (task #76 phase 1): is a live sirix HOT trie's structure a function of its
+ * key set alone, or of the insertion order?
  *
- * <p>Feeds the SAME (key, nodeKey) set through the PRODUCTION per-entry insert path
+ * <p>
+ * Feeds the SAME (key, nodeKey) set through the PRODUCTION per-entry insert path
  * ({@code AbstractHOTIndexWriter.doIndex} via {@link HOTLongIndexWriter#indexNodeKey}) in three
  * different orders — ascending, descending, shuffled — plus once through the bulk loader
- * ({@link HOTLongBulkIndexLoader} → {@link HOTBulkBuilder}), each into its own index number of
- * the same transaction. Then walks every resulting trie and compares full structural signatures
- * (node kinds, heights, discriminative bits, partials, leaf partitioning, leaf content hashes —
+ * ({@link HOTLongBulkIndexLoader} → {@link HOTBulkBuilder}), each into its own index number of the
+ * same transaction. Then walks every resulting trie and compares full structural signatures (node
+ * kinds, heights, discriminative bits, partials, leaf partitioning, leaf content hashes —
  * everything except allocator-dependent page keys).
  *
- * <p>The probe ASSERTS only semantic equivalence (every key readable with an identical postings
- * value in all four tries). Shape equality is REPORTED, not asserted — measuring it is the
- * purpose of the probe.
+ * <p>
+ * The probe ASSERTS only semantic equivalence (every key readable with an identical postings value
+ * in all four tries). Shape equality is REPORTED, not asserted — measuring it is the purpose of the
+ * probe.
  */
 final class HOTInsertionOrderShapeProbe {
 
@@ -198,9 +200,9 @@ final class HOTInsertionOrderShapeProbe {
   // ====================================================================
 
   /**
-   * Full structural signature of the writer's trie: node kinds, heights, disc bits, partials,
-   * child counts, leaf entry counts and leaf content hashes. Page keys are deliberately excluded
-   * (allocator order differs across the four builds by construction).
+   * Full structural signature of the writer's trie: node kinds, heights, disc bits, partials, child
+   * counts, leaf entry counts and leaf content hashes. Page keys are deliberately excluded (allocator
+   * order differs across the four builds by construction).
    */
   private static String signature(final HOTLongIndexWriter writer, final StorageEngineWriter sew) {
     final StringBuilder sb = new StringBuilder(1 << 16);
@@ -225,7 +227,9 @@ final class HOTInsertionOrderShapeProbe {
         .append("L{n=")
         .append(leaf.getEntryCount())
         .append(",first=")
-        .append(leaf.getEntryCount() > 0 ? HexFormat.of().formatHex(leaf.getKey(0)) : "-")
+        .append(leaf.getEntryCount() > 0
+            ? HexFormat.of().formatHex(leaf.getKey(0))
+            : "-")
         .append(",content=")
         .append(Long.toHexString(contentHash))
         .append("}\n");
@@ -271,9 +275,14 @@ final class HOTInsertionOrderShapeProbe {
     stats[2] = Integer.MAX_VALUE;
     collectStats(writer.getRootReference(), sew.getLog(), stats);
     final Page root = resolve(writer.getRootReference(), sew.getLog());
-    final int height = root instanceof HOTIndirectPage ind ? ind.getHeight() : 0;
+    final int height = root instanceof HOTIndirectPage ind
+        ? ind.getHeight()
+        : 0;
     System.out.println(label + " leaves=" + stats[0] + " indirects=" + stats[1] + " height=" + height + " leafFill=["
-        + (stats[2] == Integer.MAX_VALUE ? 0 : stats[2]) + ".." + stats[3] + "]/" + HOTLeafPage.MAX_ENTRIES);
+        + (stats[2] == Integer.MAX_VALUE
+            ? 0
+            : stats[2])
+        + ".." + stats[3] + "]/" + HOTLeafPage.MAX_ENTRIES);
   }
 
   private static void collectStats(final PageReference ref, final TransactionIntentLog log, final int[] stats) {
@@ -309,7 +318,9 @@ final class HOTInsertionOrderShapeProbe {
   }
 
   private static String trimTo(final String s, final int max) {
-    return s.length() <= max ? s : s.substring(0, max) + "…";
+    return s.length() <= max
+        ? s
+        : s.substring(0, max) + "…";
   }
 
   private static String indentOf(final int depth) {

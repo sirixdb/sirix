@@ -10,6 +10,9 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -49,6 +52,61 @@ final class GlobalValueDictionaryWriterBudgetTest {
     assertTrue(thrown.retainedBytes() <= thrown.budgetBytes() + (64L << 10), "retained " + thrown.retainedBytes()
         + " overshot the " + thrown.budgetBytes() + " budget by more than one growth step — the check runs too late");
     assertTrue(thrown.getMessage().contains("budget"), thrown.getMessage());
+
+    // A byte-budget decline has to carry the term it WEIGHED, not merely what it retains. Every
+    // guard here compares retention plus a reservation, and a dictionary whose retention alone had
+    // passed the bound would have been refused one admission earlier — so a decline reporting
+    // retention states a figure BELOW the budget it announces as breached, and the operator gets no
+    // number to raise the budget to.
+    assertNotNull(thrown.breachingTerm(), "a byte-budget decline must name the term that tripped it: " + thrown);
+    assertTrue(thrown.breachingBytes() > thrown.budgetBytes(),
+        "the quantity the decline blames must actually exceed the budget it quotes (" + thrown.breachingBytes()
+            + " B vs " + thrown.budgetBytes() + " B, term " + thrown.breachingTerm() + ")");
+    assertTrue(thrown.retainedBytes() <= thrown.breachingBytes(),
+        "retention cannot exceed the retention-plus-reservation term weighed against the budget");
+    assertTrue(
+        thrown.getMessage().contains(thrown.breachingTerm())
+            && thrown.getMessage().contains(Long.toString(thrown.breachingBytes())),
+        "the message must state its own arithmetic, named and valued: " + thrown.getMessage());
+    assertTrue(
+        thrown.getMessage().contains("Raise the configured byte budget to at least " + thrown.breachingBytes() + " B"),
+        "the remedy must quote a budget worth raising to: " + thrown.getMessage());
+  }
+
+  @Test
+  @DisplayName("A structural ceiling declines without claiming any quantity exceeded the byte budget")
+  void structuralDeclinesWeighNoBytesAgainstTheBudget() {
+    // The other half of the contract. These ceilings are counts and lengths, not bytes: nothing was
+    // compared against the budget, so the decline must not invent a comparison the way the old
+    // single-constructor message did.
+    final GlobalValueDictionaryWriter atTheChunkCeiling = new GlobalValueDictionaryWriter();
+    for (int i = 0; i < GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND; i++) {
+      final byte[] bytes = compactValue(i);
+      atTheChunkCeiling.intern(bytes, 0, bytes.length);
+    }
+    final byte[] pastTheChunkCeiling = compactValue(GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND);
+
+    // A fresh writer for the length ceiling, so the entry-count guard cannot shadow it.
+    final GlobalValueDictionaryWriter empty = new GlobalValueDictionaryWriter();
+    final byte[] pastTheValueCeiling = new byte[GlobalValueDictionaryWriter.MAX_VALUE_BYTES + 1];
+
+    for (final GlobalDictionaryBudgetExceededException structural : new GlobalDictionaryBudgetExceededException[] {
+        assertThrows(GlobalDictionaryBudgetExceededException.class,
+            () -> atTheChunkCeiling.intern(pastTheChunkCeiling, 0, pastTheChunkCeiling.length)),
+        assertThrows(GlobalDictionaryBudgetExceededException.class,
+            () -> empty.intern(pastTheValueCeiling, 0, pastTheValueCeiling.length))}) {
+      assertNull(structural.breachingTerm(),
+          "a structural ceiling weighs no bytes, so it must name no breaching term: " + structural.getMessage());
+      assertEquals(structural.retainedBytes(), structural.breachingBytes(),
+          "with nothing weighed, the reported quantity is simply what is retained");
+      assertNotNull(structural.admissionDetail(), "a structural decline must state which ceiling it hit");
+      assertTrue(structural.getMessage().contains(structural.admissionDetail()),
+          "the message must state the ceiling, not a byte comparison: " + structural.getMessage());
+      assertFalse(structural.getMessage().contains("past the"),
+          "a structural decline must not announce a budget breach it never measured: " + structural.getMessage());
+      assertTrue(structural.getMessage().contains("raising the byte budget cannot override"),
+          "the remedy must say a bigger budget will not help here: " + structural.getMessage());
+    }
   }
 
   @Test

@@ -60,12 +60,12 @@ final class BulkJsonScanner {
   private int tokenLength;
 
   /**
-   * Exposed state of the CURRENT event vs scratch state of a scanned-ahead event. One-event
-   * lookahead must never clobber what the caller has not yet consumed: the aliasing bug this
-   * structure exists for was a peeked STRING re-encoding over the byte buffer of the string the
-   * factory was about to write — consecutive array strings shifted by one, pinned by the oracle's
-   * lone-surrogate fixture. {@link #next()} promotes scratch to current by SWAPPING the byte
-   * arrays, so the zero-copy property survives.
+   * Exposed state of the CURRENT event vs scratch state of a scanned-ahead event. One-event lookahead
+   * must never clobber what the caller has not yet consumed: the aliasing bug this structure exists
+   * for was a peeked STRING re-encoding over the byte buffer of the string the factory was about to
+   * write — consecutive array strings shifted by one, pinned by the oracle's lone-surrogate fixture.
+   * {@link #next()} promotes scratch to current by SWAPPING the byte arrays, so the zero-copy
+   * property survives.
    */
   private byte[] utf8 = new byte[512];
   private int utf8Length;

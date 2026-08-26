@@ -212,8 +212,8 @@ final class ProjectionStructuralOrderDirectory {
 
     /**
      * Epoch-lived prefix cache for {@link #fullLabelForInOrderAppend}: the document root's and the
-     * record-set container's local suffixes are shared by every record of an in-order load, so they
-     * are read from the store once per accessor rather than once per record.
+     * record-set container's local suffixes are shared by every record of an in-order load, so they are
+     * read from the store once per accessor rather than once per record.
      */
     private long cachedInOrderContainerKey = NULL_NODE_KEY;
     private long cachedInOrderDocumentRootKey = NULL_NODE_KEY;
@@ -239,9 +239,9 @@ final class ProjectionStructuralOrderDirectory {
      *
      * <p>
      * Byte-equivalent to {@link #fullLabel} for exactly this arrival, by the following argument. The
-     * ancestry {@code fullLabel} would walk is [record, container, document root] — the caller names
-     * it instead of reading it, which is what removes the node lookups. The record's local label is
-     * the {@code appendRun} step ({@link #firstLocalLabel()} for the first record, else
+     * ancestry {@code fullLabel} would walk is [record, container, document root] — the caller names it
+     * instead of reading it, which is what removes the node lookups. The record's local label is the
+     * {@code appendRun} step ({@link #firstLocalLabel()} for the first record, else
      * {@link #nextAppendLabel} of the PREVIOUS record's local): {@code mintRun} assigns exactly that
      * sequence whatever run batching a drain produced, because an append run's labels depend only on
      * the run's lower bound and every record's lower bound here is its predecessor. The container is
@@ -252,19 +252,19 @@ final class ProjectionStructuralOrderDirectory {
      * <p>
      * The one behaviour {@code fullLabel} has that this lane refuses instead of reproducing is the
      * bounded rebalance: it fires only when a minted label exceeds {@link #REBALANCE_DIVISIONS}
-     * divisions, which an append-only sequence reaches after several {@code nextAppendLabel} carries
-     * — beyond 10^9 records per container — and under the {@link RelabelSink#SEALED} sink a build
-     * uses the rebalance collects no siblings and keeps the minted label anyway. Refusing loudly is
-     * strictly safer than silently diverging there.
+     * divisions, which an append-only sequence reaches after several {@code nextAppendLabel} carries —
+     * beyond 10^9 records per container — and under the {@link RelabelSink#SEALED} sink a build uses
+     * the rebalance collects no siblings and keeps the minted label anyway. Refusing loudly is strictly
+     * safer than silently diverging there.
      *
      * @param previousRecordLocal the LOCAL label the previous record of this load received, or
-     *        {@code null} for the load's first record; the caller carries it across accessor
-     *        lifetimes (one accessor exists per storage epoch)
+     *        {@code null} for the load's first record; the caller carries it across accessor lifetimes
+     *        (one accessor exists per storage epoch)
      * @return the record's full label; the freshly minted LOCAL label is available from
      *         {@link #lastInOrderAppendedLocal()} for the caller to carry forward
      */
-    SirixDeweyID fullLabelForInOrderAppend(final long recordKey, final long containerKey,
-        final long documentRootKey, final @Nullable SirixDeweyID previousRecordLocal) {
+    SirixDeweyID fullLabelForInOrderAppend(final long recordKey, final long containerKey, final long documentRootKey,
+        final @Nullable SirixDeweyID previousRecordLocal) {
       validateNodeKey(recordKey, "node");
       validateNodeKey(containerKey, "container");
       validateNodeKey(documentRootKey, "document root");
@@ -321,7 +321,8 @@ final class ProjectionStructuralOrderDirectory {
     }
 
     /** The LOCAL label {@link #fullLabelForInOrderAppend} minted last — the caller's carry state. */
-    @Nullable SirixDeweyID lastInOrderAppendedLocal() {
+    @Nullable
+    SirixDeweyID lastInOrderAppendedLocal() {
       return lastInOrderAppendedLocal;
     }
 

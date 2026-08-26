@@ -48,9 +48,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * corpus rather than by one array's safe length.
  *
  * <p>
- * Both arms run, because a fix needs a positive AND a negative witness: the same corpus and the same
- * definition must SUCCEED one-pass and FAIL post-pass. A test that only ran the passing arm could not
- * tell a fix from a corpus that never reached the ceiling.
+ * Both arms run, because a fix needs a positive AND a negative witness: the same corpus and the
+ * same definition must SUCCEED one-pass and FAIL post-pass. A test that only ran the passing arm
+ * could not tell a fix from a corpus that never reached the ceiling.
  */
 final class ProjectionGlobalDictionaryGenerationRotationTest {
 
@@ -122,19 +122,22 @@ final class ProjectionGlobalDictionaryGenerationRotationTest {
       postPassFailure = failure;
     }
     System.out.println("#67 WITNESS: distinct=" + DISTINCT_CODES + " (ceiling "
-        + GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND + "), records=" + RECORDS
-        + " | ONE-PASS: stale=" + onePass.isStale() + " columnKind=" + onePass.columnKinds()[0] + " rowGroups="
-        + onePass.rowGroupCount() + " | POST-PASS: " + (postPassFailure == null
-            ? "no failure, stale=" + (postPass == null ? "?" : postPass.isStale()) + " columnKind="
-                + (postPass == null ? "?" : postPass.columnKinds()[0])
+        + GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND + "), records=" + RECORDS + " | ONE-PASS: stale="
+        + onePass.isStale() + " columnKind=" + onePass.columnKinds()[0] + " rowGroups=" + onePass.rowGroupCount()
+        + " | POST-PASS: " + (postPassFailure == null
+            ? "no failure, stale=" + (postPass == null
+                ? "?"
+                : postPass.isStale()) + " columnKind="
+                + (postPass == null
+                    ? "?"
+                    : postPass.columnKinds()[0])
             : "THREW " + postPassFailure.getClass().getSimpleName() + ": " + postPassFailure.getMessage()));
     if (postPassFailure == null) {
       assertNotNull(postPass, "the post-pass arm returned no metadata and no failure");
       assertTrue(
-          postPass.isStale()
-              || postPass.columnKinds()[0] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-          "the post-pass build was expected to die or decline the resource-wide dictionary for "
-              + DISTINCT_CODES + " distinct values (the per-append ceiling is "
+          postPass.isStale() || postPass.columnKinds()[0] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+          "the post-pass build was expected to die or decline the resource-wide dictionary for " + DISTINCT_CODES
+              + " distinct values (the per-append ceiling is "
               + GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND + "), but it published a live "
               + "STRING_GLOBAL column — the ceiling this test exists for is gone, and the test must be re-aimed");
     } else {
@@ -194,8 +197,7 @@ final class ProjectionGlobalDictionaryGenerationRotationTest {
 
   private static ProjectionIndexMetadata metadata(final JsonResourceSession session) {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final byte[] raw =
-          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).getBlob(0L);
+      final byte[] raw = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER).getBlob(0L);
       return raw == null
           ? null
           : ProjectionIndexMetadata.parse(raw);

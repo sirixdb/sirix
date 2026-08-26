@@ -216,9 +216,9 @@ public final class ProjectionIndexRowExtractor {
 
   /**
    * Fill the row buffers from one worker-extracted batch row, in place of {@link #extractInto}'s
-   * navigation. The batch classified every cell with this extractor's own helpers, so the buffers
-   * end in the state {@link #extractAt} would have produced for the same record; {@link #appendTo}
-   * then packs them through the identical leaf path.
+   * navigation. The batch classified every cell with this extractor's own helpers, so the buffers end
+   * in the state {@link #extractAt} would have produced for the same record; {@link #appendTo} then
+   * packs them through the identical leaf path.
    */
   void loadRowFromBatch(final ProjectionChunkRowBatch batch, final int row) {
     resetRow(null);
@@ -241,7 +241,7 @@ public final class ProjectionIndexRowExtractor {
       switch (columnKinds[column]) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-            rowLongs[column] = batch.longValue(column, row);
+          rowLongs[column] = batch.longValue(column, row);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> rowBools[column] = batch.booleanValue(column, row);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {

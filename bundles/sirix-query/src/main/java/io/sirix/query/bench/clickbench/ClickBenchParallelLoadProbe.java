@@ -11,6 +11,7 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.access.trx.node.json.BulkJsonTreeAssembler;
+import io.sirix.access.trx.node.json.NdjsonAsArrayInputStream;
 import io.sirix.access.trx.node.json.ParallelBulkJsonImporter;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
@@ -19,18 +20,23 @@ import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.ParallelJsonShredder;
 import io.sirix.settings.VersioningType;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
+import java.util.zip.GZIPInputStream;
 
 /**
  * MEASUREMENT PROBE, not a shipping loader: how does the existing partitioned parallel ingest
@@ -105,7 +111,7 @@ public final class ClickBenchParallelLoadProbe {
     final String writeFile = System.getProperty("probe.writeFile");
     if (writeFile != null) {
       try (Reader generated = new ClickBenchHitsGenerator(0, totalRows, seed);
-          Writer sink = Files.newBufferedWriter(Path.of(writeFile), java.nio.charset.StandardCharsets.UTF_8)) {
+          Writer sink = Files.newBufferedWriter(Path.of(writeFile), StandardCharsets.UTF_8)) {
         generated.transferTo(sink);
       }
       System.out.printf(Locale.ROOT, "Wrote %d rows to %s (%d bytes)%n", totalRows, writeFile,
@@ -132,7 +138,7 @@ public final class ClickBenchParallelLoadProbe {
           ? totalRows - firstRow
           : rowsPerPartition;
       slices.add(sourceFile != null
-          ? () -> Files.newBufferedReader(Path.of(sourceFile), java.nio.charset.StandardCharsets.UTF_8)
+          ? () -> Files.newBufferedReader(Path.of(sourceFile), StandardCharsets.UTF_8)
           : () -> new ClickBenchHitsGenerator(firstRow, rowCount, seed));
     }
 
@@ -170,7 +176,7 @@ public final class ClickBenchParallelLoadProbe {
       long rootChildSum = 0;
       for (final String name : database.listResources()
                                        .stream()
-                                       .map(java.nio.file.Path::getFileName)
+                                       .map(Path::getFileName)
                                        .map(Object::toString)
                                        .sorted()
                                        .toList()) {
@@ -223,7 +229,7 @@ public final class ClickBenchParallelLoadProbe {
         for (int i = 0; i < resources.size(); i++) {
           System.out.printf(Locale.ROOT, "Projection %s: %.3f s%n", resources.get(i), builds.get(i).get());
         }
-      } catch (final InterruptedException | java.util.concurrent.ExecutionException e) {
+      } catch (final InterruptedException | ExecutionException e) {
         throw new IllegalStateException("parallel projection build failed", e);
       } finally {
         pool.shutdown();
@@ -281,17 +287,15 @@ public final class ClickBenchParallelLoadProbe {
                 // Byte entry: the coordinator slices/scans raw UTF-8; workers decode their own
                 // chunks — the shipping shape for file loads. .gz streams decompress on the
                 // feeder path; NDJSON corpora ride the array adapter, optionally row-limited.
-                java.io.InputStream fileBytes =
-                    new java.io.BufferedInputStream(java.nio.file.Files.newInputStream(java.nio.file.Path.of(file)),
-                        1 << 20);
+                InputStream fileBytes = new BufferedInputStream(Files.newInputStream(Path.of(file)), 1 << 20);
                 if (file.endsWith(".gz")) {
-                  fileBytes = new java.util.zip.GZIPInputStream(fileBytes, 1 << 16);
+                  fileBytes = new GZIPInputStream(fileBytes, 1 << 16);
                 }
                 if (Boolean.getBoolean("probe.ndjson")) {
                   final long rowLimit = Long.getLong("probe.rowLimit", Long.MAX_VALUE);
-                  fileBytes = new io.sirix.access.trx.node.json.NdjsonAsArrayInputStream(fileBytes, rowLimit);
+                  fileBytes = new NdjsonAsArrayInputStream(fileBytes, rowLimit);
                 }
-                try (java.io.InputStream input = fileBytes) {
+                try (InputStream input = fileBytes) {
                   ParallelBulkJsonImporter.assemble(wtx, input);
                 }
               } else {

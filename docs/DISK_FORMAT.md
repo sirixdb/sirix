@@ -348,6 +348,12 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                          int buildRevision; rootPath; columns[];
                                          setSummaryCapabilityColumns[]; dictionaryAnchors[] }
                                          (a few hundred B → inline; no metadata page on open).
+                                         flags: bit0 = STALE; bits1-3 = the StaleReason ordinal
+                                         (WIRE VALUES — append only, never renumber; an ordinal
+                                         this build does not know reads as UNSPECIFIED and the
+                                         entry stays stale). The reason bits are additive: they
+                                         were always zero before, so a tombstone written without
+                                         them parses identically and ver stays 0.
                                          ver=0 is the ONLY supported version: any other value
                                          parses to null → "no metadata" → fail-closed decline.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is

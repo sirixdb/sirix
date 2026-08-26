@@ -12,6 +12,7 @@ list of files.
 |-----|----------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How SirixDB works: the node-tree encoding, copy-on-write page layout, sliding-snapshot versioning, indexes, and the bitemporal model. The best single doc for understanding the system. |
 | [operations.md](operations.md) | Running SirixDB in production: configuration, memory/JVM tuning, supported environments, and deployment guidance. |
+| [BULK_IMPORT.md](BULK_IMPORT.md) | The sequential and parallel bulk JSON loaders: API, the configurations they refuse, which index families they maintain in the load's single pass, verification guarantees, tuning knobs, and measured numbers. |
 | [NATIVE_IMAGE.md](NATIVE_IMAGE.md) | Building and running the GraalVM native binaries (instant startup for the CLI, shell, and REST server). |
 | [MCP_SERVER_DESIGN.md](MCP_SERVER_DESIGN.md) | The Model Context Protocol server for AI agents: tools, resources, snapshot/diff workflow, and security model. |
 
@@ -64,7 +65,8 @@ user-facing documentation.
   [HOT_OPTION_B_PHASE_5_DESIGN.md](HOT_OPTION_B_PHASE_5_DESIGN.md),
   [HOT_PHASE_7_DESIGN.md](HOT_PHASE_7_DESIGN.md),
   [HOT_PHASE_7Q_DESIGN.md](HOT_PHASE_7Q_DESIGN.md),
-  [HOT_INCREMENTAL_PORT_PLAN.md](HOT_INCREMENTAL_PORT_PLAN.md)
+  [HOT_INCREMENTAL_PORT_PLAN.md](HOT_INCREMENTAL_PORT_PLAN.md),
+  [HOT_BULK_BUILD.md](HOT_BULK_BUILD.md)
 - **HOT index — verification, audits & results:**
   [HOT_INCREMENTAL_SPLIT_VERIFICATION.md](HOT_INCREMENTAL_SPLIT_VERIFICATION.md),
   [HOT_EXISTING_CODE_AUDIT.md](HOT_EXISTING_CODE_AUDIT.md),

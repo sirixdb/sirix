@@ -21,9 +21,9 @@ import java.nio.charset.StandardCharsets;
 final class ReaderUtf8InputStream extends InputStream {
 
   private final Reader in;
-  private final CharsetEncoder encoder =
-      StandardCharsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPLACE)
-                            .onUnmappableCharacter(CodingErrorAction.REPLACE);
+  private final CharsetEncoder encoder = StandardCharsets.UTF_8.newEncoder()
+                                                               .onMalformedInput(CodingErrorAction.REPLACE)
+                                                               .onUnmappableCharacter(CodingErrorAction.REPLACE);
   private final CharBuffer chars = CharBuffer.allocate(1 << 13);
   private final ByteBuffer bytes = ByteBuffer.allocate(1 << 14);
   private boolean endOfInput;

@@ -17,8 +17,8 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
- * A {@code List<byte[]>} of a projection's row-group payloads that materializes WINDOWS of leaves on
- * demand instead of the whole column family at once.
+ * A {@code List<byte[]>} of a projection's row-group payloads that materializes WINDOWS of leaves
+ * on demand instead of the whole column family at once.
  *
  * <p>
  * The eager whole-leaf list is the right shape while it fits: every byte-scan kernel takes a
@@ -57,12 +57,11 @@ public final class ProjectionWindowedRowGroupPayloads {
    *
    * <p>
    * The cache holds no session of its own. A session outlives neither the process-wide handle the
-   * cache is memoized on nor, necessarily, the next query — so capturing one would pin the cache to
-   * a lifetime shorter than its own. A source instead lives on the PER-CALLER view
-   * {@link #boundTo} returns, and is passed into {@link #payload(int, ReaderSource)} on every
-   * access, so two concurrent callers never read through each other's session. The bytes are
-   * identical whichever session reads them: the revision is fixed at construction and its pages are
-   * immutable.
+   * cache is memoized on nor, necessarily, the next query — so capturing one would pin the cache to a
+   * lifetime shorter than its own. A source instead lives on the PER-CALLER view {@link #boundTo}
+   * returns, and is passed into {@link #payload(int, ReaderSource)} on every access, so two
+   * concurrent callers never read through each other's session. The bytes are identical whichever
+   * session reads them: the revision is fixed at construction and its pages are immutable.
    * </p>
    */
   @FunctionalInterface
@@ -147,7 +146,9 @@ public final class ProjectionWindowedRowGroupPayloads {
     return rowGroupCount;
   }
 
-  /** The payload of one row group, materializing its window through {@code source} if not resident. */
+  /**
+   * The payload of one row group, materializing its window through {@code source} if not resident.
+   */
   byte[] payload(final int index, final ReaderSource source) {
     if (index < 0 || index >= rowGroupCount) {
       throw new IndexOutOfBoundsException("row group " + index + " of " + rowGroupCount);
@@ -160,8 +161,8 @@ public final class ProjectionWindowedRowGroupPayloads {
     touched.set(window, 1);
     final byte[] payload = payloads[index - window * windowLeaves];
     if (payload == null) {
-      throw new IllegalStateException("projection row group " + index + " missing from its materialized window — "
-          + "the store is truncated");
+      throw new IllegalStateException(
+          "projection row group " + index + " missing from its materialized window — " + "the store is truncated");
     }
     return payload;
   }

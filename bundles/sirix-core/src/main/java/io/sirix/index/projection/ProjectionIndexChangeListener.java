@@ -1685,8 +1685,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // it left the operator no number to raise the budget to. A structural ceiling weighs no bytes at
     // all, so that case states the ceiling instead of inventing a comparison.
     final String breach = tooBig.breachingTerm() == null
-        ? "declined an unsafe allocation over " + tooBig.entryCount() + " distinct values ("
-            + tooBig.retainedBytes() + " B retained): " + tooBig.admissionDetail()
+        ? "declined an unsafe allocation over " + tooBig.entryCount() + " distinct values (" + tooBig.retainedBytes()
+            + " B retained): " + tooBig.admissionDetail()
         : "needed " + tooBig.breachingBytes() + " B (" + tooBig.breachingTerm() + ") over " + tooBig.entryCount()
             + " distinct values, past its " + tooBig.budgetBytes() + " B budget (" + tooBig.retainedBytes()
             + " B retained)";

@@ -30,17 +30,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Verification of {@link HOTIncrementalInsert#integrate} — step 4 of the faithful incremental
- * port ({@code docs/HOT_INCREMENTAL_PORT_PLAN.md} §3 step 4): the spine integration of a
- * {@link BiNode}, including the capacity cascade.
+ * Verification of {@link HOTIncrementalInsert#integrate} — step 4 of the faithful incremental port
+ * ({@code docs/HOT_INCREMENTAL_PORT_PLAN.md} §3 step 4): the spine integration of a {@link BiNode},
+ * including the capacity cascade.
  *
- * <p>Each scenario builds a canonical trie with {@link HOTBulkBuilder}, overflows one leaf via
+ * <p>
+ * Each scenario builds a canonical trie with {@link HOTBulkBuilder}, overflows one leaf via
  * {@link HOTIncrementalInsert#splitLeafPage} (re-using an existing key, so the key multiset is
  * preserved), integrates the resulting {@code BiNode}, and checks the rebuilt trie two ways:
  * structurally clean ({@link HOTMalformedSubtreeDetector} reports nothing) and routing-correct
- * (every key still PEXT-descends to a leaf that contains it). The four integration cases —
- * direct new root, addEntry into a not-full node, single-level cascade, and a multi-level
- * cascade — are each exercised.
+ * (every key still PEXT-descends to a leaf that contains it). The four integration cases — direct
+ * new root, addEntry into a not-full node, single-level cascade, and a multi-level cascade — are
+ * each exercised.
  */
 @DisplayName("HOTIncrementalInsert.integrate — spine integration + capacity cascade")
 final class HOTIntegrateTest {
@@ -57,12 +58,13 @@ final class HOTIntegrateTest {
     assertTrue(built.rootPage() instanceof HOTLeafPage, "200 keys must fit a single leaf page");
 
     final HOTLeafPage rootLeaf = (HOTLeafPage) built.rootPage();
-    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(rootLeaf, rootLeaf.getKey(0), VALUE,
-        1, IndexType.CAS, allocator::getAndIncrement);
+    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(rootLeaf, rootLeaf.getKey(0), VALUE, 1, IndexType.CAS,
+        allocator::getAndIncrement);
     final PageReference rootRef = built.rootReference();
-    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[0],
-        new PageReference[] {rootRef}, new int[0], 0, biNode, 1, allocator::getAndIncrement)
-        .rootRef();
+    final PageReference newRoot = HOTIncrementalInsert
+                                                      .integrate(new HOTIndirectPage[0], new PageReference[] {rootRef},
+                                                          new int[0], 0, biNode, 1, allocator::getAndIncrement)
+                                                      .rootRef();
 
     assertSame(rootRef, newRoot, "depth-0 integration re-points the index-root reference");
     assertCleanAndRoutes(newRoot, keys, "direct-new-root");
@@ -79,12 +81,13 @@ final class HOTIntegrateTest {
     final HOTIndirectPage root = (HOTIndirectPage) built.rootPage();
 
     // splitIndirect yields a not-full compound node with leaf children — the addEntry target.
-    final BiNode rootSplit = HOTIncrementalInsert.splitIndirect(root, 1,
-        allocator::getAndIncrement);
+    final BiNode rootSplit = HOTIncrementalInsert.splitIndirect(root, 1, allocator::getAndIncrement);
     final PageReference halfRef = rootSplit.left().getPage() instanceof HOTIndirectPage
-        ? rootSplit.left() : rootSplit.right();
+        ? rootSplit.left()
+        : rootSplit.right();
     final PageReference orphanHalfRef = halfRef == rootSplit.left()
-        ? rootSplit.right() : rootSplit.left();
+        ? rootSplit.right()
+        : rootSplit.left();
     final HOTIndirectPage half = (HOTIndirectPage) halfRef.getPage();
     assertTrue(half.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES, "half is not full");
 
@@ -93,12 +96,14 @@ final class HOTIntegrateTest {
     final HOTLeafPage leaf = (HOTLeafPage) half.getChildReference(slot).getPage();
     final TreeSet<String> subtreeKeys = collectKeys(half);
 
-    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
-        IndexType.CAS, allocator::getAndIncrement);
+    final BiNode biNode =
+        HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
     // integrate folds the BiNode in via addEntry — a clean canonical fold.
-    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {half},
-        new PageReference[] {halfRef, half.getChildReference(slot)},
-        new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
+    final PageReference newRoot = HOTIncrementalInsert
+                                                      .integrate(new HOTIndirectPage[] {half},
+                                                          new PageReference[] {halfRef, half.getChildReference(slot)},
+                                                          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement)
+                                                      .rootRef();
     assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
     assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
     assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
@@ -122,12 +127,15 @@ final class HOTIntegrateTest {
     final int slot = firstMultiEntryLeafSlot(root);
     assertTrue(slot >= 0, "a full height-1 root must have a splittable leaf child");
     final HOTLeafPage leaf = (HOTLeafPage) root.getChildReference(slot).getPage();
-    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0),
-        VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
+    final BiNode biNode =
+        HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
     // The full root cascades — splitIndirect + addEntry into a half + a fresh root.
-    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {root},
-        new PageReference[] {built.rootReference(), root.getChildReference(slot)},
-        new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
+    final PageReference newRoot = HOTIncrementalInsert
+                                                      .integrate(new HOTIndirectPage[] {root},
+                                                          new PageReference[] {built.rootReference(),
+                                                              root.getChildReference(slot)},
+                                                          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement)
+                                                      .rootRef();
     final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
     assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");
     assertEquals(root.getHeight() + 1, newRootPage.getHeight(), "the trie height grows by one");
@@ -168,14 +176,12 @@ final class HOTIntegrateTest {
     final HOTIndirectPage mid = (HOTIndirectPage) root.getChildReference(midSlot).getPage();
     final HOTLeafPage leaf = (HOTLeafPage) mid.getChildReference(leafSlot).getPage();
 
-    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0),
-        VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
+    final BiNode biNode =
+        HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
     // The cascade folds the leaf split through the full mid and the full root via addEntry at
     // each level — a clean two-level cascade.
-    final PageReference newRoot = HOTIncrementalInsert.integrate(
-        new HOTIndirectPage[] {root, mid},
-        new PageReference[] {built.rootReference(), root.getChildReference(midSlot),
-            mid.getChildReference(leafSlot)},
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {root, mid},
+        new PageReference[] {built.rootReference(), root.getChildReference(midSlot), mid.getChildReference(leafSlot)},
         new int[] {midSlot, leafSlot}, 2, biNode, 1, allocator::getAndIncrement).rootRef();
     assertEquals(root.getHeight() + 1, ((HOTIndirectPage) newRoot.getPage()).getHeight(),
         "a full-path cascade grows the height by exactly one");
@@ -189,8 +195,7 @@ final class HOTIntegrateTest {
   // Verification helpers.
   // ======================================================================
 
-  private static void assertCleanAndRoutes(final PageReference root, final List<Long> keys,
-      final String label) {
+  private static void assertCleanAndRoutes(final PageReference root, final List<Long> keys, final String label) {
     final List<MalformedSubtree> malformed = HOTMalformedSubtreeDetector.detect(root, RESOLVER);
     assertTrue(malformed.isEmpty(), label + ": malformed subtree(s) " + malformed);
     for (final long key : keys) {
@@ -198,8 +203,8 @@ final class HOTIntegrateTest {
     }
   }
 
-  private static void assertCleanAndRoutesKeys(final PageReference root,
-      final TreeSet<String> hexKeys, final String label) {
+  private static void assertCleanAndRoutesKeys(final PageReference root, final TreeSet<String> hexKeys,
+      final String label) {
     final List<MalformedSubtree> malformed = HOTMalformedSubtreeDetector.detect(root, RESOLVER);
     assertTrue(malformed.isEmpty(), label + ": malformed subtree(s) " + malformed);
     for (final String hex : hexKeys) {
@@ -207,8 +212,7 @@ final class HOTIntegrateTest {
     }
   }
 
-  private static void assertRoutes(final PageReference root, final byte[] key,
-      final String label) {
+  private static void assertRoutes(final PageReference root, final byte[] key, final String label) {
     Page page = root.getPage();
     int depth = 0;
     while (page instanceof HOTIndirectPage indirect) {
@@ -216,8 +220,7 @@ final class HOTIntegrateTest {
         fail(label + ": descent for " + HexFormat.of().formatHex(key) + " exceeded depth 64");
       }
       final int childIndex = indirect.findChildIndex(key);
-      assertTrue(childIndex >= 0, label + ": routing NOT_FOUND for "
-          + HexFormat.of().formatHex(key));
+      assertTrue(childIndex >= 0, label + ": routing NOT_FOUND for " + HexFormat.of().formatHex(key));
       page = indirect.getChildReference(childIndex).getPage();
     }
     assertTrue(page instanceof HOTLeafPage, label + ": descent did not reach a leaf");
@@ -229,20 +232,20 @@ final class HOTIntegrateTest {
   // Leaf selection + page / key utilities.
   // ======================================================================
 
-  /** The first slot of a {@code >= 2}-entry (so splittable) leaf child of {@code node}, or
-   *  {@code -1} if none. */
+  /**
+   * The first slot of a {@code >= 2}-entry (so splittable) leaf child of {@code node}, or {@code -1}
+   * if none.
+   */
   private static int firstMultiEntryLeafSlot(final HOTIndirectPage node) {
     for (int i = 0; i < node.getNumChildren(); i++) {
-      if (node.getChildReference(i).getPage() instanceof HOTLeafPage leaf
-          && leaf.getEntryCount() >= 2) {
+      if (node.getChildReference(i).getPage() instanceof HOTLeafPage leaf && leaf.getEntryCount() >= 2) {
         return i;
       }
     }
     return -1;
   }
 
-  private static HOTBulkBuilder.BuildResult build(final List<Long> sortedKeys,
-      final AtomicLong allocator) {
+  private static HOTBulkBuilder.BuildResult build(final List<Long> sortedKeys, final AtomicLong allocator) {
     final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(sortedKeys.size());
     for (final long key : sortedKeys) {
       entries.add(new HOTBulkBuilder.Entry(beKey(key), VALUE));
@@ -260,12 +263,12 @@ final class HOTIntegrateTest {
   }
 
   /**
-   * Keys whose top 5 bits carry a group id 0..31: the {@code R(S)} recursion consumes those
-   * bits first, so the build yields exactly one leaf per group under a FULL 32-child height-1
-   * root — the cascade scenario's precondition, forced by the keys themselves rather than by
-   * any leaf-packing heuristic. Requires {@code 256 < perGroup ≤ 512}: a single group must fit
-   * one leaf page while a PAIR of groups must not, or the highest-fitting-subtree cut lands a
-   * level higher and halves the child count.
+   * Keys whose top 5 bits carry a group id 0..31: the {@code R(S)} recursion consumes those bits
+   * first, so the build yields exactly one leaf per group under a FULL 32-child height-1 root — the
+   * cascade scenario's precondition, forced by the keys themselves rather than by any leaf-packing
+   * heuristic. Requires {@code 256 < perGroup ≤ 512}: a single group must fit one leaf page while a
+   * PAIR of groups must not, or the highest-fitting-subtree cut lands a level higher and halves the
+   * child count.
    */
   private static List<Long> groupedKeys(final int perGroup, final long seed) {
     final TreeSet<Long> set = new TreeSet<>(Long::compareUnsigned);
@@ -281,9 +284,9 @@ final class HOTIntegrateTest {
   }
 
   /**
-   * Two-level variant: bits 63–59 root group, bits 58–54 mid group — a FULL height-2 root whose
-   * 32 children are each FULL height-1 nodes over 32 multi-entry leaves. Same pair-overflow
-   * constraint as {@link #groupedKeys}: {@code 256 < perLeaf ≤ 512}.
+   * Two-level variant: bits 63–59 root group, bits 58–54 mid group — a FULL height-2 root whose 32
+   * children are each FULL height-1 nodes over 32 multi-entry leaves. Same pair-overflow constraint
+   * as {@link #groupedKeys}: {@code 256 < perLeaf ≤ 512}.
    */
   private static List<Long> groupedKeys2(final int perLeaf, final long seed) {
     final TreeSet<Long> set = new TreeSet<>(Long::compareUnsigned);
@@ -349,8 +352,7 @@ final class HOTIntegrateTest {
     }
   }
 
-  private static void assertSame(final PageReference expected, final PageReference actual,
-      final String message) {
+  private static void assertSame(final PageReference expected, final PageReference actual, final String message) {
     assertTrue(expected == actual, message);
   }
 

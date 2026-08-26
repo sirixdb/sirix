@@ -9,14 +9,14 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 
 /**
- * The transaction-backed {@link BulkRecordSink}: records mint through the write transaction's
- * bulk node factory exactly as the sequential assembler always did, index notifications ride each
+ * The transaction-backed {@link BulkRecordSink}: records mint through the write transaction's bulk
+ * node factory exactly as the sequential assembler always did, index notifications ride each
  * creation, and the one-shot fixups go through the CoW-checked
  * {@code prepareRecordForModificationDocument} path.
  *
  * <p>
- * The fixups apply child counts with a single {@link StructNode#setChildCount(long)} instead of
- * the historical one-increment-per-child loop — at 100M top-level records that loop was 100M
+ * The fixups apply child counts with a single {@link StructNode#setChildCount(long)} instead of the
+ * historical one-increment-per-child loop — at 100M top-level records that loop was 100M
  * decode-modify-encode round trips (each able to trigger a varint-width resize) to reach a value
  * one write expresses.
  */
@@ -38,9 +38,9 @@ final class WtxBulkRecordSink implements BulkRecordSink {
   /**
    * @param notifyIndexes whether each creation fires a primitive-index notification. The parallel
    *        importer passes {@code false} even with a projection armed: its workers mint records off
-   *        the transaction and never notify at all, so the coordinator attributes records to the
-   *        load directly rather than through a notification stream only the spine's own handful of
-   *        nodes would reach.
+   *        the transaction and never notify at all, so the coordinator attributes records to the load
+   *        directly rather than through a notification stream only the spine's own handful of nodes
+   *        would reach.
    */
   WtxBulkRecordSink(final JsonNodeTrxImpl wtx, final boolean notifyIndexes) {
     this.wtx = wtx;
@@ -144,8 +144,7 @@ final class WtxBulkRecordSink implements BulkRecordSink {
   @Override
   public long createObjectNamedNullNode(final long parentKey, final long leftSibKey, final long rightSibKey,
       final long pathNodeKey, final String name) {
-    final var node =
-        factory.createJsonObjectNamedNullNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, null);
+    final var node = factory.createJsonObjectNamedNullNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, null);
     notifyInsert(node, pathNodeKey);
     return node.getNodeKey();
   }

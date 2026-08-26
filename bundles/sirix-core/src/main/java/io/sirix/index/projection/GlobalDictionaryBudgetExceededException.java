@@ -87,13 +87,11 @@ public final class GlobalDictionaryBudgetExceededException extends RuntimeExcept
   static GlobalDictionaryBudgetExceededException structuralDecline(final int column, final long retainedBytes,
       final long budgetBytes, final int entryCount, final String admissionDetail) {
     return new GlobalDictionaryBudgetExceededException(column, retainedBytes, retainedBytes, null, budgetBytes,
-        entryCount,
-        Objects.requireNonNull(admissionDetail, "a structural decline must state which ceiling it hit"));
+        entryCount, Objects.requireNonNull(admissionDetail, "a structural decline must state which ceiling it hit"));
   }
 
-  private GlobalDictionaryBudgetExceededException(final int column, final long retainedBytes,
-      final long breachingBytes, final String breachingTerm, final long budgetBytes, final int entryCount,
-      final String admissionDetail) {
+  private GlobalDictionaryBudgetExceededException(final int column, final long retainedBytes, final long breachingBytes,
+      final String breachingTerm, final long budgetBytes, final int entryCount, final String admissionDetail) {
     super(message(column, retainedBytes, breachingBytes, breachingTerm, budgetBytes, entryCount, admissionDetail));
     this.column = column;
     this.retainedBytes = retainedBytes;

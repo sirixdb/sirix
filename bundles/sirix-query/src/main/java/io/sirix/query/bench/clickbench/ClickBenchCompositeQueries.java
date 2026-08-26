@@ -10,8 +10,8 @@ import java.util.List;
  * <p>
  * Every partition leg is emitted as a literal {@code let $hits := jn:doc('db','hits-i') return
  * (…)} sub-expression — the shape the analytical fast paths detect — so each leg resolves its own
- * vectorized executor through the per-source hook and is served from that partition's projection.
- * A single {@code let $hits := (docA, docB, …)} binding would compile and answer correctly while
+ * vectorized executor through the per-source hook and is served from that partition's projection. A
+ * single {@code let $hits := (docA, docB, …)} binding would compile and answer correctly while
  * silently dropping every query onto the generic pipeline; gate any change here on the
  * {@code # served:} counters, never on timings.
  *
@@ -21,11 +21,11 @@ import java.util.List;
  * per-partition minima/maxima.</li>
  * <li>{@code AVG} decomposes to {@code (sum, count)} partials combined as
  * {@code xs:double(Σsum div Σcount)} — averaging averages would weight partitions, not rows. The
- * denominator is the group's row count, which equals the value count because ClickBench columns
- * are dense (NOT NULL); a nullable column would need its own value-count partial.</li>
+ * denominator is the group's row count, which equals the value count because ClickBench columns are
+ * dense (NOT NULL); a nullable column would need its own value-count partial.</li>
  * <li>{@code COUNT(DISTINCT x)} is NOT decomposable over counts — each partition ships its
- * per-group DISTINCT VALUE LIST (as an array field) and the merge counts distinct over the union
- * of the lists.</li>
+ * per-group DISTINCT VALUE LIST (as an array field) and the merge counts distinct over the union of
+ * the lists.</li>
  * <li>{@code HAVING} and {@code OFFSET/LIMIT} apply only at the merge: a partition-local filter or
  * cut would discard groups/rows that survive globally.</li>
  * <li>Raw-row top-k (no grouping) merges per-partition top-k lists: top-k of a union equals top-k
@@ -52,8 +52,7 @@ public final class ClickBenchCompositeQueries {
   public record CompositeQuery(int index, String compositeFull, String compositeProduction, String singleFull) {
   }
 
-  private ClickBenchCompositeQueries() {
-  }
+  private ClickBenchCompositeQueries() {}
 
   /** All 43 queries decomposed over {@code partitions} resources {@code prefix-0 … prefix-(n-1)}. */
   public static List<CompositeQuery> all(final String database, final String prefix, final int partitions,
@@ -70,8 +69,8 @@ public final class ClickBenchCompositeQueries {
 
   // ==== per-query construction ==================================================================
 
-  private static CompositeQuery build(final int q, final String db, final String prefix, final int n,
-      final String sdb, final String sres) {
+  private static CompositeQuery build(final int q, final String db, final String prefix, final int n, final String sdb,
+      final String sres) {
     return switch (q) {
       // -- scalar aggregates ---------------------------------------------------------------------
       case 0 -> scalarSum(q, db, prefix, n, "count($hits[])");
@@ -114,16 +113,15 @@ public final class ClickBenchCompositeQueries {
       case 23 -> {
         final String prodLeg = "subsequence(for $h in $hits[] where contains($h.URL, \"google\") "
             + "order by $h.EventTime return $h, 1, 10)";
-        final String prod =
-            "subsequence(for $r in (\n" + legs(db, prefix, n, prodLeg, ",\n") + "\n) order by $r.EventTime return $r, 1, 10)";
+        final String prod = "subsequence(for $r in (\n" + legs(db, prefix, n, prodLeg, ",\n")
+            + "\n) order by $r.EventTime return $r, 1, 10)";
         final String full = "(\n"
             + legs(db, prefix, n, "for $h in $hits[] where contains($h.URL, \"google\") return $h", ",\n") + "\n)";
         yield new CompositeQuery(q, full, prod, null);
       }
-      case 24 -> topKPhrase(q, db, prefix, n, "order by $h.EventTime",
-          "{\"t\": $h.EventTime, \"v\": $h.SearchPhrase}", "order by $r.t return $r.v");
-      case 25 -> topKPhrase(q, db, prefix, n, "order by $h.SearchPhrase", "$h.SearchPhrase",
-          "order by $r return $r");
+      case 24 -> topKPhrase(q, db, prefix, n, "order by $h.EventTime", "{\"t\": $h.EventTime, \"v\": $h.SearchPhrase}",
+          "order by $r.t return $r.v");
+      case 25 -> topKPhrase(q, db, prefix, n, "order by $h.SearchPhrase", "$h.SearchPhrase", "order by $r return $r");
       case 26 -> topKPhrase(q, db, prefix, n, "order by $h.EventTime, $h.SearchPhrase",
           "{\"t\": $h.EventTime, \"s\": $h.SearchPhrase}", "order by $r.t, $r.s return $r.s");
 
@@ -204,12 +202,12 @@ public final class ClickBenchCompositeQueries {
 
   /**
    * A grouped ClickBench query in decomposable form. {@code lets} are pre-group computed bindings
-   * (referenced by aggregate sources), {@code havingCountAbove} filters on the COUNT aggregate at
-   * the merge, {@code orderRef} names the output field ordered on ({@code null} = unordered),
+   * (referenced by aggregate sources), {@code havingCountAbove} filters on the COUNT aggregate at the
+   * merge, {@code orderRef} names the output field ordered on ({@code null} = unordered),
    * {@code offset/limit} are the subsequence bounds ({@code -1} = none).
    */
-  private record GroupSpec(int index, String where, String lets, List<Key> keys, List<Agg> aggs,
-      long havingCountAbove, String orderRef, boolean orderDesc, int offset, int limit, List<String> returnOrder) {
+  private record GroupSpec(int index, String where, String lets, List<Key> keys, List<Agg> aggs, long havingCountAbove,
+      String orderRef, boolean orderDesc, int offset, int limit, List<String> returnOrder) {
   }
 
   private static final String JULY_2013 =
@@ -286,11 +284,11 @@ public final class ClickBenchCompositeQueries {
           List.of(new Agg("c", Kind.COUNT, null), new Agg("sum_IsRefresh", Kind.SUM, "$h.IsRefresh"),
               new Agg("avg_ResolutionWidth", Kind.AVG, "$h.ResolutionWidth")),
           -1, "c", true, 1, 10, List.of("WatchID", "ClientIP", "c", "sum_IsRefresh", "avg_ResolutionWidth"));
-      case 32 -> new GroupSpec(q, null, null,
-          List.of(new Key("WatchID", "$h.WatchID"), new Key("ClientIP", "$h.ClientIP")),
-          List.of(new Agg("c", Kind.COUNT, null), new Agg("sum_IsRefresh", Kind.SUM, "$h.IsRefresh"),
-              new Agg("avg_ResolutionWidth", Kind.AVG, "$h.ResolutionWidth")),
-          -1, "c", true, 1, 10, List.of("WatchID", "ClientIP", "c", "sum_IsRefresh", "avg_ResolutionWidth"));
+      case 32 ->
+        new GroupSpec(q, null, null, List.of(new Key("WatchID", "$h.WatchID"), new Key("ClientIP", "$h.ClientIP")),
+            List.of(new Agg("c", Kind.COUNT, null), new Agg("sum_IsRefresh", Kind.SUM, "$h.IsRefresh"),
+                new Agg("avg_ResolutionWidth", Kind.AVG, "$h.ResolutionWidth")),
+            -1, "c", true, 1, 10, List.of("WatchID", "ClientIP", "c", "sum_IsRefresh", "avg_ResolutionWidth"));
       case 33 -> new GroupSpec(q, null, null, List.of(new Key("URL", "$h.URL")),
           List.of(new Agg("c", Kind.COUNT, null)), -1, "c", true, 1, 10, List.of("URL", "c"));
       case 34 -> new GroupSpec(q, null, null, List.of(new Key("one", "1"), new Key("URL", "$h.URL")),
@@ -299,16 +297,13 @@ public final class ClickBenchCompositeQueries {
           List.of(new Key("ClientIP", "$h.ClientIP"), new Key("m1", "$h.ClientIP - 1"),
               new Key("m2", "$h.ClientIP - 2"), new Key("m3", "$h.ClientIP - 3")),
           List.of(new Agg("c", Kind.COUNT, null)), -1, "c", true, 1, 10, List.of("ClientIP", "m1", "m2", "m3", "c"));
-      case 36 -> new GroupSpec(q,
-          JULY_2013 + " and $h.DontCountHits = 0 and $h.IsRefresh = 0 and $h.URL != \"\"", null,
+      case 36 -> new GroupSpec(q, JULY_2013 + " and $h.DontCountHits = 0 and $h.IsRefresh = 0 and $h.URL != \"\"", null,
           List.of(new Key("URL", "$h.URL")), List.of(new Agg("PageViews", Kind.COUNT, null)), -1, "PageViews", true, 1,
           10, List.of("URL", "PageViews"));
-      case 37 -> new GroupSpec(q,
-          JULY_2013 + " and $h.DontCountHits = 0 and $h.IsRefresh = 0 and $h.Title != \"\"", null,
-          List.of(new Key("Title", "$h.Title")), List.of(new Agg("PageViews", Kind.COUNT, null)), -1, "PageViews",
+      case 37 -> new GroupSpec(q, JULY_2013 + " and $h.DontCountHits = 0 and $h.IsRefresh = 0 and $h.Title != \"\"",
+          null, List.of(new Key("Title", "$h.Title")), List.of(new Agg("PageViews", Kind.COUNT, null)), -1, "PageViews",
           true, 1, 10, List.of("Title", "PageViews"));
-      case 38 -> new GroupSpec(q,
-          JULY_2013 + " and $h.IsRefresh = 0 and $h.IsLink != 0 and $h.IsDownload = 0", null,
+      case 38 -> new GroupSpec(q, JULY_2013 + " and $h.IsRefresh = 0 and $h.IsLink != 0 and $h.IsDownload = 0", null,
           List.of(new Key("URL", "$h.URL")), List.of(new Agg("PageViews", Kind.COUNT, null)), -1, "PageViews", true,
           1001, 10, List.of("URL", "PageViews"));
       case 39 -> new GroupSpec(q, JULY_2013 + " and $h.IsRefresh = 0", null,
@@ -346,8 +341,8 @@ public final class ClickBenchCompositeQueries {
     final String outerCore = outerCore(spec, legs(db, prefix, n, inner, ",\n"));
     final String full = outerCore;
     final String production = productionWrap(spec, outerCore);
-    final String singleFull = "let $hits := jn:doc('" + sdb + "','" + sres + "')\nreturn (\n" + singleFullBody(spec)
-        + "\n)";
+    final String singleFull =
+        "let $hits := jn:doc('" + sdb + "','" + sres + "')\nreturn (\n" + singleFullBody(spec) + "\n)";
     return new CompositeQuery(spec.index(), full, production, singleFull);
   }
 
@@ -558,8 +553,15 @@ public final class ClickBenchCompositeQueries {
       if (i > 0) {
         sb.append(join);
       }
-      sb.append("(let $hits := jn:doc('").append(database).append("','").append(prefix).append('-').append(i)
-        .append("')\nreturn (").append(innerBody).append("))");
+      sb.append("(let $hits := jn:doc('")
+        .append(database)
+        .append("','")
+        .append(prefix)
+        .append('-')
+        .append(i)
+        .append("')\nreturn (")
+        .append(innerBody)
+        .append("))");
     }
     return sb.toString();
   }

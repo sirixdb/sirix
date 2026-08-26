@@ -51,10 +51,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * waiting for an exception would pass straight through it.
  *
  * <p>
- * It lives in this package rather than beside the HOT-layer fixtures because the segment-slot API is
- * projection-internal. Strategy-matrix, eviction and historical-read coverage sit in
- * {@code io.sirix.page.HOTCompleteDumpMergeTest} and {@code io.sirix.page.HOTTombstoneEvictionTest},
- * at the layer where the merge itself lives.
+ * It lives in this package rather than beside the HOT-layer fixtures because the segment-slot API
+ * is projection-internal. Strategy-matrix, eviction and historical-read coverage sit in
+ * {@code io.sirix.page.HOTCompleteDumpMergeTest} and
+ * {@code io.sirix.page.HOTTombstoneEvictionTest}, at the layer where the merge itself lives.
  * </p>
  */
 final class ProjectionSegmentResurrectionTest {
@@ -75,8 +75,8 @@ final class ProjectionSegmentResurrectionTest {
     JsonTestHelper.deleteEverything();
     Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
-      db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .versioningApproach(VersioningType.SLIDING_SNAPSHOT).build());
+      db.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT).build());
     }
     VersioningType.resetFragmentMergeCounters();
     HOTTrieWriter.resetInPlaceLeafSplits();
@@ -91,8 +91,8 @@ final class ProjectionSegmentResurrectionTest {
   /**
    * Named for what it PROVES, not for the defect it was written to hunt. The previous name —
    * {@code aResurrectedSegmentIsServedWithPreSplitBytesAndThrowsNothing} — asserted the opposite of
-   * the body, which requires {@code staleBytes == 0}; a reader scanning method names would have
-   * come away believing the resurrection was an established behaviour of this codebase.
+   * the body, which requires {@code staleBytes == 0}; a reader scanning method names would have come
+   * away believing the resurrection was an established behaviour of this codebase.
    */
   @Test
   void everySegmentServesItsLatestBytesAcrossASplit() throws IOException {
@@ -113,8 +113,7 @@ final class ProjectionSegmentResurrectionTest {
       // fragment chain reachable. Claiming split coverage in a COMMENT (as this class used to) is
       // exactly what HOTTrieWriter's own counter javadoc says not to do.
       assertTrue(HOTTrieWriter.inPlaceLeafSplits() > 0,
-          "no in-place leaf split ran, so this case covers nothing (splits="
-              + HOTTrieWriter.inPlaceLeafSplits() + ")");
+          "no in-place leaf split ran, so this case covers nothing (splits=" + HOTTrieWriter.inPlaceLeafSplits() + ")");
       assertTrue(VersioningType.multiFragmentMerges() > 0,
           "the merge path was never entered, so this case proves nothing (merges="
               + VersioningType.multiFragmentMerges() + ")");
@@ -127,7 +126,9 @@ final class ProjectionSegmentResurrectionTest {
           final byte[] got = ProjectionIndexHOTStorage.readColumnSegmentSlot(reader, 0,
               ProjectionIndexHOTStorage.columnSegmentSlotKey(rg, 0));
           // Row group 1 was rewritten by the last two commits; every other one last saw marker 2.
-          final byte expected = rg == 1 ? (byte) 4 : (byte) 2;
+          final byte expected = rg == 1
+              ? (byte) 4
+              : (byte) 2;
           if (got == null || got.length == 0) {
             missing++;
           } else if (got[0] != expected) {

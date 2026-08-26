@@ -22,13 +22,13 @@ import static java.util.Objects.requireNonNull;
  * slots, fence/Bloom/metadata blobs).
  *
  * <p>
- * Shares the {@link AbstractHOTBulkIndexLoader} pattern — block-arena accumulation, one
- * permutation sort, an exactly-sized entry list, one {@code spliceBulkBuiltRoot} — but is a
- * separate class in the same family because that loader is postings-shaped (it carries a
- * {@code nodeKey} per entry and its fold OR-merges chunked {@code NodeReferences} runs), it is
- * {@code sealed}, and slot semantics need a different fold: keep the LAST payload written per key.
- * Measured against the per-entry {@code writeSlotValue} path this construction is 9–14× faster at
- * 1 M–10 M entries ({@code docs/HOT_BULK_BUILD.md} §Seam 2a).
+ * Shares the {@link AbstractHOTBulkIndexLoader} pattern — block-arena accumulation, one permutation
+ * sort, an exactly-sized entry list, one {@code spliceBulkBuiltRoot} — but is a separate class in
+ * the same family because that loader is postings-shaped (it carries a {@code nodeKey} per entry
+ * and its fold OR-merges chunked {@code NodeReferences} runs), it is {@code sealed}, and slot
+ * semantics need a different fold: keep the LAST payload written per key. Measured against the
+ * per-entry {@code writeSlotValue} path this construction is 9–14× faster at 1 M–10 M entries
+ * ({@code docs/HOT_BULK_BUILD.md} §Seam 2a).
  *
  * <h2>Read-through</h2>
  * <p>
@@ -42,9 +42,9 @@ import static java.util.Objects.requireNonNull;
  * <h2>Capacity</h2>
  * <p>
  * Bounded by entry count and arena bytes ({@code docs/HOT_BULK_BUILD.md} §Seam 2a arithmetic: the
- * built pages cost ≈64 KiB per 512 entries ON TOP of the arena, and none of them are
- * spill-eligible until the splice registers them). {@link #tryAdd} returns {@code false} at
- * capacity; the owner splices the accumulated prefix and continues per-entry.
+ * built pages cost ≈64 KiB per 512 entries ON TOP of the arena, and none of them are spill-eligible
+ * until the splice registers them). {@link #tryAdd} returns {@code false} at capacity; the owner
+ * splices the accumulated prefix and continues per-entry.
  * </p>
  *
  * <h2>Threading</h2>
@@ -118,19 +118,18 @@ public final class HOTBulkSlotLoader {
   }
 
   /**
-   * Accumulate one slot write. A zero-length payload is a tombstone value and is kept like any
-   * other (the projection's slot stores treat zero-length as "tombstoned").
+   * Accumulate one slot write. A zero-length payload is a tombstone value and is kept like any other
+   * (the projection's slot stores treat zero-length as "tombstoned").
    *
    * @param slotKey the slot key
    * @param payload the payload; copied, never retained
-   * @return {@code true} when accumulated; {@code false} when the write does not fit this
-   *         loader's contract (capacity reached, or an over-long payload) — the caller must
-   *         splice and fall through to its per-entry path
+   * @return {@code true} when accumulated; {@code false} when the write does not fit this loader's
+   *         contract (capacity reached, or an over-long payload) — the caller must splice and fall
+   *         through to its per-entry path
    */
   public boolean tryAdd(final long slotKey, final byte[] payload) {
     requireNonNull(payload, "payload");
-    if (count >= maxEntries || payload.length > MAX_PAYLOAD_BYTES
-        || arenaBytes + payload.length > maxArenaBytes) {
+    if (count >= maxEntries || payload.length > MAX_PAYLOAD_BYTES || arenaBytes + payload.length > maxArenaBytes) {
       return false;
     }
     if (currentBlockOffset >= BLOCK_BYTES || currentBlockOffset + payload.length > BLOCK_BYTES) {
@@ -165,9 +164,9 @@ public final class HOTBulkSlotLoader {
   }
 
   /**
-   * The LAST payload written for {@code slotKey}, as a fresh array, or {@code null} when the key
-   * was never written into this loader. A zero-length result is a tombstoned slot — exactly what
-   * the per-entry read path returns for one.
+   * The LAST payload written for {@code slotKey}, as a fresh array, or {@code null} when the key was
+   * never written into this loader. A zero-length result is a tombstoned slot — exactly what the
+   * per-entry read path returns for one.
    */
   public byte @Nullable [] lastPayload(final long slotKey) {
     final int ordinal = lastOrdinalByKey.get(slotKey);
@@ -191,9 +190,9 @@ public final class HOTBulkSlotLoader {
   }
 
   /**
-   * Fold to last-writer-wins, sort by key, build the canonical tree and splice it as
-   * {@code writer}'s root — the production {@code spliceBulkBuiltRoot} path (empty-tree guard,
-   * {@link HOTBulkBuilder}, fresh-subtree TIL registration). The loader is spent afterwards.
+   * Fold to last-writer-wins, sort by key, build the canonical tree and splice it as {@code writer}'s
+   * root — the production {@code spliceBulkBuiltRoot} path (empty-tree guard, {@link HOTBulkBuilder},
+   * fresh-subtree TIL registration). The loader is spent afterwards.
    *
    * @param writer the owning writer; its tree must still be empty
    * @return the number of DISTINCT entries spliced (0 for an empty loader)
@@ -210,7 +209,7 @@ public final class HOTBulkSlotLoader {
     // sign-flipped big-endian encoding makes unsigned byte order equal signed long order.
     final int[] winners = new int[distinct];
     int w = 0;
-    for (final IntIterator ordinals = lastOrdinalByKey.values().iterator(); ordinals.hasNext(); ) {
+    for (final IntIterator ordinals = lastOrdinalByKey.values().iterator(); ordinals.hasNext();) {
       winners[w++] = ordinals.nextInt();
     }
     final IntComparator byKey = (a, b) -> Long.compare(keys[a], keys[b]);
@@ -224,8 +223,7 @@ public final class HOTBulkSlotLoader {
       final long pos = payloadPos[ordinal];
       final byte[] block = blocks[(int) (pos >>> BLOCK_SHIFT)];
       final int offset = (int) (pos & BLOCK_MASK);
-      entries.add(new HOTBulkBuilder.Entry(keyBytes,
-          Arrays.copyOfRange(block, offset, offset + payloadLen[ordinal])));
+      entries.add(new HOTBulkBuilder.Entry(keyBytes, Arrays.copyOfRange(block, offset, offset + payloadLen[ordinal])));
     }
     releaseBuffers();
     writer.spliceBulkBuiltRoot(entries);

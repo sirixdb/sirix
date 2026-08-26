@@ -66,10 +66,10 @@ public final class ProjectionIndexMetadata {
    * </p>
    *
    * <p>
-   * It exists because "stale" and "corrupt" are different claims and the difference was being lost.
-   * A projection the writer deliberately retired because it cannot maintain a resource-wide
-   * dictionary is a DECISION, and the component that made it is the only one that can explain it;
-   * every downstream decline should be able to quote that reason rather than invent one. See the
+   * It exists because "stale" and "corrupt" are different claims and the difference was being lost. A
+   * projection the writer deliberately retired because it cannot maintain a resource-wide dictionary
+   * is a DECISION, and the component that made it is the only one that can explain it; every
+   * downstream decline should be able to quote that reason rather than invent one. See the
    * kind-inconsistency class recorded in tasks #45 and #50.
    * </p>
    */
@@ -78,18 +78,18 @@ public final class ProjectionIndexMetadata {
   private static final int STALE_REASON_SHIFT = 1;
 
   /**
-   * Why a projection was tombstoned. Ordinals are WIRE VALUES in bits 1-3 of the flags byte:
-   * append only, never renumber, and at most eight will ever fit.
+   * Why a projection was tombstoned. Ordinals are WIRE VALUES in bits 1-3 of the flags byte: append
+   * only, never renumber, and at most eight will ever fit.
    */
   public enum StaleReason {
     /** No reason recorded — a tombstone written before reasons existed, or a caller that had none. */
     UNSPECIFIED,
     /**
      * The indexed record set changed and the projection has resource-wide value dictionaries, which
-     * commit-time maintenance cannot extend: it holds no dictionary writer, so it can neither mint
-     * an id for a new value nor rewrite every leaf to a per-leaf encoding without paying O(corpus)
-     * on a single commit. Refusing keeps the store CONSISTENT; {@code jn:create-projection-index}
-     * rebuilds it.
+     * commit-time maintenance cannot extend: it holds no dictionary writer, so it can neither mint an
+     * id for a new value nor rewrite every leaf to a per-leaf encoding without paying O(corpus) on a
+     * single commit. Refusing keeps the store CONSISTENT; {@code jn:create-projection-index} rebuilds
+     * it.
      */
     GLOBAL_DICTIONARY_NOT_MAINTAINABLE,
     /** Both the incremental patch and the full rebuild failed — the corruption valve. */
@@ -107,11 +107,11 @@ public final class ProjectionIndexMetadata {
      * NOT PRODUCED BY ANYTHING YET — reserved for task #52.
      *
      * <p>
-     * A projection that needs a full rebuild but must not pay for it inside the committing
-     * transaction. Today a refused incremental patch calls {@code rebuildFully()} on the commit
-     * thread, re-extracting every record of the resource: unbounded by corpus size, reached from
-     * its refusal sites, and on a large resource a multi-minute commit. The fix is to record the
-     * need HERE, let the commit finish, and rebuild on request or in the background.
+     * A projection that needs a full rebuild but must not pay for it inside the committing transaction.
+     * Today a refused incremental patch calls {@code rebuildFully()} on the commit thread,
+     * re-extracting every record of the resource: unbounded by corpus size, reached from its refusal
+     * sites, and on a large resource a multi-minute commit. The fix is to record the need HERE, let the
+     * commit finish, and rebuild on request or in the background.
      * </p>
      *
      * <p>
@@ -135,13 +135,12 @@ public final class ProjectionIndexMetadata {
     public String remedy() {
       return switch (this) {
         case GLOBAL_DICTIONARY_BUDGET_EXCEEDED ->
-            "Either give the loader an expected-row-count hint, so the election declines the oversized"
-                + " column up front and the rest of the projection still builds, or raise"
-                + " -Dsirix.projection.globalDict.budgetBytes; then rebuild with"
-                + " jn:create-projection-index($doc, '<root-path>', '<fields>').";
-        default ->
-            "Rebuild the projection with jn:create-projection-index($doc, '<root-path>', '<fields>')"
-                + " — the same call that created it; it re-elects encodings from the current data.";
+          "Either give the loader an expected-row-count hint, so the election declines the oversized"
+              + " column up front and the rest of the projection still builds, or raise"
+              + " -Dsirix.projection.globalDict.budgetBytes; then rebuild with"
+              + " jn:create-projection-index($doc, '<root-path>', '<fields>').";
+        default -> "Rebuild the projection with jn:create-projection-index($doc, '<root-path>', '<fields>')"
+            + " — the same call that created it; it re-elects encodings from the current data.";
       };
     }
   }
@@ -377,9 +376,9 @@ public final class ProjectionIndexMetadata {
    * The question commit-time maintenance has to ask before it touches a leaf. Such a column's rows
    * hold DICTIONARY IDS, and the id space is owned by a writer that exists only during a build — so
    * an incremental patcher can neither mint an id for a value the dictionary has never seen nor
-   * re-encode the column without rewriting every leaf. It reads this metadata's OWN kinds rather
-   * than a leaf's, deliberately: the metadata is the authority on the store's shape and a leaf
-   * descriptor is a falsifiable sample of it, which is the whole lesson of task #45.
+   * re-encode the column without rewriting every leaf. It reads this metadata's OWN kinds rather than
+   * a leaf's, deliberately: the metadata is the authority on the store's shape and a leaf descriptor
+   * is a falsifiable sample of it, which is the whole lesson of task #45.
    * </p>
    */
   public boolean hasGlobalDictionaryColumn() {

@@ -149,11 +149,11 @@ public interface StorageEngineWriter extends StorageEngineReader {
 
   /**
    * Adopts an externally BUILT document leaf page into this writer's transaction intent log — the
-   * parallel bulk importer's installation seam. The page must cover unwritten territory: its
-   * record page key must resolve to a reference with no persisted predecessor and no log entry.
-   * The adopted page becomes the container's MODIFIED half (an empty complete twin is created),
-   * mirroring exactly what the ordinary fresh-page path produces, so read-back, async flush and
-   * commit treat it like any other freshly written page.
+   * parallel bulk importer's installation seam. The page must cover unwritten territory: its record
+   * page key must resolve to a reference with no persisted predecessor and no log entry. The adopted
+   * page becomes the container's MODIFIED half (an empty complete twin is created), mirroring exactly
+   * what the ordinary fresh-page path produces, so read-back, async flush and commit treat it like
+   * any other freshly written page.
    *
    * @param page a fully built page for a contiguous pre-reserved key range
    */
@@ -162,11 +162,10 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
-   * Resolves the LIVE (CoW-checked) modified half of a document leaf page for direct record
-   * blitting — the parallel bulk importer's stitch seam for pages that are already in the intent
-   * log (the page-0 prologue and chunk-boundary pages). Goes through the ordinary
-   * prepare-record-page machinery, so a frozen-snapshot instance is deep-copied first and caches
-   * stay coherent.
+   * Resolves the LIVE (CoW-checked) modified half of a document leaf page for direct record blitting
+   * — the parallel bulk importer's stitch seam for pages that are already in the intent log (the
+   * page-0 prologue and chunk-boundary pages). Goes through the ordinary prepare-record-page
+   * machinery, so a frozen-snapshot instance is deep-copied first and caches stay coherent.
    *
    * @param recordPageKey the document record page key
    * @return the modified page, safe for direct writes on the writer thread

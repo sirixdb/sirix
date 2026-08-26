@@ -36,19 +36,21 @@ final class ProjectionStaleReasonTest {
   }
 
   /**
-   * The bits carrying the reason were always zero before this existed, so an old tombstone must
-   * parse as UNSPECIFIED rather than as anything else — that is what makes the change additive and
-   * lets it skip a version bump.
+   * The bits carrying the reason were always zero before this existed, so an old tombstone must parse
+   * as UNSPECIFIED rather than as anything else — that is what makes the change additive and lets it
+   * skip a version bump.
    */
   @Test
   void aReasonlessTombstoneReadsAsUnspecified() {
-    final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(ProjectionIndexMetadata.staleTombstone()
-        .serialize());
+    final ProjectionIndexMetadata parsed =
+        ProjectionIndexMetadata.parse(ProjectionIndexMetadata.staleTombstone().serialize());
     assertTrue(parsed.isStale());
     assertEquals(StaleReason.UNSPECIFIED, parsed.staleReason());
   }
 
-  /** Wire values are append-only: pin the ordinals so a reorder fails here rather than in the field. */
+  /**
+   * Wire values are append-only: pin the ordinals so a reorder fails here rather than in the field.
+   */
   @Test
   void ordinalsArePinnedBecauseTheyAreWireValues() {
     assertEquals(0, StaleReason.UNSPECIFIED.ordinal());

@@ -101,9 +101,9 @@ public final class PathIndexBuilder {
 
   /**
    * Invalidate the resolved path-class cache. The cache is sound for this builder's own use — one
-   * traversal of an already-shredded revision, whose summary cannot grow — but an import-time
-   * feeder resolves paths as it loads, so a class first minted after the previous drain would stay
-   * invisible behind a stale set. Called once per drained chunk; the next {@link #add} re-resolves.
+   * traversal of an already-shredded revision, whose summary cannot grow — but an import-time feeder
+   * resolves paths as it loads, so a class first minted after the previous drain would stay invisible
+   * behind a stale set. Called once per drained chunk; the next {@link #add} re-resolves.
    */
   public void refreshIndexedPaths() {
     resolvedPCRs = null;

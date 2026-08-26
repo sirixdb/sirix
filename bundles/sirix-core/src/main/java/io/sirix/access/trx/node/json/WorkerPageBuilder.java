@@ -37,19 +37,19 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 /**
  * Stage-B worker sink of the parallel bulk importer: builds records with FINAL bytes into
- * STANDALONE {@link KeyValueLeafPage}s for a pre-reserved contiguous key range, entirely
- * off-thread — no transaction, no intent log, no shared dictionaries. It replicates the
- * transaction factory's direct-write skeleton per node kind (estimate → heap reserve →
- * {@code writeNewRecord} → {@code completeDirectWrite}), with three deliberate differences:
+ * STANDALONE {@link KeyValueLeafPage}s for a pre-reserved contiguous key range, entirely off-thread
+ * — no transaction, no intent log, no shared dictionaries. It replicates the transaction factory's
+ * direct-write skeleton per node kind (estimate → heap reserve → {@code writeNewRecord} →
+ * {@code completeDirectWrite}), with three deliberate differences:
  * <ul>
- * <li>Keys mint from the worker's own counter over the reserved range — the assembler's
- * prediction asserts every mint, and {@link #finish(long)} additionally verifies the final key
- * and the populated-slot total, so a count/build divergence refuses loudly (critic C2).</li>
+ * <li>Keys mint from the worker's own counter over the reserved range — the assembler's prediction
+ * asserts every mint, and {@link #finish(long)} additionally verifies the final key and the
+ * populated-slot total, so a count/build divergence refuses loudly (critic C2).</li>
  * <li>Field names arrive as PRE-RESOLVED dictionary keys through the chunk's name table — the
  * coordinator interned every name in first-occurrence order during the counting pass.</li>
- * <li>Insert-time FSST never engages: v1 imports into a FRESH resource, where the sequential
- * path's encode is a no-op too (no prior revision, no table) — the flags written are identical
- * by construction.</li>
+ * <li>Insert-time FSST never engages: v1 imports into a FRESH resource, where the sequential path's
+ * encode is a no-op too (no prior revision, no table) — the flags written are identical by
+ * construction.</li>
  * </ul>
  *
  * <p>
@@ -107,17 +107,16 @@ final class WorkerPageBuilder implements BulkRecordSink {
   private final ObjectNamedArrayNode scratchNamedArrayNode;
 
   WorkerPageBuilder(final ResourceConfiguration resourceConfig, final int revisionNumber,
-      final LongHashFunction hashFunction, final boolean storeChildCount,
-      final Object2IntOpenHashMap<String> nameKeys, final long firstKey, final long lastKey) {
-    this(resourceConfig, revisionNumber, hashFunction, storeChildCount, nameKeys, firstKey, lastKey, null,
-        NULL_KEY, null);
+      final LongHashFunction hashFunction, final boolean storeChildCount, final Object2IntOpenHashMap<String> nameKeys,
+      final long firstKey, final long lastKey) {
+    this(resourceConfig, revisionNumber, hashFunction, storeChildCount, nameKeys, firstKey, lastKey, null, NULL_KEY,
+        null);
   }
 
   WorkerPageBuilder(final ResourceConfiguration resourceConfig, final int revisionNumber,
-      final LongHashFunction hashFunction, final boolean storeChildCount,
-      final Object2IntOpenHashMap<String> nameKeys, final long firstKey, final long lastKey,
-      final ProjectionChunkRowBatch @Nullable [] projectionBatches, final long projectionRecordSetKey,
-      final @Nullable ChunkIndexTupleBatch indexTuples) {
+      final LongHashFunction hashFunction, final boolean storeChildCount, final Object2IntOpenHashMap<String> nameKeys,
+      final long firstKey, final long lastKey, final ProjectionChunkRowBatch @Nullable [] projectionBatches,
+      final long projectionRecordSetKey, final @Nullable ChunkIndexTupleBatch indexTuples) {
     this.resourceConfig = resourceConfig;
     this.revisionNumber = revisionNumber;
     this.hashFunction = hashFunction;
@@ -137,18 +136,16 @@ final class WorkerPageBuilder implements BulkRecordSink {
     this.projectionTrackChildValues = trackChildValues;
     this.indexTuples = indexTuples;
 
-    this.scratchObjectNode =
-        new ObjectNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, NULL_KEY, NULL_KEY, 0,
-            0, 0, hashFunction, (SirixDeweyID) null);
+    this.scratchObjectNode = new ObjectNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY,
+        NULL_KEY, NULL_KEY, 0, 0, 0, hashFunction, (SirixDeweyID) null);
     this.scratchArrayNode = new ArrayNode(0, 0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY,
         NULL_KEY, NULL_KEY, 0, 0, 0, hashFunction, (SirixDeweyID) null);
-    this.scratchNullNode =
-        new NullNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, 0, hashFunction, (SirixDeweyID) null);
+    this.scratchNullNode = new NullNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, 0,
+        hashFunction, (SirixDeweyID) null);
     this.scratchBooleanNode = new BooleanNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY,
         0, false, hashFunction, (SirixDeweyID) null);
-    this.scratchNumberNode =
-        new NumberNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, 0, 0, hashFunction,
-            (SirixDeweyID) null);
+    this.scratchNumberNode = new NumberNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, 0,
+        0, hashFunction, (SirixDeweyID) null);
     this.scratchStringNode = new StringNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY, 0,
         new byte[0], hashFunction, (SirixDeweyID) null, false, null);
     this.scratchNamedBooleanNode = new ObjectNamedBooleanNode(0, hashFunction);
@@ -189,7 +186,9 @@ final class WorkerPageBuilder implements BulkRecordSink {
 
   // ==== projection extraction hooks (no-ops when nothing is armed) =============================
 
-  /** A structured, unnamed node: a record root when its parent is the record set, else a plain child. */
+  /**
+   * A structured, unnamed node: a record root when its parent is the record set, else a plain child.
+   */
   private void noteUnnamedStructured(final long nodeKey, final long parentKey) {
     if (parentKey == projectionRecordSetKey) {
       for (final ProjectionChunkRowBatch batch : projectionBatches) {
@@ -224,7 +223,8 @@ final class WorkerPageBuilder implements BulkRecordSink {
   }
 
   /** The chunk's PATH/CAS/NAME tuples, for the coordinator's drain; {@code null} when unarmed. */
-  @Nullable ChunkIndexTupleBatch indexTuples() {
+  @Nullable
+  ChunkIndexTupleBatch indexTuples() {
     return indexTuples;
   }
 
@@ -240,8 +240,8 @@ final class WorkerPageBuilder implements BulkRecordSink {
       if (currentPage != null) {
         pages.add(currentPage);
       }
-      currentPage = new KeyValueLeafPage(pageKey, IndexType.DOCUMENT, resourceConfig, revisionNumber, null, null,
-          false);
+      currentPage =
+          new KeyValueLeafPage(pageKey, IndexType.DOCUMENT, resourceConfig, revisionNumber, null, null, false);
       currentPageKey = pageKey;
     }
     populatedSlots++;
@@ -284,10 +284,9 @@ final class WorkerPageBuilder implements BulkRecordSink {
     }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWrite(scratchArrayNode.estimateSerializedSize(), 0);
-    final int recordBytes =
-        ArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset, scratchArrayNode.getHeapOffsets(), nodeKey, parentKey,
-            NULL_KEY, leftSibKey, NULL_KEY, NULL_KEY, arrayPcr, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0,
-            0);
+    final int recordBytes = ArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset, scratchArrayNode.getHeapOffsets(),
+        nodeKey, parentKey, NULL_KEY, leftSibKey, NULL_KEY, NULL_KEY, arrayPcr, Constants.NULL_REVISION_NUMBER,
+        revisionNumber, 0, 0, 0);
     kvl.completeDirectWrite(NodeKind.ARRAY.getId(), nodeKey, slotOf(nodeKey), recordBytes, null);
     return nodeKey;
   }
@@ -355,10 +354,9 @@ final class WorkerPageBuilder implements BulkRecordSink {
       kvl.setRecord(node);
       return nodeKey;
     }
-    final int recordBytes =
-        StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset, scratchStringNode.getHeapOffsets(), nodeKey,
-            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, utf8, 0, utf8Length,
-            false);
+    final int recordBytes = StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        scratchStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER,
+        revisionNumber, utf8, 0, utf8Length, false);
     kvl.completeDirectWrite(NodeKind.STRING_VALUE.getId(), nodeKey, slotOf(nodeKey), recordBytes, null);
     return nodeKey;
   }
@@ -381,9 +379,9 @@ final class WorkerPageBuilder implements BulkRecordSink {
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       final byte[] valueCopy = new byte[utf8Length];
       System.arraycopy(utf8, 0, valueCopy, 0, utf8Length);
-      final ObjectNamedStringNode node =
-          new ObjectNamedStringNode(nodeKey, parentKey, rightSibKey, leftSibKey, nameKey, pathNodeKey,
-              Constants.NULL_REVISION_NUMBER, revisionNumber, 0, valueCopy, hashFunction, (SirixDeweyID) null, false, null);
+      final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, parentKey, rightSibKey, leftSibKey, nameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, valueCopy, hashFunction, (SirixDeweyID) null,
+          false, null);
       kvl.setRecord(node);
       return nodeKey;
     }
@@ -536,9 +534,9 @@ final class WorkerPageBuilder implements BulkRecordSink {
   }
 
   /**
-   * Binds a scratch flyweight to a container record in the worker's OWN un-adopted pages — the
-   * same dir-entry mechanics as the transaction binder, safe here because nothing else can see
-   * these pages yet.
+   * Binds a scratch flyweight to a container record in the worker's OWN un-adopted pages — the same
+   * dir-entry mechanics as the transaction binder, safe here because nothing else can see these pages
+   * yet.
    */
   private StructNode bindOwnContainer(final long containerKey) {
     if (containerKey < firstKey || containerKey >= nextKey) {
