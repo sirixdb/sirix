@@ -358,11 +358,15 @@ public final class HOTBulkBuilder {
      * <p>
      * <b>Leaf-boundary stop.</b> A frontier node whose whole key group fits one leaf page is never
      * expanded: expanding it would split a page-fitting {@code R(S)} subtree across several frontier
-     * slots, each of which then compresses into its own (fragmented, under-filled) page — measured at
-     * 7× the leaf count on dense/strided key sets. Stopping there realizes the documented cut policy
-     * ("the highest {@code R(S)} subtree whose key group fits a page"). Any frontier is
-     * invariant-correct (Theorem 1), so only packing changes; height can only shrink (a would-be
-     * sub-indirect becomes a height-0 leaf child).
+     * slots, each of which then compresses into its own (fragmented, under-filled) page. Stopping there
+     * realizes the documented cut policy ("the highest {@code R(S)} subtree whose key group fits a
+     * page"). Any frontier is invariant-correct (Theorem 1), so only packing changes; height can only
+     * shrink (a would-be sub-indirect becomes a height-0 leaf child).
+     *
+     * <p>
+     * Guarded by {@code HOTBulkBuilderTest} V6, which asserts the built leaf count equals the number of
+     * maximal page-fitting {@code R(S)} subtrees — an oracle derived from {@code R(S)} alone, so it is
+     * independent of this frontier logic. Dropping the {@link #fitsLeafPage} term below makes it fail.
      */
     private HOTIndirectPage buildIndirect(final RBranch root) {
       // Frontier: the block's exit points, each with the block-internal path that reaches it.
