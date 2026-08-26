@@ -629,6 +629,19 @@ in place (all writes ride one CoW commit anyway, but the ordering keeps the
 two writers — builder and maintenance — consistent). The fence chunks (§5.4)
 are written alongside; unchanged chunks carry forward as no-ops.
 
+The slot writes above do **not** each descend the trie. A fresh build starts
+from a virgin tree, so the builder engages `HOTBulkSlotLoader`
+(`beginBulkSlotAccumulation`): every slot write accumulates, point reads are
+served back out of the accumulator, side-page attaches are deferred, and the
+whole tree is materialized in one canonical `HOTBulkBuilder` pass at
+`finalizeBulkSlotAccumulation`. Accumulation is bounded — a capacity trip
+splices the accumulated prefix and falls back to the per-entry path, which is
+always safe because the drain replays in ascending key order. The class javadoc
+on `HOTBulkSlotLoader` and `ProjectionIndexHOTStorage` documents the mechanism;
+`docs/HOT_BULK_BUILD.md` §2 holds the memory arithmetic behind the cap.
+Incremental maintenance (§8) never takes this path — it writes a non-virgin
+tree per entry.
+
 ### 6.2 The commit chain — how referenced segment pages get their identity
 
 This applies to *referenced* segments only; inline small segments (§5.1,
@@ -1319,6 +1332,7 @@ rewrite, not an ETL export.
 | Double transform | `index/projection/ProjectionDoubleEncoding.java` |
 | Extraction + exactness | `index/projection/ProjectionIndexRowExtractor.java` |
 | Streaming build | `index/projection/ProjectionIndexBuilder.java` |
+| Fresh-build slot accumulation (bulk splice) | `index/hot/HOTBulkSlotLoader.java` |
 | Incremental maintenance | `index/projection/ProjectionIndexChangeListener.java` |
 | Catalog / hydrate | `index/projection/ProjectionIndexCatalog.java` |
 | Kernels | `index/projection/ProjectionIndexByteScan.java` |

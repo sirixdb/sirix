@@ -53,8 +53,11 @@ The parallel importer **maintains PATH, CAS and NAME** index definitions during 
 chunk's build worker collects that family's tuples from the primitives it already holds, the
 coordinator drains them per chunk into the families' ordinary bulk loaders, and one flush per family
 materialises each trie before the caller's commit — the same entries the sequential path's per-node
-change notifications produce, byte-identical against a sequential oracle across 20 probes, at a
-measured +10.2% import cost for four real definitions. **Projection indexes are supported** too (see
+change notifications produce, matching a sequential oracle's postings exactly across 20 probes, at a
+measured +10.2% import cost for four real definitions. The gate is postings equality rather than
+byte equality on purpose: a bulk-built trie is canonical while an incrementally built one is
+insertion-order-dependent, so the two are read-equivalent but not structurally equal — see
+[`HOT_BULK_BUILD.md`](HOT_BULK_BUILD.md) §1. **Projection indexes are supported** too (see
 below). Only **valid-time** interval maintenance is still refused, and the refusal is def-based with
 an exact-family message: that family is resolved by a configured-path visitor over whole records,
 which has no chunk-local equivalent yet. Mutating existing resources remains the cursor's job.
@@ -209,6 +212,13 @@ totaling 4.4 s of a 1,145 s wall (0.38%), max single pause 3.7 ms.
   the default 9 despite strictly less worker time. A multi-generation intent log aims at the same
   23%, against a class that has twice produced silent cross-generation use-after-free bugs; the
   serialize stage is where the load's throughput actually lives.
+- PATH/CAS/NAME maintenance is **not streaming**: each family's bulk loader keeps its whole entry
+  set resident (roughly `key bytes + 20` per indexed node) until the single flush at load end —
+  the price of building each trie in one canonical pass. Selective definitions like the four
+  measured above are cheap at any scale; a definition that indexes *every* node of a 100M-row
+  corpus has no bound, and the flush cannot be split because a family is one tree. Budget for it
+  or build that family afterwards. The unbuilt options are in
+  [`HOT_BULK_BUILD.md`](HOT_BULK_BUILD.md) §3.
 - XML bulk import is a planned follow-up. Projection, PATH, CAS and NAME maintenance riding the
   parallel load has landed (see above); valid-time is the one family that still refuses.
 - Import into existing resources is out of scope for both loaders.
