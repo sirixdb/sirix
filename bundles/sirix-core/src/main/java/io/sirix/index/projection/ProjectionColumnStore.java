@@ -766,7 +766,8 @@ public final class ProjectionColumnStore {
    */
   public boolean columnFillWithinBudget(final int col) {
     return col >= 0 && col < columnKinds.length
-        && retainedFillBytes.get() + projectedColumnFillBytes(col) <= columnFillBudgetBytes;
+        && retainedFillBytes.get() + incrementalFillBytes(col, projectedColumnFillBytes(col))
+            <= columnFillBudgetBytes;
   }
 
   /**
@@ -821,7 +822,7 @@ public final class ProjectionColumnStore {
     // the store — the projected size is a property of the column, recomputed cheaply, and a later
     // caller with a raised budget must be able to fill.
     final long projected = projectedColumnFillBytes(col);
-    checkFillBudget(col, projected, "slice fill");
+    checkFillBudget(col, incrementalFillBytes(col, projected), "slice fill");
     // Fill OUTSIDE the monitor: the fetch+decode is the store's only I/O and must not
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
@@ -835,7 +836,9 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = columns.clone();
       next[col] = slices;
       columns = next;
-      chargeRetained(col, projected);
+      // Re-priced HERE, not reused from the check: the fill above ran the inner raw-BODY door,
+      // which may have published and charged that chain in between. Same helper, later moment.
+      retainedFillBytes.addAndGet(incrementalFillBytes(col, projected));
     }
     return slices;
   }
@@ -1021,9 +1024,10 @@ public final class ProjectionColumnStore {
    * </p>
    *
    * <p>
-   * The charge is per PUBLISH and may double-count BODY bytes shared between a raw-bytes fill and
-   * an identity fill of the same column. That direction is deliberate: over-counting declines
-   * earlier, which is the safe side of a residency cap.
+   * Every retained byte is counted exactly ONCE. A slice fill and an identity fill both reach
+   * {@link #columnBytes}, which publishes and charges the BODY chain itself, so the outer door adds
+   * only what it brings on top — see {@link #incrementalFillBytes}, which the budget CHECK and this
+   * ledger's CHARGE both consume so the gate and the total cannot disagree about what a fill costs.
    * </p>
    */
   private final AtomicLong retainedFillBytes = new AtomicLong();
@@ -1040,23 +1044,40 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Charge a published fill, MINUS whatever a nested door already charged for the same bytes.
+   * What a fill of {@code col} priced at {@code projected} would ADD to this store's residency:
+   * the gross projection minus the bytes already retained AND already charged for that same column.
    *
    * <p>
-   * A slice fill and an identity fill both run through {@link #columnBytes}, which prices and
-   * charges the BODY chain on its own account — so charging the outer door's full projection on top
-   * counted one retained copy of those arrays twice. The ledger is monotonic and feeds the decline
-   * predicates, so over-charging steers servable queries off the sliced route for residency that is
-   * not there. Subtracting what is already charged makes the total independent of which door was
-   * entered first, which a re-entrancy flag alone would not: the BODY chain is equally shared when
-   * {@code columnBytes} is entered directly and the slice fill follows later.
+   * The one place that subtraction lives, because the budget CHECK and the ledger CHARGE have to
+   * agree about it. A slice fill and an identity fill both reach {@link #columnBytes}, which
+   * publishes and charges the BODY chain on its own account — so once a fused fold scan has filled
+   * those raw bytes, a later slice fill of the same column adds only its decoded arrays. Pricing
+   * the check at the gross figure while charging the increment made the gate refuse fills whose
+   * true residency fit the budget, steering servable queries onto the slower whole-leaf route for
+   * bytes that were already counted.
    * </p>
+   *
+   * <p>
+   * Only for the doors that REUSE the published BODY arrays. A masked fill re-fetches the surviving
+   * leaves into fresh arrays and a record-key fill has no column, so both are priced gross.
+   * </p>
+   *
+   * <p>
+   * Evaluated TWICE per fill, deliberately: once before the fetch to gate it, once at publish to
+   * charge it. What is already retained legitimately changes in between — the fill itself runs the
+   * inner raw-BODY door — so a single value captured up front would charge for bytes the inner door
+   * had just accounted for.
+   * </p>
+   *
+   * @param col the column, or negative for a store-wide fill
+   * @param projected the fill's gross projection
+   * @return the bytes the fill would add
    */
-  private void chargeRetained(final int col, final long projected) {
-    final long alreadyCharged = columnBytesFilled(col)
+  private long incrementalFillBytes(final int col, final long projected) {
+    final long alreadyRetained = columnBytesFilled(col)
         ? projectedColumnBodyFillBytes(col)
         : 0;
-    retainedFillBytes.addAndGet(Math.max(0, projected - alreadyCharged));
+    return Math.max(0, projected - alreadyRetained);
   }
 
   /**
@@ -1072,7 +1093,7 @@ public final class ProjectionColumnStore {
     if (retained + projected > columnFillBudgetBytes) {
       throw new FillBudgetExceededException((col < 0
           ? "The store's "
-          : "Column " + col + " ") + mode + " projects " + projected
+          : "Column " + col + " ") + mode + " adds " + projected
           + " B beside " + retained + " B already retained, over the " + columnFillBudgetBytes
           + " B budget (sirix.projection.eagerMaterializeBytes) — declining the fill; the caller falls back to the "
           + "whole-leaf windowed route");
@@ -1168,7 +1189,8 @@ public final class ProjectionColumnStore {
    */
   public boolean columnIdentityFillable(final int col) {
     return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col)
-        || retainedFillBytes.get() + projectedColumnIdentityFillBytes(col) <= columnFillBudgetBytes);
+        || retainedFillBytes.get() + incrementalFillBytes(col, projectedColumnIdentityFillBytes(col))
+            <= columnFillBudgetBytes);
   }
 
   /**
@@ -1218,7 +1240,7 @@ public final class ProjectionColumnStore {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
     final long projectedIdentity = projectedColumnIdentityFillBytes(col);
-    checkFillBudget(col, projectedIdentity, "distinct-identity fill");
+    checkFillBudget(col, incrementalFillBytes(col, projectedIdentity), "distinct-identity fill");
     slices = fillIdentityColumn(col, fetcher);
     if (slices == null) {
       return column(col, fetcher); // no leaf carries hashes — the whole column falls back
@@ -1231,7 +1253,7 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = identityColumns.clone();
       next[col] = slices;
       identityColumns = next;
-      chargeRetained(col, projectedIdentity);
+      retainedFillBytes.addAndGet(incrementalFillBytes(col, projectedIdentity));
     }
     return slices;
   }

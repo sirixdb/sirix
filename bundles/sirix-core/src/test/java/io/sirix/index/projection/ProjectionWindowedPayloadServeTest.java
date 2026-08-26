@@ -911,6 +911,62 @@ final class ProjectionWindowedPayloadServeTest {
     }
   }
 
+  @Test
+  void aBodyChainAlreadyRetainedIsNotChargedAgainstTheNextFillOfTheSameColumn() {
+    // The fused fold route fills a column's raw BODY bytes directly; a later query on the same
+    // cached handle takes the sliced route on that column. The gate priced the second fill at its
+    // GROSS projection against a ledger that already held those very body arrays, so it refused
+    // fills whose true residency fit the budget — and the group arms answer a refusal by re-entering
+    // whole-leaf, permanently steering a servable query off the sliced route for phantom bytes.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
+              .commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final var reader = rtx.getStorageEngineReader();
+          final ProjectionColumnStore store = storeOf(reader);
+          final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+              offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
+          final int scoreColumn = 1;
+          final long projected = store.projectedColumnFillBytes(scoreColumn);
+
+          // The fold route goes first, exactly as a plain sum() over this column would.
+          final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(projected);
+          try {
+            store.columnBytes(scoreColumn, fetcher);
+            final long afterBody = store.retainedFillBytes();
+            assertTrue(afterBody > 0, "the raw BODY fill must be charged");
+            assertTrue(afterBody < projected, "the BODY chain alone must be cheaper than the whole fill");
+
+            // A budget that exactly fits the column's true residency. The slice fill reuses those
+            // very body arrays, so what it ADDS still fits — the gate must price the increment.
+            assertTrue(store.columnFillWithinBudget(scoreColumn),
+                "the planner predicate must price what the fill adds, not bytes already retained");
+            store.column(scoreColumn, fetcher);
+            assertEquals(projected, store.retainedFillBytes(),
+                "the store's residency is the column's projection — the body chain is one set of arrays");
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+          }
+        }
+      }
+    }
+  }
+
   /** The store behind the fixture's persisted projection. */
   private static ProjectionColumnStore storeOf(final io.sirix.api.StorageEngineReader reader) {
     final ProjectionIndexMetadata metadata =
