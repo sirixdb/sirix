@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The parallel importer's fused Stage-A: ONE pass over the raw UTF-8 stream that simultaneously
@@ -85,10 +87,16 @@ final class FusedSliceAndScan {
 
   }
 
-  /** One member-aligned chunk plus everything the coordinator must resolve before its build. */
+  /**
+   * One member-aligned chunk plus everything the coordinator must resolve before its build.
+   *
+   * @param memberNodes the node count of each member in document order, or {@code null} when the
+   *        coordinator did not ask for them. Only a load that must name every record — a one-pass
+   *        projection build — needs them; an ordinary import pays neither the array nor the stores.
+   */
   record Chunk(byte[] bytes, int length, boolean isFinal, long nodes, long members, long lastMemberNodes,
       List<PathStep> newSteps, List<PathStep> touchedSteps, int[] stepOccurrences, List<String> newNames,
-      List<int[]> nameTallies) {
+      List<int[]> nameTallies, long @Nullable [] memberNodes) {
   }
 
   private static final int READ_BUFFER_BYTES = 1 << 20;
@@ -133,6 +141,13 @@ final class FusedSliceAndScan {
   private long lastMemberNodes;
   private long memberStartNodes;
 
+  /**
+   * Per-member node counts for the CURRENT chunk, or {@code null} when the coordinator does not
+   * need them. Reserved once at the requested capacity and reused for every chunk, so a load that
+   * does need them still allocates no per-chunk array beyond the handed-off copy.
+   */
+  private final @Nullable LongArrayList memberNodes;
+
   // ==== open-addressed byte-hash name table (slots map to STABLE dense ids) ===================
   private byte[][] nameBytes = new byte[NAME_TABLE_CAPACITY][];
   private int[] nameIdBySlot = new int[NAME_TABLE_CAPACITY];
@@ -169,9 +184,20 @@ final class FusedSliceAndScan {
   }
 
   FusedSliceAndScan(final InputStream in, final int chunkByteBudget) {
+    this(in, chunkByteBudget, false);
+  }
+
+  /**
+   * @param trackMemberNodes whether each chunk should carry its members' node counts — the only way
+   *        a coordinator can name every record's root key by range arithmetic
+   */
+  FusedSliceAndScan(final InputStream in, final int chunkByteBudget, final boolean trackMemberNodes) {
     this.in = in;
     this.chunkByteBudget = Math.max(1024, chunkByteBudget);
     this.chunkBuffer = new byte[this.chunkByteBudget + (this.chunkByteBudget >> 2)];
+    this.memberNodes = trackMemberNodes
+        ? new LongArrayList(1024)
+        : null;
   }
 
   PathStep rootStep() {
@@ -209,6 +235,9 @@ final class FusedSliceAndScan {
     members = 0;
     lastMemberNodes = 0;
     memberStartNodes = 0;
+    if (memberNodes != null) {
+      memberNodes.clear();
+    }
     depth = 0;
     contextStep[0] = rootStep;
     contextIsObject[0] = false;
@@ -377,6 +406,9 @@ final class FusedSliceAndScan {
     members++;
     lastMemberNodes = nodes - memberStartNodes;
     memberStartNodes = nodes;
+    if (memberNodes != null) {
+      memberNodes.add(lastMemberNodes);
+    }
   }
 
   /** Closes the chunk at this member boundary when the budget is met. */
@@ -522,8 +554,11 @@ final class FusedSliceAndScan {
     }
     final byte[] out = acquireChunkBuffer(chunkLength);
     System.arraycopy(chunkBuffer, 0, out, 0, chunkLength);
+    final long[] memberNodeCounts = memberNodes == null
+        ? null
+        : memberNodes.toLongArray();
     return new Chunk(out, chunkLength, isFinal, nodes, members, lastMemberNodes, List.copyOf(newSteps),
-        List.copyOf(touchedSteps), stepOccurrences, List.copyOf(newNames), tallies);
+        List.copyOf(touchedSteps), stepOccurrences, List.copyOf(newNames), tallies, memberNodeCounts);
   }
 
   private boolean matches(final byte[] existing, final int start, final int len) {

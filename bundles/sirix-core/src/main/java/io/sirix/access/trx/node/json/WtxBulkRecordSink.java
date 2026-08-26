@@ -32,12 +32,23 @@ final class WtxBulkRecordSink implements BulkRecordSink {
   private final boolean notifyIndexes;
 
   WtxBulkRecordSink(final JsonNodeTrxImpl wtx) {
+    this(wtx, wtx.bulkHasPrimitiveIndexes());
+  }
+
+  /**
+   * @param notifyIndexes whether each creation fires a primitive-index notification. The parallel
+   *        importer passes {@code false} even with a projection armed: its workers mint records off
+   *        the transaction and never notify at all, so the coordinator attributes records to the
+   *        load directly rather than through a notification stream only the spine's own handful of
+   *        nodes would reach.
+   */
+  WtxBulkRecordSink(final JsonNodeTrxImpl wtx, final boolean notifyIndexes) {
     this.wtx = wtx;
     this.factory = wtx.bulkNodeFactory();
     this.storageEngineWriter = wtx.getStorageEngineWriter();
     this.storeChildCount = wtx.bulkStoreChildCount();
     this.useTextCompression = wtx.bulkUseTextCompression();
-    this.notifyIndexes = wtx.bulkHasPrimitiveIndexes();
+    this.notifyIndexes = notifyIndexes;
   }
 
   @Override

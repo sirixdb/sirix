@@ -201,6 +201,77 @@ public final class ProjectionIndexRowExtractor {
     return columnKinds.clone();
   }
 
+  /**
+   * The current (pathNodeKey → column) mapping arrays, for a chunk batch's dispatch snapshot.
+   * {@link #resolveFieldPcrs} REPLACES these arrays rather than mutating them, so the returned
+   * references stay valid snapshots across later refreshes.
+   */
+  long[] fieldPcrKeysRef() {
+    return fieldPcrKeys;
+  }
+
+  int[] fieldPcrColumnsRef() {
+    return fieldPcrColumns;
+  }
+
+  /**
+   * Fill the row buffers from one worker-extracted batch row, in place of {@link #extractInto}'s
+   * navigation. The batch classified every cell with this extractor's own helpers, so the buffers
+   * end in the state {@link #extractAt} would have produced for the same record; {@link #appendTo}
+   * then packs them through the identical leaf path.
+   */
+  void loadRowFromBatch(final ProjectionChunkRowBatch batch, final int row) {
+    resetRow(null);
+    for (int column = 0; column < columnKinds.length; column++) {
+      if (!batch.flagPresent(column, row)) {
+        continue;
+      }
+      rowPresent[column] = true;
+      final boolean cellUnrepresentable = batch.flagUnrepresentable(column, row);
+      if (cellUnrepresentable) {
+        rowUnrepresentable[column] = true;
+      }
+      if (batch.flagNonIntegral(column, row)) {
+        rowNonIntegral[column] = true;
+        numericColumnSawNonIntegral[column] = true;
+      }
+      if (batch.flagNonDoubleSource(column, row)) {
+        rowNonDoubleSource[column] = true;
+      }
+      switch (columnKinds[column]) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            rowLongs[column] = batch.longValue(column, row);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> rowBools[column] = batch.booleanValue(column, row);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
+          final int length = batch.stringLength(column, row);
+          if (length >= 0 && !cellUnrepresentable) {
+            byte[] scratch = rowStringUtf8Scratch[column];
+            if (scratch == null || scratch.length < length) {
+              scratch = new byte[grownStringCapacity(scratch == null
+                  ? 0
+                  : scratch.length, Math.max(1, length))];
+              rowStringUtf8Scratch[column] = scratch;
+            }
+            System.arraycopy(batch.stringArena(column), batch.stringOffset(column, row), scratch, 0, length);
+            rowStringUtf8[column] = scratch;
+            rowStringUtf8Lengths[column] = length;
+          }
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          if (!cellUnrepresentable) {
+            final String[] elements = batch.setElementsAt(column, row);
+            rowStringSets[column] = elements;
+            rowStringSetLen[column] = elements.length;
+          }
+        }
+        default -> throw new IllegalStateException(
+            "unknown projection column kind " + columnKinds[column] + " for column " + column);
+      }
+    }
+  }
+
   /** No-clone view for same-package hot paths (leaf construction). */
   byte[] columnKindsRef() {
     return columnKinds;
@@ -717,7 +788,7 @@ public final class ProjectionIndexRowExtractor {
    * losslessly); Long round-trips iff |value| ≤ 2^53-ish (checked by round-trip); Big* fall back to
    * an exact BigDecimal compare (allocates, but only on the rare Big* path).
    */
-  private static boolean isLossyDoubleConversion(final Number n, final double d) {
+  static boolean isLossyDoubleConversion(final Number n, final double d) {
     return switch (n) {
       case Double ignored -> false;
       case Float ignored -> false;
@@ -732,7 +803,7 @@ public final class ProjectionIndexRowExtractor {
     };
   }
 
-  private static boolean isNonIntegral(final Number n) {
+  static boolean isNonIntegral(final Number n) {
     if (n instanceof Double || n instanceof Float) {
       final double d = n.doubleValue();
       return d != Math.rint(d) || Math.abs(d) > (double) Long.MAX_VALUE;
@@ -760,7 +831,7 @@ public final class ProjectionIndexRowExtractor {
    * Flagged cells raise the value-exactness bit so value-exact consumers decline to the typed re-walk
    * / generic pipeline; counts stay servable.
    */
-  private static boolean isLossyLongConversion(final Number n) {
+  static boolean isLossyLongConversion(final Number n) {
     return switch (n) {
       case Long ignored -> false;
       case Integer ignored -> false;
