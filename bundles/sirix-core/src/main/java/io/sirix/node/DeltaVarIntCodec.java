@@ -70,6 +70,18 @@ public final class DeltaVarIntCodec {
    * We use 0 in zigzag encoding as the NULL marker since delta=0 (self-reference) is meaningless.
    */
   private static final int NULL_MARKER = 0;
+
+  /**
+   * Explicit little-endian unaligned layouts for the packed varint emitter: the byte SEQUENCE on
+   * disk is identical to the historical per-byte writes on every platform, only the store WIDTH
+   * changes.
+   */
+  private static final ValueLayout.OfLong LONG_LE =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfInt INT_LE =
+      ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final ValueLayout.OfShort SHORT_LE =
+      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
   
   /**
    * The actual NULL key value from the Fixed enum.
@@ -755,23 +767,54 @@ public final class DeltaVarIntCodec {
       segment.set(ValueLayout.JAVA_BYTE, offset, (byte) value);
       return 1;
     }
-
-    // Fast path for 2-byte values (128-16383)
-    if ((value & ~0x3FFFL) == 0) {
-      segment.set(ValueLayout.JAVA_BYTE, offset, (byte) ((value & 0x7F) | 0x80));
-      segment.set(ValueLayout.JAVA_BYTE, offset + 1, (byte) (value >>> 7));
-      return 2;
+    // Pack the varint bytes little-endian into a long and emit with the MINIMAL number of exact-
+    // width unaligned stores ({8,4,2,1} decomposition) — never a byte more than the varint needs,
+    // so nothing beyond the encoding is touched and page-edge bounds behave exactly as before.
+    // The historical per-byte writes paid VarHandle offset computation and alignment checking per
+    // byte, measured at ~11% of bulk-load fill time; the byte SEQUENCE on disk is unchanged.
+    long packed = 0;
+    int pending = 0;
+    int total = 0;
+    long remaining = value;
+    while (true) {
+      final boolean more = (remaining & ~0x7FL) != 0;
+      final long encoded = more
+          ? ((remaining & 0x7F) | 0x80)
+          : (remaining & 0x7F);
+      packed |= encoded << (pending << 3);
+      pending++;
+      if (!more) {
+        break;
+      }
+      remaining >>>= 7;
+      if (pending == 8) {
+        segment.set(LONG_LE, offset, packed);
+        offset += 8;
+        total += 8;
+        packed = 0;
+        pending = 0;
+      }
     }
-
-    // General case
-    int bytesWritten = 0;
-    while ((value & ~0x7FL) != 0) {
-      segment.set(ValueLayout.JAVA_BYTE, offset + bytesWritten, (byte) ((value & 0x7F) | 0x80));
-      value >>>= 7;
-      bytesWritten++;
+    if (pending == 8) {
+      // An exactly-8-byte varint breaks out of the loop before the in-loop flush (which only
+      // fires when a ninth byte follows); the {4,2,1} decomposition below covers 1-7 only.
+      segment.set(LONG_LE, offset, packed);
+      return total + 8;
     }
-    segment.set(ValueLayout.JAVA_BYTE, offset + bytesWritten, (byte) value);
-    return bytesWritten + 1;
+    if ((pending & 4) != 0) {
+      segment.set(INT_LE, offset, (int) packed);
+      packed >>>= 32;
+      offset += 4;
+    }
+    if ((pending & 2) != 0) {
+      segment.set(SHORT_LE, offset, (short) packed);
+      packed >>>= 16;
+      offset += 2;
+    }
+    if ((pending & 1) != 0) {
+      segment.set(ValueLayout.JAVA_BYTE, offset, (byte) packed);
+    }
+    return total + pending;
   }
 
   /**

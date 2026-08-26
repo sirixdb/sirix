@@ -51,8 +51,47 @@ import io.sirix.page.RegionsOnlyPage;
 public interface StorageEngineReader extends AutoCloseable {
 
   /**
+   * Writer-side memo hooks for the projection value dictionary's record reads.
+   *
+   * <p>
+   * The dictionary radix resolves every node it touches through
+   * {@code NamePage#getProjectionValueDictionaryRecord}, and in a WRITER whose intent log no longer
+   * holds the page (async flush released it) each such read decodes a whole durable page — IO,
+   * checksum verify, LZ77 decode, version combine — to detach one record. The radix walks revisit the
+   * same few upper-level nodes constantly (a generation append re-reads the shared path per new
+   * entry), which measured as ~16% of a bulk load's CPU. These hooks let the writer memoize the
+   * DETACHED records by node key, which is sound because the dictionary sub-trie is copy-on-write
+   * with freshly minted keys — the ONE record rewritten under a stable key (the generation header) is
+   * evicted by the put hook. Default no-ops keep read-only transactions — which may share pages and
+   * threads — entirely out of it.
+   *
+   * @param key the dictionary record's node key
+   * @return the memoized record, or {@code null} when absent or unsupported
+   */
+  default @Nullable DataRecord cachedProjectionDictionaryRecord(final long key) {
+    return null;
+  }
+
+  /**
+   * Memoize a projection-dictionary record just read for {@code key}. No-op by default; the writer
+   * override skips records that are still bound to a page segment.
+   *
+   * @param key the dictionary record's node key
+   * @param record the record read for that key
+   */
+  default void cacheProjectionDictionaryRecord(final long key, final DataRecord record) {}
+
+  /**
+   * Drop the memo entry for {@code key}, called by the dictionary put path BEFORE persisting so a
+   * record rewritten under a stable key (the generation header) can never be served stale.
+   *
+   * @param key the node key being (re)written
+   */
+  default void evictProjectionDictionaryRecord(final long key) {}
+
+  /**
    * Get the buffer manager.
-   * 
+   *
    * @return the buffer manager
    */
   BufferManager getBufferManager();
