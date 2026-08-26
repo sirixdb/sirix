@@ -285,6 +285,38 @@ public final class HOTBulkBuilder {
     }
 
     /**
+     * Expansion predicate for a frontier node: only a branch whose key group does NOT fit a
+     * single leaf page may be split further. A fitting group is left whole so {@link #bulk}
+     * cuts it as one page — the "highest fitting {@code R(S)} subtree" policy.
+     */
+    private boolean isExpandable(final RNode r) {
+      return r instanceof RBranch && !fitsLeafPage(r.lo(), r.hi());
+    }
+
+    /**
+     * Conservative page-fit test for {@code keys[lo..hi]}: entry count within
+     * {@link HOTLeafPage#MAX_ENTRIES} and the worst-case slot-heap footprint within
+     * {@link HOTLeafPage#DEFAULT_SIZE}. The footprint upper bound charges the FULL key per
+     * entry ({@code 2 + keyLen + 2 + valueLen}); the page stores only the post-prefix suffix
+     * ({@code suffixLen ≤ keyLen}), so a group that passes here can never overflow the real
+     * page and {@code tryBuildLeaf} cannot fail on it. The sum exits early once over budget,
+     * bounding the walk at {@code O(capacity / entrySize)} regardless of group size.
+     */
+    private boolean fitsLeafPage(final int lo, final int hi) {
+      if (hi - lo + 1 > MAX_LEAF_ENTRIES) {
+        return false;
+      }
+      long bytes = 0;
+      for (int i = lo; i <= hi; i++) {
+        bytes += 4 + keys[i].length + values[i].length;
+        if (bytes > HOTLeafPage.DEFAULT_SIZE) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
      * Speculatively build a leaf page holding {@code keys[lo..hi]}. Returns {@code null} if the
      * entries do not fit a page (entry-count or byte-capacity overflow signalled by
      * {@link HOTLeafPage#put} returning {@code false} on a genuine — non-duplicate — insert).
@@ -315,27 +347,40 @@ public final class HOTBulkBuilder {
      * largest still-expandable frontier node) until the block has {@code MAX_FANOUT} children
      * or no frontier node can be split; then derive the discriminative-bit set, the
      * sparse-path partials, and recurse into each child.
+     *
+     * <p><b>Leaf-boundary stop.</b> A frontier node whose whole key group fits one leaf page is
+     * never expanded: expanding it would split a page-fitting {@code R(S)} subtree across several
+     * frontier slots, each of which then compresses into its own (fragmented, under-filled)
+     * page — measured at 7× the leaf count on dense/strided key sets. Stopping there realizes
+     * the documented cut policy ("the highest {@code R(S)} subtree whose key group fits a
+     * page"). Any frontier is invariant-correct (Theorem 1), so only packing changes; height
+     * can only shrink (a would-be sub-indirect becomes a height-0 leaf child).
      */
     private HOTIndirectPage buildIndirect(final RBranch root) {
       // Frontier: the block's exit points, each with the block-internal path that reaches it.
-      // A path step is {beta, side} with side 0 = left, 1 = right.
+      // A path step is {beta, side} with side 0 = left, 1 = right. fexpandable[i] caches the
+      // expansion predicate (branch AND does not fit a leaf page), computed once per entry —
+      // the byte-fit walk is O(min(group, capacity/entry)) and must not rerun per pick loop.
       final RNode[] fnodes = new RNode[MAX_FANOUT];
       final int[][][] fpaths = new int[MAX_FANOUT][][];
+      final boolean[] fexpandable = new boolean[MAX_FANOUT];
       int fcount = 0;
       fnodes[fcount] = root.left();
       fpaths[fcount] = new int[][] {{root.beta(), 0}};
+      fexpandable[fcount] = isExpandable(root.left());
       fcount++;
       fnodes[fcount] = root.right();
       fpaths[fcount] = new int[][] {{root.beta(), 1}};
+      fexpandable[fcount] = isExpandable(root.right());
       fcount++;
 
       while (fcount < MAX_FANOUT) {
-        // Pick the largest expandable (RBranch) frontier node.
+        // Pick the largest expandable frontier node.
         int idx = -1;
         int best = -1;
         for (int i = 0; i < fcount; i++) {
-          if (fnodes[i] instanceof RBranch rb) {
-            final int s = rSize(rb);
+          if (fexpandable[i]) {
+            final int s = rSize(fnodes[i]);
             if (s > best) {
               best = s;
               idx = i;
@@ -352,10 +397,13 @@ public final class HOTBulkBuilder {
         // Replace fnodes[idx] by rb.left(); insert rb.right() at idx+1, shifting the tail.
         System.arraycopy(fnodes, idx + 1, fnodes, idx + 2, fcount - (idx + 1));
         System.arraycopy(fpaths, idx + 1, fpaths, idx + 2, fcount - (idx + 1));
+        System.arraycopy(fexpandable, idx + 1, fexpandable, idx + 2, fcount - (idx + 1));
         fnodes[idx] = rb.left();
         fpaths[idx] = leftPath;
+        fexpandable[idx] = isExpandable(rb.left());
         fnodes[idx + 1] = rb.right();
         fpaths[idx + 1] = rightPath;
+        fexpandable[idx + 1] = isExpandable(rb.right());
         fcount++;
       }
 

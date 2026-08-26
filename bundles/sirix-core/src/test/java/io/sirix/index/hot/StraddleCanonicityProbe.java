@@ -239,10 +239,15 @@ final class StraddleCanonicityProbe {
     final HOTMalformedSubtreeDetector.PageResolver resolver = PageReference::getPage;
 
     // ---- (A) operation-level: addEntry folds never inflate a height-1 node. ----
+    // Grouped keys (top 5 bits = group id, 300 keys per group) force the shape the scenario
+    // needs BY KEY DESIGN — a height-1 root with 16 leaf children — independent of the
+    // builder's leaf-packing policy. A random set no longer reaches it: honest highest-
+    // fitting-subtree cuts turn 20K random keys into ~50 well-filled leaves whose height-1
+    // nodes are too small for splitIndirect to yield indirect halves.
     int foldsChecked = 0;
     int foldsRejectedByGuard = 0;
     for (final int seed : new int[] {99, 100, 101, 102}) {
-      final List<byte[]> keys = random(20_000, seed);
+      final List<byte[]> keys = grouped(16, 300, seed);
       final AtomicLong allocator = new AtomicLong(1);
       final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(keys), 1,
           IndexType.CAS, allocator::getAndIncrement);
@@ -557,6 +562,30 @@ final class StraddleCanonicityProbe {
       set.add(rng.nextLong());
     }
     final List<byte[]> keys = new ArrayList<>(n);
+    for (final long k : set) {
+      keys.add(beKey(k));
+    }
+    return keys;
+  }
+
+  /**
+   * Keys whose top 5 bits carry a group id: the {@code R(S)} recursion consumes exactly those
+   * bits first, so a build yields one leaf per group under a root compound node with
+   * {@code groups} children — the shape is forced by the KEYS, not by any leaf-packing
+   * heuristic of the builder. Requires {@code 256 < perGroup ≤ 512}: one group must fit a leaf
+   * page while a PAIR must not, or the highest-fitting-subtree cut lands a level higher.
+   */
+  private static List<byte[]> grouped(final int groups, final int perGroup, final long seed) {
+    final Random rng = new Random(0xA5A5_5A5AL ^ seed);
+    final TreeSet<Long> set = new TreeSet<>(Long::compareUnsigned);
+    for (int g = 0; g < groups; g++) {
+      final long prefix = (long) g << 59;
+      final int before = set.size();
+      while (set.size() < before + perGroup) {
+        set.add(prefix | (rng.nextLong() >>> 5));
+      }
+    }
+    final List<byte[]> keys = new ArrayList<>(set.size());
     for (final long k : set) {
       keys.add(beKey(k));
     }

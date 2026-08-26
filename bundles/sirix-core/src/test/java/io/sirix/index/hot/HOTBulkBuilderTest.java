@@ -254,13 +254,19 @@ final class HOTBulkBuilderTest {
     // pairwise MSDBs land at bytes 0..27, so the root compound node — once its block expands —
     // captures discriminative bits across the whole 28-byte range, forcing the MultiMask layout
     // (and its chunked computeMultiMaskPartialKey routing decode).
+    //
+    // Each byte-position group deliberately EXCEEDS one leaf page (> MAX_ENTRIES keys): the
+    // leaf-boundary frontier stop leaves page-fitting subtrees whole, so with small groups the
+    // expansion would halt after a few peels with disc bits spanning < 8 bytes (SingleMask).
+    // Oversized groups keep every byte-position subtree expandable until all 28 are separate
+    // children, pinning the block's disc-bit span at 28 bytes.
     final int span = 28;
     for (int variant = 0; variant < 8; variant++) {
       final Random r = new Random(0x7E57_0000L ^ variant);
       final List<HOTBulkBuilder.Entry> entries = new ArrayList<>();
-      // Many keys per byte position so leaves overflow and indirect structure is forced.
+      // Enough keys per byte position that each group overflows a leaf page (600 > 512).
       for (int bytePos = 0; bytePos < span; bytePos++) {
-        for (int low = 0; low < 24; low++) {
+        for (int low = 0; low < 600; low++) {
           final byte[] key = new byte[span + 2];
           key[bytePos] = (byte) 0x80;
           // A distinct low tail keeps keys unique without disturbing the wide MSDB spread.
