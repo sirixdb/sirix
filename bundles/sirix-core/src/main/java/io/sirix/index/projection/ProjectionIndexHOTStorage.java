@@ -120,9 +120,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private final boolean stageFreshSidePages;
 
   /**
-   * Entry-count cap for bulk slot accumulation ({@code docs/HOT_BULK_BUILD.md} §Seam 2a: at 8 M
-   * entries the transient footprint — arena plus the not-yet-spill-eligible built pages — stays ≈1.6
-   * GB).
+   * Entry-count cap for bulk slot accumulation ({@code docs/HOT_BULK_BUILD.md} §2: at 8 M entries the
+   * transient footprint — arena plus the not-yet-spill-eligible built pages — stays ≈1.6 GB).
    */
   private static final int BULK_SLOT_MAX_ENTRIES = 8_000_000;
 
@@ -251,8 +250,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /**
    * Engage bulk slot accumulation for a FRESH build: subsequent slot writes are collected in a
    * {@link HOTBulkSlotLoader} and materialized in ONE canonical {@code HOTBulkBuilder} pass (9–14×
-   * the per-entry path at 1 M–10 M slots — {@code docs/HOT_BULK_BUILD.md} §Seam 2a) instead of paying
-   * a descent per slot. A no-op unless the tree is VIRGIN — that is the positive witness the
+   * the per-entry path at 1 M–10 M slots — {@code docs/HOT_BULK_BUILD.md} §2) instead of paying a
+   * descent per slot. A no-op unless the tree is VIRGIN — that is the positive witness the
    * read-through contract rests on: while accumulating, a key is either in the loader or it was never
    * written, so point reads serve accumulated keys from the loader and everything else from the
    * (empty) tree.

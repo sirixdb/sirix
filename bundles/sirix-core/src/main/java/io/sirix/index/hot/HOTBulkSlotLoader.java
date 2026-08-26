@@ -28,7 +28,7 @@ import static java.util.Objects.requireNonNull;
  * and its fold OR-merges chunked {@code NodeReferences} runs), it is {@code sealed}, and slot
  * semantics need a different fold: keep the LAST payload written per key. Measured against the
  * per-entry {@code writeSlotValue} path this construction is 9–14× faster at 1 M–10 M entries
- * ({@code docs/HOT_BULK_BUILD.md} §Seam 2a).
+ * ({@code docs/HOT_BULK_BUILD.md} §2).
  *
  * <h2>Read-through</h2>
  * <p>
@@ -41,10 +41,10 @@ import static java.util.Objects.requireNonNull;
  *
  * <h2>Capacity</h2>
  * <p>
- * Bounded by entry count and arena bytes ({@code docs/HOT_BULK_BUILD.md} §Seam 2a arithmetic: the
- * built pages cost ≈64 KiB per 512 entries ON TOP of the arena, and none of them are spill-eligible
- * until the splice registers them). {@link #tryAdd} returns {@code false} at capacity; the owner
- * splices the accumulated prefix and continues per-entry.
+ * Bounded by entry count and arena bytes ({@code docs/HOT_BULK_BUILD.md} §2 arithmetic: the built
+ * pages cost ≈64 KiB per 512 entries ON TOP of the arena, and none of them are spill-eligible until
+ * the splice registers them). {@link #tryAdd} returns {@code false} at capacity; the owner splices
+ * the accumulated prefix and continues per-entry.
  * </p>
  *
  * <h2>Threading</h2>

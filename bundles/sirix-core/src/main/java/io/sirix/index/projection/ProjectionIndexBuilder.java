@@ -625,7 +625,7 @@ public final class ProjectionIndexBuilder {
     // survive under the new metadata. Ordinary transaction maintenance never takes this path.
     epoch.storage.resetTree();
     // Fresh build on a virgin tree: accumulate every slot write and materialize the tree in one
-    // canonical bulk pass (docs/HOT_BULK_BUILD.md §Seam 2a — measured 9–14× the per-entry path
+    // canonical bulk pass (docs/HOT_BULK_BUILD.md §2 — measured 9–14× the per-entry path
     // for the order-label and column-segment shapes). Point reads during the build are served
     // from the accumulator (read-through); side-page attaches are deferred under a byte budget;
     // a capacity trip splices the prefix and falls back to per-entry. The accumulator lives
