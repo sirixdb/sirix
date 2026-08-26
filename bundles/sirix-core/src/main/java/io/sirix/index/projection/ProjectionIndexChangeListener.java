@@ -1678,10 +1678,21 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // that turns a successful-looking load into a useless one. A silent degradation that the
     // loader then reports as "projection built" is how a 26-hour run gets measured on the wrong
     // code path. Anything a guard or an operator must see cannot travel by a suppressible channel.
+    //
+    // The quantity quoted is the one the guard WEIGHED, not merely the one it retains. Every
+    // byte-budget check compares retention plus a reservation, so a line reading "retained X B ...
+    // past its Y B budget" printed X < Y on every real breach and read as a misfiring guard; worse,
+    // it left the operator no number to raise the budget to. A structural ceiling weighs no bytes at
+    // all, so that case states the ceiling instead of inventing a comparison.
+    final String breach = tooBig.breachingTerm() == null
+        ? "declined an unsafe allocation over " + tooBig.entryCount() + " distinct values ("
+            + tooBig.retainedBytes() + " B retained): " + tooBig.admissionDetail()
+        : "needed " + tooBig.breachingBytes() + " B (" + tooBig.breachingTerm() + ") over " + tooBig.entryCount()
+            + " distinct values, past its " + tooBig.budgetBytes() + " B budget (" + tooBig.retainedBytes()
+            + " B retained)";
     System.err.println("[proj] PROJECTION ABANDONED during the load: index " + indexDef.getID() + ", column "
-        + tooBig.column() + " retained " + tooBig.retainedBytes() + " B over " + tooBig.entryCount()
-        + " distinct values, past its " + tooBig.budgetBytes() + " B budget. The load completes; the projection is"
-        + " STALE and every query will take the generic pipeline until jn:create-projection-index rebuilds it.");
+        + tooBig.column() + " " + breach + ". The load completes; the projection is STALE and every query will take"
+        + " the generic pipeline until jn:create-projection-index rebuilds it.");
     LOGGER.warn("Projection index " + indexDef.getID() + " ABANDONED during the load. " + tooBig.getMessage() + " "
         + ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED.remedy(), tooBig);
     load.abort();

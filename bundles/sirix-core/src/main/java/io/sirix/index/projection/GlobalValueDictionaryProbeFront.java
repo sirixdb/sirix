@@ -191,7 +191,8 @@ final class GlobalValueDictionaryProbeFront {
       projected += (long) tableHashes.length * Long.BYTES + (long) tableIds.length * Integer.BYTES;
     }
     if (projected > budgetBytes) {
-      throw new GlobalDictionaryBudgetExceededException(column, projected, budgetBytes, entryCount,
+      throw GlobalDictionaryBudgetExceededException.budgetBreach(column, retainedBytes(), projected,
+          "projected-resident", budgetBytes, entryCount,
           "resident probe front for the streaming load cannot grow further; the column's whole-load distinct set "
               + "no longer fits the per-column budget");
     }
