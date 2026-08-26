@@ -11,6 +11,7 @@ import io.sirix.api.Database;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.hot.BulkSpliceTestBridge;
 import io.sirix.index.hot.HOTBulkBuilder;
 import io.sirix.index.hot.PathKeySerializer;
@@ -26,6 +27,7 @@ import java.util.function.LongUnaryOperator;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * PHASE-2 PERF GATE (campaign #76): per-entry {@code writeSlotValue} vs the bulk build-and-splice
@@ -50,6 +52,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * FIRST so any thermal drift penalizes the bulk arm — conservative for the claim under test).
  * Reported number = best repetition. Correctness witnesses run OUTSIDE the timed regions: sampled
  * read-back equality across arms and a zero-malformed-subtree check on the bulk tree.
+ *
+ * <p>
+ * Each shape keeps every storage it builds live inside ONE open transaction, so its frames stay
+ * committed in the arena until that transaction closes — an uncommitted transaction has nothing to
+ * release. A shape is therefore attempted only when the arena is provably large enough to hold its
+ * whole live set (see {@link #arenaFits}); a shape that does not fit is reported as skipped rather
+ * than exhausting the arena. The 10 M scales need several GiB and run only on a development-sized
+ * arena; the 1 M scales fit the constrained arena a container or CI runner clamps to. At least one
+ * shape must execute, otherwise the gate would pass vacuously and the test fails instead.
  */
 final class ProjectionBulkVsPerEntryBench {
 
@@ -61,6 +72,22 @@ final class ProjectionBulkVsPerEntryBench {
   private static final int PAYLOAD_BYTES = 30;
   private static final int WARMUP_ENTRIES = 100_000;
   private static final int READBACK_SAMPLES = 1_000;
+
+  /**
+   * Arena bytes one live entry costs, keys and trie overhead included. Calibrated against a run that
+   * exhausted a 1.734 GB arena: a 10 M-entry shape had committed 1.53 GiB across 23 380 slots of 64
+   * KiB before it failed, and the 1 M shapes (4.2 M live entries) completed inside the same budget —
+   * bracketing the true cost around 150 B/entry.
+   */
+  private static final long ARENA_BYTES_PER_ENTRY = 150L;
+
+  /**
+   * Multiplier over {@link #ARENA_BYTES_PER_ENTRY} demanded before a shape is attempted, so a shape
+   * that would only just fit — leaving the other size classes nothing — is skipped instead.
+   */
+  private static final long ARENA_SAFETY_NUMERATOR = 3L;
+
+  private static final long ARENA_SAFETY_DENOMINATOR = 2L;
 
   private static final LongUnaryOperator LABEL_KEYS = k -> LABEL_BASE + k;
   private static final LongUnaryOperator SEGSLOT_KEYS =
@@ -83,14 +110,51 @@ final class ProjectionBulkVsPerEntryBench {
 
   @Test
   void perfGate() {
+    final long budget = FrameSlotAllocator.getInstance().budgetBytes();
+    System.out.printf("arena budget: %d bytes (%.2f GiB)%n", budget, budget / (double) (1L << 30));
     System.out.println("shape    scale     arm        best-ns/entry   total-ms   ratio(perEntry/bulk)");
-    runShape("label", LABEL_KEYS, 1_000_000, 2);
-    runShape("label", LABEL_KEYS, 10_000_000, 1);
-    runShape("segslot", SEGSLOT_KEYS, 1_000_000, 2);
-    runShape("segslot", SEGSLOT_KEYS, 10_000_000, 1);
+    int executed = 0;
+    executed += runShape("label", LABEL_KEYS, 1_000_000, 2);
+    executed += runShape("label", LABEL_KEYS, 10_000_000, 1);
+    executed += runShape("segslot", SEGSLOT_KEYS, 1_000_000, 2);
+    executed += runShape("segslot", SEGSLOT_KEYS, 10_000_000, 1);
+    assertTrue(executed > 0,
+        "every shape was skipped for arena size — the gate asserted nothing; arena budget is " + budget + " bytes");
   }
 
-  private void runShape(final String shape, final LongUnaryOperator keyOf, final int entries, final int reps) {
+  /**
+   * Whether the arena can hold everything a shape keeps live at once: the two warmup storages plus
+   * both arms of every repetition. They all belong to a single open transaction, so none of their
+   * frames can be reclaimed while the shape runs.
+   *
+   * @param entries entries per arm
+   * @param reps measured repetitions, each building both arms
+   * @return {@code true} when the shape may be attempted
+   */
+  private static boolean arenaFits(final int entries, final int reps) {
+    final long budget = FrameSlotAllocator.getInstance().budgetBytes();
+    if (budget <= 0L) {
+      // Another MemorySegmentAllocator is configured (-Dsirix.allocator=pool|windowspool), so the
+      // frame arena is not what bounds this run and there is nothing to measure against. Attempt
+      // every shape, exactly as this bench did before the guard existed.
+      return true;
+    }
+    final long liveEntries = (long) reps * 2L * entries + 2L * WARMUP_ENTRIES;
+    final long required = liveEntries * ARENA_BYTES_PER_ENTRY * ARENA_SAFETY_NUMERATOR / ARENA_SAFETY_DENOMINATOR;
+    return budget >= required;
+  }
+
+  /**
+   * Runs one shape at one scale, unless the arena is too small to hold it.
+   *
+   * @return {@code 1} when the shape ran, {@code 0} when it was skipped
+   */
+  private int runShape(final String shape, final LongUnaryOperator keyOf, final int entries, final int reps) {
+    if (!arenaFits(entries, reps)) {
+      System.out.printf("%-8s %-9d %-10s %13s %10s   arena too small for %d live entries%n", shape, entries, "SKIPPED",
+          "-", "-", (long) reps * 2L * entries + 2L * WARMUP_ENTRIES);
+      return 0;
+    }
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -123,6 +187,7 @@ final class ProjectionBulkVsPerEntryBench {
       report(shape, entries, "perEntry", bestPerEntryNanos, Double.NaN);
       report(shape, entries, "bulk", bestBulkNanos, ratio);
     }
+    return 1;
   }
 
   private record TimedStorage(long nanos, ProjectionIndexHOTStorage storage) {
