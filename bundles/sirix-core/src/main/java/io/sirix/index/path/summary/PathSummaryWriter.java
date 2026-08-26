@@ -163,8 +163,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Fold an externally accumulated per-path delta into the pending map — the bulk loaders' merge
    * entry point. A parallel import collects one {@link PathStatsAccumulator} per (chunk, path) in its
-   * workers and the coordinator drains them here in chunk-adoption order; the merge is associative,
-   * so any drain order yields the same statistics. The standard pre-commit
+   * workers and the coordinator drains them here in DOCUMENT order. Every lane except one is
+   * order-free (count, nullCount, min, max, byte bounds, HLL, page witnesses and the 128-bit integral
+   * sum with its trust verdict), so document order is required only by {@code sumFraction}, a double
+   * accumulator whose low bits depend on addition order — and which nothing serves. A future caller
+   * wiring a new drain must preserve document order for that reason; see
+   * {@link PathStatsAccumulator#mergeFrom}. The standard pre-commit
    * {@link #flushPendingStats()} then applies everything through the ordinary COW path — one prepared
    * record per path, the same as cursor ingestion.
    *
@@ -1330,14 +1334,20 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   private static void applyDeferredStats(final PathNode pn, final PathStatsAccumulator d) {
     if (d.kind == 1 && d.count > 0) {
-      pn.mergeLongStats(d.count, d.sum, d.min, d.max);
+      // A total that left long range folds NOTHING into the node's accumulator: the wrapped low word
+      // is meaningless, and pushing it through the node's saturating add would make the persisted
+      // sum depend on the flush cadence. The batch is marked untrusted just below, so nothing is
+      // served from it either way.
+      pn.mergeLongStats(d.count, d.sumFitsLong()
+          ? d.sumAsLong()
+          : 0L, d.min, d.max);
       if (d.sumFraction != 0.0d) {
         pn.mergeSumFraction(d.sumFraction);
       }
       if (d.doubleTyped) {
         pn.markDoubleTyped();
       }
-      if (d.valueStatsUntrusted) {
+      if (d.isValueStatsUntrusted()) {
         pn.markValueStatsUntrusted();
       }
     } else if (d.kind == 2 && d.count > 0) {

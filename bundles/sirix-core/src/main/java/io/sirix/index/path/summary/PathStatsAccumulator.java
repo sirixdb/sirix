@@ -32,8 +32,12 @@ import java.util.Arrays;
  * <p>
  * Not thread-safe: an instance belongs to one writer (the transaction's summary writer or one
  * bulk-import chunk worker). Chunk partials are merged single-threaded by the coordinator via
- * {@link #mergeFrom}, which is associative and commutative over disjoint observation multisets —
- * the property that makes chunk-order-independent coordination sound.
+ * {@link #mergeFrom}. Per lane: count, nullCount, min, max, byte bounds, HLL, page witnesses AND the
+ * integral sum (a 128-bit accumulator, so no intermediate can leave the representable range) are
+ * associative and commutative — any merge order yields the same value, bit for bit. {@code
+ * sumFraction} alone is not: it is a {@code double} accumulator, so its low bits depend on addition
+ * order, which is why the coordinator drains chunks in DOCUMENT order and why the field is exempt
+ * from byte identity (nothing serves it).
  */
 public final class PathStatsAccumulator {
 
@@ -41,13 +45,24 @@ public final class PathStatsAccumulator {
   byte kind;
   long count;
   long nullCount;
-  long sum;
-  /** Fractional remainder of {@link #sum} for non-integral observations in this batch. */
+  /**
+   * Low (unsigned) half of the 128-bit integral accumulator; also the exact {@code long} total
+   * whenever {@link #sumFitsLong()} holds.
+   */
+  long sumLo;
+  /** High (signed) half of the 128-bit integral accumulator. */
+  long sumHi;
+  /** Fractional remainder of the integral sum for non-integral observations in this batch. */
   double sumFraction;
   /** Whether any observation in this batch arrived as a floating-point value. */
   boolean doubleTyped;
-  /** Whether this batch saw a value that cannot be accumulated (NaN, an infinity, sum overflow). */
-  boolean valueStatsUntrusted;
+  /**
+   * Whether this batch saw an OBSERVATION that cannot be accumulated (NaN, an infinity). Sum
+   * overflow is NOT recorded here — it is derived from the 128-bit accumulator by
+   * {@link #isValueStatsUntrusted()}, so that the verdict depends only on the observation multiset
+   * and not on the order or chunking it arrived in.
+   */
+  boolean untrustedObservation;
   long min;
   long max;
   byte @Nullable [] minBytes;
@@ -71,10 +86,11 @@ public final class PathStatsAccumulator {
     kind = 0;
     count = 0L;
     nullCount = 0L;
-    sum = 0L;
+    sumLo = 0L;
+    sumHi = 0L;
     sumFraction = 0.0d;
     doubleTyped = false;
-    valueStatsUntrusted = false;
+    untrustedObservation = false;
     min = Long.MAX_VALUE;
     max = Long.MIN_VALUE;
     minBytes = null;
@@ -127,36 +143,82 @@ public final class PathStatsAccumulator {
   }
 
   /**
-   * Folds {@code delta} into {@link #sum}, marking the value statistics untrusted instead of wrapping
-   * when this accumulator would overflow. A column of 64-bit ids overflows a long after a few dozen
-   * values, and a wrapped total served as {@code sum}/{@code avg} is silently the true total modulo
-   * 2^64 — record that it cannot be reproduced and let the query fall back to the scan.
+   * Folds {@code delta} into the 128-bit integral accumulator.
+   *
+   * <p>
+   * 128 bits rather than 64 because the observation multiset — not the order it is fed in — must
+   * decide whether the total is representable. A 64-bit accumulator that drops an overflowing addend
+   * answers differently for {@code [M, M, -M]} fed sequentially (untrusted, partial total) than for
+   * the same values split into chunks that each stay in range (trusted, different total), so a
+   * bulk-loaded resource would persist statistics a cursor-loaded one does not. Here every
+   * intermediate is exact — 2^63 magnitude values would need 2^64 of them to leave 128 bits — and
+   * {@link #sumFitsLong()} asks the only question that matters: does the TRUE total fit the
+   * {@code long} the summary persists?
+   *
+   * <p>
+   * Two long adds, one unsigned compare, no allocation and no boxing: this runs once per ingested
+   * numeric value on the bulk loaders' hot path.
    */
   void addToSum(final long delta) {
-    final long updated = sum + delta;
-    if (((sum ^ updated) & (delta ^ updated)) < 0) {
-      valueStatsUntrusted = true;
-      return;
-    }
-    sum = updated;
+    add128(delta >> 63, delta);
+  }
+
+  /** Add the 128-bit value {@code (hi, lo)} into the accumulator; {@code lo} is unsigned. */
+  private void add128(final long hi, final long lo) {
+    final long updatedLo = sumLo + lo;
+    // Unsigned carry-out: the sum wrapped exactly when it compares below the augend.
+    final long carry = Long.compareUnsigned(updatedLo, sumLo) < 0
+        ? 1L
+        : 0L;
+    sumHi += hi + carry;
+    sumLo = updatedLo;
   }
 
   /**
-   * Non-integral observation: integral part into {@link #sum}, remainder into the fraction.
+   * Whether the exact integral total is representable as a {@code long} — i.e. whether the high half
+   * is nothing but the sign extension of the low half.
+   */
+  public boolean sumFitsLong() {
+    return sumHi == (sumLo >> 63);
+  }
+
+  /**
+   * The exact integral total. Only meaningful when {@link #sumFitsLong()} holds; otherwise it is the
+   * true total modulo 2^64 and callers must decline to serve it.
+   */
+  public long sumAsLong() {
+    return sumLo;
+  }
+
+  /**
+   * Whether value statistics may be served from this batch: {@code false} once an unaccumulable
+   * observation arrived (NaN, an infinity) OR the exact total left {@code long} range.
+   *
+   * <p>
+   * Both terms are functions of the observation multiset alone, so a chunked merge and a sequential
+   * feed of the same values always agree — which is what lets the bulk loaders claim cursor-identical
+   * statistics.
+   */
+  public boolean isValueStatsUntrusted() {
+    return untrustedObservation || !sumFitsLong();
+  }
+
+  /**
+   * Non-integral observation: integral part into the 128-bit sum, remainder into the fraction.
    *
    * <p>
    * NaN and the infinities carry nothing to accumulate and nothing to subtract later, and folding
    * them in silently poisons the accumulators for good: {@code (long) NaN} is 0 while
    * {@code NaN - NaN} is NaN, so {@code sumFraction} would stay NaN forever, and casting the
    * infinities yields {@code Long.MIN_VALUE}/{@code Long.MAX_VALUE} straight into min/max. They mark
-   * the sum and the bounds untrusted instead, which is the same bargain a delete makes.
+   * the observation untrusted instead, which is the same bargain a delete makes.
    */
   public void addDouble(final double v) {
     kind = 1;
     doubleTyped = true;
     count++;
     if (Double.isNaN(v) || Double.isInfinite(v)) {
-      valueStatsUntrusted = true;
+      untrustedObservation = true;
       if (hll == null) {
         hll = new HyperLogLogSketch();
       }
@@ -271,15 +333,14 @@ public final class PathStatsAccumulator {
    * {@code other} is left untouched.
    *
    * <p>
-   * <b>Associativity, stated honestly.</b> count, nullCount, min, max, byte bounds, HLL and page
-   * witnesses are associative AND commutative — any merge order yields the same value. Two lanes are
-   * not: {@code sumFraction} is a double accumulator ({@code +=}), so its low bits depend on addition
-   * order — the coordinator therefore merges chunks in DOCUMENT order, which makes the result
-   * deterministic (and the field is never served: {@code PathStats#sumFraction}). The overflow flag
-   * from {@link #addToSum} depends on which partial sums cross the boundary: with mixed-sign values a
-   * chunked merge can overflow where the sequential running sum does not. The contract is ONE-SIDED
-   * CONSERVATIVE — a merge may mark the sum untrusted where the cursor would not, never the reverse;
-   * untrusted only declines summary serving, it cannot produce a wrong answer. Pinned by
+   * <b>Associativity, stated honestly.</b> count, nullCount, min, max, byte bounds, HLL, page
+   * witnesses AND the integral sum (with it {@link #isValueStatsUntrusted()}, since the 128-bit
+   * accumulator has no intermediate to overflow) are associative AND commutative — any merge order
+   * yields exactly the same value, so a chunked merge and a sequential feed of the same observation
+   * multiset are indistinguishable. Exactly ONE lane is not: {@code sumFraction} is a double
+   * accumulator ({@code +=}), so its low bits depend on addition order — the coordinator therefore
+   * merges chunks in DOCUMENT order, which makes the result deterministic (and the field is never
+   * served: {@code PathStats#sumFraction}). Pinned by
    * {@code BulkPathStatsAccumulatorContractTest}.
    */
   public void mergeFrom(final PathStatsAccumulator other) {
@@ -290,10 +351,10 @@ public final class PathStatsAccumulator {
     }
     count += other.count;
     nullCount += other.nullCount;
-    addToSum(other.sum);
+    add128(other.sumHi, other.sumLo);
     sumFraction += other.sumFraction;
     doubleTyped |= other.doubleTyped;
-    valueStatsUntrusted |= other.valueStatsUntrusted;
+    untrustedObservation |= other.untrustedObservation;
     if (other.min < min) {
       min = other.min;
     }

@@ -47,7 +47,15 @@ new NdjsonAsArrayInputStream(inputStream, recordLimit)
 ### Scope
 
 Both loaders refuse, up front, configurations they do not faithfully reproduce: `hashType` other
-than `NONE`, stored DeweyIDs, node history, path statistics, a non-empty target document.
+than `NONE`, stored DeweyIDs, node history, a non-empty target document.
+
+**Path statistics are built during the load** by both loaders. Observations are accumulated through
+the very class the cursor path defers through (`PathStatsAccumulator`), so the classifier, the
+NaN/infinity policy, the 128-bit integral sum, the fraction carry and the HLL hashing cannot drift
+between the arms; the parallel importer collects one partial per (chunk, path) and the coordinator
+merges them in document order. Every lane but `sumFraction` is order-free, and `sumFraction` is
+never served — `BulkPathStatsDifferentialTest` compares four arms field by field after commit,
+close and cold reopen, including exact HLL bytes.
 
 The parallel importer **maintains PATH, CAS and NAME** index definitions during the load: each
 chunk's build worker collects that family's tuples from the primitives it already holds, the

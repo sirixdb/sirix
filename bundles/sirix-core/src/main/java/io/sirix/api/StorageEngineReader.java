@@ -63,7 +63,8 @@ public interface StorageEngineReader extends AutoCloseable {
    * DETACHED records by node key, which is sound because the dictionary sub-trie is copy-on-write
    * with freshly minted keys — the ONE record rewritten under a stable key (the generation header) is
    * evicted by the put hook. Default no-ops keep read-only transactions — which may share pages and
-   * threads — entirely out of it.
+   * threads — entirely out of it. A memo is a CACHE, not a side table: every read here must remain
+   * correct when it misses, because the writer override bounds its retention and evicts.
    *
    * @param key the dictionary record's node key
    * @return the memoized record, or {@code null} when absent or unsupported

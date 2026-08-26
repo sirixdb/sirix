@@ -52,6 +52,8 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.ValueDictionaryEntryNode;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
@@ -1312,15 +1314,45 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * the async flush releases the pages they were decoded from — which is exactly the moment the
    * uncached path starts paying a full page decode per record and this memo starts earning its keep
    * (measured: ~16% of a bulk load's CPU was radix re-reads through that path).
+   *
+   * <p>
+   * BOUNDED, in bytes and in entries, with least-recently-used eviction. Soundness never required a
+   * bound, but retention does: the radix routes every read through here, entry LEAVES included, and
+   * one of those retains its whole UTF-8 value (up to
+   * {@link ValueDictionaryEntryNode#MAX_VALUE_LENGTH}). Uncapped, a high-cardinality column would
+   * leave a heap-resident copy of the entire dictionary standing for the life of the write
+   * transaction, invisible to the dictionary writer's own byte budget. Access order is what makes the
+   * cap keep the speedup: the upper-level radix nodes the walks revisit constantly stay resident,
+   * while the one-shot entry leaves that carry the bytes leave from the tail.
    */
-  private @Nullable Long2ObjectOpenHashMap<DataRecord> projectionDictionaryRecordMemo;
+  private @Nullable Long2ObjectLinkedOpenHashMap<DataRecord> projectionDictionaryRecordMemo;
+
+  /** Retained-heap estimate of everything currently in {@link #projectionDictionaryRecordMemo}. */
+  private long projectionDictionaryRecordMemoBytes;
+
+  /** Retention ceiling for the memo. */
+  private static final long PROJECTION_DICTIONARY_MEMO_MAX_BYTES = 32L << 20;
+
+  /** Entry ceiling, so a stream of tiny records cannot make the map itself the leak. */
+  private static final int PROJECTION_DICTIONARY_MEMO_MAX_ENTRIES = 1 << 16;
+
+  /** Object header + node key + reference slack charged to every memoized record. */
+  private static final int PROJECTION_DICTIONARY_MEMO_ENTRY_OVERHEAD = 64;
+
+  /**
+   * Retention charged to a structural dictionary node (radix fan-out array, bucket entry arrays,
+   * collision node). Sized to the largest of them rather than measured per instance: the estimate
+   * only has to keep the ceiling honest to within a small factor, and a per-kind measurement on this
+   * path would cost more than the cap saves.
+   */
+  private static final int PROJECTION_DICTIONARY_MEMO_STRUCTURAL_BYTES = 2 << 10;
 
   @Override
   public @Nullable DataRecord cachedProjectionDictionaryRecord(final long key) {
-    final Long2ObjectOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    final Long2ObjectLinkedOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
     return memo == null
         ? null
-        : memo.get(key);
+        : memo.getAndMoveToFirst(key);
   }
 
   @Override
@@ -1332,20 +1364,44 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // conversion fails safe (the read stays correct, merely unmemoized) instead of dangling.
       return;
     }
-    Long2ObjectOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    final long footprint = projectionDictionaryRecordFootprint(record);
+    if (footprint > PROJECTION_DICTIONARY_MEMO_MAX_BYTES >> 2) {
+      // One outsized value would evict most of the working set just to house itself.
+      return;
+    }
+    Long2ObjectLinkedOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
     if (memo == null) {
-      memo = new Long2ObjectOpenHashMap<>(1 << 12);
+      memo = new Long2ObjectLinkedOpenHashMap<>(1 << 12);
       projectionDictionaryRecordMemo = memo;
     }
-    memo.put(key, record);
+    final DataRecord previous = memo.putAndMoveToFirst(key, record);
+    if (previous != null) {
+      projectionDictionaryRecordMemoBytes -= projectionDictionaryRecordFootprint(previous);
+    }
+    projectionDictionaryRecordMemoBytes += footprint;
+    while (memo.size() > 1 && (projectionDictionaryRecordMemoBytes > PROJECTION_DICTIONARY_MEMO_MAX_BYTES
+        || memo.size() > PROJECTION_DICTIONARY_MEMO_MAX_ENTRIES)) {
+      projectionDictionaryRecordMemoBytes -= projectionDictionaryRecordFootprint(memo.removeLast());
+    }
   }
 
   @Override
   public void evictProjectionDictionaryRecord(final long key) {
-    final Long2ObjectOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
-    if (memo != null) {
-      memo.remove(key);
+    final Long2ObjectLinkedOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    if (memo == null) {
+      return;
     }
+    final DataRecord removed = memo.remove(key);
+    if (removed != null) {
+      projectionDictionaryRecordMemoBytes -= projectionDictionaryRecordFootprint(removed);
+    }
+  }
+
+  /** Retained-heap estimate for one memoized dictionary record. */
+  private static long projectionDictionaryRecordFootprint(final DataRecord record) {
+    return PROJECTION_DICTIONARY_MEMO_ENTRY_OVERHEAD + (record instanceof final ValueDictionaryEntryNode entry
+        ? entry.getValueLength()
+        : PROJECTION_DICTIONARY_MEMO_STRUCTURAL_BYTES);
   }
 
   @Override
@@ -1380,6 +1436,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       return record;
     } else if (pageCont != null) {
+      refuseAdoptedImmutablePage(pageCont.getModified(), "read");
       DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
         node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
@@ -3238,6 +3295,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private PageContainer deepCopyFrozenContainer(final PageContainer container) {
     final var frozenModified = (KeyValueLeafPage) container.getModified();
+    refuseAdoptedImmutablePage(frozenModified, "copy-on-write");
     final var frozenComplete = (KeyValueLeafPage) container.getComplete();
     final var cowModified = frozenModified.deepCopy();
     final var cowComplete = (frozenComplete == frozenModified)
@@ -4153,6 +4211,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
     projectionDictionaryRecordMemo = null;
+    projectionDictionaryRecordMemoBytes = 0L;
 
     Throwable asyncFailure = null;
     try {
@@ -4467,7 +4526,36 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     assert indexType != null;
     // Traditional KEYED_TRIE path (bit-decomposed).
     // HOT secondary indexes use dedicated HOT*IndexWriter/Reader implementations.
-    return prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
+    final PageContainer container = prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
+    refuseAdoptedImmutablePage(container.getModified(), "prepare-for-modification");
+    return container;
+  }
+
+  /**
+   * Refuse to hand out a bulk-ADOPTED page for reading or modification.
+   *
+   * <p>
+   * {@code markAdoptedImmutableForFlush()} buys the flush lane 1.4 GB of memcpy per million rows by
+   * letting the async snapshot serializer encode the page IN PLACE — the encoded image is copied over
+   * the page's own slotted frame, so from that moment the slot region no longer holds slot data. The
+   * page nevertheless stays resolvable through the intent log's snapshot layer until
+   * {@code cleanupSnapshot()} runs, so the window between the frame overwrite and cleanup is one in
+   * which a read would return garbage and a copy-on-write would propagate it — silently, because
+   * nothing in the record path can tell an encoded frame from a slotted one.
+   *
+   * <p>
+   * The bulk loaders never re-touch an adopted page (tails are adopted only once complete, page 0
+   * goes through {@code prepareDocumentLeafForBlit} and is never marked, and the projection feed no
+   * longer re-reads records), so this can only fire on a caller that kept using the write transaction
+   * between {@code assemble()} and {@code commit()}. Turning that into a refusal is the whole point:
+   * the alternative is corruption with no error.
+   */
+  private static void refuseAdoptedImmutablePage(final @Nullable Page page, final String operation) {
+    if (page instanceof final KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.isAdoptedImmutableForFlush()) {
+      throw new IllegalStateException("Document page " + keyValueLeafPage.getPageKey()
+          + " was adopted immutable for the bulk flush and must not be used for " + operation
+          + "; its slotted frame may already hold the serialized page image");
+    }
   }
 
   /**

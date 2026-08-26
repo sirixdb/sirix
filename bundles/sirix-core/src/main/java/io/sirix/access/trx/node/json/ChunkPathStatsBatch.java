@@ -8,8 +8,6 @@ import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
-import java.util.function.BiConsumer;
-
 /**
  * One chunk's per-path-class statistics partials, collected in the parallel importer's build worker
  * at the same value-create sites that feed the index tuples, and merged by the coordinator into its
@@ -19,9 +17,10 @@ import java.util.function.BiConsumer;
  * Each partial is a {@link PathStatsAccumulator} — the exact class the cursor path defers through —
  * so every observation semantics (numeric lane dispatch, NaN/overflow policy, fraction carry,
  * byte-bound cloning, HLL hashing, page-witness derivation) is shared with cursor ingestion by
- * construction. The coordinator drains chunks in DOCUMENT order — for most lanes any order would
- * do, but {@code sumFraction} and the overflow flag are order-sensitive and document order makes
- * them deterministic (see {@link PathStatsAccumulator#mergeFrom} for the honest contract).
+ * construction. The coordinator drains chunks in DOCUMENT order — every lane but one is order-free
+ * (the integral sum included, since it accumulates in 128 bits), and document order makes the single
+ * order-sensitive lane, {@code sumFraction}, deterministic (see
+ * {@link PathStatsAccumulator#mergeFrom} for the honest contract).
  *
  * <p>
  * Worker-side single-threaded; dies after the coordinator drains it.
@@ -29,11 +28,20 @@ import java.util.function.BiConsumer;
 public final class ChunkPathStatsBatch {
 
   /**
-   * Test seam: when non-null, invoked once per (pathNodeKey, partial) just before the partial is
-   * merged into the coordinator's summary writer. Exists so the differential gate can prove it
-   * CATCHES a corrupted chunk partial (inversion witness); never set in production.
+   * Corruption injected into a chunk partial just before it is drained — the differential gate's
+   * inversion witness, which is what proves the oracle is not vacuous.
+   *
+   * <p>
+   * Primitive key, no boxing, and package-private in both directions: only same-package code can
+   * install one, so the seam cannot be reached from application code or from an unrelated test.
    */
-  public static volatile BiConsumer<Long, PathStatsAccumulator> TEST_PARTIAL_PERTURBATION;
+  @FunctionalInterface
+  interface PartialPerturbation {
+    void perturb(long pathNodeKey, PathStatsAccumulator partial);
+  }
+
+  /** Installed only by same-package test support; {@code null} in production. */
+  static volatile PartialPerturbation partialPerturbation;
 
   private final Long2ObjectOpenHashMap<PathStatsAccumulator> partials = new Long2ObjectOpenHashMap<>(32);
 
@@ -93,10 +101,10 @@ public final class ChunkPathStatsBatch {
    * path.
    */
   void mergeInto(final PathSummaryWriter<JsonNodeReadOnlyTrx> summaryWriter) {
-    final BiConsumer<Long, PathStatsAccumulator> perturbation = TEST_PARTIAL_PERTURBATION;
+    final PartialPerturbation perturbation = partialPerturbation;
     for (final var entry : partials.long2ObjectEntrySet()) {
       if (perturbation != null) {
-        perturbation.accept(entry.getLongKey(), entry.getValue());
+        perturbation.perturb(entry.getLongKey(), entry.getValue());
       }
       summaryWriter.mergeExternalStats(entry.getLongKey(), entry.getValue());
     }

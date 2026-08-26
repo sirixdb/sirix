@@ -8,7 +8,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.BulkJsonTreeAssembler;
-import io.sirix.access.trx.node.json.ChunkPathStatsBatch;
+import io.sirix.access.trx.node.json.ChunkPathStatsPerturbation;
 import io.sirix.access.trx.node.json.ParallelBulkJsonImporter;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
@@ -43,9 +43,10 @@ import static org.junit.jupiter.api.Assertions.fail;
  * importer under its default chunking, and the parallel importer under an adversarial tiny chunking
  * (one-or-two-record chunks; the {@code late} field first occurs in the final chunks). Excluded
  * from exact comparison, per the documented merge contract
- * ({@link PathStatsAccumulator#mergeFrom}): {@code sumFraction} (double accumulator, tolerance
- * compare — never served, see {@code PathStats} and the executor's doubleTyped decline) and the
- * page-witness bitmap (leaf-page assignment is arm-specific by construction; presence is compared).
+ * ({@link PathStatsAccumulator#mergeFrom}): {@code sumFraction}, the ONE order-dependent lane
+ * (double accumulator, tolerance compare — never served, see {@code PathStats} and the executor's
+ * doubleTyped decline) and the page-witness bitmap (leaf-page assignment is arm-specific by
+ * construction; presence is compared).
  *
  * <p>
  * The perturbation test proves the oracle can FAIL: corrupting one chunk partial through the
@@ -63,7 +64,7 @@ final class BulkPathStatsDifferentialTest {
 
   @AfterEach
   void tearDown() {
-    ChunkPathStatsBatch.TEST_PARTIAL_PERTURBATION = null;
+    ChunkPathStatsPerturbation.clear();
     JsonTestHelper.deleteEverything();
   }
 
@@ -92,7 +93,7 @@ final class BulkPathStatsDifferentialTest {
     final String json = corpus();
     final Map<String, Snapshot> cursor = buildArmAndSnapshot(json, BulkPathStatsDifferentialTest::loadWithCursor);
 
-    ChunkPathStatsBatch.TEST_PARTIAL_PERTURBATION = (pathNodeKey, partial) -> partial.addLong(999_999L);
+    ChunkPathStatsPerturbation.addLongToEveryPartial(999_999L);
     try {
       final Map<String, Snapshot> perturbed =
           buildArmAndSnapshot(json, (session, doc) -> loadWithParallelBulk(session, doc, 192, 3));
@@ -103,7 +104,7 @@ final class BulkPathStatsDifferentialTest {
       }
       fail("a corrupted chunk partial passed the differential — the oracle is vacuous");
     } finally {
-      ChunkPathStatsBatch.TEST_PARTIAL_PERTURBATION = null;
+      ChunkPathStatsPerturbation.clear();
     }
   }
 
@@ -259,9 +260,8 @@ final class BulkPathStatsDifferentialTest {
       assertArrayEquals(c.hllBytes, b.hllBytes, at + ": HLL sketch bytes");
       assertEquals(c.minDirty, b.minDirty, at + ": minDirty");
       assertEquals(c.maxDirty, b.maxDirty, at + ": maxDirty");
-      // One-sided conservative contract first (never LESS untrusted than the cursor)...
-      assertTrue(c.sumTrustworthy || !b.sumTrustworthy, at + ": bulk sum is LESS untrusted than cursor");
-      // ...and for this same-sign corpus the flags must agree exactly.
+      // The trust verdict is a function of the observation multiset (128-bit integral accumulator),
+      // so chunking may not move it in EITHER direction.
       assertEquals(c.sumTrustworthy, b.sumTrustworthy, at + ": sumTrustworthy");
       assertEquals(c.sumIntegral, b.sumIntegral, at + ": sumIntegral");
       assertEquals(c.countDirty, b.countDirty, at + ": countDirty");

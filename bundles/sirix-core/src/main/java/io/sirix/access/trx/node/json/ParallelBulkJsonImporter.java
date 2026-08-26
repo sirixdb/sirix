@@ -1025,9 +1025,10 @@ public final class ParallelBulkJsonImporter {
 
   /**
    * Merge one chunk's path-statistics partials into the coordinator's summary writer. Chunks drain in
-   * adoption order, which is document order — count, min, max, nullCount, the HLL sketch and the page
-   * keys are order-free, but {@code sumFraction} is not, so document order is what makes the merged
-   * statistics match the cursor path's. The standard pre-commit {@code flushPendingStats()} then
+   * adoption order, which is document order — count, min, max, nullCount, the HLL sketch, the page
+   * keys and the 128-bit integral sum (with its trust verdict) are order-free, but
+   * {@code sumFraction} is not, so document order is what makes the merged statistics match the
+   * cursor path's. The standard pre-commit {@code flushPendingStats()} then
    * applies them through the ordinary COW path.
    */
   private void drainPathStats(final @Nullable ChunkPathStatsBatch batch) {
