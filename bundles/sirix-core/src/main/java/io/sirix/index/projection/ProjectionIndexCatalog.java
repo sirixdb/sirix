@@ -21,14 +21,11 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.LongAdder;
@@ -147,7 +144,13 @@ public final class ProjectionIndexCatalog {
                     // insert, so a lazily-growing handle must be accounted at what it can grow to.
                     long bytes = 64;
                     if (handle.columnStoreOrNull() != null) {
-                      bytes += handle.projectedWeightBytes();
+                      // A handle over the eager budget never materializes those leaves: it serves
+                      // through bounded windows, so its RESIDENT bytes are the budget that bounds
+                      // both the window cap (a quarter of it) and each column fill (all of it) —
+                      // not the whole-leaf projection it declines to hold. Charging the projection
+                      // put a 10 GB handle over this cache's own maximumWeight, so Caffeine evicted
+                      // it on insert and every lookup re-decoded a fresh one.
+                      bytes += windowedResidentWeightBytes(handle.projectedWeightBytes());
                     } else {
                       // Eager handle: leaves are pre-materialized, so no materializer is needed.
                       for (final byte[] payload : handle.rowGroupPayloads(null)) {
@@ -806,30 +809,26 @@ public final class ProjectionIndexCatalog {
    */
   public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
       final int defId, final int rowGroupCount, final long projectedWeightBytes) {
-    return rowGroupMaterializer(session, revision, defId, rowGroupCount, projectedWeightBytes,
-        new WindowedViewKey(defId, revision));
-  }
-
-  /**
-   * As above, with the HANDLE as the windowed view's owner — the overload every caller that holds
-   * one should use. The handle is keyed on the BUILD revision, so one view serves every query
-   * revision the build covers instead of one per query revision.
-   *
-   * @param handle the covering handle; supplies the definition id and the projected weight
-   * @param rowGroupCount the handle's row-group count
-   */
-  public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
-      final ProjectionIndexRegistry.Handle handle, final int rowGroupCount) {
-    Objects.requireNonNull(handle, "handle");
-    return rowGroupMaterializer(session, revision, handle.defId(), rowGroupCount, handle.projectedWeightBytes(),
-        handle);
-  }
-
-  private static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
-      final int defId, final int rowGroupCount, final long projectedWeightBytes, final Object viewOwner) {
+    Objects.requireNonNull(session, "session");
     if (servesWindowedPayloads(projectedWeightBytes)) {
-      return () -> sessionWindowedRowGroupPayloads(session, viewOwner, revision, defId, rowGroupCount,
-          projectedWeightBytes);
+      // The windowed arm hands the handle BOTH the build and this caller's reader source, so a view
+      // the handle already memoized is rebound to this live session instead of rebuilt.
+      return new ProjectionWindowedRowGroupPayloads.BoundMaterializer() {
+        @Override
+        public List<byte[]> get() {
+          final ProjectionWindowedRowGroupPayloads view =
+              windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes);
+          // Bind at the BUILD too, not only when a handle rebinds a memoized view, so a caller that
+          // consults this supplier directly gets a usable view.
+          view.bindReaderSource(readerSource());
+          return view;
+        }
+
+        @Override
+        public ProjectionWindowedRowGroupPayloads.ReaderSource readerSource() {
+          return () -> session.beginNodeReadOnlyTrx(revision);
+        }
+      };
     }
     return () -> {
       if (projectedWeightBytes > 0) {
@@ -855,99 +854,27 @@ public final class ProjectionIndexCatalog {
    *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()})
    * @return {@code true} when the windowed route serves this weight
    */
+  /**
+   * RESIDENT bytes a handle of this projected weight can hold — the figure the {@link #DATA} weigher
+   * charges. Under the eager budget that is the projection itself; over it the leaves are never
+   * materialized, so it is the budget that bounds the window cap and each column fill.
+   *
+   * @param projectedWeightBytes the handle's whole-leaf projection
+   * @return the resident bytes to charge
+   */
+  static long windowedResidentWeightBytes(final long projectedWeightBytes) {
+    return servesWindowedPayloads(projectedWeightBytes)
+        ? eagerMaterializeBytes
+        : projectedWeightBytes;
+  }
+
   public static boolean servesWindowedPayloads(final long projectedWeightBytes) {
     return projectedWeightBytes > eagerMaterializeBytes;
   }
 
-  /**
-   * Windowed views by the SESSION they are bound to, then by the view's OWNER. Identity keyed,
-   * because a session is an identity and never a value.
-   *
-   * <p>
-   * The view's lifetime is exactly its session's: its fetcher opens a read transaction on that
-   * session for every window, so it must not outlive it — which is why the process-wide handle
-   * cache refuses to memoize one ({@link ProjectionIndexRegistry.Handle#rowGroupPayloads(Supplier)}).
-   * It must not be built per CALLER either: a view's resident-window cap is a per-view budget, so N
-   * independent views over one session permit N times the residency the cap was sized for, plus N
-   * repeats of the physical-order walk. Sessions are shared per resource path, so keying here gives
-   * exactly one view per session and owner.
-   * </p>
-   *
-   * <p>
-   * The OWNER is the {@link ProjectionIndexRegistry.Handle} whenever the caller has one, because the
-   * handle is what determines the bytes: it is cached on the BUILD revision, so one handle serves
-   * every query revision since the build, and keying on the query revision instead would rebuild a
-   * view per revision over byte-identical leaves. A rebuild changes the handle, so reuse across
-   * query revisions is exactly as safe as the handle itself.
-   * </p>
-   *
-   * <p>
-   * Entries are dropped by {@link #invalidateSessionWindowedPayloads} when the session closes; the
-   * value holds the session strongly (through the fetcher), so weak keys alone would never collect.
-   * </p>
-   */
-  private static final Map<ResourceSession<?, ?>, ConcurrentHashMap<Object, WindowedViewHolder>>
-      SESSION_WINDOWED_PAYLOADS = new IdentityHashMap<>();
-
-  /** Owner key for callers that hold no handle — same definition and revision, same view. */
-  private record WindowedViewKey(int defId, int revision) {
-  }
-
-  /**
-   * One view's memo slot. The build happens under THIS holder's monitor, never a session-wide one:
-   * a cold build walks the whole physical order, and blocking a warm consult of an unrelated
-   * definition behind it is the stall the memo exists to remove.
-   */
-  private static final class WindowedViewHolder {
-    private volatile List<byte[]> view;
-
-    List<byte[]> get(final Supplier<List<byte[]>> build) {
-      List<byte[]> current = view;
-      if (current != null) {
-        return current;
-      }
-      synchronized (this) {
-        current = view;
-        if (current == null) {
-          current = build.get();
-          view = current;
-        }
-        return current;
-      }
-    }
-  }
-
-  /**
-   * Drop every windowed payload view bound to {@code session} — called when the session closes, so
-   * neither the view nor the session it captured is retained afterwards.
-   *
-   * @param session the closing session; {@code null} is ignored
-   */
-  public static void invalidateSessionWindowedPayloads(final @Nullable ResourceSession<?, ?> session) {
-    if (session == null) {
-      return;
-    }
-    synchronized (SESSION_WINDOWED_PAYLOADS) {
-      SESSION_WINDOWED_PAYLOADS.remove(session);
-    }
-  }
-
-  /** The session's windowed view for this owner, built once and reused. */
-  private static List<byte[]> sessionWindowedRowGroupPayloads(final ResourceSession<?, ?> session,
-      final Object viewOwner, final int revision, final int defId, final int rowGroupCount,
-      final long projectedWeightBytes) {
-    final ConcurrentHashMap<Object, WindowedViewHolder> perSession;
-    synchronized (SESSION_WINDOWED_PAYLOADS) {
-      perSession = SESSION_WINDOWED_PAYLOADS.computeIfAbsent(session, key -> new ConcurrentHashMap<>(4));
-    }
-    return perSession.computeIfAbsent(viewOwner, key -> new WindowedViewHolder())
-                     .get(() -> windowedRowGroupPayloads(session, revision, defId, rowGroupCount,
-                         projectedWeightBytes));
-  }
-
   /** Build the windowed payload view: one physical-order read up front, one fetch per window after. */
-  private static List<byte[]> windowedRowGroupPayloads(final ResourceSession<?, ?> session, final int revision,
-      final int defId, final int rowGroupCount, final long projectedWeightBytes) {
+  private static ProjectionWindowedRowGroupPayloads windowedRowGroupPayloads(final ResourceSession<?, ?> session,
+      final int revision, final int defId, final int rowGroupCount, final long projectedWeightBytes) {
     ChunkedBodyConfig.recordWindowedColumnEngagement();
     final int windowSize = windowLeaves;
     final int[] physicalOrder;
@@ -966,11 +893,14 @@ public final class ProjectionIndexCatalog {
       System.err.println("[cat] windowed payloads: defId=" + defId + " rowGroups=" + rowGroupCount + " projected="
           + (projectedWeightBytes >> 20) + "MB windowLeaves=" + windowSize + " residentCap=" + residentCap);
     }
-    return new ProjectionWindowedRowGroupPayloads(rowGroupCount, windowSize, residentCap, (from, toExclusive) -> {
+    // The fetcher captures the physical order and the definition id — both inert — and NOTHING
+    // session-scoped: its transaction comes from the source the consult site binds.
+    return new ProjectionWindowedRowGroupPayloads(rowGroupCount, windowSize, residentCap, (source, from,
+        toExclusive) -> {
       final byte[][] window = new byte[toExclusive - from][];
       // A transaction PER WINDOW: concurrent read transactions are supported, one is not
       // thread-safe, and parallel kernels touch disjoint windows concurrently.
-      try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
+      try (NodeReadOnlyTrx windowRtx = source.openReader()) {
         final StorageEngineReader reader = windowRtx.getStorageEngineReader();
         for (int logical = from; logical < toExclusive; logical++) {
           final byte[] payload =
@@ -1290,9 +1220,6 @@ public final class ProjectionIndexCatalog {
     DEFS.invalidateAll();
     PROBES.invalidateAll();
     DATA.invalidateAll();
-    synchronized (SESSION_WINDOWED_PAYLOADS) {
-      SESSION_WINDOWED_PAYLOADS.clear();
-    }
     DESCRIPTOR_STATS.invalidateAll();
   }
 }

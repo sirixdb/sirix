@@ -88,6 +88,13 @@ public final class ProjectionIndexRegistry {
     private volatile String[] fieldChains;
     /** Eagerly-hydrated raw leaves, or the lazily-materialized cache of a column-lazy handle. */
     private volatile List<byte[]> rowGroupPayloads;
+
+    /**
+     * The bounded windowed view of the same leaves, for a handle whose whole-leaf materialization is
+     * over the eager budget. Separate from {@link #rowGroupPayloads} because it is NOT resident:
+     * every route predicate that asks "are the leaves in memory" must answer no for it.
+     */
+    private volatile ProjectionWindowedRowGroupPayloads windowedPayloads;
     /**
      * Column-sliced view (P5b stage 2) — non-null marks a COLUMN-LAZY handle: constructed from
      * descriptors only; {@link #rowGroupPayloads} materializes whole raw leaves on first whole-leaf
@@ -707,36 +714,66 @@ public final class ProjectionIndexRegistry {
      * accept a {@code null} one.
      *
      * <p>
-     * ONLY a RESIDENT list is memoized. A handle lives in the catalog's process-wide cache, keyed by
-     * (resource, def, build revision) and dropped only when the resource is removed, so anything it
-     * stores outlives every session that touches it. Eager leaves are inert {@code byte[]}s and are
-     * safe to share; a {@link ProjectionWindowedRowGroupPayloads} view is NOT — it fetches its
-     * windows through the session its materializer was built from, and memoizing it would hand the
-     * next session a view bound to a closed one. Over-budget handles therefore hand each caller its
-     * own windowed view over the caller's own live session, which is also what keeps
-     * {@link #payloadsMaterialized()} meaning "resident".
+     * The two routes memoize into DIFFERENT fields, because only one of them is resident. Eager
+     * leaves are inert {@code byte[]}s and land in {@link #rowGroupPayloads}. A
+     * {@link ProjectionWindowedRowGroupPayloads} view holds only a bounded window set, so it lands
+     * in {@link #windowedPayloads} and {@link #payloadsMaterialized()} keeps meaning "resident".
+     * Both are memoized HERE, on the handle, whose (resource, def, build revision) cache key is
+     * exactly the identity of the bytes they hold — no shorter-lived owner can memoize a view
+     * without multiplying the residency its window cap bounds.
+     * </p>
+     *
+     * <p>
+     * A windowed view captures no session; every consult rebinds it to the CALLER's own live reader
+     * source, which is what makes memoizing it on a process-wide handle safe. A handle that has gone
+     * windowed STAYS windowed for its cache lifetime: raising the budget afterwards must not turn
+     * the next consult into the whole-leaf materialization this handle exists to avoid.
      * </p>
      *
      * @throws IllegalStateException when a lazy handle's materializer fails (dead-session window,
      *         truncated/corrupt store) — callers decline to the generic pipeline
      */
     public List<byte[]> rowGroupPayloads(final Supplier<List<byte[]>> materializer) {
-      List<byte[]> leaves = rowGroupPayloads;
-      if (leaves != null) {
-        return leaves;
+      final List<byte[]> resident = rowGroupPayloads;
+      if (resident != null) {
+        return resident;
+      }
+      final ProjectionWindowedRowGroupPayloads windowed = windowedPayloads;
+      if (windowed != null) {
+        return bindTo(windowed, materializer);
       }
       synchronized (materializeLock) {
-        leaves = rowGroupPayloads;
-        if (leaves != null) {
-          return leaves;
+        final List<byte[]> raced = rowGroupPayloads;
+        if (raced != null) {
+          return raced;
         }
-        leaves = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
+        final ProjectionWindowedRowGroupPayloads racedWindow = windowedPayloads;
+        if (racedWindow != null) {
+          return bindTo(racedWindow, materializer);
+        }
+        final List<byte[]> built = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
             "materializer returned null");
-        if (!(leaves instanceof ProjectionWindowedRowGroupPayloads)) {
-          rowGroupPayloads = leaves;
+        if (built instanceof ProjectionWindowedRowGroupPayloads view) {
+          bindTo(view, materializer);
+          windowedPayloads = view;
+        } else {
+          rowGroupPayloads = built;
         }
-        return leaves;
+        return built;
       }
+    }
+
+    /**
+     * Point a memoized windowed view at THIS caller's reader source before handing it over. A
+     * materializer that carries no source leaves the previous binding standing — which is what a
+     * pre-materialized (eager) handle and the test seams pass.
+     */
+    private static ProjectionWindowedRowGroupPayloads bindTo(final ProjectionWindowedRowGroupPayloads view,
+        final Supplier<List<byte[]>> materializer) {
+      if (materializer instanceof ProjectionWindowedRowGroupPayloads.BoundMaterializer bound) {
+        view.bindReaderSource(bound.readerSource());
+      }
+      return view;
     }
 
     /**

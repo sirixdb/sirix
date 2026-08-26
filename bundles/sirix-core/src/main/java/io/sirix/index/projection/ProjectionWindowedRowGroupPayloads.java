@@ -3,10 +3,14 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.page.ChunkedBodyConfig;
 
 import java.util.AbstractList;
+import java.util.List;
+import java.util.Objects;
 import java.util.RandomAccess;
+import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -33,22 +37,59 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * windows plus whatever consumers transiently pin — which is exactly the bound the budget asked
  * for, not a guarantee the GC could not give anyway.
  *
+ * <h2>Ownership</h2> The view captures NO session: its {@link WindowFetcher} is handed a
+ * {@link ReaderSource} per fetch, and each consult rebinds that source to the calling reader's own
+ * live session. That is what lets the view be memoized on the process-wide handle whose
+ * {@code (resource, def, build revision)} key is its natural identity, instead of on some shorter-
+ * lived owner that would multiply the residency this class's cap exists to bound.
+ *
  * <h2>Failure contract</h2> A missing leaf inside a window throws {@link IllegalStateException}
  * from {@link #get}, the same truncated-store verdict the eager materializer throws — callers
  * decline serving and the generic pipeline answers.
  */
 public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[]> implements RandomAccess {
 
-  /** Materializes the payloads of the LOGICAL row-group range {@code [from, toExclusive)}. */
+  /**
+   * Opens a read transaction on the resource and revision this view's leaves live in.
+   *
+   * <p>
+   * The view holds no session of its own. A session outlives neither the process-wide handle the
+   * view is memoized on nor, necessarily, the next query — so capturing one would pin a view to a
+   * lifetime shorter than its own. Instead each CONSULT rebinds the source to the calling reader's
+   * own live session ({@code bindReaderSource}), and a window fetch opens its transaction through
+   * whatever source is bound at that moment. The bytes are identical whichever session reads them:
+   * the revision is fixed at construction and its pages are immutable.
+   * </p>
+   */
+  @FunctionalInterface
+  public interface ReaderSource {
+    /** A fresh read transaction on the view's revision; the caller closes it. */
+    NodeReadOnlyTrx openReader();
+  }
+
+  /**
+   * A whole-leaf materializer that also exposes the reader source its result needs — the shape a
+   * consult site hands to a handle so a MEMOIZED windowed view can be rebound without rebuilding.
+   */
+  public interface BoundMaterializer extends Supplier<List<byte[]>> {
+    /** The caller's own live reader source. */
+    ReaderSource readerSource();
+  }
+
+  /**
+   * Materializes the payloads of the LOGICAL row-group range {@code [from, toExclusive)} through the
+   * source the view is currently bound to. Implementations must capture no session.
+   */
   @FunctionalInterface
   public interface WindowFetcher {
-    byte[][] fetch(int fromLogical, int toLogicalExclusive);
+    byte[][] fetch(ReaderSource source, int fromLogical, int toLogicalExclusive);
   }
 
   private final int rowGroupCount;
   private final int windowLeaves;
   private final int residentCap;
   private final WindowFetcher fetcher;
+  private volatile ReaderSource readerSource;
 
   private final AtomicReferenceArray<byte[][]> windows;
   /** CLOCK touched bits, one int per window ({@code 1} = referenced since the hand last passed). */
@@ -75,6 +116,17 @@ public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[
     this.fetcher = fetcher;
     this.windows = new AtomicReferenceArray<>(windowCount);
     this.touched = new AtomicIntegerArray(windowCount);
+  }
+
+  /**
+   * Bind the source a subsequent window fetch opens its transaction through. Called by every
+   * consult site with its OWN live session, so a view memoized on a shared handle is never left
+   * pointing at a closed one.
+   *
+   * @param source the caller's reader source, never {@code null}
+   */
+  public void bindReaderSource(final ReaderSource source) {
+    readerSource = Objects.requireNonNull(source, "source");
   }
 
   @Override
@@ -104,7 +156,12 @@ public final class ProjectionWindowedRowGroupPayloads extends AbstractList<byte[
   private byte[][] materialize(final int window) {
     final int from = window * windowLeaves;
     final int toExclusive = Math.min(from + windowLeaves, rowGroupCount);
-    final byte[][] fetched = fetcher.fetch(from, toExclusive);
+    final ReaderSource source = readerSource;
+    if (source == null) {
+      throw new IllegalStateException("projection windowed payloads consulted before a reader source was bound — "
+          + "every consult must rebind the caller's own live session");
+    }
+    final byte[][] fetched = fetcher.fetch(source, from, toExclusive);
     if (fetched == null || fetched.length != toExclusive - from) {
       throw new IllegalStateException("window fetcher returned " + (fetched == null
           ? "null"
