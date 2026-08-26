@@ -14568,6 +14568,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       return new ItemSequence(items.toArray(new Item[0]));
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // The store priced a fill this route needed and refused it. This route has no whole-leaf
+      // twin — it exists to skip the keys/records/deref tail — so the caller's record path answers.
+      // Countable as a DECLINE: ticking the defect counter would put a permanent false corruption
+      // signal under every value emission on a fat string column.
+      PREDICATE_VALUE_EMISSION_DECLINED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] predicate value emission declined by budget: " + declined.getMessage());
+      }
+      return null;
     } catch (final RuntimeException e) {
       PREDICATE_VALUE_EMISSION_FAILED.increment();
       if (PROJ_DIAG) {
@@ -14579,6 +14589,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   public long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String[] orderFields, final boolean[] descending, final long limit) {
+    return sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit, false);
+  }
+
+  /**
+   * The sorted-scan body, with the sliced arm suppressible — the same one transition the group arms
+   * make. A column fill the store refuses on budget cannot be served sliced, but the whole-leaf
+   * branch below (over windowed payloads for an over-budget handle) can, so the decline re-enters
+   * there instead of dropping a servable query to the generic navigational pipeline.
+   */
+  private long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String[] orderFields, final boolean[] descending, final long limit, final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -14634,7 +14655,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // the KEYS chain — never a whole leaf — and for a LIMIT the bounded heap prunes leaves
       // by zone bounds DURING collection, the R2 "heap over zone-map-pruned leaves" shape.
       final ProjectionColumnStore store = handle.columnStoreOrNull();
-      final boolean sliced = store != null && predsSliceable(store, preds);
+      final boolean sliced = !wholeLeafOnly && store != null && predsSliceable(store, preds);
       if (anyStringKey && !(sliced && limit >= 0)) {
         return null;
       }
@@ -14731,6 +14752,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       for (int i = 0; i < n; i++)
         out[i] = keys.getLong(order[i]);
       return out;
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // Expected decline, not a defect: the store refused a priced fill. Re-enter over the
+      // whole-leaf arm, which for an over-budget handle is the windowed byte-kernel scan.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] sorted-scan sliced fill declined by budget: " + declined.getMessage());
+      }
+      if (wholeLeafOnly) {
+        SORTED_SCAN_DECLINED.increment();
+        return null;
+      }
+      return sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit, true);
     } catch (final RuntimeException e) {
       SORTED_SCAN_FAILED.increment();
       if (PROJ_DIAG) {
@@ -14795,6 +14827,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /** Sorted-scan serving attempts that FAILED with an exception (not gate declines). */
+  /** Sorted scans that declined on a priced fill BOTH sliced and whole-leaf — a route decision. */
+  private static final LongAdder SORTED_SCAN_DECLINED = new LongAdder();
+
+  /** Test/ops observability for {@link #SORTED_SCAN_DECLINED}. */
+  public static long sortedScanDeclinedCount() {
+    return SORTED_SCAN_DECLINED.sum();
+  }
+
   private static final LongAdder SORTED_SCAN_FAILED = new LongAdder();
 
   /** Test/ops observability for {@link #SORTED_SCAN_FAILED}. */
@@ -14825,6 +14865,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /** Value-emission attempts that FAILED with an exception (not gate declines). */
+  /** Value emissions that declined on a priced fill — a route decision, not corruption. */
+  private static final LongAdder PREDICATE_VALUE_EMISSION_DECLINED = new LongAdder();
+
+  /** Test/ops observability for {@link #PREDICATE_VALUE_EMISSION_DECLINED}. */
+  public static long predicateValueEmissionDeclinedCount() {
+    return PREDICATE_VALUE_EMISSION_DECLINED.sum();
+  }
+
   private static final LongAdder PREDICATE_VALUE_EMISSION_FAILED = new LongAdder();
 
   /** Test/ops observability for {@link #PREDICATE_VALUE_EMISSION_FAILED}. */

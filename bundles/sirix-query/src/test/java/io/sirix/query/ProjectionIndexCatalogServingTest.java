@@ -2278,6 +2278,77 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void anOverBudgetSortedScanReEntersTheWholeLeafArmInsteadOfCountingAsCorruption() throws IOException {
+    // The sorted scan performs an unmasked whole-column fill of its ORDER columns, so an
+    // over-budget column reaches the store's decline door. That decline used to escape to the
+    // route's generic RuntimeException handler, which ticks SORTED_SCAN_FAILED — a defect signal —
+    // and dropped the query to the generic navigational pipeline, even though the route has a
+    // whole-leaf byte-scan arm right beside the sliced one.
+    final StringBuilder corpus = new StringBuilder(4096).append('[');
+    for (int i = 0; i < 64; i++) {
+      if (i > 0) {
+        corpus.append(',');
+      }
+      corpus.append("{\"age\":").append((i * 37) % 101).append(",\"tag\":\"t").append(i % 5).append("\"}");
+    }
+    query("jn:store('json-path1','budgetsorted.jn','" + corpus.append(']') + "')");
+    query("""
+          let $doc := jn:doc('json-path1','budgetsorted.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/tag'),
+              ('long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String sortedQuery = "let $doc := jn:doc('json-path1','budgetsorted.jn')\n"
+        + "for $r in $doc[] order by $r.age return $r";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetsorted.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+      final long ageBytes;
+      try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision).openProjectionIndex(rtx.getStorageEngineReader(),
+                new String[] {"[]"}, new String[] {"age", "tag"});
+        Assertions.assertNotNull(handle, "the projection must be servable");
+        final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
+        Assertions.assertNotNull(columnStore);
+        ageBytes = columnStore.projectedColumnFillBytes(handle.columnOf("age"));
+      }
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, sortedQuery);
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      // Just under the ORDER column's own projection: the sliced arm cannot fill it, the whole-leaf
+      // arm can.
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(ageBytes - 1);
+      try {
+        final long failedBefore = SirixVectorizedExecutor.sortedScanFailedCount();
+        final long declinedBefore = SirixVectorizedExecutor.sortedScanDeclinedCount();
+        final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, sortedQuery),
+            "the answer must not change with the fill budget");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanFailedCount() - failedBefore,
+            "a priced fill refusal is a routing decision, not a corruption signal");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "the sorted scan must still be SERVED, by the whole-leaf arm it already has");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanDeclinedCount() - declinedBefore,
+            "a decline that re-routes successfully must not count as a route decline");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void anOverBudgetPredicateColumnDeclinesQuietlyInsteadOfCountingAsCorruption() throws IOException {
     // A CONTAINS literal cannot be bloom-pruned (fingerprints hash whole values), so the predicate
     // column takes the UNMASKED door and the store prices it against the fill budget. That decline
