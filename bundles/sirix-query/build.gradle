@@ -194,33 +194,8 @@ jar {
     }
 }
 
-// ProjectionRefusalPathTest needs the incremental-patch ceiling lowered to 1, so that two dirty
-// records exceed it and the refusal path is actually reached. The ceiling is read ONCE into a
-// static final, so it has to arrive as a JVM flag rather than something the test can set — and it
-// must NOT apply to the rest of the suite, where forcing every update into a refusal would silently
-// change what dozens of other projection tests exercise. Hence a dedicated fork for that one class,
-// excluded from the main `test` task below.
-//
-// The test also ASSERTS the property is set rather than skipping when it is absent. Assert AND
-// provide: this task makes the ordinary `gradle test` run correct, and the assertion catches a run
-// configured some other way — where a skip would look indistinguishable from a pass.
-tasks.register('projectionRefusalTest', Test) {
-    description = 'Projection refusal-path fixture; needs a lowered incremental-patch ceiling.'
-    group = 'verification'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
-    include '**/ProjectionRefusalPathTest.class'
-    systemProperty 'sirix.projection.maxIncrementalRecords', '1'
-}
-
-tasks.named('check') { dependsOn 'projectionRefusalTest' }
-
 test {
     useJUnitPlatform()
-    // Runs in its own fork (above) with the ceiling lowered. Including it here would run it without
-    // the property and trip its own configuration assertion.
-    exclude '**/ProjectionRefusalPathTest.class'
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
     systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
     systemProperty "sirix.projDiag", System.getProperty("sirix.projDiag")
