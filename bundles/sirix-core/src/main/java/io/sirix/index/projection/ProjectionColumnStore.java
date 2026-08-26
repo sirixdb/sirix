@@ -319,6 +319,16 @@ public final class ProjectionColumnStore {
       for (int c = 0; c < columnCount; c++) {
         this.columnKinds[c] = RowGroupDescriptor.kind(d0, c);
       }
+      // Leaf 0 is a SAMPLE of the store's shape, and the twenty-five dispatch sites below treat it
+      // as the definition. Check the rest agree, once, here — the descriptors are already in memory
+      // (no page read) and the kinds are contiguous, so it is one range comparison per leaf.
+      //
+      // Task #45: commit-time maintenance rebuilt one leaf from the DECLARED column kinds and wrote
+      // its descriptor as STRING_DICT while the payload and the metadata stayed STRING_GLOBAL. Every
+      // guard downstream passed, because each was asking leaf 0. The wrong decode surfaced four
+      // rounds later as "known-corrupt BODY segment", which named the wrong component and the wrong
+      // problem. Refusing HERE reports the actual disagreement, at the only place that can see it.
+      verifyEveryLeafAgreesWithLeafZero(d0);
     }
     this.columns = new ColumnSlice[columnKinds.length][];
     this.identityColumns = new ColumnSlice[columnKinds.length][];
@@ -327,6 +337,51 @@ public final class ProjectionColumnStore {
     this.stringExtrema = new int[columnKinds.length][];
     this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
+  }
+
+  /**
+   * Establish the invariant the whole class dispatches on: every leaf declares the same column
+   * encodings.
+   *
+   * <p>
+   * Throws rather than degrading, and that is deliberate. A kind-inconsistent store is not a store
+   * with one bad column — its leaves disagree about what the bytes MEAN, so no route over it can be
+   * trusted, including the ones that would otherwise "fall back". The throw is typed
+   * ({@link ProjectionStoreInconsistentException}) precisely so the fallback machinery can tell it
+   * apart from undecodable bytes and decline the whole store WITHOUT memoizing a column as corrupt
+   * (task #50) — the memo is what turned one mis-dispatch into a permanently disabled column.
+   * </p>
+   *
+   * @param d0 leaf 0's descriptor, already read by the caller; never {@code null}
+   */
+  private void verifyEveryLeafAgreesWithLeafZero(final byte[] d0) {
+    final int leaves = directories.size();
+    for (int leaf = 1; leaf < leaves; leaf++) {
+      final byte[] di = directories.get(leaf).descriptor();
+      if (!RowGroupDescriptor.kindsAgree(d0, di)) {
+        throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
+      }
+    }
+  }
+
+  /**
+   * Name the first column the two descriptors disagree about, so the refusal says what is wrong
+   * instead of that something is. Cold path — only ever reached on the way to throwing.
+   */
+  private static String describeDisagreement(final byte[] d0, final byte[] di) {
+    final int columns = RowGroupDescriptor.columnCount(d0);
+    final int otherColumns = RowGroupDescriptor.columnCount(di);
+    if (columns != otherColumns) {
+      return "leaf 0 declares " + columns + " columns, this leaf declares " + otherColumns;
+    }
+    for (int c = 0; c < columns; c++) {
+      final byte expected = RowGroupDescriptor.kind(d0, c);
+      final byte actual = RowGroupDescriptor.kind(di, c);
+      if (expected != actual) {
+        return "column " + c + " is kind " + expected + " in leaf 0 but kind " + actual + " here";
+      }
+    }
+    return "column count and kinds agree — the disagreement was transient";
   }
 
   /** {@link #stringDictSupplementaryMemo} — not yet established for this column. */
@@ -633,6 +688,20 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
+    // BUDGET, before the first fetch (task #78). A whole-column slice fill holds every leaf's BODY
+    // (and, for strings, DICT) bytes plus their decoded arrays resident AT ONCE — on a fat string
+    // column at 100M rows that is ~8-10 GB and OOMed the heap before serving a row. Over the
+    // budget, refuse THROUGH THE ESTABLISHED DECLINE DOOR (the same IllegalStateException callers
+    // already answer by falling back to the whole-leaf byte-scan route, which now serves through
+    // bounded windowed payload loads). Deliberately NOT memoized as corrupt: nothing is wrong with
+    // the store — the projected size is a property of the column, recomputed cheaply, and a later
+    // caller with a raised budget must be able to fill.
+    final long projected = projectedColumnFillBytes(col);
+    if (projected > columnFillBudgetBytes) {
+      throw new IllegalStateException("Column " + col + " slice fill projects " + projected + " B over the "
+          + columnFillBudgetBytes + " B budget (sirix.projection.eagerMaterializeBytes) — declining the "
+          + "whole-column fill so the whole-leaf windowed route serves instead");
+    }
     // Fill OUTSIDE the monitor: the fetch+decode is the store's only I/O and must not
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
@@ -648,6 +717,71 @@ public final class ProjectionColumnStore {
       columns = next;
     }
     return slices;
+  }
+
+  /**
+   * Byte budget above which {@link #column(int, ColumnSegmentFetcher)} declines a whole-column
+   * slice fill. Same property and derivation as the catalog's whole-leaf eager budget
+   * ({@code sirix.projection.eagerMaterializeBytes}): a fill's raw bytes live on the heap beside
+   * the decoded slice arrays and the off-heap arena, so half the projection cache budget and a
+   * quarter of the heap bound it from both sides.
+   */
+  private static final long COLUMN_FILL_BUDGET_DEFAULT = Long.getLong("sirix.projection.eagerMaterializeBytes",
+      Math.min(Long.parseLong(System.getProperty("sirix.projection.cacheBytes", String.valueOf(8L << 30))) / 2,
+          Runtime.getRuntime().maxMemory() / 4));
+
+  private static volatile long columnFillBudgetBytes = COLUMN_FILL_BUDGET_DEFAULT;
+
+  /**
+   * Test seam: shrink the fill budget so a small store still exercises the decline.
+   *
+   * @param value the budget in bytes
+   * @return the previous budget, for restoring in a finally block
+   */
+  public static long setColumnFillBudgetBytesForTesting(final long value) {
+    final long previous = columnFillBudgetBytes;
+    columnFillBudgetBytes = value;
+    return previous;
+  }
+
+  /** Lazily-computed per-column projected fill bytes; 0 = not yet computed (a real sum is never 0). */
+  private final AtomicReference<long[]> projectedFillBytes = new AtomicReference<>();
+
+  /**
+   * RAW bytes a full slice fill of {@code col} would fetch: the BODY segment's byteLen across every
+   * leaf, plus the DICT segment's where the descriptor lists one. An UNDERestimate of the resident
+   * total (decoded id/value arrays come on top), which errs toward eager — the budget itself is a
+   * quarter-heap figure precisely so that margin exists.
+   */
+  public long projectedColumnFillBytes(final int col) {
+    long[] cached = projectedFillBytes.get();
+    if (cached == null) {
+      cached = new long[columnKinds.length];
+      projectedFillBytes.compareAndSet(null, cached);
+      cached = projectedFillBytes.get();
+    }
+    final long known = cached[col];
+    if (known != 0) {
+      return known;
+    }
+    final int bodySegId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+    final int dictSegId = ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
+    long total = 0;
+    final int n = directories.size();
+    for (int i = 0; i < n; i++) {
+      final byte[] descriptor = directories.get(i).descriptor();
+      final int bodyEntry = RowGroupDescriptor.entryIndexOf(descriptor, bodySegId);
+      if (bodyEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, bodyEntry);
+      }
+      final int dictEntry = RowGroupDescriptor.entryIndexOf(descriptor, dictSegId);
+      if (dictEntry >= 0) {
+        total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
+      }
+    }
+    // A benign same-column race writes the identical sum twice.
+    cached[col] = Math.max(1, total);
+    return cached[col];
   }
 
   /**
@@ -799,6 +933,12 @@ public final class ProjectionColumnStore {
           slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
         }
       }
+    } catch (final ProjectionStoreInconsistentException inconsistent) {
+      // Leaves that disagree about a column's encoding are a WRITER fault, not undecodable bytes.
+      // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
+      // lives for the process, so one mis-dispatch would permanently disable every fast path on a
+      // column whose bytes were never in question (task #50).
+      throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
       throw corrupt;
@@ -936,6 +1076,12 @@ public final class ProjectionColumnStore {
           slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
         }
       }
+    } catch (final ProjectionStoreInconsistentException inconsistent) {
+      // Leaves that disagree about a column's encoding are a WRITER fault, not undecodable bytes.
+      // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
+      // lives for the process, so one mis-dispatch would permanently disable every fast path on a
+      // column whose bytes were never in question (task #50).
+      throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
       throw corrupt;
@@ -1001,6 +1147,12 @@ public final class ProjectionColumnStore {
           slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
         }
       }
+    } catch (final ProjectionStoreInconsistentException inconsistent) {
+      // Leaves that disagree about a column's encoding are a WRITER fault, not undecodable bytes.
+      // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
+      // lives for the process, so one mis-dispatch would permanently disable every fast path on a
+      // column whose bytes were never in question (task #50).
+      throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
       throw corrupt;
@@ -1546,6 +1698,12 @@ public final class ProjectionColumnStore {
       } else {
         verifyFetchedSegments(n, segments, segId, segKind, absent, keepWords);
       }
+    } catch (final ProjectionStoreInconsistentException inconsistent) {
+      // Leaves that disagree about a column's encoding are a WRITER fault, not undecodable bytes.
+      // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
+      // lives for the process, so one mis-dispatch would permanently disable every fast path on a
+      // column whose bytes were never in question (task #50).
+      throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       // Structural corruption (missing segment at a resolved offset, hash/length/kind
       // mismatch) cannot heal for this build — memoize so later touches fail fast.
