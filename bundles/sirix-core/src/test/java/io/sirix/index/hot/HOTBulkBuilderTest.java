@@ -14,7 +14,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
@@ -37,6 +39,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * key-set generators mirror {@code HOTFormalModelTest} — ascending, descending, uniform random,
  * bimodal, common-prefix, and sparse distributions — plus variable-length keys and tombstone
  * entries, which the model (fixed 64-bit keys) does not exercise.
+ *
+ * <p>
+ * V6 additionally pins the <em>packing</em> policy, which the invariants alone do not constrain:
+ * any frontier is invariant-correct by Theorem 1, so a frontier that tears a page-fitting
+ * {@code R(S)} subtree apart passes every check above while producing several under-filled pages.
+ * V6 asserts the built leaf count against {@link #maximalFittingSubtrees}, an oracle derived from
+ * {@code R(S)} alone.
  *
  * <p>
  * The validator needs a {@link StorageEngineReader}; since every page produced by
@@ -166,11 +175,11 @@ final class HOTBulkBuilderTest {
       while (keyList.size() < n) {
         final byte[] k = new byte[1 + r.nextInt(40)];
         r.nextBytes(k);
-        if (seenHex.add(java.util.HexFormat.of().formatHex(k))) {
+        if (seenHex.add(HexFormat.of().formatHex(k))) {
           keyList.add(k);
         }
       }
-      keyList.sort(java.util.Arrays::compareUnsigned);
+      keyList.sort(Arrays::compareUnsigned);
       final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(keyList.size());
       for (int i = 0; i < keyList.size(); i++) {
         // Sprinkle tombstones (every 7th key) — they are keys and must be placed like any entry.
@@ -288,7 +297,7 @@ final class HOTBulkBuilderTest {
               : beKey(r.nextLong())));
         }
       }
-      entries.sort((a, b) -> java.util.Arrays.compareUnsigned(a.key(), b.key()));
+      entries.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
       final HOTBulkBuilder.BuildResult result =
           HOTBulkBuilder.build(entries, /* revision */ 2, IndexType.CAS, new AtomicLong()::getAndIncrement);
       assertEquals(null, checkAll(result, entries, "multimask variant=" + variant));
@@ -297,6 +306,181 @@ final class HOTBulkBuilderTest {
       closeLeaves(result.rootPage());
     }
     System.out.println("[V5] MultiMask layout exercised and validated clean");
+  }
+
+  // ======================================================================
+  // V6 — leaf packing: the frontier never expands a page-fitting R(S) subtree.
+  // ======================================================================
+
+  /**
+   * A regression key pattern for the packing invariant, with the leaf geometry the
+   * highest-fitting-subtree cut must produce. The counts are derived by hand from {@code R(S)} and
+   * are re-derived independently at run time by {@link #maximalFittingSubtrees}; asserting both means
+   * neither a builder regression nor an oracle regression can pass unnoticed.
+   *
+   * @param label diagnostic name
+   * @param keys strictly ascending unsigned 8-byte-encodable keys
+   * @param expectedLeaves leaf pages the cut policy must produce
+   * @param expectedMinFill entries in the least-filled leaf
+   * @param expectedMaxFill entries in the most-filled leaf
+   */
+  private record PackingShape(String label, long[] keys, int expectedLeaves, int expectedMinFill, int expectedMaxFill) {
+  }
+
+  @Test
+  @DisplayName("V6: leaf count equals the highest-fitting-subtree count (no fitting group is expanded)")
+  void v6HighestFittingSubtreePacking() {
+    // The shapes that exposed the packing defect. Before the frontier's leaf-boundary stop,
+    // buildIndirect split the LARGEST frontier branch until the block held 32 children, so a
+    // page-fitting R(S) subtree was torn across frontier slots and each fragment compressed into
+    // its own under-filled page: the 1024-key block fragmented into 32 leaves of 32, and the
+    // 20 000-key sets built 280 leaves (mean fill ~71) instead of 40 (mean fill 500).
+    final PackingShape[] shapes = {
+        // 1024 dense keys: R(S) splits once into two 512-groups, both of which fit a page.
+        new PackingShape("dense-1024", denseKeys(1_024), 2, 512, 512),
+        // Same trie shape through the projection column-segment slot encoding (i << 16 | 3):
+        // a left shift plus constant low bits is an R(S) isomorphism, so the cut is identical.
+        new PackingShape("strided-1024", stridedKeys(1_024), 2, 512, 512),
+        // 20 000 dense keys: 39 full 512-leaves plus a 32-key tail leaf.
+        new PackingShape("dense-20000", denseKeys(20_000), 40, 32, 512),
+        new PackingShape("strided-20000", stridedKeys(20_000), 40, 32, 512),};
+
+    for (final PackingShape shape : shapes) {
+      final long[] keys = shape.keys();
+      final List<HOTBulkBuilder.Entry> entries = entriesFromSortedLongs(keys);
+      final HOTBulkBuilder.BuildResult result =
+          HOTBulkBuilder.build(entries, /* revision */ 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
+      final LeafStats stats = leafStats(result.rootPage());
+      final int oracle = maximalFittingSubtrees(keys, 0, keys.length - 1);
+
+      assertEquals(shape.expectedLeaves(), oracle,
+          shape.label() + ": the hand-derived leaf count disagrees with the R(S) oracle");
+      assertEquals(oracle, result.leafCount(), shape.label() + ": built " + result.leafCount() + " leaves but only "
+          + oracle + " maximal page-fitting R(S) subtrees exist — a fitting group was expanded");
+      assertEquals(oracle, stats.leaves(), shape.label() + ": reported leafCount disagrees with the built pages");
+      assertEquals(keys.length, stats.entries(), shape.label() + ": leaves do not hold every entry");
+      assertEquals(shape.expectedMinFill(), stats.minFill(), shape.label() + ": least-filled leaf");
+      assertEquals(shape.expectedMaxFill(), stats.maxFill(), shape.label() + ": most-filled leaf");
+      assertEquals((double) keys.length / shape.expectedLeaves(), stats.meanFill(), 1e-9,
+          shape.label() + ": mean leaf fill regressed");
+
+      assertEquals(null, checkAll(result, entries, "packing " + shape.label()));
+      closeLeaves(result.rootPage());
+      System.out.println("[V6] " + shape.label() + ": " + stats.leaves() + " leaves, fill " + stats.minFill() + ".."
+          + stats.maxFill() + ", mean " + String.format("%.1f", stats.meanFill()));
+    }
+
+    // The invariant is not shape-specific: across every adversarial generator the built leaf count
+    // must equal the number of maximal page-fitting R(S) subtrees. Values are 8 bytes (tombstones
+    // 1), so 512 * (4 + 8 + 8) bytes stay far inside HOTLeafPage.DEFAULT_SIZE and the entry count
+    // is the only binding capacity — which is what lets the oracle stop purely on group size.
+    final int[] sizes = {2_000, 8_000, 20_000};
+    int checked = 0;
+    final List<String> failures = new ArrayList<>();
+    for (int g = 0; g < GENERATORS.length; g++) {
+      for (final int n : sizes) {
+        for (int seed = 0; seed < 3; seed++) {
+          final Set<Long> set = new HashSet<>();
+          GENERATORS[g].fill(n, new Random((((long) g) << 40) ^ (((long) n) << 20) ^ seed), set);
+          final long[] keys = sortedUnsigned(set);
+          if (keys.length < 2) {
+            continue;
+          }
+          final List<HOTBulkBuilder.Entry> entries = entriesFromSortedLongs(keys);
+          final HOTBulkBuilder.BuildResult result =
+              HOTBulkBuilder.build(entries, /* revision */ 1, IndexType.CAS, new AtomicLong()::getAndIncrement);
+          checked++;
+          final int oracle = maximalFittingSubtrees(keys, 0, keys.length - 1);
+          if (result.leafCount() != oracle && failures.size() < 12) {
+            failures.add("gen=" + g + " n=" + keys.length + " seed=" + seed + ": built " + result.leafCount()
+                + " leaves, highest-fitting-subtree cut is " + oracle);
+          }
+          closeLeaves(result.rootPage());
+        }
+      }
+    }
+    assertTrue(failures.isEmpty(), "leaf packing is not the highest-fitting-subtree cut in " + checked + " trials:\n"
+        + String.join("\n", failures));
+    System.out.println("[V6] " + checked + " adversarial key sets — leaf count == highest-fitting-subtree count");
+  }
+
+  /**
+   * Oracle for the cut policy, independent of {@link HOTBulkBuilder}'s frontier logic: the number of
+   * MAXIMAL {@code R(S)} subtrees whose key group fits one leaf page. Recurses the MSDB split of the
+   * sorted key range and stops as soon as a group fits, so it counts exactly the pages the documented
+   * policy ("cut a leaf at the highest {@code R(S)} subtree whose key group fits a page") prescribes.
+   *
+   * <p>
+   * Only valid where entry count — not byte capacity — is the binding limit; every V6 key set is
+   * built with 8-byte keys and values so that holds. For 8-byte big-endian keys the MSDB of the range
+   * is simply the highest differing bit of {@code keys[lo] ^ keys[hi]}, and because the range is
+   * sorted unsigned and agrees above that bit, the {@code 0 -> 1} transition is a single point found
+   * by binary search.
+   */
+  private static int maximalFittingSubtrees(final long[] sortedUnsigned, final int lo, final int hi) {
+    if (hi - lo + 1 <= HOTLeafPage.MAX_ENTRIES) {
+      return 1;
+    }
+    final long bit = Long.highestOneBit(sortedUnsigned[lo] ^ sortedUnsigned[hi]);
+    int low = lo + 1;
+    int high = hi;
+    while (low < high) {
+      final int mid = (low + high) >>> 1;
+      if ((sortedUnsigned[mid] & bit) != 0) {
+        high = mid;
+      } else {
+        low = mid + 1;
+      }
+    }
+    return maximalFittingSubtrees(sortedUnsigned, lo, low - 1) + maximalFittingSubtrees(sortedUnsigned, low, hi);
+  }
+
+  /** Aggregated leaf geometry of a built subtree. */
+  private record LeafStats(int leaves, long entries, int minFill, int maxFill) {
+    double meanFill() {
+      return (double) entries / leaves;
+    }
+  }
+
+  private static LeafStats leafStats(final Page root) {
+    final int[] acc = {0, 0, Integer.MAX_VALUE, 0}; // leaves, entries, minFill, maxFill
+    accumulateLeafStats(root, acc);
+    return new LeafStats(acc[0], acc[1], acc[2], acc[3]);
+  }
+
+  private static void accumulateLeafStats(final Page page, final int[] acc) {
+    if (page instanceof HOTLeafPage leaf) {
+      final int fill = leaf.getEntryCount();
+      acc[0]++;
+      acc[1] += fill;
+      acc[2] = Math.min(acc[2], fill);
+      acc[3] = Math.max(acc[3], fill);
+    } else if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        final PageReference ref = indirect.getChildReference(i);
+        if (ref != null && ref.getPage() != null) {
+          accumulateLeafStats(ref.getPage(), acc);
+        }
+      }
+    }
+  }
+
+  /** Dense monotone keys {@code 0..n-1} — the order-label / locator-id shape. */
+  private static long[] denseKeys(final int n) {
+    final long[] keys = new long[n];
+    for (int i = 0; i < n; i++) {
+      keys[i] = i;
+    }
+    return keys;
+  }
+
+  /** Strided keys {@code (i << 16) | 3} — the projection column-segment slot shape. */
+  private static long[] stridedKeys(final int n) {
+    final long[] keys = new long[n];
+    for (int i = 0; i < n; i++) {
+      keys[i] = ((long) i << 16) | 3L;
+    }
+    return keys;
   }
 
   // ======================================================================
@@ -409,16 +593,14 @@ final class HOTBulkBuilderTest {
         return false;
       }
       for (int i = 0; i < la.getEntryCount(); i++) {
-        if (!java.util.Arrays.equals(la.getKey(i), lb.getKey(i))
-            || !java.util.Arrays.equals(la.getValue(i), lb.getValue(i))) {
+        if (!Arrays.equals(la.getKey(i), lb.getKey(i)) || !Arrays.equals(la.getValue(i), lb.getValue(i))) {
           return false;
         }
       }
       return true;
     }
     if (a instanceof HOTIndirectPage ia && b instanceof HOTIndirectPage ib) {
-      if (ia.getNumChildren() != ib.getNumChildren()
-          || !java.util.Arrays.equals(ia.getPartialKeys(), ib.getPartialKeys())
+      if (ia.getNumChildren() != ib.getNumChildren() || !Arrays.equals(ia.getPartialKeys(), ib.getPartialKeys())
           || ia.getLayoutType() != ib.getLayoutType()) {
         return false;
       }
@@ -442,15 +624,29 @@ final class HOTBulkBuilderTest {
    * a tombstone; the rest get a small deterministic value derived from the key.
    */
   private static List<HOTBulkBuilder.Entry> entriesFromLongs(final Set<Long> set, final int valueSalt) {
+    return entriesFromSortedLongs(sortedUnsigned(set), valueSalt);
+  }
+
+  /** The key set as a strictly ascending unsigned {@code long[]}. */
+  private static long[] sortedUnsigned(final Set<Long> set) {
     final long[] longs = set.stream().mapToLong(Long::longValue).toArray();
     // Sort unsigned (flip the sign bit so signed sort agrees with unsigned).
     for (int i = 0; i < longs.length; i++) {
       longs[i] ^= Long.MIN_VALUE;
     }
-    java.util.Arrays.sort(longs);
+    Arrays.sort(longs);
     for (int i = 0; i < longs.length; i++) {
       longs[i] ^= Long.MIN_VALUE;
     }
+    return longs;
+  }
+
+  /** {@link #entriesFromLongs} over an already ascending key array, with an unsalted value. */
+  private static List<HOTBulkBuilder.Entry> entriesFromSortedLongs(final long[] longs) {
+    return entriesFromSortedLongs(longs, 0);
+  }
+
+  private static List<HOTBulkBuilder.Entry> entriesFromSortedLongs(final long[] longs, final int valueSalt) {
     final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(longs.length);
     for (int i = 0; i < longs.length; i++) {
       final byte[] key = beKey(longs[i]);
@@ -505,6 +701,6 @@ final class HOTBulkBuilderTest {
   }
 
   private static String hex(final byte[] b) {
-    return java.util.HexFormat.of().formatHex(b);
+    return HexFormat.of().formatHex(b);
   }
 }
