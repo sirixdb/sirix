@@ -968,50 +968,53 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
-      // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
-      // They continue running, managed by BufferManager lifecycle
+      try {
+        // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
+        // They continue running, managed by BufferManager lifecycle
 
-      // Close all shared per-thread read-only transactions.
-      for (final NodeReadOnlyTrx rtx : sharedTrxMap.values()) {
-        rtx.close();
-      }
-      sharedTrxMap.clear();
-
-      // Close all open node transactions.
-      for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
-        if (rtx instanceof XmlNodeTrx xmlNodeTrx) {
-          xmlNodeTrx.rollback();
-        } else if (rtx instanceof JsonNodeTrx jsonNodeTrx) {
-          jsonNodeTrx.rollback();
+        // Close all shared per-thread read-only transactions.
+        for (final NodeReadOnlyTrx rtx : sharedTrxMap.values()) {
+          rtx.close();
         }
-        rtx.close();
-      }
-      // Close all open storage engine writers.
-      for (StorageEngineReader rtx : storageEngineWriterMap.values()) {
-        rtx.close();
-      }
-      // Close all open storage engine readers.
-      for (StorageEngineReader rtx : storageEngineReaderMap.values()) {
-        rtx.close();
-      }
+        sharedTrxMap.clear();
 
-      // NOTE: Don't clear BufferManager caches here - other sessions might be using same resource!
-      // Pages will be evicted by normal cache LRU policy or cleaned up at database close
-      // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
+        // Close all open node transactions.
+        for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
+          if (rtx instanceof XmlNodeTrx xmlNodeTrx) {
+            xmlNodeTrx.rollback();
+          } else if (rtx instanceof JsonNodeTrx jsonNodeTrx) {
+            jsonNodeTrx.rollback();
+          }
+          rtx.close();
+        }
+        // Close all open storage engine writers.
+        for (StorageEngineReader rtx : storageEngineWriterMap.values()) {
+          rtx.close();
+        }
+        // Close all open storage engine readers.
+        for (StorageEngineReader rtx : storageEngineReaderMap.values()) {
+          rtx.close();
+        }
 
-      // Immediately release all resources.
-      nodeTrxMap.clear();
-      storageEngineReaderMap.clear();
-      storageEngineWriterMap.clear();
-      ProjectionIndexCatalog.invalidateSessionWindowedPayloads(this);
-      resourceStore.closeResourceSession(resourceConfig.getResource());
+        // NOTE: Don't clear BufferManager caches here - other sessions might be using same resource!
+        // Pages will be evicted by normal cache LRU policy or cleaned up at database close
+        // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
 
-      storage.close();
+        // Immediately release all resources.
+        nodeTrxMap.clear();
+        storageEngineReaderMap.clear();
+        storageEngineWriterMap.clear();
+        resourceStore.closeResourceSession(resourceConfig.getResource());
 
-      if (pool.get() != null) {
-        pool.get().close();
+        storage.close();
+
+        if (pool.get() != null) {
+          pool.get().close();
+        }
+        isClosed = true;
+      } finally {
+        ProjectionIndexCatalog.invalidateSessionWindowedPayloads(this);
       }
-      isClosed = true;
     }
   }
 
