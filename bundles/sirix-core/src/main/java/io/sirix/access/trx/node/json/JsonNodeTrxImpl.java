@@ -59,6 +59,7 @@ import io.sirix.diff.JsonDiffSerializer;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.index.path.summary.PathSummaryWriter.OPType;
@@ -105,6 +106,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
@@ -1201,6 +1204,41 @@ final class JsonNodeTrxImpl extends
 
   boolean bulkHasPrimitiveIndexes() {
     return indexController.hasAnyPrimitiveIndex();
+  }
+
+  /**
+   * The one index family the parallel importer cannot maintain: valid-time intervals are resolved by
+   * a configured-path visitor over whole records, which has no chunk-local equivalent yet. PATH, CAS
+   * and NAME are fed by the importer's own worker-collected tuples, and PROJECTION by the
+   * coordinator's record attribution.
+   */
+  boolean bulkHasValidTimeIndex() {
+    // Def-based rather than the controller's cached listener flag: the flag is set when listeners
+    // bind, but a VALIDTIME definition catalogued WITHOUT its listener would serialize on commit as
+    // an index nothing maintained — exactly the silent outcome the refusal exists to prevent.
+    return indexController.hasValidTimeIndex() || !bulkIndexDefsOfType(IndexType.VALIDTIME).isEmpty();
+  }
+
+  /** Catalogued definitions of {@code indexType}, for the parallel importer's index maintenance. */
+  Set<IndexDef> bulkIndexDefsOfType(final IndexType indexType) {
+    final Set<IndexDef> defs = new HashSet<>();
+    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
+      if (indexDef.getType() == indexType) {
+        defs.add(indexDef);
+      }
+    }
+    return defs;
+  }
+
+  /** Catalogued PROJECTION definitions, for the parallel importer's arm check. */
+  Set<IndexDef> bulkProjectionIndexDefs() {
+    final Set<IndexDef> projectionDefs = new HashSet<>();
+    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
+      if (indexDef.isProjectionIndex()) {
+        projectionDefs.add(indexDef);
+      }
+    }
+    return projectionDefs;
   }
 
   void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey) {
