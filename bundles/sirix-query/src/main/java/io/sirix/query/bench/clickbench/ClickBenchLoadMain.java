@@ -264,8 +264,15 @@ public final class ClickBenchLoadMain {
       // tables in memory until finalize, so interning can never reach the persistent radix and this
       // must print 0. A non-zero figure means the per-value durable-read regime is back — the shape
       // measured at ~85% of load CPU before the retention fix.
+      //
+      // This banner is NOT a success claim for the projection itself (task #55): the one way a
+      // one-pass build fails while the LOAD still succeeds — a global dictionary breaching its byte
+      // cap abandons the projection — used to report only through a LOGGER.warn the shipped
+      // root=ERROR logback discards. The abandonment now ALSO prints '[proj] PROJECTION ABANDONED'
+      // on stderr, which the banner names so a guard knows what to scan for.
       System.out.printf(
-          "# projection: columns=%d globalDictColumns=%d dictProbes=%d built DURING the shred (one pass)%n",
+          "# projection: columns=%d globalDictColumns=%d dictProbes=%d built DURING the shred (one pass);"
+              + " an abandonment prints '[proj] PROJECTION ABANDONED' on stderr%n",
           ClickBenchProjection.PROJECTED_COLUMNS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
           ProjectionIndexBuilder.persistentDictionaryProbesReported());
     } else {

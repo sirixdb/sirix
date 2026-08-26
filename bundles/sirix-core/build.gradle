@@ -129,7 +129,16 @@ test {
             excludeTags 'heavy'
         }
     }
-    
+
+    // HOT fragment-merge / eviction / split counters are OFF in production: they sit on the default
+    // read path and inside a per-entry commit loop, so they are gated behind a static-final flag
+    // that folds the branch away entirely. The suites asserting on them need the flag ON — and they
+    // ASSERT it is on rather than trusting it, because with the gate off every counter reads zero
+    // and "zero walked past a complete dump" from a disabled instrument is indistinguishable from
+    // the same reading from a healthy one. This line is the "provide" half of assert-and-provide.
+    // An explicit -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
+    systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
+
     // Add async-profiler if ASYNC_PROFILER env var is set
     // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test
     def profilerPath = System.getenv("ASYNC_PROFILER")
