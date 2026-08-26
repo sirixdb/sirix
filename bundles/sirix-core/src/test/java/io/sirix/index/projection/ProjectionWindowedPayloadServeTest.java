@@ -817,6 +817,125 @@ final class ProjectionWindowedPayloadServeTest {
     }
   }
 
+  @Test
+  void aStringColumnFillIsPricedForItsDecodedIdLane_NotOnlyItsSegmentBytes() {
+    // The shared pricing function priced STRING_DICT at zero decoded residency — the one kind the
+    // windowed route exists to serve. A filled string slice retains a 4 B/row id lane, presence
+    // words and a DECOMPRESSED dictionary; a low-cardinality column makes the id lane the dominant
+    // term, so a figure that counts only stored segment bytes falls far below what the fill holds.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(lowCardinalityCorpus()),
+              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final ProjectionColumnStore store = storeOf(rtx.getStorageEngineReader());
+          final int nameColumn = 0;
+          assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, store.columnKind(nameColumn),
+              "the fixture's name column must be the dictionary-coded string kind this prices");
+
+          final long idLane = 4L * RECORDS;
+          assertTrue(store.projectedColumnFillBytes(nameColumn) >= idLane,
+              "a string fill must be priced for the 4 B/row ids it decodes into: "
+                  + store.projectedColumnFillBytes(nameColumn) + " < " + idLane);
+          // The identity mode retains the same id lane beside its hash chain — the arithmetic that
+          // used to contribute exactly zero for a column that is STRING_DICT by construction.
+          assertTrue(store.projectedColumnIdentityFillBytes(nameColumn) >= idLane,
+              "an identity fill must be priced for its id lane too: "
+                  + store.projectedColumnIdentityFillBytes(nameColumn) + " < " + idLane);
+        }
+      }
+    }
+  }
+
+  @Test
+  void aFilledColumnIsChargedToTheLedgerExactlyOnce() {
+    // A slice fill runs through the raw-BODY door, which prices and charges that chain on its own
+    // account. Charging the outer projection on top counted one retained copy of the BODY arrays
+    // twice, and the ledger is monotonic and feeds the decline predicates — so the over-charge
+    // steers later servable queries off the sliced route for residency that is not there.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
+              .commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final var reader = rtx.getStorageEngineReader();
+          final ProjectionColumnStore store = storeOf(reader);
+          final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+              offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
+          final int scoreColumn = 1;
+          final long projected = store.projectedColumnFillBytes(scoreColumn);
+          final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE);
+          try {
+            assertEquals(0L, store.retainedFillBytes());
+            store.column(scoreColumn, fetcher);
+            assertEquals(projected, store.retainedFillBytes(),
+                "one fill must charge its projection exactly once, not once per door it passes through");
+
+            // Re-entering the inner raw-BODY door for the same column adds nothing: those bytes are
+            // already retained and already charged.
+            store.columnBytes(scoreColumn, fetcher);
+            assertEquals(projected, store.retainedFillBytes(), "an already-retained chain must not be charged again");
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+          }
+        }
+      }
+    }
+  }
+
+  /** The store behind the fixture's persisted projection. */
+  private static ProjectionColumnStore storeOf(final io.sirix.api.StorageEngineReader reader) {
+    final ProjectionIndexMetadata metadata =
+        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, INDEX_NUMBER, 0L));
+    assertNotNull(metadata);
+    final int leaves = metadata.rowGroupCount();
+    final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
+    return new ProjectionColumnStore(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader,
+        INDEX_NUMBER, leaves, physicalOrder, worker -> worker.accept(reader)));
+  }
+
+  /** THREE distinct names over every record: the decoded id lane dwarfs the stored dictionary. */
+  private static String lowCardinalityCorpus() {
+    final StringBuilder json = new StringBuilder(RECORDS * 32);
+    json.append('[');
+    for (int record = 0; record < RECORDS; record++) {
+      if (record > 0) {
+        json.append(',');
+      }
+      json.append("{\"name\":\"n").append(record % 3).append('"');
+      json.append(",\"score\":").append(record * 3L).append('}');
+    }
+    return json.append(']').toString();
+  }
+
   /** Long, highly distinct names: the dictionary dwarfs the 8 B/entry hash chain beside it. */
   private static String fatDictionaryCorpus() {
     final StringBuilder json = new StringBuilder(RECORDS * 256);

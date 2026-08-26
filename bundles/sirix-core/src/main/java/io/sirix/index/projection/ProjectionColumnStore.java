@@ -752,7 +752,7 @@ public final class ProjectionColumnStore {
       if (dictEntry >= 0) {
         total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
-      total += decodedColumnResidentBytes(descriptor, columnKinds[col]);
+      total += decodedColumnResidentBytes(descriptor, col, columnKinds[col]);
     }
     return total;
   }
@@ -835,7 +835,7 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = columns.clone();
       next[col] = slices;
       columns = next;
-      retainedFillBytes.addAndGet(projected);
+      chargeRetained(col, projected);
     }
     return slices;
   }
@@ -883,7 +883,7 @@ public final class ProjectionColumnStore {
    * @param kind the column's kind byte
    * @return the decoded residency of that column in that leaf
    */
-  public static long decodedColumnResidentBytes(final byte[] descriptor, final byte kind) {
+  public static long decodedColumnResidentBytes(final byte[] descriptor, final int col, final byte kind) {
     final int rows = RowGroupDescriptor.rowCount(descriptor);
     final long presenceBytes = ((rows + 63L) >>> 6) << 3;
     // A LAYOUT question — how many bytes does a decoded slice occupy — so it asks the layout
@@ -895,7 +895,45 @@ public final class ProjectionColumnStore {
     if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
       return presenceBytes << 1;
     }
+    if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      // The terms {@link #sliceRetainedBytes} reports for a filled string slice: the per-row id
+      // lane, the presence words, and the dictionary in its DECODED form. Pricing these at zero
+      // would exempt the exact column kind the windowed route exists to serve.
+      long bytes = ((long) rows << 2) + presenceBytes;
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        // A set column keeps a per-row counts table beside the flat element run. The run itself can
+        // exceed one element per row, which no descriptor field records — one element per row is
+        // the floor, so a set column is the one shape this figure can still understate.
+        bytes += (long) rows << 2;
+      }
+      final int dictEntry =
+          RowGroupDescriptor.entryIndexOf(descriptor, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col));
+      if (dictEntry >= 0) {
+        bytes += (long) RowGroupDescriptor.entryByteLen(descriptor, dictEntry) * DICT_DECODED_EXPANSION;
+      }
+      return bytes;
+    }
     return 0;
+  }
+
+  /**
+   * Multiple applied to a DICT segment's stored bytes to reach what a fill retains for it: an
+   * FSST-compressed dictionary is DECOMPRESSED into a fresh array on decode, and a 4 B offset per
+   * entry is built beside it. Neither the compression ratio nor the entry count is recorded in the
+   * descriptor, so this is a deliberate over-estimate — the safe direction for a residency cap,
+   * which declines a fill early rather than admitting one it cannot hold.
+   */
+  private static final int DICT_DECODED_EXPANSION = 4;
+
+  /**
+   * Decoded residency of a DISTINCT-IDENTITY slice: the per-row id lane and presence words, and
+   * NOT the dictionary — that mode reads the 8 B/entry hash chain instead, whose stored bytes are
+   * already its retained bytes.
+   */
+  private static long decodedIdentityResidentBytes(final byte[] descriptor) {
+    final int rows = RowGroupDescriptor.rowCount(descriptor);
+    return ((long) rows << 2) + (((rows + 63L) >>> 6) << 3);
   }
 
   /** Lazily-computed per-column projected fill bytes; 0 = not yet computed (a real sum is never 0). */
@@ -932,7 +970,7 @@ public final class ProjectionColumnStore {
       if (dictEntry >= 0) {
         total += RowGroupDescriptor.entryByteLen(descriptor, dictEntry);
       }
-      total += decodedColumnResidentBytes(descriptor, columnKinds[col]);
+      total += decodedColumnResidentBytes(descriptor, col, columnKinds[col]);
     }
     // A benign same-column race writes the identical sum twice.
     cached[col] = Math.max(1, total);
@@ -993,6 +1031,32 @@ public final class ProjectionColumnStore {
   /** Bytes retained by published fills so far — observability for the budget witness. */
   public long retainedFillBytes() {
     return retainedFillBytes.get();
+  }
+
+  /** Whether {@code col}'s raw BODY chain is already published — and therefore already charged. */
+  private boolean columnBytesFilled(final int col) {
+    final byte[][][] slots = columnBytes;
+    return col >= 0 && col < slots.length && slots[col] != null;
+  }
+
+  /**
+   * Charge a published fill, MINUS whatever a nested door already charged for the same bytes.
+   *
+   * <p>
+   * A slice fill and an identity fill both run through {@link #columnBytes}, which prices and
+   * charges the BODY chain on its own account — so charging the outer door's full projection on top
+   * counted one retained copy of those arrays twice. The ledger is monotonic and feeds the decline
+   * predicates, so over-charging steers servable queries off the sliced route for residency that is
+   * not there. Subtracting what is already charged makes the total independent of which door was
+   * entered first, which a re-entrancy flag alone would not: the BODY chain is equally shared when
+   * {@code columnBytes} is entered directly and the slice fill follows later.
+   * </p>
+   */
+  private void chargeRetained(final int col, final long projected) {
+    final long alreadyCharged = columnBytesFilled(col)
+        ? projectedColumnBodyFillBytes(col)
+        : 0;
+    retainedFillBytes.addAndGet(Math.max(0, projected - alreadyCharged));
   }
 
   /**
@@ -1085,7 +1149,7 @@ public final class ProjectionColumnStore {
       }
     }
     for (int i = 0; i < n; i++) {
-      total += decodedColumnResidentBytes(directories.get(i).descriptor(), columnKinds[col]);
+      total += decodedIdentityResidentBytes(directories.get(i).descriptor());
     }
     if (rowLeaves > 0 && fallbackLeaves == rowLeaves) {
       return projectedColumnFillBytes(col);
@@ -1167,7 +1231,7 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = identityColumns.clone();
       next[col] = slices;
       identityColumns = next;
-      retainedFillBytes.addAndGet(projectedIdentity);
+      chargeRetained(col, projectedIdentity);
     }
     return slices;
   }

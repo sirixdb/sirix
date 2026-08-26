@@ -668,7 +668,7 @@ public final class ProjectionIndexCatalog {
     for (int c = 0; c < columnCount; c++) {
       // The SAME arithmetic the store's fill doors price against, so the weight that admits a
       // handle and the budget that declines its fills cannot disagree about what a column costs.
-      bytes += ProjectionColumnStore.decodedColumnResidentBytes(descriptor, RowGroupDescriptor.kind(descriptor, c));
+      bytes += ProjectionColumnStore.decodedColumnResidentBytes(descriptor, c, RowGroupDescriptor.kind(descriptor, c));
     }
     return bytes;
   }
