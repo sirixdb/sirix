@@ -2393,7 +2393,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // SLICED first: only the aggregate + predicate columns' segments are read — the whole-leaf
     // materialization below is the cold-start whale and exists only as the fallback.
     final ProjectionColumnStore store = handle.columnStoreOrNull();
-    if (store != null && store.columnSliceable(col) && predsSliceable(store, preds)) {
+    if (store != null && store.columnFillable(col) && predsSliceable(store, preds)) {
       try {
         final int rgc = store.rowGroupCount();
         final int effS = Math.min(threads, Math.max(1, (rgc + 63) / 64));
@@ -2682,10 +2682,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static final int SLICED_PROMOTE_AFTER = Integer.getInteger("sirix.projection.slicedPromoteAfter", 2);
 
-  /** Every listed column servable from slices (fail-closed gate for the sliced group route). */
+  /**
+   * Every listed column servable from slices (fail-closed gate for the sliced group route) —
+   * viability, not just kind: an over-budget column's fill declines inside the store, so gating on
+   * {@link ProjectionColumnStore#columnFillable} keeps this route from selecting an arm that cannot
+   * complete.
+   */
   private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
     for (final int col : cols) {
-      if (!store.columnSliceable(col)) {
+      if (!store.columnFillable(col)) {
         return false;
       }
     }
@@ -2739,7 +2744,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      if (!store.columnSliceable(p.column)) {
+      if (!store.columnFillable(p.column)) {
         return false;
       }
       // A SET column takes a string literal too — membership. Left out, it fell to the
@@ -3442,7 +3447,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // SLICED first (regime-gated): the payload route hydrates every column of every leaf to
       // read ONE dict column's entries — a first-touch materializer in a fresh process (Q6).
       final ProjectionColumnStore mmStore = handle.columnStoreOrNull();
-      if (mmStore != null && !handle.payloadsMaterialized() && mmStore.columnSliceable(col)) {
+      if (mmStore != null && !handle.payloadsMaterialized() && mmStore.columnFillable(col)) {
         try {
           final ProjectionColumnStore.ColumnSlice[] mmSlices = mmStore.column(col, fetcher);
           final int n = mmStore.rowGroupCount();
@@ -8003,27 +8008,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // Budget-aware: a handle whose worst-case resident bytes exceed the eager budget is served by
     // the windowed payload view — the route that lets fat string columns answer whole-leaf query
     // shapes (LIKE, distinct) at 100M instead of OOMing the whole-column materialization.
-    final Supplier<List<byte[]>> materializer = ProjectionIndexCatalog.rowGroupMaterializer(session, revision,
-        handle.defId(), store.rowGroupCount(), handle.projectedWeightBytes());
-    if (!ProjectionIndexCatalog.servesWindowedPayloads(handle.projectedWeightBytes())) {
-      return materializer;
-    }
-    // The shared handle deliberately does not memoize a windowed view (it would outlive this
-    // session and fetch through a closed one), so THIS executor memoizes it for its own lifetime —
-    // the exact lifetime of the session the view's fetcher is bound to. Without it every consult
-    // would redo the physical-order read and start from a cold window set.
-    return () -> windowedPayloadViews.computeIfAbsent(handle, memoized -> materializer.get());
+    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount(),
+        handle.projectedWeightBytes());
   }
-
-  /**
-   * Per-executor memo of the WINDOWED whole-leaf views, keyed by handle IDENTITY (a handle carries
-   * no value equality) — see {@link #rowGroupMaterializer(ProjectionIndexRegistry.Handle)}. Bounded
-   * by the number of projection handles this executor's queries touch, and dropped with the
-   * executor, so it holds nothing past its session. Only windowed views land here; an eager handle
-   * memoizes its own resident leaves and never consults the materializer again.
-   */
-  private final ConcurrentHashMap<ProjectionIndexRegistry.Handle, List<byte[]>> windowedPayloadViews =
-      new ConcurrentHashMap<>();
 
   /** The write transaction's index controller (wtx mode only). */
   private JsonIndexController wtxIndexController() {
@@ -10885,7 +10872,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // SLICED first (regime-gated like the group kernels): the payload route hydrates every
     // column of every leaf to read ONE dict — the suite's first cold materializer (Q5).
     final ProjectionColumnStore cdStore = handle.columnStoreOrNull();
-    if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnSliceable(groupColumn)
+    if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnFillable(groupColumn)
         && cdStore.columnKind(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
       try {
         final ProjectionColumnStore.ColumnSlice[] cdSlices = cdStore.column(groupColumn, columnFetcher());

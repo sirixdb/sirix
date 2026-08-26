@@ -667,6 +667,38 @@ public final class ProjectionColumnStore {
   }
 
   /**
+   * Whether a WHOLE-COLUMN fill of {@code col} fits the fill budget — the size half of route
+   * viability, which {@link #columnSliceable} (a KIND predicate) deliberately does not answer.
+   *
+   * @param col the column
+   * @return {@code true} when {@link #projectedColumnFillBytes} is within the budget
+   */
+  public boolean columnFillWithinBudget(final int col) {
+    return col >= 0 && col < columnKinds.length && projectedColumnFillBytes(col) <= columnFillBudgetBytes;
+  }
+
+  /**
+   * Whether the sliced whole-column route is VIABLE for {@code col}: the kind can be sliced AND the
+   * fill either fits the budget or has already been paid for.
+   *
+   * <p>
+   * This is the predicate a PLANNER needs, not {@link #columnSliceable} alone. Kind-sliceability
+   * says the route could decode the column; it says nothing about the budget
+   * {@link #column(int, ColumnSegmentFetcher)} enforces before its first fetch. A planner gating on
+   * kind alone selects the sliced arm for an over-budget column, the fill then declines through the
+   * budget door, and the exception escapes to a generic fail-soft catch — so the query takes the
+   * SLOWEST route and trips a defect counter, instead of the whole-leaf windowed byte scan the
+   * budget declined it toward. An already-filled column stays viable: its bytes are resident, so the
+   * budget question is moot.
+   *
+   * @param col the column
+   * @return {@code true} when the sliced route can actually serve this column
+   */
+  public boolean columnFillable(final int col) {
+    return columnSliceable(col) && (columnFilled(col) || columnFillWithinBudget(col));
+  }
+
+  /**
    * The column's slices across all leaves (ascending rowGroupId), fetching + decoding its BODY
    * segments on first touch through the CALLER's own live {@code fetcher}.
    *

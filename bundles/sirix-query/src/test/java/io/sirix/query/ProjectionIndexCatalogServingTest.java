@@ -1050,6 +1050,81 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void anOverBudgetColumnRoutesToTheWholeLeafKernelInsteadOfDecliningIntoTheSlicedArm()
+      throws IOException {
+    // A whole-column slice fill declines through the store's budget door. Kind-sliceability knows
+    // nothing about that budget, so a planner gating on kind alone selects the sliced arm, the fill
+    // then throws, and the exception lands in the group route's fail-soft catch — which increments
+    // GROUP_AGG_FAILED (documented to mean a defect or corruption) and drops the query to the
+    // GENERIC pipeline, the slowest route there is. The route must be chosen on VIABILITY, so an
+    // over-budget column goes to the whole-leaf byte kernel, still served from the projection.
+    query("""
+          jn:store('json-path1','budgetgroupstr.jn','[
+            {"dept": "Eng",   "age": 30, "city": "Berlin"},
+            {"dept": "Eng",   "age": 45, "city": "Muc"},
+            {"dept": "Sales", "age": 50, "city": "Ulm"},
+            {"age": 99, "city": "Bonn"},
+            {"dept": "HR",    "age": 23},
+            {"dept": "Eng",   "age": 4,  "city": "X"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','budgetgroupstr.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/dept', '/[]/age', '/[]/city'),
+              ('string', 'long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    final String topKQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','budgetgroupstr.jn')[]
+            where $r.age gt 5
+            let $d := $r.dept, $len := fn:string-length($r.city)
+            group by $d
+            let $c := count($r)
+            order by $c descending
+            return {"d": $d, "c": $c, "total": sum($r.age),
+                    "slen": sum($len)}, 1, 3)
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetgroupstr.jn");
+      // Oracle on a NON-auto-wiring chain, computed BEFORE the budget is shrunk — see the string
+      // twin above for the full reasoning.
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, topKQuery);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+      try {
+        final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        final long failedBefore = SirixVectorizedExecutor.groupAggFailedCount();
+        final String served = evaluateQuery(chain, ctx, topKQuery);
+        Assertions.assertEquals(generic, served, "the answer must not change with the fill budget");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "an over-budget column must still be SERVED from the projection, by the whole-leaf kernel");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the sliced arm cannot serve a column whose fill the store refuses");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggFailedCount() - failedBefore,
+            "routing into a fill that declines raises a false defect signal");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void compositeTopKGroupAggregatesServeFromColumnSlices() throws IOException {
     // Unit 4 twin: the COMPOSITE flat arm (Q11 shape — numeric + string 2-key, COUNT(DISTINCT),
     // ordered + capped) must serve from column slices. The record missing `model` exercises the
