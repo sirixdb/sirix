@@ -94,9 +94,21 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
 
   private static final int TOTAL_DISTINCT = RECORDS / ROWS_PER_VALUE;
 
-  /** The notice as an operator reads it. Groups: index, column, retained, entries, budget, tail. */
+  /**
+   * The notice as an operator reads it. Groups: index, column, breaching bytes, the name of the term
+   * that breached, entries, budget, retained, tail.
+   *
+   * <p>
+   * The breaching quantity and the budget are BOTH in the line on purpose. Every byte-budget guard
+   * weighs retention plus a reservation, so a notice quoting retention alone printed a number below
+   * the budget it announced as exceeded — arithmetic an operator cannot reconcile, and no figure to
+   * raise the budget to. The loud arm asserts the printed relation, not merely the presence of
+   * numbers.
+   * </p>
+   */
   private static final Pattern NOTICE = Pattern.compile("^\\[proj] PROJECTION ABANDONED during the load: index (\\d+),"
-      + " column (\\d+) retained (\\d+) B over (\\d+) distinct values, past its (\\d+) B budget\\. (.*)$");
+      + " column (\\d+) needed (\\d+) B \\(([^)]+)\\) over (\\d+) distinct values, past its (\\d+) B budget"
+      + " \\((\\d+) B retained\\)\\. (.*)$");
 
   private String priorBudget;
 
@@ -148,13 +160,25 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
     assertTrue(notice.startsWith("[proj] "),
         "the notice must reach stderr unprefixed, i.e. not through a log appender: " + notice);
     final Matcher parsed = NOTICE.matcher(notice);
-    assertTrue(parsed.matches(), "the notice no longer states index, column, retention and budget: " + notice);
+    assertTrue(parsed.matches(),
+        "the notice no longer states index, column, the breaching term and the budget: " + notice);
     assertEquals(INDEX_NUMBER, Integer.parseInt(parsed.group(1)), "the notice must name the abandoned index");
     assertEquals(0, Integer.parseInt(parsed.group(2)), "the notice must name the column whose dictionary breached");
-    assertTrue(Integer.parseInt(parsed.group(4)) > 0, "the notice must report how many values had been admitted");
-    assertEquals(budget, Long.parseLong(parsed.group(5)), "the notice must quote the budget that was breached");
-    assertTrue(parsed.group(6).contains("STALE") && parsed.group(6).contains("jn:create-projection-index"),
+    assertTrue(Integer.parseInt(parsed.group(5)) > 0, "the notice must report how many values had been admitted");
+    assertEquals(budget, Long.parseLong(parsed.group(6)), "the notice must quote the budget that was breached");
+    assertTrue(parsed.group(8).contains("STALE") && parsed.group(8).contains("jn:create-projection-index"),
         "the notice must say the projection is stale and name the call that rebuilds it: " + notice);
+
+    // THE POINT OF THE ARITHMETIC: the quantity the line announces as breaching must actually exceed
+    // the budget the same line quotes. Reporting retention instead put a smaller number on the left
+    // of a "past its ... budget" claim on every real breach.
+    final long breachingBytes = Long.parseLong(parsed.group(3));
+    final long retainedBytes = Long.parseLong(parsed.group(7));
+    assertTrue(breachingBytes > budget, "the notice announces a breach with a quantity that does NOT exceed the budget"
+        + " it quotes (" + breachingBytes + " B vs " + budget + " B): " + notice);
+    assertFalse(parsed.group(4).isBlank(), "the breaching quantity must be named, or it cannot be acted on: " + notice);
+    assertTrue(retainedBytes <= breachingBytes, "retention cannot exceed the retention-plus-reservation term that was"
+        + " weighed against the budget: " + notice);
 
     final ProjectionIndexMetadata metadata = metadata();
     assertNotNull(metadata, "the abandoned load must leave the tombstone behind, not an empty slot");
