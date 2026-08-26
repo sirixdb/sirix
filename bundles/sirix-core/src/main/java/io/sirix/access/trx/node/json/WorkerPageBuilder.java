@@ -85,6 +85,11 @@ final class WorkerPageBuilder implements BulkRecordSink {
    */
   private final @Nullable ChunkIndexTupleBatch indexTuples;
 
+  /**
+   * Per-chunk path-statistics partials, recorded by the chunk's assembler; {@code null} when unarmed.
+   */
+  private final @Nullable ChunkPathStatsBatch pathStatsBatch;
+
   private final List<KeyValueLeafPage> pages = new ArrayList<>();
   private KeyValueLeafPage currentPage;
   private long currentPageKey = -1;
@@ -110,13 +115,14 @@ final class WorkerPageBuilder implements BulkRecordSink {
       final LongHashFunction hashFunction, final boolean storeChildCount, final Object2IntOpenHashMap<String> nameKeys,
       final long firstKey, final long lastKey) {
     this(resourceConfig, revisionNumber, hashFunction, storeChildCount, nameKeys, firstKey, lastKey, null, NULL_KEY,
-        null);
+        null, null);
   }
 
   WorkerPageBuilder(final ResourceConfiguration resourceConfig, final int revisionNumber,
       final LongHashFunction hashFunction, final boolean storeChildCount, final Object2IntOpenHashMap<String> nameKeys,
       final long firstKey, final long lastKey, final ProjectionChunkRowBatch @Nullable [] projectionBatches,
-      final long projectionRecordSetKey, final @Nullable ChunkIndexTupleBatch indexTuples) {
+      final long projectionRecordSetKey, final @Nullable ChunkIndexTupleBatch indexTuples,
+      final @Nullable ChunkPathStatsBatch pathStatsBatch) {
     this.resourceConfig = resourceConfig;
     this.revisionNumber = revisionNumber;
     this.hashFunction = hashFunction;
@@ -135,6 +141,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
     }
     this.projectionTrackChildValues = trackChildValues;
     this.indexTuples = indexTuples;
+    this.pathStatsBatch = pathStatsBatch;
 
     this.scratchObjectNode = new ObjectNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, NULL_KEY, NULL_KEY,
         NULL_KEY, NULL_KEY, 0, 0, 0, hashFunction, (SirixDeweyID) null);
@@ -226,6 +233,12 @@ final class WorkerPageBuilder implements BulkRecordSink {
   @Nullable
   ChunkIndexTupleBatch indexTuples() {
     return indexTuples;
+  }
+
+  /** The chunk's path-statistics partials, for the coordinator's drain; {@code null} when unarmed. */
+  @Nullable
+  ChunkPathStatsBatch pathStatsBatch() {
+    return pathStatsBatch;
   }
 
   // ==== minting + page roll ====================================================================

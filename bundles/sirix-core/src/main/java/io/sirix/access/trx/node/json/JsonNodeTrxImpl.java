@@ -61,6 +61,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathStatsAccumulator;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.index.path.summary.PathSummaryWriter.OPType;
 import io.sirix.node.Bytes;
@@ -1379,15 +1380,13 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  /** Whether {@code number} is integral AND representable as a {@code long} without loss. */
+  /**
+   * Whether {@code number} is integral AND representable as a {@code long} without loss. Delegates to
+   * the single shared classifier so the cursor path and the bulk loaders can never disagree on which
+   * lane a number takes.
+   */
   private static boolean isExactLong(final Number number) {
-    if (number instanceof Long || number instanceof Integer || number instanceof Short || number instanceof Byte) {
-      return true;
-    }
-    if (number instanceof BigInteger bigInteger) {
-      return bigInteger.bitLength() < Long.SIZE;
-    }
-    return false;
+    return PathStatsAccumulator.isExactLong(number);
   }
 
 

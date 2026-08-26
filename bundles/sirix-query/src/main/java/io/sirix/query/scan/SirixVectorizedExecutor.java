@@ -16295,6 +16295,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * Aggregates answered from the PATH SUMMARY's per-path statistics ({@link #tryPathSummaryStats}),
+   * since process start. The positive witness that a query genuinely WAS summary-served — a returned
+   * answer and a declined fallback are otherwise indistinguishable to a caller.
+   */
+  private static final LongAdder PATH_SUMMARY_STATS_SERVED = new LongAdder();
+
+  /** Test observability for {@link #PATH_SUMMARY_STATS_SERVED}. */
+  public static long pathSummaryStatsServed() {
+    return PATH_SUMMARY_STATS_SERVED.sum();
+  }
+
+  /**
    * Try to answer an unfiltered aggregate ({@code sum | avg | min | max | count}) over a single field
    * via the PathSummary's per-path statistics. Returns {@code null} to signal the caller should fall
    * back to a full parallel scan when:
@@ -16399,7 +16411,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (!numeric && !"count".equals(func)) {
           return null;
         }
-        return switch (func) {
+        final Sequence served = switch (func) {
           case "count" -> new Int64(count);
           // Reached only for an all-integral column (guarded above), so the long accumulator IS
           // the exact sum and its integer type is the right one.
@@ -16413,6 +16425,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               : new Int64(pMax);
           default -> null;
         };
+        if (served != null) {
+          PATH_SUMMARY_STATS_SERVED.increment();
+        }
+        return served;
       } finally {
         summary.close();
       }

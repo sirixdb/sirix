@@ -134,170 +134,50 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * commit path does so via the pre-commit hook in
    * {@link io.sirix.access.trx.node.AbstractNodeTrxImpl}.
    */
-  private final Long2ObjectOpenHashMap<DeferredStats> pendingStats;
+  private final Long2ObjectOpenHashMap<PathStatsAccumulator> pendingStats;
 
   /** Hard cap on deferred entries — forces a flush when exceeded to bound memory. */
   private static final int MAX_PENDING_PATH_ENTRIES = 4096;
 
-  /**
-   * Per-path insert-side delta carried by {@link #pendingStats}. Remove paths flush synchronously so
-   * we don't carry remove deltas here. Fields track only the state needed to merge into a PathNode's
-   * stats in one pass: count / sum / min / max / null-count for numeric; bytes min/max for strings;
-   * HLL batched into a local sketch that's unioned on flush. Kind is recorded so mixed-type updates
-   * (rare but defensible) keep the right lane.
-   *
-   * <p>
-   * Objects are recycled: on flush we don't allocate a fresh {@code DeferredStats} per path; we clear
-   * in place via {@link #reset()} so the map is zero-alloc after the warm-up phase.
-   */
-  private static final class DeferredStats {
-    /** Kind marker: 0 = none, 1 = long, 2 = bytes. */
-    byte kind;
-    long count;
-    long nullCount;
-    long sum;
-    /** Fractional remainder of {@link #sum} for non-integral observations in this batch. */
-    double sumFraction;
-    /** Whether any observation in this batch arrived as a floating-point value. */
-    boolean doubleTyped;
-    /** Whether this batch saw a value that cannot be accumulated (NaN, an infinity). */
-    boolean valueStatsUntrusted;
-    long min;
-    long max;
-    byte[] minBytes;
-    byte[] maxBytes;
-    HyperLogLogSketch hll;
-    /**
-     * Leaf-page keys witnessed during this batch. Small set — typically O(distinct pages touched since
-     * the last flush for this path) which is bounded by {@code MAX_PENDING_PATH_ENTRIES} / distinct
-     * paths. Lazily allocated so paths that never feed the page-skip index pay no extra state.
-     */
-    IntOpenHashSet seenPages;
+  // The per-path insert-side delta previously lived here as the private inner class
+  // DeferredStats. It is now the shared top-level PathStatsAccumulator, so the bulk loaders
+  // accumulate through EXACTLY the observation semantics this writer flushes — one classifier,
+  // one NaN/overflow policy, one fraction carry. Remove paths still flush synchronously, so no
+  // remove deltas are carried.
 
-    DeferredStats() {
-      reset();
-    }
+  /** Pool of recycled {@link PathStatsAccumulator}; avoids GC pressure across flushes. */
+  private final ArrayDeque<PathStatsAccumulator> deferredStatsPool = new ArrayDeque<>();
 
-    void reset() {
-      kind = 0;
-      count = 0L;
-      nullCount = 0L;
-      sum = 0L;
-      sumFraction = 0.0d;
-      doubleTyped = false;
-      min = Long.MAX_VALUE;
-      max = Long.MIN_VALUE;
-      minBytes = null;
-      maxBytes = null;
-      hll = null;
-      if (seenPages != null)
-        seenPages.clear();
-    }
-
-    void recordPage(final int pageKey) {
-      if (pageKey < 0)
-        return;
-      if (seenPages == null)
-        seenPages = new IntOpenHashSet(4);
-      seenPages.add(pageKey);
-    }
-
-    void addLong(final long v) {
-      kind = 1;
-      count++;
-      addToSum(v);
-      if (v < min)
-        min = v;
-      if (v > max)
-        max = v;
-      if (hll == null)
-        hll = new HyperLogLogSketch();
-      hll.add(v);
-    }
-
-    /**
-     * Folds {@code delta} into {@link #sum}, marking the value statistics untrusted instead of wrapping
-     * when this accumulator would overflow. A column of 64-bit ids overflows a long after a few dozen
-     * values, and a wrapped total served as {@code sum}/{@code avg} is silently the true total modulo
-     * 2^64 — the same bargain NaN makes above: record that it cannot be reproduced and let the query
-     * fall back to the scan.
-     */
-    void addToSum(final long delta) {
-      final long updated = sum + delta;
-      if (((sum ^ updated) & (delta ^ updated)) < 0) {
-        valueStatsUntrusted = true;
-        return;
-      }
-      sum = updated;
-    }
-
-    /**
-     * Non-integral observation: integral part into {@link #sum}, remainder into the fraction.
-     *
-     * <p>
-     * NaN and the infinities carry nothing to accumulate and nothing to subtract later, and folding
-     * them in silently poisons the accumulators for good: {@code (long) NaN} is 0 while
-     * {@code NaN - NaN} is NaN, so {@code sumFraction} would stay NaN forever, and casting the
-     * infinities yields {@code Long.MIN_VALUE}/{@code Long.MAX_VALUE} straight into min/max. They mark
-     * the sum and the bounds untrusted instead, which is the same bargain a delete makes.
-     */
-    void addDouble(final double v) {
-      kind = 1;
-      doubleTyped = true;
-      count++;
-      if (Double.isNaN(v) || Double.isInfinite(v)) {
-        valueStatsUntrusted = true;
-        if (hll == null)
-          hll = new HyperLogLogSketch();
-        hll.add(Double.doubleToLongBits(v));
-        return;
-      }
-      final double integral = v < 0
-          ? Math.ceil(v)
-          : Math.floor(v);
-      addToSum((long) integral);
-      sumFraction += v - integral;
-      final long lower = (long) Math.floor(v);
-      final long upper = (long) Math.ceil(v);
-      if (lower < min)
-        min = lower;
-      if (upper > max)
-        max = upper;
-      if (hll == null)
-        hll = new HyperLogLogSketch();
-      hll.add(Double.doubleToLongBits(v));
-    }
-
-    void addBytes(final byte[] v) {
-      kind = 2;
-      count++;
-      if (minBytes == null || Arrays.compareUnsigned(v, minBytes) < 0)
-        minBytes = v.clone();
-      if (maxBytes == null || Arrays.compareUnsigned(v, maxBytes) > 0)
-        maxBytes = v.clone();
-      if (hll == null)
-        hll = new HyperLogLogSketch();
-      hll.add(v);
-    }
-
-    void addNull() {
-      nullCount++;
-    }
-  }
-
-  /** Pool of recycled {@link DeferredStats}; avoids GC pressure across flushes. */
-  private final ArrayDeque<DeferredStats> deferredStatsPool = new ArrayDeque<>();
-
-  private DeferredStats acquireDeferredStats() {
-    final DeferredStats d = deferredStatsPool.pollFirst();
+  private PathStatsAccumulator acquireDeferredStats() {
+    final PathStatsAccumulator d = deferredStatsPool.pollFirst();
     return d != null
         ? d
-        : new DeferredStats();
+        : new PathStatsAccumulator();
   }
 
-  private void releaseDeferredStats(final DeferredStats d) {
+  private void releaseDeferredStats(final PathStatsAccumulator d) {
     d.reset();
     deferredStatsPool.addLast(d);
+  }
+
+  /**
+   * Fold an externally accumulated per-path delta into the pending map — the bulk loaders' merge
+   * entry point. A parallel import collects one {@link PathStatsAccumulator} per (chunk, path) in its
+   * workers and the coordinator drains them here in chunk-adoption order; the merge is associative,
+   * so any drain order yields the same statistics. The standard pre-commit
+   * {@link #flushPendingStats()} then applies everything through the ordinary COW path — one prepared
+   * record per path, the same as cursor ingestion.
+   *
+   * <p>
+   * {@code delta} is consumed by copy ({@link PathStatsAccumulator#mergeFrom}); the caller may
+   * recycle it afterwards. No-op when statistics are disabled or the delta is empty.
+   */
+  public void mergeExternalStats(final long pathNodeKey, final PathStatsAccumulator delta) {
+    if (!withPathStatistics || pathNodeKey < 0 || delta.isEmpty()) {
+      return;
+    }
+    acquireOrCreate(pathNodeKey).mergeFrom(delta);
+    maybeFlushIfOverflow();
   }
 
   /**
@@ -1284,7 +1164,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
     d.addLong(numericValue);
     recordPageFor(d, pageSourceNodeKey);
     maybeFlushIfOverflow();
@@ -1302,7 +1182,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
     d.addDouble(numericValue);
     recordPageFor(d, pageSourceNodeKey);
     maybeFlushIfOverflow();
@@ -1327,8 +1207,38 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
     d.addBytes(bytesValue);
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  /**
+   * Range variant of {@link #recordValue(long, byte[], long)} for callers holding the value inside a
+   * reused parser buffer (the sequential bulk assembler) — records {@code buf[0, length)} without
+   * materializing an exact-length copy.
+   */
+  public void recordValue(final long pathNodeKey, final byte[] buf, final int length, final long pageSourceNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
+    d.addBytes(buf, 0, length);
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  /**
+   * Record a numeric observation through the shared classifier
+   * ({@link PathStatsAccumulator#addNumber}) — the same integral-vs-floating dispatch the cursor's
+   * record/remove hooks use, exposed for the bulk loaders.
+   */
+  public void recordNumberValue(final long pathNodeKey, final Number value, final long pageSourceNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
+    d.addNumber(value);
     recordPageFor(d, pageSourceNodeKey);
     maybeFlushIfOverflow();
   }
@@ -1337,7 +1247,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
     d.addLong(value
         ? 1L
         : 0L);
@@ -1349,14 +1259,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    final PathStatsAccumulator d = acquireOrCreate(pathNodeKey);
     d.addNull();
     recordPageFor(d, pageSourceNodeKey);
     maybeFlushIfOverflow();
   }
 
-  private DeferredStats acquireOrCreate(final long pathNodeKey) {
-    DeferredStats d = pendingStats.get(pathNodeKey);
+  private PathStatsAccumulator acquireOrCreate(final long pathNodeKey) {
+    PathStatsAccumulator d = pendingStats.get(pathNodeKey);
     if (d == null) {
       d = acquireDeferredStats();
       pendingStats.put(pathNodeKey, d);
@@ -1364,13 +1274,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     return d;
   }
 
-  private static void recordPageFor(final DeferredStats d, final long nodeKey) {
-    if (nodeKey < 0L)
-      return;
-    final long pk = nodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
-    if (pk > Integer.MAX_VALUE)
-      return; // bitmap is int-keyed; above 2^31 pages, skip tracking
-    d.recordPage((int) pk);
+  private static void recordPageFor(final PathStatsAccumulator d, final long nodeKey) {
+    // Single source of truth for the page-key derivation — shared with the bulk loaders.
+    d.recordPageOfNode(nodeKey);
   }
 
   /** Bound the deferred buffer; distinct-path cardinality should be small in practice. */
@@ -1398,7 +1304,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     while (it.hasNext()) {
       final var entry = it.next();
       final long pathNodeKey = entry.getLongKey();
-      final DeferredStats d = entry.getValue();
+      final PathStatsAccumulator d = entry.getValue();
       if (d.count == 0 && d.nullCount == 0) {
         releaseDeferredStats(d);
         continue;
@@ -1418,11 +1324,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Merge one {@link DeferredStats} into a PathNode in a single update. Splice the precomputed
+   * Merge one {@link PathStatsAccumulator} into a PathNode in a single update. Splice the precomputed
    * aggregates directly; HLL is union-merged with the node's existing sketch. Remove paths don't flow
    * through here — they flush-then-synchronously-apply.
    */
-  private static void applyDeferredStats(final PathNode pn, final DeferredStats d) {
+  private static void applyDeferredStats(final PathNode pn, final PathStatsAccumulator d) {
     if (d.kind == 1 && d.count > 0) {
       pn.mergeLongStats(d.count, d.sum, d.min, d.max);
       if (d.sumFraction != 0.0d) {

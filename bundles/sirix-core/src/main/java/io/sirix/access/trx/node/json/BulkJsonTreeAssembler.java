@@ -7,6 +7,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
+import org.jspecify.annotations.Nullable;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
 import io.sirix.settings.Fixed;
@@ -63,8 +64,11 @@ import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
  *
  * <p>
  * <b>Scope guard.</b> Refuses up front — before writing anything — any configuration this version
- * does not faithfully reproduce: hashes, DeweyIDs, path statistics, node history, or a non-empty
- * target document. Mutating existing nodes is permanently out of scope; that is the cursor's job.
+ * does not faithfully reproduce: hashes, DeweyIDs, node history, or a non-empty target document.
+ * Path statistics ARE reproduced: every leaf observation is recorded through the summary writer's
+ * deferred machinery (sequential mode) or a per-chunk partial batch (worker mode), the same
+ * accumulation semantics cursor ingestion uses. Mutating existing nodes is permanently out of
+ * scope; that is the cursor's job.
  */
 public final class BulkJsonTreeAssembler {
 
@@ -83,6 +87,20 @@ public final class BulkJsonTreeAssembler {
   private final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
   private final boolean buildPathSummary;
   private final BulkJsonScanner scanner;
+
+  /**
+   * Sequential mode: record path statistics directly into {@link #pathSummaryWriter}'s deferred
+   * machinery (the exact accumulation the cursor path uses; the standard pre-commit flush applies
+   * it). Set when the writer is present and the resource enables statistics.
+   */
+  private final boolean statsToSummary;
+
+  /**
+   * Worker mode: per-chunk path-statistics partials, injected by the parallel importer when the
+   * resource enables statistics and merged by the coordinator at chunk adoption. Mutually exclusive
+   * with {@link #statsToSummary} (worker assemblers run without a summary writer).
+   */
+  private @Nullable ChunkPathStatsBatch pathStatsBatch;
 
   /** The key the NEXT sink creation must mint; every creation asserts and advances it. */
   private long expectedNextKey;
@@ -151,6 +169,9 @@ public final class BulkJsonTreeAssembler {
       final long trailingSiblingKey) {
     this.sink = sink;
     this.pathSummaryWriter = pathSummaryWriter;
+    // Statistics require the summary to be BUILT here: without it every PCR is the 0/-1
+    // sentinel, and observations would pile onto a nonsense path class.
+    this.statsToSummary = pathSummaryWriter != null && buildPathSummary && pathSummaryWriter.isPathStatisticsEnabled();
     this.buildPathSummary = buildPathSummary;
     this.scanner = scanner;
     this.expectedNextKey = firstKey;
@@ -160,6 +181,19 @@ public final class BulkJsonTreeAssembler {
     this.memberRootPcr = memberRootPcr;
     this.memberLeftBoundaryKey = memberLeftBoundaryKey;
     this.trailingSiblingKey = trailingSiblingKey;
+  }
+
+  /**
+   * Worker mode: collect path statistics into {@code batch} (the coordinator merges it at chunk
+   * adoption). Refused in sequential mode — there the summary writer itself accumulates and the two
+   * routes must never double-count.
+   */
+  void collectPathStatsInto(final ChunkPathStatsBatch batch) {
+    if (statsToSummary) {
+      throw new IllegalStateException(
+          "path statistics already flow into the summary writer — a batch would double-count");
+    }
+    this.pathStatsBatch = batch;
   }
 
   /** Pre-fills the PCR memo (worker mode: every path the chunk uses must already be resolved). */
@@ -227,10 +261,9 @@ public final class BulkJsonTreeAssembler {
     if (config.storeNodeHistory()) {
       throw new IllegalStateException("bulk assembly v0.1 does not support node history");
     }
-    final PathSummaryWriter<JsonNodeReadOnlyTrx> summary = wtx.bulkPathSummaryWriter();
-    if (summary != null && summary.isPathStatisticsEnabled()) {
-      throw new IllegalStateException("bulk assembly v0.1 does not support path statistics");
-    }
+    // Path statistics are SUPPORTED: the assembler records every leaf observation into the
+    // summary writer's deferred machinery (the exact accumulation cursor ingestion uses; the
+    // standard pre-commit flush applies it). See the leaf* methods.
     if (!wtx.moveToDocumentRoot() || wtx.hasFirstChild()) {
       throw new IllegalStateException("bulk assembly requires a FRESH resource (empty document root)");
     }
@@ -401,58 +434,93 @@ public final class BulkJsonTreeAssembler {
   // ==== leaves ================================================================================
 
   private void leafString(final byte[] utf8, final int utf8Length) throws IOException {
+    final long pcr;
+    final long nodeKey;
     if (levelKind[depth] == LEVEL_OBJECT) {
       final String name = takePendingName();
-      final long fieldPcr = resolveFieldPcr(name);
+      pcr = resolveFieldPcr(name);
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createObjectNamedStringNode(levelContainerKey[depth], levelLastChild[depth],
-          rightSibKey, fieldPcr, name, utf8, utf8Length)));
+      nodeKey = assertMinted(sink.createObjectNamedStringNode(levelContainerKey[depth], levelLastChild[depth],
+          rightSibKey, pcr, name, utf8, utf8Length));
     } else {
+      pcr = levelContentPcr[depth];
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createStringNode(levelContainerKey[depth], levelLastChild[depth],
-          rightSibKey, utf8, utf8Length, levelContentPcr[depth])));
+      nodeKey = assertMinted(
+          sink.createStringNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, utf8, utf8Length, pcr));
+    }
+    recordChildInParent(nodeKey);
+    if (statsToSummary) {
+      pathSummaryWriter.recordValue(pcr, utf8, utf8Length, nodeKey);
+    } else if (pathStatsBatch != null) {
+      pathStatsBatch.recordString(pcr, utf8, utf8Length, nodeKey);
     }
   }
 
   private void leafNumber(final Number value) throws IOException {
+    final long pcr;
+    final long nodeKey;
     if (levelKind[depth] == LEVEL_OBJECT) {
       final String name = takePendingName();
-      final long fieldPcr = resolveFieldPcr(name);
+      pcr = resolveFieldPcr(name);
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createObjectNamedNumberNode(levelContainerKey[depth], levelLastChild[depth],
-          rightSibKey, fieldPcr, name, value)));
+      nodeKey = assertMinted(sink.createObjectNamedNumberNode(levelContainerKey[depth], levelLastChild[depth],
+          rightSibKey, pcr, name, value));
     } else {
+      pcr = levelContentPcr[depth];
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createNumberNode(levelContainerKey[depth], levelLastChild[depth],
-          rightSibKey, value, levelContentPcr[depth])));
+      nodeKey =
+          assertMinted(sink.createNumberNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, value, pcr));
+    }
+    recordChildInParent(nodeKey);
+    if (statsToSummary) {
+      pathSummaryWriter.recordNumberValue(pcr, value, nodeKey);
+    } else if (pathStatsBatch != null) {
+      pathStatsBatch.recordNumber(pcr, value, nodeKey);
     }
   }
 
   private void leafBoolean(final boolean value) throws IOException {
+    final long pcr;
+    final long nodeKey;
     if (levelKind[depth] == LEVEL_OBJECT) {
       final String name = takePendingName();
-      final long fieldPcr = resolveFieldPcr(name);
+      pcr = resolveFieldPcr(name);
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createObjectNamedBooleanNode(levelContainerKey[depth],
-          levelLastChild[depth], rightSibKey, fieldPcr, name, value)));
+      nodeKey = assertMinted(sink.createObjectNamedBooleanNode(levelContainerKey[depth], levelLastChild[depth],
+          rightSibKey, pcr, name, value));
     } else {
+      pcr = levelContentPcr[depth];
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createBooleanNode(levelContainerKey[depth], levelLastChild[depth],
-          rightSibKey, value, levelContentPcr[depth])));
+      nodeKey = assertMinted(
+          sink.createBooleanNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, value, pcr));
+    }
+    recordChildInParent(nodeKey);
+    if (statsToSummary) {
+      pathSummaryWriter.recordBooleanValue(pcr, value, nodeKey);
+    } else if (pathStatsBatch != null) {
+      pathStatsBatch.recordBoolean(pcr, value, nodeKey);
     }
   }
 
   private void leafNull() throws IOException {
+    final long pcr;
+    final long nodeKey;
     if (levelKind[depth] == LEVEL_OBJECT) {
       final String name = takePendingName();
-      final long fieldPcr = resolveFieldPcr(name);
+      pcr = resolveFieldPcr(name);
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(sink.createObjectNamedNullNode(levelContainerKey[depth], levelLastChild[depth],
-          rightSibKey, fieldPcr, name)));
+      nodeKey = assertMinted(
+          sink.createObjectNamedNullNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, pcr, name));
     } else {
+      pcr = levelContentPcr[depth];
       final long rightSibKey = predictedLeafRightSibling();
-      recordChildInParent(assertMinted(
-          sink.createNullNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, levelContentPcr[depth])));
+      nodeKey = assertMinted(sink.createNullNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, pcr));
+    }
+    recordChildInParent(nodeKey);
+    if (statsToSummary) {
+      pathSummaryWriter.recordNullValue(pcr, nodeKey);
+    } else if (pathStatsBatch != null) {
+      pathStatsBatch.recordNull(pcr, nodeKey);
     }
   }
 

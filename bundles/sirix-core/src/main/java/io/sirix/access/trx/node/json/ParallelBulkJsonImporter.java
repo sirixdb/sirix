@@ -402,10 +402,10 @@ public final class ParallelBulkJsonImporter {
     if (config.storeNodeHistory()) {
       throw new IllegalStateException("parallel bulk import does not support node history");
     }
-    final PathSummaryWriter<JsonNodeReadOnlyTrx> summary = wtx.bulkPathSummaryWriter();
-    if (summary != null && summary.isPathStatisticsEnabled()) {
-      throw new IllegalStateException("parallel bulk import does not support path statistics");
-    }
+    // Path statistics are SUPPORTED: workers collect per-chunk per-path partials
+    // (ChunkPathStatsBatch, sharing the cursor path's PathStatsAccumulator semantics) and the
+    // coordinator merges them into its summary writer at chunk adoption, in document order. The
+    // standard pre-commit flush applies the merged deltas.
     if (wtx.bulkHasValidTimeIndex()) {
       throw new IllegalStateException(
           "parallel bulk import does not support valid-time index maintenance during the load — load with no "
@@ -573,9 +573,10 @@ public final class ParallelBulkJsonImporter {
         // whose first occurrence is in this chunk has already acquired its path class.
         final ProjectionChunkRowBatch[] chunkBatches = newChunkBatches((int) chunkMembers);
         final ChunkIndexTupleBatch chunkIndexBatch = newChunkIndexBatch();
+        final ChunkPathStatsBatch chunkPathStatsBatch = newChunkPathStatsBatch();
         final WorkerPageBuilder builder = new WorkerPageBuilder(resourceConfig, storageEngineWriter.getRevisionNumber(),
             resourceConfig.nodeHashFunction, wtx.bulkStoreChildCount(), chunkNames, firstKey, lastKey, chunkBatches,
-            feedRecordSetKey, chunkIndexBatch);
+            feedRecordSetKey, chunkIndexBatch, chunkPathStatsBatch);
         if (chunkBatches != null) {
           pendingFeedBatches.addLast(chunkBatches);
         }
@@ -590,6 +591,7 @@ public final class ParallelBulkJsonImporter {
           final List<KeyValueLeafPage> builtPages = buildChunk(fused, builder, chunkBytes, chunkByteLength,
               buildFirstKey, lastKey, rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
           drainIndexTuples(builder.indexTuples());
+          drainPathStats(builder.pathStatsBatch());
           stitchAndAdopt(builtPages, lastKey);
         } else {
           final long submittedLastKey = lastKey;
@@ -681,6 +683,9 @@ public final class ParallelBulkJsonImporter {
           new BulkJsonScanner(new CharArrayReader(scratch, 0, chars)), firstKey, true, rootArrayKey, rootArrayPcr,
           leftBoundaryKey, trailingSiblingKey);
       building.prefillPcrMemo(memoSnapshot);
+      if (builder.pathStatsBatch() != null) {
+        building.collectPathStatsInto(builder.pathStatsBatch());
+      }
       building.run();
       return builder.finish(lastKey);
     } finally {
@@ -693,6 +698,7 @@ public final class ParallelBulkJsonImporter {
     try {
       final List<KeyValueLeafPage> builtPages = next.pages().get();
       drainIndexTuples(next.builder().indexTuples());
+      drainPathStats(next.builder().pathStatsBatch());
       stitchAndAdopt(builtPages, next.lastKey());
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -1004,6 +1010,31 @@ public final class ParallelBulkJsonImporter {
       nameUnion = new IntOpenHashSet(includedNameKeys);
     }
     return new ChunkIndexTupleBatch(pathActive, pathUnion, casActive, casUnion, nameActive, nameUnion);
+  }
+
+  /**
+   * A fresh per-chunk path-statistics batch, or {@code null} when the resource does not maintain
+   * statistics (or builds no summary — statistics are keyed by path classes, which only exist with a
+   * summary).
+   */
+  private @Nullable ChunkPathStatsBatch newChunkPathStatsBatch() {
+    return buildPathSummary && pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()
+        ? new ChunkPathStatsBatch()
+        : null;
+  }
+
+  /**
+   * Merge one chunk's path-statistics partials into the coordinator's summary writer. Chunks drain in
+   * adoption order, which is document order — count, min, max, nullCount, the HLL sketch and the page
+   * keys are order-free, but {@code sumFraction} is not, so document order is what makes the merged
+   * statistics match the cursor path's. The standard pre-commit {@code flushPendingStats()} then
+   * applies them through the ordinary COW path.
+   */
+  private void drainPathStats(final @Nullable ChunkPathStatsBatch batch) {
+    if (batch == null || batch.isEmpty()) {
+      return;
+    }
+    batch.mergeInto(pathSummaryWriter);
   }
 
   /**
