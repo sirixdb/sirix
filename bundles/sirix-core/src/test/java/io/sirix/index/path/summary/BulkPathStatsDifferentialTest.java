@@ -86,6 +86,10 @@ final class BulkPathStatsDifferentialTest {
     final Map<String, Snapshot> parallelTiny =
         buildArmAndSnapshot(json, (session, doc) -> loadWithParallelBulk(session, doc, 192, 3));
     compareArms("parallel-tiny-chunks", cursor, parallelTiny);
+
+    final Map<String, Snapshot> cursorThreeCommits =
+        buildArmAndSnapshot(json, BulkPathStatsDifferentialTest::loadWithCursorInThreeCommits);
+    compareArms("cursor-three-commits", cursor, cursorThreeCommits);
   }
 
   @Test
@@ -112,7 +116,8 @@ final class BulkPathStatsDifferentialTest {
 
   /**
    * Adversarial single-kind-per-path corpus: integral ids, an always-overflowing 64-bit id column
-   * (same-sign — every arm must untrust its sum), non-integral doubles (fraction + doubleTyped),
+   * (same-sign — every arm must untrust its sum), a mixed-sign SWING column whose true total fits a
+   * long although a prefix of it does not, non-integral doubles (fraction + doubleTyped),
    * strings, booleans, a null-only field on every third record, a numeric array (plain values on the
    * enclosing {@code __array__} class), and a LATE-APPEARING field on the last three records only
    * (first occurrence in the final chunks under tiny chunking).
@@ -120,10 +125,21 @@ final class BulkPathStatsDifferentialTest {
   private static String corpus() {
     final StringBuilder json = new StringBuilder(RECORDS * 160);
     json.append('[');
-    for (int i = 0; i < RECORDS; i++) {
+    final List<String> members = corpusMembers();
+    for (int i = 0; i < members.size(); i++) {
       if (i > 0) {
         json.append(',');
       }
+      json.append(members.get(i));
+    }
+    return json.append(']').toString();
+  }
+
+  /** The corpus one member at a time, so the multi-commit arm cannot drift from the single-shot one. */
+  private static List<String> corpusMembers() {
+    final List<String> members = new ArrayList<>(RECORDS);
+    for (int i = 0; i < RECORDS; i++) {
+      final StringBuilder json = new StringBuilder(160);
       json.append("{\"id\":")
           .append(i)
           .append(",\"big\":")
@@ -139,13 +155,21 @@ final class BulkPathStatsDifferentialTest {
       if (i % 3 == 0) {
         json.append(",\"note\":null");
       }
+      // A column whose TRUE total fits a long while a prefix of it does not: M, M, ... , -M.
+      // Under three-commit ingestion the first batch alone is unrepresentable, so a per-flush
+      // 64-bit fold persists a different sum and a different verdict here than a single-shot load.
+      json.append(",\"swing\":").append(i == 0 || i == 1
+          ? Long.MAX_VALUE
+          : i == RECORDS - 1
+              ? -Long.MAX_VALUE
+              : 0L);
       json.append(",\"nums\":[").append(i).append(',').append(i + 1).append(']');
       if (i >= RECORDS - 3) {
         json.append(",\"late\":\"L").append(i).append('"');
       }
-      json.append('}');
+      members.add(json.append('}').toString());
     }
-    return json.append(']').toString();
+    return members;
   }
 
   // ==================== arms ====================
@@ -159,6 +183,53 @@ final class BulkPathStatsDifferentialTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
       wtx.commit();
     }
+  }
+
+  /**
+   * Same corpus, same order, but spread over THREE commits — so the deferred statistics flush three
+   * times and the accumulator crosses two serialize/deserialize boundaries instead of none.
+   *
+   * <p>
+   * This is the arm that pins order-independence END TO END rather than within one batch: the
+   * {@code big} column's true total leaves {@code long} range, so a per-flush 64-bit fold would
+   * persist a different sum and a different trust verdict here than in the single-commit arms, for
+   * the very same values.
+   */
+  private static void loadWithCursorInThreeCommits(final JsonResourceSession session, final String ignoredJson) {
+    final List<String> members = corpusMembers();
+    final int firstCut = members.size() / 3;
+    final int secondCut = 2 * members.size() / 3;
+    try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(join(members.subList(0, firstCut))));
+      wtx.commit();
+    }
+    appendMembers(session, members.subList(firstCut, secondCut));
+    appendMembers(session, members.subList(secondCut, members.size()));
+  }
+
+  private static void appendMembers(final JsonResourceSession session, final List<String> members) {
+    try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      final long arrayKey = wtx.getNodeKey();
+      for (final String member : members) {
+        wtx.moveTo(arrayKey);
+        wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(member), JsonNodeTrx.Commit.NO);
+      }
+      wtx.commit();
+    }
+  }
+
+  private static String join(final List<String> members) {
+    final StringBuilder json = new StringBuilder(members.size() * 160);
+    json.append('[');
+    for (int i = 0; i < members.size(); i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      json.append(members.get(i));
+    }
+    return json.append(']').toString();
   }
 
   private static void loadWithSequentialBulk(final JsonResourceSession session, final String json) {
@@ -235,7 +306,8 @@ final class BulkPathStatsDifferentialTest {
   private static void collectPathNodeKeys(final PathSummaryReader summary, final List<Long> out) {
     // The summary is small; a name-driven sweep over every known local name is the simplest
     // complete enumeration exposed by the reader API.
-    for (final String name : new String[] {"id", "big", "score", "name", "flag", "note", "nums", "late", "__array__"}) {
+    for (final String name : new String[] {"id", "big", "swing", "score", "name", "flag", "note", "nums", "late",
+        "__array__"}) {
       for (final PathNode node : summary.findPathsByLocalName(name)) {
         out.add(node.getNodeKey());
       }
@@ -271,6 +343,25 @@ final class BulkPathStatsDifferentialTest {
       // Page witnesses are arm-specific leaf-page assignments; presence must agree.
       assertEquals(c.hasPageWitnesses, b.hasPageWitnesses, at + ": page-witness presence");
     }
+  }
+
+  /**
+   * Guard: the swing column really is the discriminating shape — its true total FITS (so it must stay
+   * servable) while the prefix a three-commit load flushes first does not.
+   */
+  @Test
+  void corpusSwingColumnTotalFitsButItsPrefixDoesNot() {
+    final Map<String, Snapshot> cursor = buildArmAndSnapshot(corpus(), BulkPathStatsDifferentialTest::loadWithCursor);
+    final Snapshot swing = cursor.entrySet()
+                                 .stream()
+                                 .filter(e -> e.getKey().contains("swing"))
+                                 .map(Map.Entry::getValue)
+                                 .findFirst()
+                                 .orElse(null);
+    assertNotNull(swing, "swing column path missing");
+    assertTrue(swing.sumTrustworthy, "the swing column's true total fits a long and must stay servable");
+    assertEquals(Long.MAX_VALUE, swing.sum, "M + M - M is exactly Long.MAX_VALUE");
+    assertEquals(RECORDS, swing.count);
   }
 
   /** Guard: the corpus really exercises the untrusted-sum lane (non-vacuity of that assert). */

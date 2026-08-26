@@ -34,7 +34,25 @@ public final class PathStats {
 
   public long count;
   public long nullCount;
+  /**
+   * Low (unsigned) half of the 128-bit integral accumulator, and the exact {@code long} total
+   * whenever {@link #sumFitsLong()} holds.
+   */
   public long sum;
+  /**
+   * High (signed) half of the 128-bit integral accumulator.
+   *
+   * <p>
+   * The persisted accumulator is 128 bits wide so that what it holds is a function of the OBSERVED
+   * VALUES and nothing else — not of how many flushes the ingestion happened to take, nor of how a
+   * bulk load happened to chunk the input. A 64-bit accumulator that drops an overflowing addend
+   * answers {@code [M, M, -M]} one way when a flush lands after the second value and another way when
+   * it does not, so the same document loaded two supported ways would persist different statistics
+   * and decline in different places. Here every intermediate is exact and
+   * {@link #sumFitsLong()} asks the only question a reader cares about: is the TRUE total
+   * representable as the {@code long} that {@code sum}/{@code avg} would be served from?
+   */
+  public long sumHi;
   public long min = EMPTY_MIN;
   public long max = EMPTY_MAX;
   public byte @Nullable [] minBytes;
@@ -123,10 +141,63 @@ public final class PathStats {
    */
   private @Nullable RoaringBitmap pageKeys;
 
+  /**
+   * Record version written as the leading marker of every {@link #writeTo(BytesOut)} record.
+   *
+   * <p>
+   * V1 widened the integral accumulator to 128 bits by inserting {@link #sumHi} after {@link #sum};
+   * see {@code docs/DISK_FORMAT.md}. This is the per-record version mechanism the format contract
+   * names for a record that has to evolve independently of the page-wide
+   * {@code BinaryEncodingVersion}.
+   */
+  public static final int RECORD_VERSION = 1;
+
+  /**
+   * Leading discriminator: {@code -RECORD_VERSION}, occupying the slot a V0 record used for
+   * {@code count}.
+   *
+   * <p>
+   * A V0 record carries no version field, so it has to be recognised by shape. {@code count} is the
+   * first field it writes and is never negative — every decrement is guarded by {@code count > 0} and
+   * every merge folds in a non-negative batch count — so a negative leading long cannot be a V0
+   * record and unambiguously marks a versioned one.
+   */
+  private static final long VERSION_MARKER = -RECORD_VERSION;
+
   public PathStats() {}
 
+  /**
+   * Whether the exact integral total is representable as a {@code long} — the high half is nothing
+   * but the sign extension of the low half.
+   */
+  public boolean sumFitsLong() {
+    return sumFitsLong(sumHi, sum);
+  }
+
+  /** Whether the 128-bit value {@code (hi, lo)} is representable as a signed {@code long}. */
+  public static boolean sumFitsLong(final long hi, final long lo) {
+    return hi == (lo >> 63);
+  }
+
+  /**
+   * High half of {@code (hi, lo) + (addHi, addLo)}, given the already-computed low half
+   * {@code resultLo = lo + addLo}.
+   *
+   * <p>
+   * The single source of truth for the 128-bit carry rule, shared with
+   * {@link PathStatsAccumulator} so the batch accumulator and the persisted one cannot drift. Two
+   * adds and an unsigned compare — no allocation, no boxing, nothing that must not sit on a
+   * per-value ingestion path.
+   */
+  public static long addCarry(final long hi, final long addHi, final long lo, final long resultLo) {
+    return hi + addHi + (Long.compareUnsigned(resultLo, lo) < 0
+        ? 1L
+        : 0L);
+  }
+
   public synchronized boolean isEmpty() {
-    return count == 0L && nullCount == 0L && sum == 0L && sumFraction == 0.0d && !sumDirty && !doubleTyped
+    return count == 0L && nullCount == 0L && sum == 0L && sumHi == 0L && sumFraction == 0.0d && !sumDirty
+        && !doubleTyped
         && !countDirty && min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null && hll == null
         && !minDirty && !maxDirty && pageKeys == null;
   }
@@ -136,14 +207,18 @@ public final class PathStats {
    * {@link io.sirix.node.NodeKind#PATH}.
    *
    * <p>
-   * This is the frozen V0 layout. {@code sumFraction} and the three flags below sit between
-   * {@code maxDirty} and the page-key trailer; any future rearrangement requires a new resource
-   * encoding version before resources using that layout are written.
+   * V1 layout: {@code [i64 -RECORD_VERSION][i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min]
+   * [i64 max]} then the byte bounds, the HLL blob, the dirty flags, {@code sumFraction}, the three
+   * trailing flags and the optional page-key trailer. {@code sumFraction} and the flags sit between
+   * {@code maxDirty} and that trailer; any rearrangement needs another {@link #RECORD_VERSION} bump
+   * before resources using it are written.
    */
   public void writeTo(final BytesOut<?> sink) {
+    sink.writeLong(VERSION_MARKER);
     sink.writeLong(count);
     sink.writeLong(nullCount);
     sink.writeLong(sum);
+    sink.writeLong(sumHi);
     sink.writeLong(min);
     sink.writeLong(max);
     writeOptionalBytes(sink, minBytes);
@@ -243,14 +318,34 @@ public final class PathStats {
    * Read a record produced by {@link #writeTo(BytesOut)} from {@code source}.
    *
    * <p>
+   * Reads V1 and MIGRATES V0 in place: a V0 record has no {@link #sumHi}, but its {@code sum} is by
+   * construction a value that fitted a {@code long}, so sign-extending it reconstructs the exact
+   * 128-bit accumulator. A V0 record whose true total had left {@code long} range carries a partial
+   * sum with {@code sumDirty} already set, and {@code sumDirty} is never cleared, so the migrated
+   * record stays exactly as unservable as it was — nothing is silently promoted to trusted.
+   *
+   * <p>
    * Tolerates a record that stops before the optional trailing presence-bitmap field, which is the
-   * only shape variation within V0.
+   * only shape variation within a version.
    */
   public static PathStats readFrom(final BytesIn<?> source) {
     final PathStats s = new PathStats();
-    s.count = source.readLong();
-    s.nullCount = source.readLong();
-    s.sum = source.readLong();
+    final long leading = source.readLong();
+    if (leading < 0L) {
+      if (leading != VERSION_MARKER) {
+        throw new IllegalStateException("Unknown PathStats record version " + (-leading)
+            + " — written by a newer SirixDB; this build understands version " + RECORD_VERSION);
+      }
+      s.count = source.readLong();
+      s.nullCount = source.readLong();
+      s.sum = source.readLong();
+      s.sumHi = source.readLong();
+    } else {
+      s.count = leading;
+      s.nullCount = source.readLong();
+      s.sum = source.readLong();
+      s.sumHi = s.sum >> 63;
+    }
     s.min = source.readLong();
     s.max = source.readLong();
     s.minBytes = readOptionalBytes(source);

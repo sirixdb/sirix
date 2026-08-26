@@ -1331,23 +1331,23 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Merge one {@link PathStatsAccumulator} into a PathNode in a single update. Splice the precomputed
    * aggregates directly; HLL is union-merged with the node's existing sketch. Remove paths don't flow
    * through here — they flush-then-synchronously-apply.
+   *
+   * <p>
+   * The integral sum crosses as the 128-bit value it is, and only an UNACCUMULABLE observation (NaN,
+   * an infinity) marks the node untrusted here — whether the total is representable is asked of the
+   * node's own accumulator by {@link PathNode#isStatsSumTrustworthy()}. That is what makes the
+   * persisted statistics independent of how many flushes the load took.
    */
   private static void applyDeferredStats(final PathNode pn, final PathStatsAccumulator d) {
     if (d.kind == 1 && d.count > 0) {
-      // A total that left long range folds NOTHING into the node's accumulator: the wrapped low word
-      // is meaningless, and pushing it through the node's saturating add would make the persisted
-      // sum depend on the flush cadence. The batch is marked untrusted just below, so nothing is
-      // served from it either way.
-      pn.mergeLongStats(d.count, d.sumFitsLong()
-          ? d.sumAsLong()
-          : 0L, d.min, d.max);
+      pn.mergeLongStats(d.count, d.sumLo, d.sumHi, d.min, d.max);
       if (d.sumFraction != 0.0d) {
         pn.mergeSumFraction(d.sumFraction);
       }
       if (d.doubleTyped) {
         pn.markDoubleTyped();
       }
-      if (d.isValueStatsUntrusted()) {
+      if (d.untrustedObservation) {
         pn.markValueStatsUntrusted();
       }
     } else if (d.kind == 2 && d.count > 0) {

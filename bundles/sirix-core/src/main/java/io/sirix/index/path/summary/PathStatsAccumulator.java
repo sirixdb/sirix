@@ -38,6 +38,13 @@ import java.util.Arrays;
  * sumFraction} alone is not: it is a {@code double} accumulator, so its low bits depend on addition
  * order, which is why the coordinator drains chunks in DOCUMENT order and why the field is exempt
  * from byte identity (nothing serves it).
+ *
+ * <p>
+ * That guarantee does not stop at the batch. {@link PathNode#mergeLongStats(long, long, long, long,
+ * long)} takes both halves of the integral sum and {@link PathStats#sumHi} carries them across a
+ * commit, so the persisted statistics are a function of the observed values alone — not of how many
+ * flushes the load took, nor of how a bulk load chunked its input. Pinned end to end by
+ * {@code PathStatsPersistedSumOrderIndependenceTest} and by the differential's three-commit arm.
  */
 public final class PathStatsAccumulator {
 
@@ -153,7 +160,10 @@ public final class PathStatsAccumulator {
    * bulk-loaded resource would persist statistics a cursor-loaded one does not. Here every
    * intermediate is exact — 2^63 magnitude values would need 2^64 of them to leave 128 bits — and
    * {@link #sumFitsLong()} asks the only question that matters: does the TRUE total fit the
-   * {@code long} the summary persists?
+   * {@code long} the summary persists? Both halves are handed to
+   * {@link PathNode#mergeLongStats(long, long, long, long, long)} at flush, and
+   * {@link PathStats#sumHi} carries them across a commit, so the same guarantee holds end to end
+   * rather than only within one batch.
    *
    * <p>
    * Two long adds, one unsigned compare, no allocation and no boxing: this runs once per ingested
@@ -166,11 +176,7 @@ public final class PathStatsAccumulator {
   /** Add the 128-bit value {@code (hi, lo)} into the accumulator; {@code lo} is unsigned. */
   private void add128(final long hi, final long lo) {
     final long updatedLo = sumLo + lo;
-    // Unsigned carry-out: the sum wrapped exactly when it compares below the augend.
-    final long carry = Long.compareUnsigned(updatedLo, sumLo) < 0
-        ? 1L
-        : 0L;
-    sumHi += hi + carry;
+    sumHi = PathStats.addCarry(sumHi, hi, sumLo, updatedLo);
     sumLo = updatedLo;
   }
 
@@ -179,7 +185,7 @@ public final class PathStatsAccumulator {
    * is nothing but the sign extension of the low half.
    */
   public boolean sumFitsLong() {
-    return sumHi == (sumLo >> 63);
+    return PathStats.sumFitsLong(sumHi, sumLo);
   }
 
   /**
@@ -196,8 +202,9 @@ public final class PathStatsAccumulator {
    *
    * <p>
    * Both terms are functions of the observation multiset alone, so a chunked merge and a sequential
-   * feed of the same values always agree — which is what lets the bulk loaders claim cursor-identical
-   * statistics.
+   * feed of the same values always agree. Note this is the BATCH-level verdict; the persisted one is
+   * {@link PathNode#isStatsSumTrustworthy()}, which asks the same question of the 128-bit total the
+   * batches folded into.
    */
   public boolean isValueStatsUntrusted() {
     return untrustedObservation || !sumFitsLong();

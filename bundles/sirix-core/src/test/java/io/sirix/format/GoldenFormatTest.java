@@ -13,9 +13,11 @@ import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
+import io.sirix.index.path.summary.PathStats;
 import io.sirix.node.RevisionReferencesNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.page.PageKind;
@@ -198,6 +200,95 @@ public final class GoldenFormatTest {
       joiner.add(kind.name() + "=" + (kind.getID() & 0xFF));
     }
     assertEquals(GOLDEN_PAGE_KIND_IDS, joiner.toString());
+  }
+
+  private static final String GOLDEN_PATH_STATS_RECORD =
+      "ffffffffffffffff05000000000000000200000000000000feffffffffffffff0000000000000000"
+          + "fdffffffffffffff4d00000000000000ffffffffffffffffffffffff0100000000000000e03f000100ffffffff";
+
+  @Test
+  public void pathStatsRecordBytesArePinned() {
+    // The PathStats trailer of a NodeKind.PATH record: an owned byte contract with its own
+    // per-record version, bumped to 1 when the integral accumulator was widened to 128 bits.
+    // docs/DISK_FORMAT.md §2 "PathStats trailer" documents the layout this pins.
+    assertEquals(1, PathStats.RECORD_VERSION);
+    final PathStats stats = new PathStats();
+    stats.count = 5;
+    stats.nullCount = 2;
+    stats.sum = -2L;      // low half of 2 * Long.MAX_VALUE ...
+    stats.sumHi = 0L;     // ... whose high half proves it does NOT fit a long
+    stats.min = -3;
+    stats.max = 77;
+    stats.minDirty = true;
+    stats.sumFraction = 0.5d;
+    stats.doubleTyped = true;
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    stats.writeTo(sink);
+    assertGolden("path-stats-record", GOLDEN_PATH_STATS_RECORD, hex(sink));
+  }
+
+  @Test
+  public void pathStatsRoundTripsItsWideAccumulator() {
+    final PathStats stats = new PathStats();
+    stats.count = 3;
+    stats.sum = -2L;
+    stats.sumHi = 0L;
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    stats.writeTo(sink);
+    final PathStats restored = PathStats.readFrom(sink.asBytesIn());
+    assertEquals(3L, restored.count);
+    assertEquals(-2L, restored.sum);
+    assertEquals(0L, restored.sumHi);
+    assertEquals("2 * Long.MAX_VALUE must survive a round trip as unrepresentable", false,
+        restored.sumFitsLong());
+  }
+
+  @Test
+  public void pathStatsMigratesAnUnversionedLegacyRecord() {
+    // A record in the pre-version layout: no leading marker, no sumHi. Written here by hand
+    // because no code emits it any more — this IS the migration contract, so it has to be
+    // exercised against bytes shaped exactly the way an existing resource holds them.
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    sink.writeLong(7L);          // count (non-negative — what discriminates a V0 record)
+    sink.writeLong(1L);          // nullCount
+    sink.writeLong(-42L);        // sum
+    sink.writeLong(-9L);         // min
+    sink.writeLong(11L);         // max
+    sink.writeInt(-1);           // minBytes absent
+    sink.writeInt(-1);           // maxBytes absent
+    sink.writeInt(-1);           // hll absent
+    sink.writeBoolean(false);    // minDirty
+    sink.writeBoolean(false);    // maxDirty
+    sink.writeDouble(0.0d);      // sumFraction
+    sink.writeBoolean(false);    // sumDirty
+    sink.writeBoolean(false);    // doubleTyped
+    sink.writeBoolean(false);    // countDirty
+    sink.writeInt(-1);           // pageKeys absent
+
+    final BytesIn<?> source = sink.asBytesIn();
+    final PathStats migrated = PathStats.readFrom(source);
+
+    assertEquals(7L, migrated.count);
+    assertEquals(1L, migrated.nullCount);
+    assertEquals(-42L, migrated.sum);
+    assertEquals("a legacy sum always fitted a long, so its high half is its sign extension", -1L,
+        migrated.sumHi);
+    assertEquals(true, migrated.sumFitsLong());
+    assertEquals(-9L, migrated.min);
+    assertEquals(11L, migrated.max);
+  }
+
+  @Test
+  public void pathStatsRefusesARecordFromANewerBuild() {
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    sink.writeLong(-2L); // a version-2 marker this build does not know
+    sink.writeLong(0L);
+    try {
+      PathStats.readFrom(sink.asBytesIn());
+      throw new AssertionError("a future PathStats record version must not be parsed");
+    } catch (final IllegalStateException expected) {
+      assertEquals(true, expected.getMessage().contains("Unknown PathStats record version 2"));
+    }
   }
 
   @Test

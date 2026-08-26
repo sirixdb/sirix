@@ -9,7 +9,8 @@ change to any pinned structure fails CI. From here, ANY change to the bytes in t
 a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
 byte (PIXM/PIXC/PIX1, per-record versions) — accompanied by an update to the golden constants
-and a migration note here.
+and a migration note here. Bumped so far under that rule: `PathStats.RECORD_VERSION = 1` (§2,
+"PathStats trailer").
 
 ## 1. Files
 
@@ -196,6 +197,20 @@ fail-fast lookups, never ordinals.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
   (`DeltaVarIntCodec`), varint revisions, fixed 8-byte rolling hash (elided page-wide when all
   zero), typed number payloads (Double/Float fixed, Int/Long zigzag varint).
+- **PathStats trailer** (`NodeKind.PATH`, present iff the resource has `withPathStatistics`):
+  `[i64 -RECORD_VERSION][i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min][i64 max]`
+  `[minBytes][maxBytes][hll][u8 minDirty][u8 maxDirty][f64 sumFraction][u8 sumDirty]`
+  `[u8 doubleTyped][u8 countDirty][pageKeys?]`, where each optional block is a length-prefixed
+  payload with `-1` meaning absent and the page-key trailer may be missing entirely.
+  **`PathStats.RECORD_VERSION = 1`** — the per-record version mechanism, bumped from the
+  unversioned V0 layout when the integral accumulator was widened to 128 bits (`sumHi` inserted
+  after `sum`) so that what is persisted depends on the observed VALUES and not on how many
+  flushes or chunks the load took. *Migration:* the leading long discriminates by shape — `count`
+  is never negative, so a non-negative leading long is an unversioned V0 record, read with
+  `sumHi` reconstructed as `sum >> 63`. That is exact: a V0 `sum` always fitted a `long`, and a V0
+  record whose true total had overflowed carries `sumDirty`, which is never cleared, so a migrated
+  record is never promoted from untrusted to trusted. A negative leading long other than `-1` is a
+  record from a newer build and throws.
 
 The **lightweight-compression direction is already the design**: per-section/columnar encodings
 inside the page (templates, FOR+bit-packing, dictionaries, elision bitmaps, FSST) rather than a

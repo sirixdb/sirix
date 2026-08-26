@@ -53,8 +53,10 @@ than `NONE`, stored DeweyIDs, node history, a non-empty target document.
 the very class the cursor path defers through (`PathStatsAccumulator`), so the classifier, the
 NaN/infinity policy, the 128-bit integral sum, the fraction carry and the HLL hashing cannot drift
 between the arms; the parallel importer collects one partial per (chunk, path) and the coordinator
-merges them in document order. Every lane but `sumFraction` is order-free, and `sumFraction` is
-never served — `BulkPathStatsDifferentialTest` compares four arms field by field after commit,
+merges them in document order. Every lane but `sumFraction` is order-free — end to end, not just
+within a batch: the integral sum accumulates in 128 bits all the way into the persisted
+`PathStats.sumHi`, so the same values persist the same statistics however many flushes or commits
+the load takes (`PathStatsPersistedSumOrderIndependenceTest`). `sumFraction` is never served — `BulkPathStatsDifferentialTest` compares four arms field by field after commit,
 close and cold reopen, including exact HLL bytes.
 
 The parallel importer **maintains PATH, CAS and NAME** index definitions during the load: each

@@ -587,10 +587,14 @@ public final class PathNode implements StructNode, NameNode {
     s.maxDirty = true;
   }
 
-  /** Whether {@code sum}/{@code avg} may still be answered from these statistics. */
+  /**
+   * Whether {@code sum}/{@code avg} may still be answered from these statistics: the accumulator must
+   * be recoverable ({@code !sumDirty}) AND the exact total must fit the {@code long} that would be
+   * served.
+   */
   public boolean isStatsSumTrustworthy() {
     final PathStats s = stats;
-    return s == null || !s.sumDirty;
+    return s == null || (!s.sumDirty && s.sumFitsLong());
   }
 
   /**
@@ -615,23 +619,23 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Folds {@code delta} into {@link PathStats#sum}, marking the sum untrustworthy instead of wrapping
-   * when the accumulator would overflow.
+   * Folds {@code delta} into the persisted 128-bit integral accumulator.
    *
    * <p>
-   * {@code xs:integer} is arbitrary precision but the accumulator is a {@code long}, so a column of
-   * 64-bit ids (hashes, snowflake ids, ClickBench's {@code UserID}) overflows it after a few dozen
-   * values and every summary-served {@code sum}/{@code avg} would silently be the true total modulo
-   * 2^64. Same doctrine as {@link PathStats#sumDirty}'s other setters: the honest move is to record
-   * that the aggregate can no longer be reproduced and let the query fall back to the scan.
+   * {@code xs:integer} is arbitrary precision but the served {@code sum}/{@code avg} is a
+   * {@code long}, so a column of 64-bit ids (hashes, snowflake ids, ClickBench's {@code UserID})
+   * leaves that range after a few dozen values. Accumulating in 128 bits and asking
+   * {@link PathStats#sumFitsLong()} at serving time keeps that verdict a function of the observed
+   * values alone; a running 64-bit accumulator that dropped the overflowing addend instead made it a
+   * function of the flush cadence, so the same document could decline through one supported load path
+   * and serve through another. Nothing here sets {@link PathStats#sumDirty}: overflow is derived, and
+   * the flag is reserved for what is genuinely unrecoverable — a floating-point delete, a NaN, a
+   * move.
    */
   private static void addToSum(final PathStats s, final long delta) {
-    final long updated = s.sum + delta;
-    if (((s.sum ^ updated) & (delta ^ updated)) < 0) {
-      s.sumDirty = true;
-      return;
-    }
-    s.sum = updated;
+    final long updatedLo = s.sum + delta;
+    s.sumHi = PathStats.addCarry(s.sumHi, delta >> 63, s.sum, updatedLo);
+    s.sum = updatedLo;
   }
 
   /** Record a long value observation (numeric path). */
@@ -737,10 +741,21 @@ public final class PathNode implements StructNode, NameNode {
   // Bulk-merge mutators — used by PathSummaryWriter.flushPendingStats.
   // =====================================================================
 
-  void mergeLongStats(final long count, final long sum, final long min, final long max) {
+  /**
+   * Fold a batch's aggregates in, carrying the batch's integral sum as the 128-bit value it is.
+   *
+   * <p>
+   * Both halves cross this boundary on purpose: a batch total that does not fit a {@code long} is
+   * still exact, and a later batch may bring the running total back into range. Truncating it here
+   * would reintroduce at the flush boundary exactly the order dependence the batch accumulator
+   * removes.
+   */
+  void mergeLongStats(final long count, final long sumLo, final long sumHi, final long min, final long max) {
     final PathStats s = getOrCreateStats();
     s.count += count;
-    addToSum(s, sum);
+    final long updatedLo = s.sum + sumLo;
+    s.sumHi = PathStats.addCarry(s.sumHi, sumHi, s.sum, updatedLo);
+    s.sum = updatedLo;
     if (min < s.min) {
       s.min = min;
     }
