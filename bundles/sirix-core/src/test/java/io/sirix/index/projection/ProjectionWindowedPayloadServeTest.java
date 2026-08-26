@@ -750,6 +750,73 @@ final class ProjectionWindowedPayloadServeTest {
     }
   }
 
+  @Test
+  void aFillIsPricedByWhatItDECODESInto_NotOnlyItsPackedBytes() {
+    // One question — what does this column cost resident — used to have two answers: the cache
+    // weigher counted the decoded 8 B/row lane, the fill doors counted only packed segment bytes.
+    // A bit-packed NUMERIC_LONG column packs to a byte or two per row and decodes to eight, so a
+    // budget priced on packed bytes admits several times what it believes it is admitting. The two
+    // sides now share one pricing function, and the observable is that the door's own figure
+    // accounts for the lane it will decode into.
+    Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                             .useDeweyIDs(false)
+                                             .hashKind(HashType.NONE)
+                                             .storeNodeHistory(false)
+                                             .buildPathSummary(true)
+                                             .build());
+      try (JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          new JsonShredder.Builder(wtx, JsonShredder.createStringReader(corpus()), InsertPosition.AS_FIRST_CHILD)
+              .commitAfterwards().build().call();
+        }
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projectionDef()), wtx);
+          wtx.commit();
+        }
+        final int revision = session.getMostRecentRevisionNumber();
+        try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+          final var reader = rtx.getStorageEngineReader();
+          final ProjectionIndexMetadata metadata =
+              ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, INDEX_NUMBER, 0L));
+          assertNotNull(metadata);
+          final int leaves = metadata.rowGroupCount();
+          final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, INDEX_NUMBER, leaves);
+          final ProjectionColumnStore store = new ProjectionColumnStore(
+              ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, leaves,
+                  physicalOrder, worker -> worker.accept(reader)));
+          final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+              offsets -> ProjectionIndexHOTStorage.readSegmentBytesBatch(reader, offsets);
+          final int scoreColumn = 1;
+          assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, store.columnKind(scoreColumn),
+              "the fixture's score column must be the bit-packed long lane this prices");
+
+          final long decodedLane = 8L * RECORDS;
+          final long projected = store.projectedColumnFillBytes(scoreColumn);
+          assertTrue(projected >= decodedLane,
+              "a long-lane fill must be priced for the 8 B/row it decodes into: " + projected + " < " + decodedLane);
+
+          // And the figure is the one the DOOR enforces, not a number computed beside it: a budget
+          // just under it refuses the fill, and one at it admits.
+          final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(projected - 1);
+          try {
+            assertFalse(store.columnFillWithinBudget(scoreColumn));
+            assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
+                () -> store.column(scoreColumn, fetcher));
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(projected);
+            assertTrue(store.columnFillWithinBudget(scoreColumn));
+            assertEquals(leaves, store.column(scoreColumn, fetcher).length);
+            assertTrue(store.retainedFillBytes() >= decodedLane,
+                "the ledger must carry the decoded lane too: " + store.retainedFillBytes());
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+          }
+        }
+      }
+    }
+  }
+
   /** Long, highly distinct names: the dictionary dwarfs the 8 B/entry hash chain beside it. */
   private static String fatDictionaryCorpus() {
     final StringBuilder json = new StringBuilder(RECORDS * 256);

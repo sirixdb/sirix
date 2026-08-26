@@ -13158,6 +13158,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       Long.getLong("sirix.projection.groupDistinct.maxValues", 1L << 24);
 
   /** Constant-key group-bys served in one scalar pass (test oracle, same doctrine as the rest). */
+  private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
+
   /**
    * The const-group twin of {@link #declineGroupAgg}: a decline that falls to the generic pipeline
    * must move a counter, or a route that stopped serving reads exactly like one that was never
@@ -13173,8 +13175,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     return null;
   }
-
-  private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
 
   /** Test observability for {@link #CONST_GROUP_AGG_SERVED}. */
   public static long constGroupAggServedCount() {
