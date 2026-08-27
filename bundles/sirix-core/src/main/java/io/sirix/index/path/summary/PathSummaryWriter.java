@@ -32,13 +32,10 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
-import io.sirix.settings.Constants;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import javax.xml.namespace.QName;
 import java.util.ArrayDeque;
-import java.util.Arrays;
 
 import static java.util.Objects.requireNonNull;
 

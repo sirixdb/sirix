@@ -16,7 +16,6 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.access.trx.node.json.ParallelBulkJsonImporter;
 import io.sirix.api.Database;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
