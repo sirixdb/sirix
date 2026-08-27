@@ -18,8 +18,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  * so every observation semantics (numeric lane dispatch, NaN/overflow policy, fraction carry,
  * byte-bound cloning, HLL hashing, page-witness derivation) is shared with cursor ingestion by
  * construction. The coordinator drains chunks in DOCUMENT order — every lane but one is order-free
- * (the integral sum included, since it accumulates in 128 bits), and document order makes the single
- * order-sensitive lane, {@code sumFraction}, deterministic (see
+ * (the integral sum included, since it accumulates in 128 bits), and document order makes the
+ * single order-sensitive lane, {@code sumFraction}, deterministic (see
  * {@link PathStatsAccumulator#mergeFrom} for the honest contract).
  *
  * <p>

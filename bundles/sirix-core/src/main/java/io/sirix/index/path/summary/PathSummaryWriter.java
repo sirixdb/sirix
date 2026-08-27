@@ -168,9 +168,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * sum with its trust verdict), so document order is required only by {@code sumFraction}, a double
    * accumulator whose low bits depend on addition order — and which nothing serves. A future caller
    * wiring a new drain must preserve document order for that reason; see
-   * {@link PathStatsAccumulator#mergeFrom}. The standard pre-commit
-   * {@link #flushPendingStats()} then applies everything through the ordinary COW path — one prepared
-   * record per path, the same as cursor ingestion.
+   * {@link PathStatsAccumulator#mergeFrom}. The standard pre-commit {@link #flushPendingStats()} then
+   * applies everything through the ordinary COW path — one prepared record per path, the same as
+   * cursor ingestion.
    *
    * <p>
    * {@code delta} is consumed by copy ({@link PathStatsAccumulator#mergeFrom}); the caller may

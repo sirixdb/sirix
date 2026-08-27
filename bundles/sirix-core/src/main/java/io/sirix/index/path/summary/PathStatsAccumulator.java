@@ -32,19 +32,20 @@ import java.util.Arrays;
  * <p>
  * Not thread-safe: an instance belongs to one writer (the transaction's summary writer or one
  * bulk-import chunk worker). Chunk partials are merged single-threaded by the coordinator via
- * {@link #mergeFrom}. Per lane: count, nullCount, min, max, byte bounds, HLL, page witnesses AND the
- * integral sum (a 128-bit accumulator, so no intermediate can leave the representable range) are
- * associative and commutative — any merge order yields the same value, bit for bit. {@code
+ * {@link #mergeFrom}. Per lane: count, nullCount, min, max, byte bounds, HLL, page witnesses AND
+ * the integral sum (a 128-bit accumulator, so no intermediate can leave the representable range)
+ * are associative and commutative — any merge order yields the same value, bit for bit. {@code
  * sumFraction} alone is not: it is a {@code double} accumulator, so its low bits depend on addition
  * order, which is why the coordinator drains chunks in DOCUMENT order and why the field is exempt
  * from byte identity (nothing serves it).
  *
  * <p>
- * That guarantee does not stop at the batch. {@link PathNode#mergeLongStats(long, long, long, long,
- * long)} takes both halves of the integral sum and {@link PathStats#sumHi} carries them across a
- * commit, so the persisted statistics are a function of the observed values alone — not of how many
- * flushes the load took, nor of how a bulk load chunked its input. Pinned end to end by
- * {@code PathStatsPersistedSumOrderIndependenceTest} and by the differential's three-commit arm.
+ * That guarantee does not stop at the batch.
+ * {@link PathNode#mergeLongStats(long, long, long, long, long)} takes both halves of the integral
+ * sum and {@link PathStats#sumHi} carries them across a commit, so the persisted statistics are a
+ * function of the observed values alone — not of how many flushes the load took, nor of how a bulk
+ * load chunked its input. Pinned end to end by {@code PathStatsPersistedSumOrderIndependenceTest}
+ * and by the differential's three-commit arm.
  */
 public final class PathStatsAccumulator {
 
@@ -64,8 +65,8 @@ public final class PathStatsAccumulator {
   /** Whether any observation in this batch arrived as a floating-point value. */
   boolean doubleTyped;
   /**
-   * Whether this batch saw an OBSERVATION that cannot be accumulated (NaN, an infinity). Sum
-   * overflow is NOT recorded here — the batch carries its exact 128-bit total into the PathNode and
+   * Whether this batch saw an OBSERVATION that cannot be accumulated (NaN, an infinity). Sum overflow
+   * is NOT recorded here — the batch carries its exact 128-bit total into the PathNode and
    * {@link PathNode#isStatsSumTrustworthy()} derives representability from the persisted accumulator,
    * so that the verdict depends only on the observation multiset and not on the order or chunking it
    * arrived in.
@@ -318,8 +319,7 @@ public final class PathStatsAccumulator {
    * multiset are indistinguishable. Exactly ONE lane is not: {@code sumFraction} is a double
    * accumulator ({@code +=}), so its low bits depend on addition order — the coordinator therefore
    * merges chunks in DOCUMENT order, which makes the result deterministic (and the field is never
-   * served: {@code PathStats#sumFraction}). Pinned by
-   * {@code BulkPathStatsAccumulatorContractTest}.
+   * served: {@code PathStats#sumFraction}). Pinned by {@code BulkPathStatsAccumulatorContractTest}.
    */
   public void mergeFrom(final PathStatsAccumulator other) {
     if (other.kind != 0) {

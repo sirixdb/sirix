@@ -56,8 +56,9 @@ between the arms; the parallel importer collects one partial per (chunk, path) a
 merges them in document order. Every lane but `sumFraction` is order-free — end to end, not just
 within a batch: the integral sum accumulates in 128 bits all the way into the persisted
 `PathStats.sumHi`, so the same values persist the same statistics however many flushes or commits
-the load takes (`PathStatsPersistedSumOrderIndependenceTest`). `sumFraction` is never served — `BulkPathStatsDifferentialTest` compares four arms field by field after commit,
-close and cold reopen, including exact HLL bytes.
+the load takes (`PathStatsPersistedSumOrderIndependenceTest`). `sumFraction` is never served —
+`BulkPathStatsDifferentialTest` compares four arms field by field after commit, close and cold
+reopen, including exact HLL bytes.
 
 The parallel importer **maintains PATH, CAS and NAME** index definitions during the load: each
 chunk's build worker collects that family's tuples from the primitives it already holds, the

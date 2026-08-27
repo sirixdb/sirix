@@ -48,9 +48,9 @@ public final class PathStats {
    * bulk load happened to chunk the input. A 64-bit accumulator that drops an overflowing addend
    * answers {@code [M, M, -M]} one way when a flush lands after the second value and another way when
    * it does not, so the same document loaded two supported ways would persist different statistics
-   * and decline in different places. Here every intermediate is exact and
-   * {@link #sumFitsLong()} asks the only question a reader cares about: is the TRUE total
-   * representable as the {@code long} that {@code sum}/{@code avg} would be served from?
+   * and decline in different places. Here every intermediate is exact and {@link #sumFitsLong()} asks
+   * the only question a reader cares about: is the TRUE total representable as the {@code long} that
+   * {@code sum}/{@code avg} would be served from?
    */
   public long sumHi;
   public long min = EMPTY_MIN;
@@ -193,10 +193,9 @@ public final class PathStats {
    * {@code resultLo = lo + addLo}.
    *
    * <p>
-   * The single source of truth for the 128-bit carry rule, shared with
-   * {@link PathStatsAccumulator} so the batch accumulator and the persisted one cannot drift. Two
-   * adds and an unsigned compare — no allocation, no boxing, nothing that must not sit on a
-   * per-value ingestion path.
+   * The single source of truth for the 128-bit carry rule, shared with {@link PathStatsAccumulator}
+   * so the batch accumulator and the persisted one cannot drift. Two adds and an unsigned compare —
+   * no allocation, no boxing, nothing that must not sit on a per-value ingestion path.
    */
   public static long addCarry(final long hi, final long addHi, final long lo, final long resultLo) {
     return hi + addHi + (Long.compareUnsigned(resultLo, lo) < 0
@@ -208,12 +207,12 @@ public final class PathStats {
    * High half of {@code (hi, lo) - (subHi, subLo)}, borrowing out of the low half.
    *
    * <p>
-   * A subtraction primitive rather than "negate and add", because on two's-complement 64-bit
-   * integers negation is not total: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE}, so cancelling
-   * an observation of that value by adding its negation ADDS it a second time. That is not a corner
-   * that can be waved off now that representability is derived from the exact total — the doubled
-   * value can land back inside {@code long} range, where nothing marks it and the wrong sum is
-   * served. Subtracting the sign-extended pair directly has no such hole.
+   * A subtraction primitive rather than "negate and add", because on two's-complement 64-bit integers
+   * negation is not total: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE}, so cancelling an
+   * observation of that value by adding its negation ADDS it a second time. That is not a corner that
+   * can be waved off now that representability is derived from the exact total — the doubled value
+   * can land back inside {@code long} range, where nothing marks it and the wrong sum is served.
+   * Subtracting the sign-extended pair directly has no such hole.
    */
   public static long subBorrow(final long hi, final long subHi, final long lo, final long subLo) {
     return hi - subHi - (Long.compareUnsigned(lo, subLo) < 0
@@ -223,9 +222,8 @@ public final class PathStats {
 
   public synchronized boolean isEmpty() {
     return count == 0L && nullCount == 0L && sum == 0L && sumHi == 0L && sumFraction == 0.0d && !sumDirty
-        && !doubleTyped
-        && !countDirty && min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null && hll == null
-        && !minDirty && !maxDirty && pageKeys == null;
+        && !doubleTyped && !countDirty && min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null
+        && hll == null && !minDirty && !maxDirty && pageKeys == null;
   }
 
   /**

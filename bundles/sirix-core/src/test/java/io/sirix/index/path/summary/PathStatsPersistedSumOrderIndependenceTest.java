@@ -29,9 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The witness is {@code [M, M, -M]} with {@code M = Long.MAX_VALUE}: the running total leaves
  * {@code long} range after the second value and returns with the third. A 64-bit accumulator that
  * drops the overflowing addend answers this one way when everything lands in one flush and another
- * way when a commit boundary falls in the middle — same document, different persisted sum, different
- * serving decision. Both arms below load exactly the same values under exactly the same path class,
- * and every field a reader can see must agree after a cold reopen.
+ * way when a commit boundary falls in the middle — same document, different persisted sum,
+ * different serving decision. Both arms below load exactly the same values under exactly the same
+ * path class, and every field a reader can see must agree after a cold reopen.
  *
  * <p>
  * This is the multi-flush half of the guarantee; {@link BulkPathStatsAccumulatorContractTest} pins
@@ -59,7 +59,8 @@ final class PathStatsPersistedSumOrderIndependenceTest {
   void aCommitBoundaryInTheMiddleChangesNothing() {
     final Snapshot single = load(session -> {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"v\":" + M + "},{\"v\":" + M + "},{\"v\":-" + M + "}]"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("[{\"v\":" + M + "},{\"v\":" + M + "},{\"v\":-" + M + "}]"));
         wtx.commit();
       }
     });

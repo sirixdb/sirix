@@ -117,10 +117,10 @@ final class BulkPathStatsDifferentialTest {
   /**
    * Adversarial single-kind-per-path corpus: integral ids, an always-overflowing 64-bit id column
    * (same-sign — every arm must untrust its sum), a mixed-sign SWING column whose true total fits a
-   * long although a prefix of it does not, non-integral doubles (fraction + doubleTyped),
-   * strings, booleans, a null-only field on every third record, a numeric array (plain values on the
-   * enclosing {@code __array__} class), and a LATE-APPEARING field on the last three records only
-   * (first occurrence in the final chunks under tiny chunking).
+   * long although a prefix of it does not, non-integral doubles (fraction + doubleTyped), strings,
+   * booleans, a null-only field on every third record, a numeric array (plain values on the enclosing
+   * {@code __array__} class), and a LATE-APPEARING field on the last three records only (first
+   * occurrence in the final chunks under tiny chunking).
    */
   private static String corpus() {
     final StringBuilder json = new StringBuilder(RECORDS * 160);
@@ -135,7 +135,9 @@ final class BulkPathStatsDifferentialTest {
     return json.append(']').toString();
   }
 
-  /** The corpus one member at a time, so the multi-commit arm cannot drift from the single-shot one. */
+  /**
+   * The corpus one member at a time, so the multi-commit arm cannot drift from the single-shot one.
+   */
   private static List<String> corpusMembers() {
     final List<String> members = new ArrayList<>(RECORDS);
     for (int i = 0; i < RECORDS; i++) {
@@ -158,11 +160,12 @@ final class BulkPathStatsDifferentialTest {
       // A column whose TRUE total fits a long while a prefix of it does not: M, M, ... , -M.
       // Under three-commit ingestion the first batch alone is unrepresentable, so a per-flush
       // 64-bit fold persists a different sum and a different verdict here than a single-shot load.
-      json.append(",\"swing\":").append(i == 0 || i == 1
-          ? Long.MAX_VALUE
-          : i == RECORDS - 1
-              ? -Long.MAX_VALUE
-              : 0L);
+      json.append(",\"swing\":")
+          .append(i == 0 || i == 1
+              ? Long.MAX_VALUE
+              : i == RECORDS - 1
+                  ? -Long.MAX_VALUE
+                  : 0L);
       json.append(",\"nums\":[").append(i).append(',').append(i + 1).append(']');
       if (i >= RECORDS - 3) {
         json.append(",\"late\":\"L").append(i).append('"');

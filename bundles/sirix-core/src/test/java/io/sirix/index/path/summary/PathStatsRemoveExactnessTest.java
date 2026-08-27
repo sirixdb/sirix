@@ -23,12 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Removing an observation has to cancel it EXACTLY, for every {@code long} without exception.
  *
  * <p>
- * {@code Long.MIN_VALUE} is the exception a negate-and-add implementation has: {@code -Long.MIN_VALUE
+ * {@code Long.MIN_VALUE} is the exception a negate-and-add implementation has:
+ * {@code -Long.MIN_VALUE
  * == Long.MIN_VALUE}, so cancelling it that way adds it a second time. Both supported routes reach
  * that code — a delete and a subtree move, which subtract through the same
- * {@code PathSummaryWriter.removeValue} — and the damage is invisible because the corrupted total can
- * be perfectly representable, so the derived trust verdict approves it and the summary serves a sum
- * the scan disagrees with.
+ * {@code PathSummaryWriter.removeValue} — and the damage is invisible because the corrupted total
+ * can be perfectly representable, so the derived trust verdict approves it and the summary serves a
+ * sum the scan disagrees with.
  *
  * <p>
  * Both assertions below read through {@link PathNode#isStatsSumTrustworthy()} and
@@ -60,8 +61,10 @@ final class PathStatsRemoveExactnessTest {
   /** Delete route: the remaining total is representable, so the exact value must be served. */
   @Test
   void deletingLongMinValueCancelsItExactly() {
-    try (var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-        statsConfig()); var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    try (
+        var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), statsConfig());
+        var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       insert(session, "[{\"v\":" + MIN + "},{\"v\":1}]");
       removeFirstMember(session);
 
@@ -81,8 +84,10 @@ final class PathStatsRemoveExactnessTest {
    */
   @Test
   void deletingLongMinValueDoesNotFabricateAServableTotal() {
-    try (var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-        statsConfig()); var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    try (
+        var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), statsConfig());
+        var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       insert(session, "[{\"v\":" + MIN + "},{\"v\":" + M + "},{\"v\":" + M + "}]");
       removeFirstMember(session);
 
@@ -96,23 +101,27 @@ final class PathStatsRemoveExactnessTest {
     }
   }
 
-  /** Move route: {@code transferPathStatForRecord} subtracts from the source through the same code. */
+  /**
+   * Move route: {@code transferPathStatForRecord} subtracts from the source through the same code.
+   */
   @Test
   void movingLongMinValueOutOfAPathCancelsItExactly() {
-    try (var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-        statsConfig()); var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    try (
+        var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), statsConfig());
+        var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       insert(session, "{\"src\":[{\"v\":" + MIN + "},{\"v\":" + M + "},{\"v\":" + M + "}],\"dst\":[{\"v\":0}]}");
 
       try (var wtx = session.beginNodeTrx()) {
         assertTrue(wtx.moveToDocumentRoot());
-        assertTrue(wtx.moveToFirstChild());   // the top-level object
-        assertTrue(wtx.moveToFirstChild());   // "src"
+        assertTrue(wtx.moveToFirstChild()); // the top-level object
+        assertTrue(wtx.moveToFirstChild()); // "src"
         final long srcArrayKey = wtx.getNodeKey();
         assertTrue(wtx.moveToRightSibling()); // "dst"
         final long dstArrayKey = wtx.getNodeKey();
 
         assertTrue(wtx.moveTo(srcArrayKey));
-        assertTrue(wtx.moveToFirstChild());   // {"v":MIN}
+        assertTrue(wtx.moveToFirstChild()); // {"v":MIN}
         final long movedObjectKey = wtx.getNodeKey();
 
         assertTrue(wtx.moveTo(dstArrayKey));

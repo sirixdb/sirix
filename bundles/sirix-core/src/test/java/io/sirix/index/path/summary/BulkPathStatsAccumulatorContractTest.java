@@ -20,11 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * state, and that state is what a reader consults.
  *
  * <p>
- * Every assertion goes through {@link PathSummaryWriter#applyDeferredStats} — the production fold, on
- * a real {@link PathNode} — and reads back through the accessors the vectorized executor's
+ * Every assertion goes through {@link PathSummaryWriter#applyDeferredStats} — the production fold,
+ * on a real {@link PathNode} — and reads back through the accessors the vectorized executor's
  * aggregate short-circuit uses ({@link PathNode#isStatsSumTrustworthy()},
- * {@link PathNode#getStatsSum()}). Asserting a batch-local predicate instead would prove only that a
- * method no production path invokes agrees with itself.
+ * {@link PathNode#getStatsSum()}). Asserting a batch-local predicate instead would prove only that
+ * a method no production path invokes agrees with itself.
  *
  * <ul>
  * <li><b>Same-sign overflow</b> (the ClickBench UserID shape — 64-bit ids leave long range within a

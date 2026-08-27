@@ -26,13 +26,16 @@ All notable changes to SirixDB are documented in this file.
   whose top level is an array; NDJSON rides `NdjsonAsArrayInputStream`). Both build trees
   structurally identical to cursor-based insertion, enforced by a full-field differential oracle,
   and refuse up front what they do not reproduce faithfully (`hashType` other than `NONE`, stored
-  DeweyIDs, node history, path statistics, a non-empty target). The parallel importer **maintains
-  PATH, CAS and NAME definitions and armed projection builds in the load's single pass** — the
-  workers extract each family's tuples from the primitives they already hold and the coordinator
-  drains them into the families' ordinary bulk loaders; a catalogued projection with no armed
-  load-time build is refused rather than silently left unmaintained, and valid-time interval
-  maintenance is the one family that still refuses. API, scope, verification, tuning and measured
-  numbers: `docs/BULK_IMPORT.md`.
+  DeweyIDs, node history, a non-empty target). Path statistics are **built during the load** by both
+  loaders, through the very accumulator the cursor path defers through, so the arms cannot drift.
+  (A resource written WITH path statistics now carries the versioned `PathStats` record, a
+  one-directional format break recorded in `docs/DISK_FORMAT.md`.) The parallel importer
+  **maintains PATH, CAS and NAME definitions and armed projection builds in the load's single
+  pass** — the workers extract each family's tuples from the primitives they already hold and the
+  coordinator drains them into the families' ordinary bulk loaders; a catalogued projection with
+  no armed load-time build is refused rather than silently left unmaintained, and valid-time
+  interval maintenance is the one family that still refuses. API, scope, verification, tuning and
+  measured numbers: `docs/BULK_IMPORT.md`.
 - **Asynchronous durable commits** (`AfterCommitState.KEEP_OPEN_ASYNC_COMMIT`) — the middle
   ground between synchronous auto-commits and the async pre-flush: every threshold crossing
   creates a real, durable, queryable revision, but the durability barriers (index-catalogue

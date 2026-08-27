@@ -31,17 +31,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * A page marked {@code markAdoptedImmutableForFlush()} is serialized IN PLACE by the async snapshot
  * flush — the encoded image is copied over the page's own slotted frame — while it stays resolvable
- * through the intent log's snapshot layer until cleanup. Reading or copy-on-writing it in that window
- * would return the encoded bytes reinterpreted as slot data: corruption with no error. The writer
- * therefore refuses it at the record-read and page-prepare seams.
+ * through the intent log's snapshot layer until cleanup. Reading or copy-on-writing it in that
+ * window would return the encoded bytes reinterpreted as slot data: corruption with no error. The
+ * writer therefore refuses it at the record-read and page-prepare seams.
  *
  * <p>
- * The refusal is deliberately WIDER than that window: it fires from the moment of adoption, not from
- * the moment the serializer overwrites the frame. Narrowing it to the frame overwrite would mean
- * publishing a flag from the flush lane and reading it on the record path, and it would buy nothing —
- * adoption already declares the page immutable and finished, so every read it refuses is a caller
- * that has broken that contract and is racing an overwrite it cannot observe. The trade is a refusal
- * a moment early instead of a corruption a moment late.
+ * The refusal is deliberately WIDER than that window: it fires from the moment of adoption, not
+ * from the moment the serializer overwrites the frame. Narrowing it to the frame overwrite would
+ * mean publishing a flag from the flush lane and reading it on the record path, and it would buy
+ * nothing — adoption already declares the page immutable and finished, so every read it refuses is
+ * a caller that has broken that contract and is racing an overwrite it cannot observe. The trade is
+ * a refusal a moment early instead of a corruption a moment late.
  */
 final class AdoptedPageRefusalTest {
 
@@ -64,8 +64,9 @@ final class AdoptedPageRefusalTest {
 
   @Test
   void readingAnAdoptedPageIsRefused() {
-    try (Database<JsonResourceSession> database =
-        JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config());
+    try (
+        Database<JsonResourceSession> database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config());
         JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         StorageEngineWriter writer = session.createStorageEngineWriter()) {
       final ResourceConfiguration resourceConfig = session.getResourceConfig();
@@ -78,23 +79,24 @@ final class AdoptedPageRefusalTest {
           "a heap-record-free adopted page is exactly the one the flush serializes in place");
 
       final long recordKeyOnThatPage = recordPageKey << 10;
-      final IllegalStateException read = assertThrows(IllegalStateException.class,
-          () -> writer.getRecord(recordKeyOnThatPage, IndexType.DOCUMENT, -1),
-          "reading an adopted page must be refused, not answered from a frame the flush may have overwritten");
+      final IllegalStateException read =
+          assertThrows(IllegalStateException.class, () -> writer.getRecord(recordKeyOnThatPage, IndexType.DOCUMENT, -1),
+              "reading an adopted page must be refused, not answered from a frame the flush may have overwritten");
       assertTrue(read.getMessage().contains("adopted immutable for the bulk flush"), read.getMessage());
       assertTrue(read.getMessage().contains(Long.toString(recordPageKey)), read.getMessage());
 
-      final IllegalStateException prepare = assertThrows(IllegalStateException.class,
-          () -> writer.prepareDocumentLeafForBlit(recordPageKey),
-          "preparing an adopted page for modification must be refused");
+      final IllegalStateException prepare =
+          assertThrows(IllegalStateException.class, () -> writer.prepareDocumentLeafForBlit(recordPageKey),
+              "preparing an adopted page for modification must be refused");
       assertTrue(prepare.getMessage().contains("adopted immutable for the bulk flush"), prepare.getMessage());
     }
   }
 
   @Test
   void anOrdinaryDocumentPageIsNotRefused() {
-    try (Database<JsonResourceSession> database =
-        JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config());
+    try (
+        Database<JsonResourceSession> database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config());
         JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         StorageEngineWriter writer = session.createStorageEngineWriter()) {
       // Same seam, same index type, an unadopted page: the guard must be inert.
@@ -121,8 +123,9 @@ final class AdoptedPageRefusalTest {
     }
     json.append(']');
 
-    try (Database<JsonResourceSession> database =
-        JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config());
+    try (
+        Database<JsonResourceSession> database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config());
         JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         ParallelBulkJsonImporter.assemble(wtx, new StringReader(json.toString()), 4096, 3);
