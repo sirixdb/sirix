@@ -884,8 +884,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
       // Storage-epoch bounds arm regardless of maxNodeCount: they bound intent-log memory,
       // which grows whether or not the caller asked for count-based auto-commit.
-      return modificationCount >= autoCommitNodeCountThreshold
-          || storageEngineWriter.isAsyncFlushLogBoundaryReached();
+      return modificationCount >= autoCommitNodeCountThreshold || storageEngineWriter.isAsyncFlushLogBoundaryReached();
     }
     return maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold;
   }

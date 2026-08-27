@@ -92,10 +92,10 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   }
 
   /**
-   * A header whose serialized layout version this build cannot interpret. Only the version is
-   * carried — the payload behind it is unreadable by definition. Every consumer declines it
-   * ({@code GlobalValueDictionary#header} answers {@code null}), and re-serializing it is refused
-   * so a newer build's data is never overwritten with a lossy reconstruction.
+   * A header whose serialized layout version this build cannot interpret. Only the version is carried
+   * — the payload behind it is unreadable by definition. Every consumer declines it
+   * ({@code GlobalValueDictionary#header} answers {@code null}), and re-serializing it is refused so
+   * a newer build's data is never overwritten with a lossy reconstruction.
    *
    * @throws IllegalArgumentException for a negative version — that is corruption, not a future
    *         layout, and corruption stays loud
@@ -107,7 +107,9 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     return new ValueDictionaryHeaderNode(nodeKey, version);
   }
 
-  /** Whether this build can interpret the header's layout ({@link #getVersion()} == {@link #VERSION}). */
+  /**
+   * Whether this build can interpret the header's layout ({@link #getVersion()} == {@link #VERSION}).
+   */
   public boolean isCurrentLayout() {
     return currentLayout;
   }

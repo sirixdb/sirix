@@ -1923,8 +1923,9 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ValueDictionaryHeaderNode node = (ValueDictionaryHeaderNode) record;
       if (!node.isCurrentLayout()) {
-        throw new IllegalStateException("refusing to re-serialize a value dictionary header with unknown layout version "
-            + node.getVersion() + " — this build cannot reconstruct its payload");
+        throw new IllegalStateException(
+            "refusing to re-serialize a value dictionary header with unknown layout version " + node.getVersion()
+                + " — this build cannot reconstruct its payload");
       }
       sink.writeInt(node.getVersion());
       sink.writeInt(node.getEntryCount());

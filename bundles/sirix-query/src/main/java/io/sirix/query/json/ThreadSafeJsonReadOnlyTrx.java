@@ -99,11 +99,11 @@ public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOn
 
   /**
    * The owner was observed {@code null} while {@link #ownerDetached} still read {@code false}: a
-   * concurrent {@link #detachOwner()}/{@link #close()} sits between its two writes. Only the
-   * volatile {@code ownerDetached} store publishes the replacement metadata, so spin for it —
-   * the window is a handful of instructions inside a {@code finally}, never blocking work.
-   * Without this, a reader in that window dereferenced the cleared owner and the typed
-   * "proxy is closed" contract degraded to a raw {@code NullPointerException}.
+   * concurrent {@link #detachOwner()}/{@link #close()} sits between its two writes. Only the volatile
+   * {@code ownerDetached} store publishes the replacement metadata, so spin for it — the window is a
+   * handful of instructions inside a {@code finally}, never blocking work. Without this, a reader in
+   * that window dereferenced the cleared owner and the typed "proxy is closed" contract degraded to a
+   * raw {@code NullPointerException}.
    */
   private void awaitDetachPublication() {
     while (!ownerDetached) {

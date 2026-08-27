@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Behavioral witness that the async-flush epoch bounds arm for a {@code maxNodeCount == 0} writer
- * — the {@code beginNodeTrx(AfterCommitState)} overload. The bounds bound intent-log MEMORY, not
+ * Behavioral witness that the async-flush epoch bounds arm for a {@code maxNodeCount == 0} writer —
+ * the {@code beginNodeTrx(AfterCommitState)} overload. The bounds bound intent-log MEMORY, not
  * commit cadence; they used to be dead-gated behind {@code maxNodeCount > 0}, so such a writer's
  * log grew unbounded for the whole import (~one live entry per dirtied page — hundreds for the
  * workload below, tens of thousands for a real import).
@@ -48,14 +48,14 @@ final class AsyncFlushZeroNodeCountBoundTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(true)
-          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-          .storageType(StorageType.FILE_CHANNEL)
-          .build());
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx(AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+          final JsonNodeTrx wtx = session.beginNodeTrx(AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
         wtx.insertArrayAsFirstChild();
         // Async-flush epochs never re-instantiate the transaction (no commit is minted), so the
         // writer instance is stable for the whole loop.
@@ -74,8 +74,7 @@ final class AsyncFlushZeroNodeCountBoundTest {
         assertTrue(maxLogEntries <= 64,
             "intent log grew unbounded for a maxNodeCount == 0 async-flush writer: " + maxLogEntries + " entries");
         wtx.commit();
-        assertEquals(1, session.getMostRecentRevisionNumber(),
-            "intermediate async flushes must not mint revisions");
+        assertEquals(1, session.getMostRecentRevisionNumber(), "intermediate async flushes must not mint revisions");
       }
     }
   }

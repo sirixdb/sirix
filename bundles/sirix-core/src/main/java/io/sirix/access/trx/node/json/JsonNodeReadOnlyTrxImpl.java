@@ -112,11 +112,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
 
     JsonObject jsonObject;
     try {
-      jsonObject = JsonDiffSidecar.read(updateOperationsFile,
-          resourceSession.getResourceConfig().getName(),
-          revisionNumber - 1,
-          revisionNumber,
-          resourceSession.getResourceConfig().areDeweyIDsStored);
+      jsonObject = JsonDiffSidecar.read(updateOperationsFile, resourceSession.getResourceConfig().getName(),
+          revisionNumber - 1, revisionNumber, resourceSession.getResourceConfig().areDeweyIDsStored);
     } catch (final IOException | RuntimeException e) {
       // Sidecars are durable per-resource state; one written before the integrity envelope (or
       // damaged since) must not brick this API. The sidecar is only a CACHE of the diff, so
@@ -132,8 +129,8 @@ public final class JsonNodeReadOnlyTrxImpl extends
   private JsonObject recomputeUpdateOperations(final int revisionNumber) {
     final Path resourcePath = resourceSession.getResourceConfig().getResource();
     final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
-    final String diff = new BasicJsonDiff(databaseName)
-        .generateDiff((JsonResourceSession) resourceSession, revisionNumber - 1, revisionNumber);
+    final String diff = new BasicJsonDiff(databaseName).generateDiff((JsonResourceSession) resourceSession,
+        revisionNumber - 1, revisionNumber);
     return JsonParser.parseString(diff).getAsJsonObject();
   }
 

@@ -216,9 +216,10 @@ public final class JsonResourceCopy implements Callable<Void> {
             // The sidecar only caches the diff: recompute it from the two source revisions.
             final Path resourcePath = readResourceSession.getResourceConfig().getResource();
             final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
-            sidecar = JsonParser.parseString(
-                new BasicJsonDiff(databaseName).generateDiff(readResourceSession, revision - 1, revision))
-                .getAsJsonObject();
+            sidecar = JsonParser
+                                .parseString(new BasicJsonDiff(databaseName).generateDiff(readResourceSession,
+                                    revision - 1, revision))
+                                .getAsJsonObject();
           }
 
           for (final var diffsElement : sidecar.getAsJsonArray("diffs")) {

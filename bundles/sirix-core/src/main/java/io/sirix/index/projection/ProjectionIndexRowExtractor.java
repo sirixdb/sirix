@@ -318,8 +318,8 @@ public final class ProjectionIndexRowExtractor {
       // break, not a vanished record. It must be loud: unlike the JSON load path, XML record
       // sets have no end-of-load row-count assertion, so a silent false here would persist a
       // short index with no witness.
-      throw new IllegalStateException("XML projection record " + recordKey + " at path class "
-          + rtx.getPathNodeKey() + " is not at a record-set root path — attribution and extraction disagree");
+      throw new IllegalStateException("XML projection record " + recordKey + " at path class " + rtx.getPathNodeKey()
+          + " is not at a record-set root path — attribution and extraction disagree");
     }
     extractAt(rtx, recordKey, selectedColumns);
     return true;

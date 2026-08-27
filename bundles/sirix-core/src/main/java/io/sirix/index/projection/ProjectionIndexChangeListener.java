@@ -2627,9 +2627,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     private boolean readCounted;
     /**
      * Lazily built membership index over {@link #recordKeys}, kept in sync by
-     * {@link #insertKeyAt}/{@link #removeKeyAt}. Without it, N records appended at the document
-     * tail form ONE insertion chain into ONE edit and the per-element presence probe rescans the
-     * growing list — N(N−1)/2 comparisons inside beforeCommit().
+     * {@link #insertKeyAt}/{@link #removeKeyAt}. Without it, N records appended at the document tail
+     * form ONE insertion chain into ONE edit and the per-element presence probe rescans the growing
+     * list — N(N−1)/2 comparisons inside beforeCommit().
      */
     private @Nullable LongOpenHashSet keySet;
 

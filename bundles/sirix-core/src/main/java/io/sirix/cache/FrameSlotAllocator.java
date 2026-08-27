@@ -666,10 +666,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           // slab-region commitments never leave committedBytes before shutdown — report the
           // split so a post-peak OOM here is diagnosable as slab pressure, not a leak.
           if (!reserveCommittedBytes(size)) {
-            throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size
-                + " bytes exceeds the " + budgetBytes + "-byte physical budget (committed="
-                + committedBytes.get() + " bytes — slab-region commitments release only at "
-                + "shutdown; active=" + activeBytes.get() + " bytes)");
+            throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size + " bytes exceeds the "
+                + budgetBytes + "-byte physical budget (committed=" + committedBytes.get()
+                + " bytes — slab-region commitments release only at " + "shutdown; active=" + activeBytes.get()
+                + " bytes)");
           }
         }
         Arena arena = null;

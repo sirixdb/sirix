@@ -243,13 +243,12 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
 
     /**
-     * Surface retained retirement failures WITHOUT failing the caller. Budget evictions run
-     * inside operations on UNRELATED pages that already succeeded — throwing an arbitrary
-     * evicted page's retirement failure at that caller converts background hygiene into a
-     * foreground query failure, with the caller's own page left published but its guard
-     * released. The failure stays loud: an ERROR log plus a monotonic counter health checks
-     * and tests can watch. Operations that own the failed page (clear, close, remove) keep
-     * {@link #throwIfPresent()}.
+     * Surface retained retirement failures WITHOUT failing the caller. Budget evictions run inside
+     * operations on UNRELATED pages that already succeeded — throwing an arbitrary evicted page's
+     * retirement failure at that caller converts background hygiene into a foreground query failure,
+     * with the caller's own page left published but its guard released. The failure stays loud: an
+     * ERROR log plus a monotonic counter health checks and tests can watch. Operations that own the
+     * failed page (clear, close, remove) keep {@link #throwIfPresent()}.
      */
     private void logIfPresent(final String operation) {
       if (first != null) {
