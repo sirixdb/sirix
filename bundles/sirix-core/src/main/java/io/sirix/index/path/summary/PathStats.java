@@ -221,9 +221,27 @@ public final class PathStats {
   }
 
   public synchronized boolean isEmpty() {
+    return countAndSumLanesEmpty() && boundLanesEmpty() && sketchAndTrailerEmpty();
+  }
+
+  /**
+   * The counting and summing lanes, including the 128-bit sum's high word and the flags that mark
+   * either untrustworthy. Callers hold this record's monitor (see {@link #isEmpty()}), so the split
+   * helpers are deliberately unsynchronized rather than redundantly re-entering it.
+   */
+  private boolean countAndSumLanesEmpty() {
     return count == 0L && nullCount == 0L && sum == 0L && sumHi == 0L && sumFraction == 0.0d && !sumDirty
-        && !doubleTyped && !countDirty && min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null
-        && hll == null && !minDirty && !maxDirty && pageKeys == null;
+        && !doubleTyped && !countDirty;
+  }
+
+  /** The numeric and byte-valued bounds, with their dirty flags. */
+  private boolean boundLanesEmpty() {
+    return min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null && !minDirty && !maxDirty;
+  }
+
+  /** The distinct-value sketch and the optional page-key trailer. */
+  private boolean sketchAndTrailerEmpty() {
+    return hll == null && pageKeys == null;
   }
 
   /**

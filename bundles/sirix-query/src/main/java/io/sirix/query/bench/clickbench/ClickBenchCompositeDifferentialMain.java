@@ -11,6 +11,8 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -49,11 +51,7 @@ public final class ClickBenchCompositeDifferentialMain {
   private ClickBenchCompositeDifferentialMain() {}
 
   public static void main(final String[] args) {
-    if (args.length != 5 && !(args.length == 6 && ("--timings-only".equals(args[5]) || "--union".equals(args[5])))) {
-      System.err.println("usage: ClickBenchCompositeDifferentialMain <location> <singleDb> <singleResource>"
-          + " <compositeDb> <partitions> [--timings-only|--union]");
-      System.exit(2);
-    }
+    requireValidArgs(args);
     final boolean timingsOnly = args.length == 6 && "--timings-only".equals(args[5]);
     // --union: arm C is the ORIGINAL query text against the LOGICAL UNION resource of the
     // partitioned database (catalog-resolved), not the decomposed composite texts — the gate for
@@ -77,46 +75,11 @@ public final class ClickBenchCompositeDifferentialMain {
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       System.out.printf("%-4s | %7s | %9s | %s%n", "q", "rows", "verdict", "note");
-      for (int q = 0; timingsOnly
-          ? false
-          : q < 43; q++) {
-        final ClickBenchCompositeQueries.CompositeQuery composite = composites.get(q);
-        String note = "";
-        String verdict;
-        int rows = -1;
-        try {
-          final String originalFull =
-              ClickBenchQueries.wrap(singleDb, singleResource, stripSubsequence(originals.get(q).jsoniq(0)));
-          final ArmDigest truth = items(chain, ctx, originalFull);
-          rows = (int) truth.count();
-          if (!unionMode && composite.singleFull() != null) {
-            final ArmDigest specSingle = items(chain, ctx, composite.singleFull());
-            final String specDiff = diff(truth, specSingle);
-            if (specDiff != null) {
-              verdict = "SPEC-FAIL";
-              note = specDiff;
-              failures++;
-              System.out.printf("%-4d | %7d | %9s | %s%n", q, rows, verdict, note);
-              continue;
-            }
-          }
-          final ArmDigest merged = items(chain, ctx, unionMode
-              ? ClickBenchQueries.wrap(compositeDb, "hits", stripSubsequence(originals.get(q).jsoniq(0)))
-              : composite.compositeFull());
-          final String mergeDiff = diff(truth, merged);
-          if (mergeDiff != null) {
-            verdict = "FAIL";
-            note = mergeDiff;
-            failures++;
-          } else {
-            verdict = "PASS";
-          }
-        } catch (final RuntimeException e) {
-          verdict = "ERROR";
-          note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
+      for (int q = 0; !timingsOnly && q < 43; q++) {
+        if (compareOneQuery(chain, ctx, composites.get(q), originals.get(q), q, singleDb, singleResource, compositeDb,
+            unionMode)) {
           failures++;
         }
-        System.out.printf("%-4d | %7d | %9s | %s%n", q, rows, verdict, note);
       }
 
       if (unionMode) {
@@ -155,6 +118,68 @@ public final class ClickBenchCompositeDifferentialMain {
     System.exit(failures == 0
         ? 0
         : 1);
+  }
+
+  /** Rejects an argument vector this main cannot run, printing the usage line first. */
+  private static void requireValidArgs(final String[] args) {
+    if (args.length != 5 && !(args.length == 6 && ("--timings-only".equals(args[5]) || "--union".equals(args[5])))) {
+      System.err.println("usage: ClickBenchCompositeDifferentialMain <location> <singleDb> <singleResource>"
+          + " <compositeDb> <partitions> [--timings-only|--union]");
+      System.exit(2);
+    }
+  }
+
+  /**
+   * Compare one query's arms and print its row. Returns {@code true} when the query failed, so the
+   * caller only has to accumulate.
+   */
+  private static boolean compareOneQuery(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final ClickBenchCompositeQueries.CompositeQuery composite, final ClickBenchQueries.Query original, final int q,
+      final String singleDb, final String singleResource, final String compositeDb, final boolean unionMode) {
+    String note = "";
+    String verdict;
+    int rows = -1;
+    boolean failed = false;
+    try {
+      final String originalFull =
+          ClickBenchQueries.wrap(singleDb, singleResource, stripSubsequence(original.jsoniq(0)));
+      final ArmDigest truth = items(chain, ctx, originalFull);
+      rows = (int) truth.count();
+      final String specDiff = specArmDiff(chain, ctx, composite, truth, unionMode);
+      if (specDiff != null) {
+        System.out.printf("%-4d | %7d | %9s | %s%n", q, rows, "SPEC-FAIL", specDiff);
+        return true;
+      }
+      final ArmDigest merged = items(chain, ctx, unionMode
+          ? ClickBenchQueries.wrap(compositeDb, "hits", stripSubsequence(original.jsoniq(0)))
+          : composite.compositeFull());
+      final String mergeDiff = diff(truth, merged);
+      if (mergeDiff != null) {
+        verdict = "FAIL";
+        note = mergeDiff;
+        failed = true;
+      } else {
+        verdict = "PASS";
+      }
+    } catch (final RuntimeException e) {
+      verdict = "ERROR";
+      note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
+      failed = true;
+    }
+    System.out.printf("%-4d | %7d | %9s | %s%n", q, rows, verdict, note);
+    return failed;
+  }
+
+  /**
+   * The spec arm's divergence from truth, or {@code null} when there is no spec arm to check (union
+   * mode, or a query with no single-resource spec formulation) or it agrees.
+   */
+  private static @Nullable String specArmDiff(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final ClickBenchCompositeQueries.CompositeQuery composite, final ArmDigest truth, final boolean unionMode) {
+    if (unionMode || composite.singleFull() == null) {
+      return null;
+    }
+    return diff(truth, items(chain, ctx, composite.singleFull()));
   }
 
   /**

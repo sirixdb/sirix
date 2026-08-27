@@ -235,21 +235,9 @@ public final class ParallelBulkJsonImporter {
     this.pathIndexDefs = pathDefs.toArray(IndexDef[]::new);
     this.casIndexDefs = casDefs.toArray(IndexDef[]::new);
     this.nameIndexDefs = nameDefs.toArray(IndexDef[]::new);
-    this.pathIndexBuilders = new PathIndexBuilder[pathIndexDefs.length];
-    final PathIndexBuilderFactory pathFactory = new PathIndexBuilderFactory(DatabaseType.JSON);
-    for (int i = 0; i < pathIndexDefs.length; i++) {
-      pathIndexBuilders[i] = pathFactory.create(storageEngineWriter, wtx.getPathSummary(), pathIndexDefs[i]);
-    }
-    this.casIndexBuilders = new CASIndexBuilder[casIndexDefs.length];
-    final CASIndexBuilderFactory casFactory = new CASIndexBuilderFactory(DatabaseType.JSON);
-    for (int i = 0; i < casIndexDefs.length; i++) {
-      casIndexBuilders[i] = casFactory.create(storageEngineWriter, wtx.getPathSummary(), casIndexDefs[i]);
-    }
-    this.nameIndexBuilders = new NameIndexBuilder[nameIndexDefs.length];
-    final NameIndexBuilderFactory nameFactory = new NameIndexBuilderFactory(DatabaseType.JSON);
-    for (int i = 0; i < nameIndexDefs.length; i++) {
-      nameIndexBuilders[i] = nameFactory.create(storageEngineWriter, nameIndexDefs[i]);
-    }
+    this.pathIndexBuilders = createPathIndexBuilders();
+    this.casIndexBuilders = createCasIndexBuilders();
+    this.nameIndexBuilders = createNameIndexBuilders();
     this.indexTuplesActive =
         pathIndexBuilders.length > 0 || casIndexBuilders.length > 0 || nameIndexBuilders.length > 0;
 
@@ -258,46 +246,92 @@ public final class ParallelBulkJsonImporter {
     // dispatches, so per-chunk snapshots are exact). A definition with an empty include set — or
     // an include the JSON name space cannot express — indexes every name, so the pre-filter
     // degrades to collect-all and the builders' own include/exclude filter decides at drain.
-    boolean collectAllNames = false;
-    final Set<String> includedNames = new HashSet<>();
-    for (final IndexDef nameDef : nameIndexDefs) {
-      if (nameDef.getIncluded().isEmpty()) {
-        collectAllNames = true;
-        break;
-      }
-      for (final QNm included : nameDef.getIncluded()) {
-        if ((included.getPrefix() != null && !included.getPrefix().isEmpty())
-            || (included.getNamespaceURI() != null && !included.getNamespaceURI().isEmpty())) {
-          collectAllNames = true;
-          break;
-        }
-        includedNames.add(included.getLocalName());
-      }
-    }
-    this.collectAllNames = collectAllNames;
-    this.includedNameStrings = includedNames;
-    this.includedNameKeys = new IntOpenHashSet(Math.max(4, includedNames.size() * 2));
+    final NamePreFilter namePreFilter = buildNamePreFilter();
+    this.collectAllNames = namePreFilter.collectAll();
+    this.includedNameStrings = namePreFilter.included();
+    this.includedNameKeys = new IntOpenHashSet(Math.max(4, namePreFilter.included().size() * 2));
     this.qnmByNameKey = nameIndexBuilders.length > 0
         ? new Int2ObjectOpenHashMap<>(64)
         : null;
-    // Whether any definition of the family indexes EVERY path — then the worker collects every
-    // eligible node and each builder's own filter decides at drain.
-    boolean pathAll = false;
-    for (final IndexDef def : pathIndexDefs) {
-      pathAll |= def.getPaths().isEmpty();
-    }
-    this.pathIndexesEverything = pathAll;
-    boolean casAll = false;
-    for (final IndexDef def : casIndexDefs) {
-      casAll |= def.getPaths().isEmpty();
-    }
-    this.casIndexesEverything = casAll;
+    this.pathIndexesEverything = anyDefinitionIndexesEveryPath(pathIndexDefs);
+    this.casIndexesEverything = anyDefinitionIndexesEveryPath(casIndexDefs);
     this.mirrorParentPcrMemo = pathIndexBuilders.length > 0
         ? new Long2LongOpenHashMap(16)
         : null;
     if (mirrorParentPcrMemo != null) {
       mirrorParentPcrMemo.defaultReturnValue(Long.MIN_VALUE);
     }
+  }
+
+  /** The NAME-family worker pre-filter: the included local names, or "collect every name". */
+  private record NamePreFilter(boolean collectAll, Set<String> included) {
+  }
+
+  private PathIndexBuilder[] createPathIndexBuilders() {
+    final PathIndexBuilder[] builders = new PathIndexBuilder[pathIndexDefs.length];
+    final PathIndexBuilderFactory factory = new PathIndexBuilderFactory(DatabaseType.JSON);
+    for (int i = 0; i < pathIndexDefs.length; i++) {
+      builders[i] = factory.create(storageEngineWriter, wtx.getPathSummary(), pathIndexDefs[i]);
+    }
+    return builders;
+  }
+
+  private CASIndexBuilder[] createCasIndexBuilders() {
+    final CASIndexBuilder[] builders = new CASIndexBuilder[casIndexDefs.length];
+    final CASIndexBuilderFactory factory = new CASIndexBuilderFactory(DatabaseType.JSON);
+    for (int i = 0; i < casIndexDefs.length; i++) {
+      builders[i] = factory.create(storageEngineWriter, wtx.getPathSummary(), casIndexDefs[i]);
+    }
+    return builders;
+  }
+
+  private NameIndexBuilder[] createNameIndexBuilders() {
+    final NameIndexBuilder[] builders = new NameIndexBuilder[nameIndexDefs.length];
+    final NameIndexBuilderFactory factory = new NameIndexBuilderFactory(DatabaseType.JSON);
+    for (int i = 0; i < nameIndexDefs.length; i++) {
+      builders[i] = factory.create(storageEngineWriter, nameIndexDefs[i]);
+    }
+    return builders;
+  }
+
+  /**
+   * A definition with an empty include set — or an include the JSON name space cannot express (a
+   * prefix or namespace) — indexes every name, so the pre-filter degrades to collect-all and the
+   * builders' own include/exclude filter decides at drain.
+   */
+  private NamePreFilter buildNamePreFilter() {
+    final Set<String> included = new HashSet<>();
+    for (final IndexDef nameDef : nameIndexDefs) {
+      if (nameDef.getIncluded().isEmpty()) {
+        return new NamePreFilter(true, included);
+      }
+      for (final QNm name : nameDef.getIncluded()) {
+        if (isQualifiedBeyondLocalName(name)) {
+          return new NamePreFilter(true, included);
+        }
+        included.add(name.getLocalName());
+      }
+    }
+    return new NamePreFilter(false, included);
+  }
+
+  /** Whether a name carries a prefix or namespace, which the JSON name space cannot express. */
+  private static boolean isQualifiedBeyondLocalName(final QNm name) {
+    return (name.getPrefix() != null && !name.getPrefix().isEmpty())
+        || (name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty());
+  }
+
+  /**
+   * Whether any definition of the family indexes EVERY path — then the worker collects every
+   * eligible node and each builder's own filter decides at drain.
+   */
+  private static boolean anyDefinitionIndexesEveryPath(final IndexDef[] defs) {
+    for (final IndexDef def : defs) {
+      if (def.getPaths().isEmpty()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** As {@link #assemble(JsonNodeTrx, Reader, int)} with the default chunk budget. */
@@ -1045,15 +1079,29 @@ public final class ParallelBulkJsonImporter {
     if (batch == null) {
       return;
     }
-    // The builders cache their resolved path classes for a FROZEN summary; this feeder's summary
-    // grows between drains, so a class first minted since the previous drain (or after the
-    // prologue's root-array entry) would stay invisible behind the stale set.
+    refreshBuilderPathSets();
+    drainPathEntries(batch);
+    drainMirrorEntries(batch);
+    drainNameEntries(batch);
+    drainCasEntries(batch);
+  }
+
+  /**
+   * The builders cache their resolved path classes for a FROZEN summary; this feeder's summary grows
+   * between drains, so a class first minted since the previous drain (or after the prologue's
+   * root-array entry) would stay invisible behind the stale set.
+   */
+  private void refreshBuilderPathSets() {
     for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
       pathIndexBuilder.refreshIndexedPaths();
     }
     for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
       casIndexBuilder.refreshIndexedPaths();
     }
+  }
+
+  /** PATH-family tuples, in chunk (document) order. */
+  private void drainPathEntries(final ChunkIndexTupleBatch batch) {
     final int pathEntries = batch.pathEntryCount();
     for (int i = 0; i < pathEntries; i++) {
       final long pcr = batch.pathPcrAt(i);
@@ -1062,9 +1110,14 @@ public final class ParallelBulkJsonImporter {
         pathIndexBuilder.add(pcr, nodeKey);
       }
     }
-    // OBJECT_NAMED_ARRAY plays BOTH the ARRAY and the OBJECT_KEY structural roles: mirror each
-    // entry under the parent (OBJECT_KEY-layer) path class, exactly as the sequential listener
-    // does. The parent resolution is memoised per distinct array-layer class.
+  }
+
+  /**
+   * OBJECT_NAMED_ARRAY plays BOTH the ARRAY and the OBJECT_KEY structural roles: mirror each entry
+   * under the parent (OBJECT_KEY-layer) path class, exactly as the sequential listener does. The
+   * parent resolution is memoised per distinct array-layer class.
+   */
+  private void drainMirrorEntries(final ChunkIndexTupleBatch batch) {
     final int mirrorEntries = batch.mirrorCandidateCount();
     for (int i = 0; i < mirrorEntries; i++) {
       final long objectKeyLayerPcr = mirrorObjectKeyLayerPcr(batch.mirrorArrayPcrAt(i));
@@ -1076,6 +1129,10 @@ public final class ParallelBulkJsonImporter {
         pathIndexBuilder.add(objectKeyLayerPcr, nodeKey);
       }
     }
+  }
+
+  /** NAME-family tuples; a name key collected but never interned is a hard inconsistency. */
+  private void drainNameEntries(final ChunkIndexTupleBatch batch) {
     final int nameEntries = batch.nameEntryCount();
     for (int i = 0; i < nameEntries; i++) {
       final QNm name = qnmByNameKey.get(batch.nameKeyAt(i));
@@ -1088,6 +1145,13 @@ public final class ParallelBulkJsonImporter {
         nameIndexBuilder.add(name, nodeKey);
       }
     }
+  }
+
+  /**
+   * CAS-family tuples. The string and number payloads live in their own dense side arenas, so each
+   * kind advances its own ordinal rather than indexing by the tuple position.
+   */
+  private void drainCasEntries(final ChunkIndexTupleBatch batch) {
     final int casEntries = batch.casEntryCount();
     int stringOrdinal = 0;
     int numberOrdinal = 0;

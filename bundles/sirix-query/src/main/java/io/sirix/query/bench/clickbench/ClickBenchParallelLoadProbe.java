@@ -67,23 +67,31 @@ public final class ClickBenchParallelLoadProbe {
     throw new AssertionError("no instances");
   }
 
-  public static void main(final String[] args) throws Exception {
+  /** Rejects an argument vector this probe cannot run, printing the usage line first. */
+  private static void requireArgCount(final String[] args) {
     if (args.length < 3 || args.length > 4) {
       System.err.println("Usage: ClickBenchParallelLoadProbe <dbDir> <totalRows> <partitions> [maxConcurrency]");
       System.exit(2);
-      return;
     }
+  }
+
+  /** Rejects a row/partition split that cannot be laid out. */
+  private static void requireLoadableShape(final long totalRows, final int partitions) {
+    if (totalRows <= 0 || partitions <= 0 || totalRows < partitions) {
+      System.err.println("need totalRows >= partitions > 0");
+      System.exit(2);
+    }
+  }
+
+  public static void main(final String[] args) throws Exception {
+    requireArgCount(args);
     final Path dbDir = Path.of(args[0]);
     final long totalRows = Long.parseLong(args[1]);
     final int partitions = Integer.parseInt(args[2]);
     final int maxConcurrency = args.length == 4
         ? Integer.parseInt(args[3])
         : partitions;
-    if (totalRows <= 0 || partitions <= 0 || totalRows < partitions) {
-      System.err.println("need totalRows >= partitions > 0");
-      System.exit(2);
-      return;
-    }
+    requireLoadableShape(totalRows, partitions);
 
     final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     Allocators.getInstance().init(offheap);

@@ -1,5 +1,7 @@
 package io.sirix.query.bench.clickbench;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -214,6 +216,18 @@ public final class ClickBenchCompositeQueries {
       "$h.CounterID = 62 and $h.EventDate >= \"2013-07-01\" and $h.EventDate <= \"2013-07-31\"";
 
   private static GroupSpec spec(final int q) {
+    final GroupSpec throughQ18 = specThroughQ18(q);
+    if (throughQ18 != null) {
+      return throughQ18;
+    }
+    final GroupSpec throughQ33 = specThroughQ33(q);
+    return throughQ33 != null
+        ? throughQ33
+        : specFromQ34(q);
+  }
+
+  /** Spec table for queries up to 18; {@code null} when {@code q} belongs to a later block. */
+  private static @Nullable GroupSpec specThroughQ18(final int q) {
     return switch (q) {
       case 7 -> new GroupSpec(q, "$h.AdvEngineID != 0", null, List.of(new Key("AdvEngineID", "$h.AdvEngineID")),
           List.of(new Agg("count", Kind.COUNT, null)), -1, "count", true, -1, -1, List.of("AdvEngineID", "count"));
@@ -255,6 +269,13 @@ public final class ClickBenchCompositeQueries {
               new Key("SearchPhrase", "$h.SearchPhrase")),
           List.of(new Agg("count", Kind.COUNT, null)), -1, "count", true, 1, 10,
           List.of("UserID", "m", "SearchPhrase", "count"));
+      default -> null;
+    };
+  }
+
+  /** Spec table for queries 21 through 33; {@code null} when {@code q} belongs to a later block. */
+  private static @Nullable GroupSpec specThroughQ33(final int q) {
+    return switch (q) {
       case 21 -> new GroupSpec(q, "contains($h.URL, \"google\") and $h.SearchPhrase != \"\"", null,
           List.of(new Key("SearchPhrase", "$h.SearchPhrase")),
           List.of(new Agg("min_URL", Kind.MIN, "$h.URL"), new Agg("c", Kind.COUNT, null)), -1, "c", true, 1, 10,
@@ -291,6 +312,13 @@ public final class ClickBenchCompositeQueries {
             -1, "c", true, 1, 10, List.of("WatchID", "ClientIP", "c", "sum_IsRefresh", "avg_ResolutionWidth"));
       case 33 -> new GroupSpec(q, null, null, List.of(new Key("URL", "$h.URL")),
           List.of(new Agg("c", Kind.COUNT, null)), -1, "c", true, 1, 10, List.of("URL", "c"));
+      default -> null;
+    };
+  }
+
+  /** Spec table for queries 34 and above; rejects any query that is not spec-shaped. */
+  private static GroupSpec specFromQ34(final int q) {
+    return switch (q) {
       case 34 -> new GroupSpec(q, null, null, List.of(new Key("one", "1"), new Key("URL", "$h.URL")),
           List.of(new Agg("c", Kind.COUNT, null)), -1, "c", true, 1, 10, List.of("one", "URL", "c"));
       case 35 -> new GroupSpec(q, null, null,
@@ -356,23 +384,39 @@ public final class ClickBenchCompositeQueries {
     if (spec.lets() != null) {
       sb.append(spec.lets()).append(", ");
     }
+    appendKeyBindings(sb, spec);
+    sb.append("\ngroup by ");
+    appendKeyReferences(sb, spec);
+    sb.append("\nreturn {");
+    for (int i = 0; i < spec.keys().size(); i++) {
+      sb.append("\"g").append(i).append("\": $g").append(i).append(", ");
+    }
+    appendPartialAggregates(sb, spec);
+    return sb.append('}').toString();
+  }
+
+  /** {@code $g0 := <expr>, $g1 := <expr>, …} — the per-key let bindings. */
+  private static void appendKeyBindings(final StringBuilder sb, final GroupSpec spec) {
     for (int i = 0; i < spec.keys().size(); i++) {
       if (i > 0) {
         sb.append(", ");
       }
       sb.append("$g").append(i).append(" := ").append(spec.keys().get(i).expr());
     }
-    sb.append("\ngroup by ");
+  }
+
+  /** {@code $g0, $g1, …} — the grouping references. */
+  private static void appendKeyReferences(final StringBuilder sb, final GroupSpec spec) {
     for (int i = 0; i < spec.keys().size(); i++) {
       if (i > 0) {
         sb.append(", ");
       }
       sb.append("$g").append(i);
     }
-    sb.append("\nreturn {");
-    for (int i = 0; i < spec.keys().size(); i++) {
-      sb.append("\"g").append(i).append("\": $g").append(i).append(", ");
-    }
+  }
+
+  /** The {@code "pN": <partial>} aggregate fields, plus the AVG denominator when one is needed. */
+  private static void appendPartialAggregates(final StringBuilder sb, final GroupSpec spec) {
     final List<Agg> aggs = spec.aggs();
     for (int i = 0; i < aggs.size(); i++) {
       if (i > 0) {
@@ -390,7 +434,6 @@ public final class ClickBenchCompositeQueries {
     if (countAggIndex(spec) < 0 && aggs.stream().anyMatch(a -> a.kind() == Kind.AVG)) {
       sb.append(", \"pc\": count($h)");
     }
-    return sb.append('}').toString();
   }
 
   /** The merge: regroup the concatenated partials, combine, HAVING — no order, no subsequence. */
