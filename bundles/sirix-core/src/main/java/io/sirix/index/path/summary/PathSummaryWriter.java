@@ -1338,7 +1338,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * node's own accumulator by {@link PathNode#isStatsSumTrustworthy()}. That is what makes the
    * persisted statistics independent of how many flushes the load took.
    */
-  private static void applyDeferredStats(final PathNode pn, final PathStatsAccumulator d) {
+  static void applyDeferredStats(final PathNode pn, final PathStatsAccumulator d) {
     if (d.kind == 1 && d.count > 0) {
       pn.mergeLongStats(d.count, d.sumLo, d.sumHi, d.min, d.max);
       if (d.sumFraction != 0.0d) {

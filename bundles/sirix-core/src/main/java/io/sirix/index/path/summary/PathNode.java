@@ -638,6 +638,23 @@ public final class PathNode implements StructNode, NameNode {
     s.sum = updatedLo;
   }
 
+  /**
+   * Cancels {@code delta} out of the persisted 128-bit integral accumulator — the exact inverse of
+   * {@link #addToSum}, for every {@code long} without exception.
+   *
+   * <p>
+   * Deliberately NOT {@code addToSum(s, -delta)}: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE},
+   * so cancelling an observation of that value through negation would add it again. The resulting
+   * total can be perfectly representable — insert {@code MIN, M, M} and delete the {@code MIN} and
+   * the accumulator lands on {@code -2} — so the derived trust verdict would approve it and the
+   * summary would serve a sum the scan disagrees with. See {@link PathStats#subBorrow}.
+   */
+  private static void subtractFromSum(final PathStats s, final long delta) {
+    final long updatedLo = s.sum - delta;
+    s.sumHi = PathStats.subBorrow(s.sumHi, delta >> 63, s.sum, delta);
+    s.sum = updatedLo;
+  }
+
   /** Record a long value observation (numeric path). */
   void recordLongValue(final long value) {
     final PathStats s = getOrCreateStats();
@@ -699,7 +716,7 @@ public final class PathNode implements StructNode, NameNode {
     if (s.count > 0) {
       s.count--;
     }
-    addToSum(s, -value);
+    subtractFromSum(s, value);
     if (value == s.min) {
       s.minDirty = true;
     }

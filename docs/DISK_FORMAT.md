@@ -211,6 +211,12 @@ fail-fast lookups, never ordinals.
   record whose true total had overflowed carries `sumDirty`, which is never cleared, so a migrated
   record is never promoted from untrusted to trusted. A negative leading long other than `-1` is a
   record from a newer build and throws.
+  **Accepted one-directional break:** the marker versions the RECORD only — `BinaryEncodingVersion`
+  deliberately stays V0, so no page header changed and an older build has nothing to fail on. A
+  resource written by this build WITH path statistics is therefore NOT readable by an older build:
+  it parses the `-1` marker as `count` and shifts every field after it by eight bytes. SirixDB has
+  no users to downgrade, so this is an accepted risk taken knowingly rather than a gap to close; the
+  backward direction (this build reading V0, and refusing a newer marker) is handled above.
 
 The **lightweight-compression direction is already the design**: per-section/columnar encodings
 inside the page (templates, FOR+bit-packing, dictionaries, elision bitmaps, FSST) rather than a

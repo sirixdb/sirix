@@ -161,6 +161,15 @@ public final class PathStats {
    * first field it writes and is never negative — every decrement is guarded by {@code count > 0} and
    * every merge folds in a non-negative batch count — so a negative leading long cannot be a V0
    * record and unambiguously marks a versioned one.
+   *
+   * <p>
+   * <b>Accepted limitation, deliberately not closed:</b> the marker versions this RECORD while the
+   * page-wide {@code BinaryEncodingVersion} stays V0, so the break is one-directional. This build
+   * reads a V0 record correctly and refuses a newer-than-known marker with a diagnostic, but an OLDER
+   * build opening a resource written by this one WITH path statistics has no version byte to fail on:
+   * it reads the marker as {@code count = -1} and every field after it shifted by eight bytes.
+   * SirixDB has no users to downgrade, so that is an accepted risk rather than a defect — recorded
+   * here and in {@code docs/DISK_FORMAT.md} so it stays a decision rather than a surprise.
    */
   private static final long VERSION_MARKER = -RECORD_VERSION;
 
@@ -191,6 +200,23 @@ public final class PathStats {
    */
   public static long addCarry(final long hi, final long addHi, final long lo, final long resultLo) {
     return hi + addHi + (Long.compareUnsigned(resultLo, lo) < 0
+        ? 1L
+        : 0L);
+  }
+
+  /**
+   * High half of {@code (hi, lo) - (subHi, subLo)}, borrowing out of the low half.
+   *
+   * <p>
+   * A subtraction primitive rather than "negate and add", because on two's-complement 64-bit
+   * integers negation is not total: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE}, so cancelling
+   * an observation of that value by adding its negation ADDS it a second time. That is not a corner
+   * that can be waved off now that representability is derived from the exact total — the doubled
+   * value can land back inside {@code long} range, where nothing marks it and the wrong sum is
+   * served. Subtracting the sign-extended pair directly has no such hole.
+   */
+  public static long subBorrow(final long hi, final long subHi, final long lo, final long subLo) {
+    return hi - subHi - (Long.compareUnsigned(lo, subLo) < 0
         ? 1L
         : 0L);
   }

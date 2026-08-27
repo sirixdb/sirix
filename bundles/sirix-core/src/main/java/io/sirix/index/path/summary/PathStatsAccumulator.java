@@ -54,7 +54,7 @@ public final class PathStatsAccumulator {
   long nullCount;
   /**
    * Low (unsigned) half of the 128-bit integral accumulator; also the exact {@code long} total
-   * whenever {@link #sumFitsLong()} holds.
+   * whenever {@link PathStats#sumFitsLong()} holds of the pair.
    */
   long sumLo;
   /** High (signed) half of the 128-bit integral accumulator. */
@@ -65,9 +65,10 @@ public final class PathStatsAccumulator {
   boolean doubleTyped;
   /**
    * Whether this batch saw an OBSERVATION that cannot be accumulated (NaN, an infinity). Sum
-   * overflow is NOT recorded here — it is derived from the 128-bit accumulator by
-   * {@link #isValueStatsUntrusted()}, so that the verdict depends only on the observation multiset
-   * and not on the order or chunking it arrived in.
+   * overflow is NOT recorded here — the batch carries its exact 128-bit total into the PathNode and
+   * {@link PathNode#isStatsSumTrustworthy()} derives representability from the persisted accumulator,
+   * so that the verdict depends only on the observation multiset and not on the order or chunking it
+   * arrived in.
    */
   boolean untrustedObservation;
   long min;
@@ -159,7 +160,7 @@ public final class PathStatsAccumulator {
    * the same values split into chunks that each stay in range (trusted, different total), so a
    * bulk-loaded resource would persist statistics a cursor-loaded one does not. Here every
    * intermediate is exact — 2^63 magnitude values would need 2^64 of them to leave 128 bits — and
-   * {@link #sumFitsLong()} asks the only question that matters: does the TRUE total fit the
+   * {@link PathStats#sumFitsLong()} asks the only question that matters: does the TRUE total fit the
    * {@code long} the summary persists? Both halves are handed to
    * {@link PathNode#mergeLongStats(long, long, long, long, long)} at flush, and
    * {@link PathStats#sumHi} carries them across a commit, so the same guarantee holds end to end
@@ -178,36 +179,6 @@ public final class PathStatsAccumulator {
     final long updatedLo = sumLo + lo;
     sumHi = PathStats.addCarry(sumHi, hi, sumLo, updatedLo);
     sumLo = updatedLo;
-  }
-
-  /**
-   * Whether the exact integral total is representable as a {@code long} — i.e. whether the high half
-   * is nothing but the sign extension of the low half.
-   */
-  public boolean sumFitsLong() {
-    return PathStats.sumFitsLong(sumHi, sumLo);
-  }
-
-  /**
-   * The exact integral total. Only meaningful when {@link #sumFitsLong()} holds; otherwise it is the
-   * true total modulo 2^64 and callers must decline to serve it.
-   */
-  public long sumAsLong() {
-    return sumLo;
-  }
-
-  /**
-   * Whether value statistics may be served from this batch: {@code false} once an unaccumulable
-   * observation arrived (NaN, an infinity) OR the exact total left {@code long} range.
-   *
-   * <p>
-   * Both terms are functions of the observation multiset alone, so a chunked merge and a sequential
-   * feed of the same values always agree. Note this is the BATCH-level verdict; the persisted one is
-   * {@link PathNode#isStatsSumTrustworthy()}, which asks the same question of the 128-bit total the
-   * batches folded into.
-   */
-  public boolean isValueStatsUntrusted() {
-    return untrustedObservation || !sumFitsLong();
   }
 
   /**
@@ -341,7 +312,7 @@ public final class PathStatsAccumulator {
    *
    * <p>
    * <b>Associativity, stated honestly.</b> count, nullCount, min, max, byte bounds, HLL, page
-   * witnesses AND the integral sum (with it {@link #isValueStatsUntrusted()}, since the 128-bit
+   * witnesses AND the integral sum (with it the representability verdict, since the 128-bit
    * accumulator has no intermediate to overflow) are associative AND commutative — any merge order
    * yields exactly the same value, so a chunked merge and a sequential feed of the same observation
    * multiset are indistinguishable. Exactly ONE lane is not: {@code sumFraction} is a double
