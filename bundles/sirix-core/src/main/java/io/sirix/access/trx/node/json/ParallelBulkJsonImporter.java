@@ -352,8 +352,8 @@ public final class ParallelBulkJsonImporter {
   }
 
   /**
-   * Whether any definition of the family indexes EVERY path — then the worker collects every
-   * eligible node and each builder's own filter decides at drain.
+   * Whether any definition of the family indexes EVERY path — then the worker collects every eligible
+   * node and each builder's own filter decides at drain.
    */
   private static boolean anyDefinitionIndexesEveryPath(final IndexDef[] defs) {
     for (final IndexDef def : defs) {
