@@ -267,6 +267,36 @@ public final class ParallelBulkJsonImporter {
   private record NamePreFilter(boolean collectAll, Set<String> included) {
   }
 
+  /** The top-level array's path class and node key, as minted by the coordinator's prologue. */
+  private record RootArray(long pcr, long key) {
+  }
+
+  /**
+   * Prologue: create the root array through the ordinary transaction path, so page 0 enters the
+   * intent log here and is stitched via the CoW-checked blit seam rather than held. Everything up to
+   * this point is therefore already readable back.
+   */
+  private RootArray openRootArray() {
+    final long rootArrayPcr = buildPathSummary
+        ? pathSummaryWriter.getPathNodeKey(0, ARRAY_PATH_QNM, NodeKind.ARRAY)
+        : 0;
+    final long rootArrayKey =
+        wtxSink.createArrayNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), NULL_KEY, rootArrayPcr);
+    rememberRootArrayPcr(rootArrayPcr);
+    adoptedWatermark = rootArrayKey;
+    currentChunkLastKey = rootArrayKey;
+    feedRecordSetKey = rootArrayKey;
+    for (final ProjectionBulkLoad load : projectionLoads) {
+      load.noteArrayRootInstance(rootArrayKey, wtx);
+    }
+    // The root array is created by the coordinator's own sink, so no worker batch ever carries it —
+    // but the sequential leg's PATH listener indexes every ARRAY node, this one included.
+    for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
+      pathIndexBuilder.add(rootArrayPcr, rootArrayKey);
+    }
+    return new RootArray(rootArrayPcr, rootArrayKey);
+  }
+
   private PathIndexBuilder[] createPathIndexBuilders() {
     final PathIndexBuilder[] builders = new PathIndexBuilder[pathIndexDefs.length];
     final PathIndexBuilderFactory factory = new PathIndexBuilderFactory(DatabaseType.JSON);
@@ -497,27 +527,9 @@ public final class ParallelBulkJsonImporter {
 
   private void run(final InputStream input, final int parallelism) throws IOException {
 
-    // Prologue: the root array through the ordinary transaction path — page 0 enters the intent
-    // log here and is stitched via the CoW-checked blit seam, never held.
-    final long rootArrayPcr = buildPathSummary
-        ? pathSummaryWriter.getPathNodeKey(0, ARRAY_PATH_QNM, NodeKind.ARRAY)
-        : 0;
-    final long rootArrayKey =
-        wtxSink.createArrayNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), NULL_KEY, rootArrayPcr);
-    rememberRootArrayPcr(rootArrayPcr);
-    // Page 0 carries the document root and this array; it enters the intent log through the ordinary
-    // transaction path above, so everything up to here is already readable back.
-    adoptedWatermark = rootArrayKey;
-    currentChunkLastKey = rootArrayKey;
-    feedRecordSetKey = rootArrayKey;
-    for (final ProjectionBulkLoad load : projectionLoads) {
-      load.noteArrayRootInstance(rootArrayKey, wtx);
-    }
-    // The root array is created by the coordinator's own sink, so no worker batch ever carries it —
-    // but the sequential leg's PATH listener indexes every ARRAY node, this one included.
-    for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
-      pathIndexBuilder.add(rootArrayPcr, rootArrayKey);
-    }
+    final RootArray rootArray = openRootArray();
+    final long rootArrayPcr = rootArray.pcr();
+    final long rootArrayKey = rootArray.key();
 
     final FusedSliceAndScan fused = new FusedSliceAndScan(input, chunkCharBudget, projectionLoads.length > 0);
     fused.consumeArrayOpen();
