@@ -141,38 +141,6 @@ public final class PathStats {
    */
   private @Nullable RoaringBitmap pageKeys;
 
-  /**
-   * Record version written as the leading marker of every {@link #writeTo(BytesOut)} record.
-   *
-   * <p>
-   * V1 widened the integral accumulator to 128 bits by inserting {@link #sumHi} after {@link #sum};
-   * see {@code docs/DISK_FORMAT.md}. This is the per-record version mechanism the format contract
-   * names for a record that has to evolve independently of the page-wide
-   * {@code BinaryEncodingVersion}.
-   */
-  public static final int RECORD_VERSION = 1;
-
-  /**
-   * Leading discriminator: {@code -RECORD_VERSION}, occupying the slot a V0 record used for
-   * {@code count}.
-   *
-   * <p>
-   * A V0 record carries no version field, so it has to be recognised by shape. {@code count} is the
-   * first field it writes and is never negative — every decrement is guarded by {@code count > 0} and
-   * every merge folds in a non-negative batch count — so a negative leading long cannot be a V0
-   * record and unambiguously marks a versioned one.
-   *
-   * <p>
-   * <b>Accepted limitation, deliberately not closed:</b> the marker versions this RECORD while the
-   * page-wide {@code BinaryEncodingVersion} stays V0, so the break is one-directional. This build
-   * reads a V0 record correctly and refuses a newer-than-known marker with a diagnostic, but an OLDER
-   * build opening a resource written by this one WITH path statistics has no version byte to fail on:
-   * it reads the marker as {@code count = -1} and every field after it shifted by eight bytes.
-   * SirixDB has no users to downgrade, so that is an accepted risk rather than a defect — recorded
-   * here and in {@code docs/DISK_FORMAT.md} so it stays a decision rather than a surprise.
-   */
-  private static final long VERSION_MARKER = -RECORD_VERSION;
-
   public PathStats() {}
 
   /**
@@ -249,14 +217,19 @@ public final class PathStats {
    * {@link io.sirix.node.NodeKind#PATH}.
    *
    * <p>
-   * V1 layout: {@code [i64 -RECORD_VERSION][i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min]
-   * [i64 max]} then the byte bounds, the HLL blob, the dirty flags, {@code sumFraction}, the three
-   * trailing flags and the optional page-key trailer. {@code sumFraction} and the flags sit between
-   * {@code maxDirty} and that trailer; any rearrangement needs another {@link #RECORD_VERSION} bump
-   * before resources using it are written.
+   * Layout: {@code [i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min][i64 max]} then the byte
+   * bounds, the HLL blob, the dirty flags, {@code sumFraction}, the three trailing flags and the
+   * optional page-key trailer. {@code sumFraction} and the flags sit between {@code maxDirty} and
+   * that trailer.
+   *
+   * <p>
+   * The record carries NO version discriminator, by decision: SirixDB has no released consumers, so
+   * the layout is changed in place — as {@code sumHi} was when the integral accumulator widened to
+   * 128 bits — rather than accreting per-record version machinery that nothing would ever exercise. A
+   * resource written by one build is only readable by builds that share its layout. Introduce a
+   * discriminator when there is something to stay compatible WITH, not before.
    */
   public void writeTo(final BytesOut<?> sink) {
-    sink.writeLong(VERSION_MARKER);
     sink.writeLong(count);
     sink.writeLong(nullCount);
     sink.writeLong(sum);
@@ -360,34 +333,15 @@ public final class PathStats {
    * Read a record produced by {@link #writeTo(BytesOut)} from {@code source}.
    *
    * <p>
-   * Reads V1 and MIGRATES V0 in place: a V0 record has no {@link #sumHi}, but its {@code sum} is by
-   * construction a value that fitted a {@code long}, so sign-extending it reconstructs the exact
-   * 128-bit accumulator. A V0 record whose true total had left {@code long} range carries a partial
-   * sum with {@code sumDirty} already set, and {@code sumDirty} is never cleared, so the migrated
-   * record stays exactly as unservable as it was — nothing is silently promoted to trusted.
-   *
-   * <p>
    * Tolerates a record that stops before the optional trailing presence-bitmap field, which is the
-   * only shape variation within a version.
+   * only shape variation the layout admits.
    */
   public static PathStats readFrom(final BytesIn<?> source) {
     final PathStats s = new PathStats();
-    final long leading = source.readLong();
-    if (leading < 0L) {
-      if (leading != VERSION_MARKER) {
-        throw new IllegalStateException("Unknown PathStats record version " + (-leading)
-            + " — written by a newer SirixDB; this build understands version " + RECORD_VERSION);
-      }
-      s.count = source.readLong();
-      s.nullCount = source.readLong();
-      s.sum = source.readLong();
-      s.sumHi = source.readLong();
-    } else {
-      s.count = leading;
-      s.nullCount = source.readLong();
-      s.sum = source.readLong();
-      s.sumHi = s.sum >> 63;
-    }
+    s.count = source.readLong();
+    s.nullCount = source.readLong();
+    s.sum = source.readLong();
+    s.sumHi = source.readLong();
     s.min = source.readLong();
     s.max = source.readLong();
     s.minBytes = readOptionalBytes(source);
