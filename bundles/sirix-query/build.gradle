@@ -430,6 +430,121 @@ tasks.register('clickBench', JavaExec) {
         : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
 }
 
+// Bulk-ingest probe: parallel/partitioned load arms over the hits shape, selected by
+// -Dprobe.* switches (see docs/CLICKBENCH.md, "Import and decomposition harnesses"). Usage:
+//   ./gradlew :sirix-query:clickBenchParallelLoadProbe -Pclickbench.args="/tmp/cb-probe 1000000 1" \
+//       -Pclickbench.jvmArgs="-Dprobe.bulk=true -Dprobe.parallelImport=true -Dprobe.file=/data/hits.json"
+tasks.register('clickBenchParallelLoadProbe', JavaExec) {
+    group = 'verification'
+    description = 'Measure bulk/parallel ClickBench ingest arms against the cursor arm.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchParallelLoadProbe'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+// Partition-decomposition differential: every query's composite formulation against the
+// single-resource ground truth, over two databases holding the same rows. Usage:
+//   ./gradlew :sirix-query:clickBenchCompositeDifferential \
+//       -Pclickbench.args="/tmp <singleDb> hits <compositeDb> 4"
+tasks.register('clickBenchCompositeDifferential', JavaExec) {
+    group = 'verification'
+    description = 'Differentially verify the partitioned ClickBench query decomposition.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchCompositeDifferentialMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+// One-pass projection cost: bare / armed-one-pass / bare-then-post-pass, interleaved per rep.
+// The heap default matches the arms published in docs/BULK_IMPORT.md. Usage:
+//   ./gradlew :sirix-query:clickBenchProjectionCost -Pclickbench.args="/data/hits-1m.json /var/tmp/cost 3" \
+//       -Pclickbench.jvmArgs="-Dsirix.projection.globalDict=never -Dcost.expectedRows=1000000"
+tasks.register('clickBenchProjectionCost', JavaExec) {
+    group = 'verification'
+    description = 'Measure the parallel import\'s one-pass projection build against a post-pass build.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchParallelProjectionCostMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx6g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+// PATH/CAS/NAME maintenance cost: bare import against the same import with four definitions
+// catalogued, interleaved per rep. Usage:
+//   ./gradlew :sirix-query:clickBenchPrimitiveIndexCost -Pclickbench.args="/data/hits-1m.json /var/tmp/idxcost 3"
+tasks.register('clickBenchPrimitiveIndexCost', JavaExec) {
+    group = 'verification'
+    description = 'Measure PATH/CAS/NAME maintenance cost inside the parallel bulk import.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchPrimitiveIndexImportCostMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx6g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
 // JSONBench loader: shreds the Bluesky firehose events (NDJSON, optionally gzipped)
 // into a Sirix JSON resource and prints "Load time:" / "Data size:". Usage:
 //   ./gradlew :sirix-query:jsonBenchLoad -Pjsonbench.args="/tmp/jb/db-1m /tmp/jb/data/file_0001.json.gz"

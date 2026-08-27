@@ -680,6 +680,14 @@ in a fresh process, **interleaves the arms** rather than blocking them, and repo
 best and median of N rounds. Its summary refuses to print a suite figure when any query
 produced no timing, because a partial sum silently reads as a whole one.
 
+The load side of the campaign re-derives through four more `:sirix-query` tasks —
+`clickBenchParallelLoadProbe` (ingest arms), `clickBenchProjectionCost` and
+`clickBenchPrimitiveIndexCost` (index maintenance riding the import) and
+`clickBenchCompositeDifferential` (the partitioned query decomposition). Their arguments and
+switches are tabulated in
+[CLICKBENCH.md](CLICKBENCH.md#import-and-decomposition-harnesses); the figures they produce are
+in [BULK_IMPORT.md](BULK_IMPORT.md).
+
 The serving suites that gate every engine change:
 `ProjectionIndexCatalogServingTest`, `NestedDerefProjectionServingTest`,
 `StringDistinctGroupServingTest`, `SpanOrderTopKServingTest`,

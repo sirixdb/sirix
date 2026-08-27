@@ -65,9 +65,10 @@ chunk's build worker collects that family's tuples from the primitives it alread
 coordinator drains them per chunk into the families' ordinary bulk loaders, and one flush per family
 materialises each trie before the caller's commit — the same entries the sequential path's per-node
 change notifications produce, matching a sequential oracle's postings exactly across 20 probes, at a
-measured +10.2% import cost for four real definitions. The gate is postings equality rather than
-byte equality on purpose: a bulk-built trie is canonical while an incrementally built one is
-insertion-order-dependent, so the two are read-equivalent but not structurally equal — see
+measured +10.2% import cost for four real definitions (`:sirix-query:clickBenchPrimitiveIndexCost`).
+The gate is postings equality rather than byte equality on purpose: a bulk-built trie is canonical
+while an incrementally built one is insertion-order-dependent, so the two are read-equivalent but
+not structurally equal — see
 [`HOT_BULK_BUILD.md`](HOT_BULK_BUILD.md) §1. **Projection indexes are supported** too (see
 below). Only **valid-time** interval maintenance is still refused, and the refusal is def-based with
 an exact-family message: that family is resolved by a configured-path visitor over whole records,
@@ -128,8 +129,9 @@ differ, and no consumer reads through a poisoned cell.
 #### Cost: measured — one pass beats bare-then-post-pass by 2.8×
 
 Three arms over the first 1M REAL ClickBench hits rows (2.36 GB JSON, array-wrapped), interleaved
-bare/onepass/postpass per rep, minimum of 3, `-Dsirix.projection.globalDict=never`,
-`-Xmx6g`:
+bare/onepass/postpass per rep, minimum of 3, `-Dsirix.projection.globalDict=never`, `-Xmx6g` —
+re-derivable through `:sirix-query:clickBenchProjectionCost` (arguments in
+[`CLICKBENCH.md`](CLICKBENCH.md#import-and-decomposition-harnesses)):
 
 | Arm | min | median | vs bare |
 |---|---|---|---|
@@ -186,6 +188,9 @@ sample window, whatever the epoch size.
 | `sirix.offheap.bytes` | `24 GiB` | Off-heap arena budget. **Cap this on smaller machines for large imports** (e.g. `8g` on a 32 GB box) — the default assumes a query-serving footprint. |
 
 ### Measured (20-core box, NVMe)
+
+Arms selected through `:sirix-query:clickBenchParallelLoadProbe`; its switches are tabulated in
+[`CLICKBENCH.md`](CLICKBENCH.md#import-and-decomposition-harnesses).
 
 | Corpus | Sequential | Parallel |
 |---|---|---|

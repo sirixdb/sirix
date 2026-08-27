@@ -26,6 +26,9 @@ Two things are worth saying up front, because they frame every number below:
 | `…/ClickBenchGenerateMain.java` | writes the synthetic dataset to a file so a reference engine reads identical bytes |
 | `…/ClickBenchProjection.java` | the projection index the 43 queries are served from — its columns are derived from the queries, not hand-listed |
 | `…/ClickBenchMaintenanceMain.java`, `…/HftRuntimeEvidence.java` | a bounded ordinary-maintenance arm (>100 k dirty records in one commit, then cold reopen) and the HFT boundary evidence it emits |
+| `…/ClickBenchParallelLoadProbe.java` | ingest-side probe: cursor, bulk-assembly and parallel-importer arms over the same rows, partitioned or single-resource, each run witnessed structurally |
+| `…/ClickBenchParallelProjectionCostMain.java`, `…/ClickBenchPrimitiveIndexImportCostMain.java` | interleaved cost arms for index maintenance riding the parallel import — one-pass projection vs. post-pass build, and PATH/CAS/NAME on vs. off |
+| `…/ClickBenchCompositeQueries.java`, `…/ClickBenchCompositeDifferentialMain.java` | the partition-decomposed formulation of the 43 queries, and the differential proving each composite answer equals the single-resource one |
 | `bundles/sirix-query/bench/clickbench/` | the DuckDB reference side (`prepare-data.sh`, `duckdb_reference.py`, `compare-results.py`, `run-differential.sh`, `queries.sql`) and the fixed-heap HFT GC/safepoint and maintenance gates (`cold-rounds.sh`, `hft_*.py`) — protocol and thresholds in that directory's [`README.md`](../bundles/sirix-query/bench/clickbench/README.md) |
 | `bundles/sirix-query/src/test/java/io/sirix/query/bench/clickbench/` | the CI gates: generator invariants, source/projection wiring, HFT runtime evidence, and a 43-query smoke test |
 
@@ -53,6 +56,43 @@ The correctness gate — the same 43 queries three ways over byte-identical reco
 ```bash
 bundles/sirix-query/bench/clickbench/run-differential.sh 200000
 ```
+
+### Import and decomposition harnesses
+
+Four further entry points measure the *load* side rather than the query side; together they produce
+the ingestion figures in [`BULK_IMPORT.md`](BULK_IMPORT.md). Each takes its positional arguments
+through `-Pclickbench.args` and its switches through `-Pclickbench.jvmArgs`, exactly like the tasks
+above.
+
+```bash
+# ingest arms over the same rows: cursor (default), bulk assembler, parallel importer
+./gradlew :sirix-query:clickBenchParallelLoadProbe -Pclickbench.args="/tmp/cb-probe 1000000 1" \
+    -Pclickbench.jvmArgs="-Dprobe.bulk=true -Dprobe.parallelImport=true -Dprobe.file=/data/hits.json"
+
+# one-pass projection build vs. bare vs. bare-then-post-pass, interleaved, min of 3
+./gradlew :sirix-query:clickBenchProjectionCost -Pclickbench.args="/data/hits-1m.json /var/tmp/cost 3" \
+    -Pclickbench.jvmArgs="-Dsirix.projection.globalDict=never -Dcost.expectedRows=1000000"
+
+# PATH/CAS/NAME maintenance on vs. off inside the same import, interleaved, min of 3
+./gradlew :sirix-query:clickBenchPrimitiveIndexCost -Pclickbench.args="/data/hits-1m.json /var/tmp/idxcost 3"
+
+# every query's partitioned formulation against the single-resource ground truth
+./gradlew :sirix-query:clickBenchCompositeDifferential \
+    -Pclickbench.args="/var/tmp <singleDb> hits <compositeDb> 4"
+```
+
+| task | arguments | switches |
+|---|---|---|
+| `clickBenchParallelLoadProbe` | `<dbDir> <totalRows> <partitions> [maxConcurrency]` | arm selection: `probe.bulk` (bulk assembler instead of the Gson cursor), `probe.parallelImport` (chunked coordinator/worker pipeline); corpus: `probe.file` (single partition only), `probe.ndjson` + `probe.rowLimit`, or `probe.writeFile` to emit the generated rows and exit; post-pass per-partition projection: `probe.projection`, `probe.projectionParallel`. Resource shape: `storageType`, `versioningType`, `buildPathSummary`, `sirix.autoCommit.nodes`, `sirix.offheap.bytes`, `clickbench.seed` |
+| `clickBenchProjectionCost` | `<corpus.json> <workDir> [reps]` | `cost.expectedRows` (the expected-row-count hint both projection arms build with; default `-1`, unknown); the published arms also set `sirix.projection.globalDict=never` |
+| `clickBenchPrimitiveIndexCost` | `<corpus.json> <workDir> [reps]` | none |
+| `clickBenchCompositeDifferential` | `<location> <singleDb> <singleResource> <compositeDb> <partitions> [--timings-only\|--union]` | `sirix.offheap.bytes` (default 6 GiB — the arena and the comparison heap share the box) |
+
+Both databases the differential opens must hold the *same* rows, so generate them from one seed —
+`generate:<rows>:<seed>` through `clickBenchLoad`, `-Dclickbench.seed` through the probe, whose
+partition slices are byte-identical disjoint ranges of the single-resource corpus. `--union` swaps
+the composite arm for the original query text over the partitioned database's logical union
+resource.
 
 ## The JSON encoding
 
