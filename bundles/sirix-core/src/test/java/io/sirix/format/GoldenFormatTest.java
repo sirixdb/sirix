@@ -13,9 +13,11 @@ import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
+import io.sirix.index.path.summary.PathStats;
 import io.sirix.node.RevisionReferencesNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.page.PageKind;
@@ -199,6 +201,52 @@ public final class GoldenFormatTest {
     }
     assertEquals(GOLDEN_PAGE_KIND_IDS, joiner.toString());
   }
+
+  private static final String GOLDEN_PATH_STATS_RECORD =
+      "05000000000000000200000000000000feffffffffffffff0000000000000000"
+          + "fdffffffffffffff4d00000000000000ffffffffffffffffffffffff0100000000000000e03f000100ffffffff";
+
+  @Test
+  public void pathStatsRecordBytesArePinned() {
+    // The PathStats trailer of a NodeKind.PATH record: an owned byte contract carrying NO version
+    // discriminator, by decision — while SirixDB has no released consumers the layout is changed in
+    // place rather than accreting per-record version machinery. This pin is therefore the only thing
+    // that makes such a change deliberate instead of accidental.
+    // docs/DISK_FORMAT.md §2 "PathStats trailer" documents the layout this pins.
+    final PathStats stats = new PathStats();
+    stats.count = 5;
+    stats.nullCount = 2;
+    stats.sum = -2L; // low half of 2 * Long.MAX_VALUE ...
+    stats.sumHi = 0L; // ... whose high half proves it does NOT fit a long
+    stats.min = -3;
+    stats.max = 77;
+    stats.minDirty = true;
+    stats.sumFraction = 0.5d;
+    stats.doubleTyped = true;
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    stats.writeTo(sink);
+    assertGolden("path-stats-record", GOLDEN_PATH_STATS_RECORD, hex(sink));
+  }
+
+  @Test
+  public void pathStatsRoundTripsItsWideAccumulator() {
+    final PathStats stats = new PathStats();
+    stats.count = 3;
+    stats.sum = -2L;
+    stats.sumHi = 0L;
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    stats.writeTo(sink);
+    final PathStats restored = PathStats.readFrom(sink.asBytesIn());
+    assertEquals(3L, restored.count);
+    assertEquals(-2L, restored.sum);
+    assertEquals(0L, restored.sumHi);
+    assertEquals("2 * Long.MAX_VALUE must survive a round trip as unrepresentable", false, restored.sumFitsLong());
+  }
+
+  // Deliberately absent: a legacy-migration case and a newer-version-refusal case. The PathStats
+  // record carries no version discriminator (see docs/DISK_FORMAT.md §2), so there is no migration
+  // to exercise and no future marker to refuse. Tests for machinery that does not exist would pass
+  // by construction and imply a compatibility guarantee this format does not make.
 
   @Test
   public void emittedVersionIdentityIsPinnedToZero() {

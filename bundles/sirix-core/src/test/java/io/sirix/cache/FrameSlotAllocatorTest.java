@@ -645,4 +645,20 @@ class FrameSlotAllocatorTest {
     assertEquals(slotSize, allocator.getPhysicalMemoryBytes());
   }
 
+  @Test
+  void slabCommitmentCannotStarveTheOversizedHeadroom() {
+    final long budget = 256L * 1024 * 1024;
+    final long headroom = allocator.oversizedHeadroomBytes();
+    assertEquals(budget / 16, headroom, "default headroom is 1/16th of the budget");
+    // Drive the slab arm to its cap: slab commitments are permanent until shutdown, so they must
+    // refuse beyond budget − headroom…
+    assertTrue(allocator.reserveSlabCommittedBytes(budget - headroom));
+    assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
+    // …while the oversized arm still admits inside the headroom — the retry that could never say
+    // yes after a slab peak now can.
+    assertTrue(allocator.reserveCommittedBytes(headroom),
+        "an oversized reservation must succeed inside the headroom at slab peak");
+    assertFalse(allocator.reserveCommittedBytes(1), "the full budget is then exhausted");
+  }
+
 }

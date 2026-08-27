@@ -145,6 +145,15 @@ public interface StructNode extends Node {
   void incrementChildCount();
 
   /**
+   * Sets the child count directly — the batched form bulk loaders use at container close: one write
+   * instead of {@code count} read-modify-write increments (each of which can trigger a varint-width
+   * resize on encoded records).
+   *
+   * @param childCount the exact child count
+   */
+  void setChildCount(long childCount);
+
+  /**
    * Decrementing the descendant count.
    */
   void decrementDescendantCount();

@@ -15,6 +15,7 @@ import io.sirix.api.ResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.utils.LogWrapper;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
@@ -25,6 +26,7 @@ import java.util.concurrent.RecursiveAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -142,7 +144,14 @@ public final class ProjectionIndexCatalog {
                     // insert, so a lazily-growing handle must be accounted at what it can grow to.
                     long bytes = 64;
                     if (handle.columnStoreOrNull() != null) {
-                      bytes += handle.projectedWeightBytes();
+                      // A handle over the eager budget never materializes those leaves: it serves
+                      // through bounded windows, so its RESIDENT bytes are the window cap plus what
+                      // its store retains in filled columns — and the store's CUMULATIVE retained-
+                      // fill budget caps that sum at eagerMaterializeBytes, which is what makes this
+                      // flat charge an upper bound rather than a hope. Charging the whole-leaf
+                      // projection instead put a 10 GB handle over this cache's own maximumWeight,
+                      // so Caffeine evicted it on insert and every lookup re-decoded a fresh one.
+                      bytes += windowedResidentWeightBytes(handle.projectedWeightBytes());
                     } else {
                       // Eager handle: leaves are pre-materialized, so no materializer is needed.
                       for (final byte[] payload : handle.rowGroupPayloads(null)) {
@@ -655,19 +664,11 @@ public final class ProjectionIndexCatalog {
     for (int i = 0; i < columnSegmentCount; i++) {
       bytes += RowGroupDescriptor.entryByteLen(descriptor, i);
     }
-    final int rows = RowGroupDescriptor.rowCount(descriptor);
-    final long presenceBytes = ((rows + 63L) >>> 6) << 3;
     final int columnCount = RowGroupDescriptor.columnCount(descriptor);
     for (int c = 0; c < columnCount; c++) {
-      final byte kind = RowGroupDescriptor.kind(descriptor, c);
-      // A LAYOUT question — how many bytes does a decoded slice occupy — so it asks the layout
-      // predicate. A global string column decodes to the same eight bytes per row as any other long
-      // lane, and counting it as weightless would let the cache hold more than it accounted for.
-      if (ProjectionIndexRowGroupPage.isLongLaneKind(kind)) {
-        bytes += ((long) rows << 3) + presenceBytes;
-      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
-        bytes += presenceBytes << 1;
-      }
+      // The SAME arithmetic the store's fill doors price against, so the weight that admits a
+      // handle and the budget that declines its fills cannot disagree about what a column costs.
+      bytes += ProjectionColumnStore.decodedColumnResidentBytes(descriptor, c, RowGroupDescriptor.kind(descriptor, c));
     }
     return bytes;
   }
@@ -729,13 +730,101 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
+   * Byte budget above which a whole-leaf consumer is served by a WINDOWED payload view instead of an
+   * eager whole-column materialization.
+   *
+   * <p>
+   * Derived, not invented: an eager {@code List<byte[]>} of every leaf lives inside the {@link #DATA}
+   * cache's byte budget ({@code sirix.projection.cacheBytes}) — an entry heavier than half that
+   * budget is guaranteed cache-thrash — and it must also fit the heap beside the off-heap arena, so a
+   * quarter of {@code Runtime.maxMemory()} bounds it from the other side. At 100M rows a fat-string
+   * projection's leaves total ~8-10 GB; the first whole-leaf consumer (string LIKE, distinct over
+   * strings) OOMed the materializer inside the catalog load. The projected weight compared against
+   * this is the handle's worst-case RESIDENT bytes — the same conservative figure the cache weigher
+   * uses — so the route flips to windowed strictly BEFORE the eager list could have fit.
+   */
+  private static final long EAGER_MATERIALIZE_BYTES_DEFAULT = Long.getLong("sirix.projection.eagerMaterializeBytes",
+      Math.min(CACHE_BYTES / 2, Runtime.getRuntime().maxMemory() / 4));
+
+  private static volatile long eagerMaterializeBytes = EAGER_MATERIALIZE_BYTES_DEFAULT;
+
+  /** Logical row groups per materialized window — ~12 MB of ClickBench-shaped leaves. */
+  private static final int WINDOW_LEAVES_DEFAULT = 128;
+
+  private static volatile int windowLeaves = WINDOW_LEAVES_DEFAULT;
+
+  /**
+   * Test seam: shrink the window so a handful of leaves still spans several windows.
+   *
+   * @param value logical row groups per window
+   * @return the previous value, for restoring in a finally block
+   */
+  public static int setWindowLeavesForTesting(final int value) {
+    final int previous = windowLeaves;
+    windowLeaves = Math.max(1, value);
+    return previous;
+  }
+
+  /**
+   * Test seam: shrink the eager budget so a small store still exercises the windowed route.
+   *
+   * @param value the budget in bytes
+   * @return the previous budget, for restoring in a finally block
+   */
+  public static long setEagerMaterializeBytesForTesting(final long value) {
+    final long previous = eagerMaterializeBytes;
+    eagerMaterializeBytes = value;
+    return previous;
+  }
+
+  /**
    * Whole-leaf materializer bound to one session+revision — built by a CALLER from its OWN live
    * session and threaded into {@link ProjectionIndexRegistry.Handle#rowGroupPayloads} on demand; the
-   * handle never stores it.
+   * handle never stores it. Always eager; callers that know the handle's projected weight use the
+   * budget-aware overload.
    */
   public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
       final int defId, final int rowGroupCount) {
+    return rowGroupMaterializer(session, revision, defId, rowGroupCount, 0L);
+  }
+
+  /**
+   * As above, choosing the route by projected size: under the eager budget the whole column family
+   * materializes once and serves every later query from bytes; above it the supplier returns a
+   * {@link ProjectionWindowedRowGroupPayloads} view that materializes bounded leaf windows on demand
+   * — the {@code List} contract every byte-scan kernel already programs against, without the
+   * whole-column residency that OOMed fat string columns at 100M.
+   *
+   * @param projectedWeightBytes the handle's worst-case resident bytes
+   *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()}), or {@code 0} to force the
+   *        eager route
+   */
+  public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
+      final int defId, final int rowGroupCount, final long projectedWeightBytes) {
+    Objects.requireNonNull(session, "session");
+    if (servesWindowedPayloads(projectedWeightBytes)) {
+      // The windowed arm hands the handle BOTH the build and this caller's reader source, so a view
+      // the handle already memoized is rebound to this live session instead of rebuilt.
+      return new ProjectionWindowedRowGroupPayloads.BoundMaterializer() {
+        @Override
+        public List<byte[]> get() {
+          // The BUILD yields the shared cache; what leaves this method is always a thin view over
+          // it carrying THIS caller's source, so no shared object ever holds one.
+          return windowedRowGroupPayloads(session, revision, defId, rowGroupCount, projectedWeightBytes).boundTo(
+              readerSource());
+        }
+
+        @Override
+        public ProjectionWindowedRowGroupPayloads.ReaderSource readerSource() {
+          return () -> session.beginNodeReadOnlyTrx(revision);
+        }
+      };
+    }
     return () -> {
+      if (projectedWeightBytes > 0) {
+        // A LAZY handle materialized eagerly because it fit — the banner's third counter.
+        ChunkedBodyConfig.recordEagerColumnMaterialization();
+      }
       final List<byte[]> persisted = materializeRowGroups(session, revision, defId, rowGroupCount);
       if (persisted.size() < rowGroupCount) {
         throw new IllegalStateException("Projection definition #" + defId + " truncated during " + "materialization: "
@@ -745,6 +834,87 @@ public final class ProjectionIndexCatalog {
           ? persisted
           : new ArrayList<>(persisted.subList(0, rowGroupCount));
     };
+  }
+
+  /**
+   * Whether a handle of this projected weight is served by the WINDOWED payload view rather than by
+   * whole-column eager materialization.
+   *
+   * @param projectedWeightBytes the handle's worst-case resident bytes
+   *        ({@link ProjectionIndexRegistry.Handle#projectedWeightBytes()})
+   * @return {@code true} when the windowed route serves this weight
+   */
+  public static boolean servesWindowedPayloads(final long projectedWeightBytes) {
+    return projectedWeightBytes > eagerMaterializeBytes;
+  }
+
+  /**
+   * RESIDENT bytes a handle of this projected weight can hold — the figure the {@link #DATA} weigher
+   * charges. Under the eager budget that is the projection itself; over it the leaves are never
+   * materialized, so it is the budget that bounds the window cap and each column fill.
+   *
+   * @param projectedWeightBytes the handle's whole-leaf projection
+   * @return the resident bytes to charge
+   */
+  static long windowedResidentWeightBytes(final long projectedWeightBytes) {
+    final long resident = servesWindowedPayloads(projectedWeightBytes)
+        // The window cap is a quarter of the budget and the store's cumulative retained fills are
+        // capped at the budget; charge both so the figure bounds what the handle can actually hold.
+        ? eagerMaterializeBytes + (eagerMaterializeBytes >> 2)
+        // An under-budget handle materializes its leaves, so the projection IS its residency.
+        : projectedWeightBytes;
+    // Clamp ONCE, after the branch — EITHER branch can exceed what this cache admits, and the
+    // windowed one is the likelier: eagerMaterializeBytes is settable, so 1.25x it can pass
+    // maximumWeight while the eager branch is bounded by that same budget. A charge above the
+    // ceiling self-evicts the entry on insert and makes every lookup re-decode a fresh handle,
+    // which is the failure this figure exists to prevent.
+    return Math.max(1L, Math.min(resident, Math.max(1L, CACHE_BYTES >> 1)));
+  }
+
+  /**
+   * Build the windowed payload view: one physical-order read up front, one fetch per window after.
+   */
+  private static ProjectionWindowedRowGroupPayloads windowedRowGroupPayloads(final ResourceSession<?, ?> session,
+      final int revision, final int defId, final int rowGroupCount, final long projectedWeightBytes) {
+    ChunkedBodyConfig.recordWindowedColumnEngagement();
+    final int windowSize = windowLeaves;
+    final int[] physicalOrder;
+    try (NodeReadOnlyTrx orderRtx = session.beginNodeReadOnlyTrx(revision)) {
+      physicalOrder = ProjectionIndexFences.readPhysicalOrder(orderRtx.getStorageEngineReader(), defId, rowGroupCount);
+    }
+    // Resident cap from the SAME budget that declined the eager route: a quarter of it in windows,
+    // sized by the projected per-leaf weight (conservative — includes decode expansion, so the cap
+    // errs toward fewer resident windows), and never below the machine's worker count so a parallel
+    // shard sweep does not thrash at its shard boundaries.
+    final long projectedWindowBytes = Math.max(1L, projectedWeightBytes / Math.max(1, rowGroupCount)) * windowSize;
+    final int residentCap = (int) Math.min(Integer.MAX_VALUE,
+        Math.max(Runtime.getRuntime().availableProcessors(), (eagerMaterializeBytes / 4) / projectedWindowBytes));
+    if (DIAG) {
+      System.err.println("[cat] windowed payloads: defId=" + defId + " rowGroups=" + rowGroupCount + " projected="
+          + (projectedWeightBytes >> 20) + "MB windowLeaves=" + windowSize + " residentCap=" + residentCap);
+    }
+    // The fetcher captures the physical order and the definition id — both inert — and NOTHING
+    // session-scoped: its transaction comes from the source the consult site binds.
+    return new ProjectionWindowedRowGroupPayloads(rowGroupCount, windowSize, residentCap,
+        (source, from, toExclusive) -> {
+          final byte[][] window = new byte[toExclusive - from][];
+          // A transaction PER WINDOW: concurrent read transactions are supported, one is not
+          // thread-safe, and parallel kernels touch disjoint windows concurrently.
+          try (NodeReadOnlyTrx windowRtx = source.openReader()) {
+            final StorageEngineReader reader = windowRtx.getStorageEngineReader();
+            for (int logical = from; logical < toExclusive; logical++) {
+              final byte[] payload =
+                  ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, defId, physicalOrder[logical]);
+              if (payload == null) {
+                throw new IllegalStateException("Projection definition #" + defId + " truncated during windowed "
+                    + "materialization: logical row group " + logical + " (physical slot " + physicalOrder[logical]
+                    + ") has no payload");
+              }
+              window[logical - from] = payload;
+            }
+          }
+          return window;
+        });
   }
 
   /** Above this many row groups the slot walk partitions across per-thread readers. */

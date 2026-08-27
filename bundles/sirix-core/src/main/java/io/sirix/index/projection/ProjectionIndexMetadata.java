@@ -57,6 +57,97 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
+   * Flags bits 1-3: WHY the projection went stale, as a {@link StaleReason} ordinal.
+   *
+   * <p>
+   * Additive on purpose — the bits were previously always zero, so a tombstone written before this
+   * existed parses as {@link StaleReason#UNSPECIFIED} and nothing about the wire form changes. No
+   * version bump: readers that only test {@link #FLAG_STALE} are unaffected by bits they ignore.
+   * </p>
+   *
+   * <p>
+   * It exists because "stale" and "corrupt" are different claims and the difference was being lost. A
+   * projection the writer deliberately retired because it cannot maintain a resource-wide dictionary
+   * is a DECISION, and the component that made it is the only one that can explain it; every
+   * downstream decline should be able to quote that reason rather than invent one. See the
+   * kind-inconsistency class recorded in tasks #45 and #50.
+   * </p>
+   */
+  private static final byte STALE_REASON_MASK = 0x0E;
+
+  private static final int STALE_REASON_SHIFT = 1;
+
+  /**
+   * Why a projection was tombstoned. Ordinals are WIRE VALUES in bits 1-3 of the flags byte: append
+   * only, never renumber, and at most eight will ever fit.
+   */
+  public enum StaleReason {
+    /** No reason recorded — a tombstone written before reasons existed, or a caller that had none. */
+    UNSPECIFIED,
+    /**
+     * The indexed record set changed and the projection has resource-wide value dictionaries, which
+     * commit-time maintenance cannot extend: it holds no dictionary writer, so it can neither mint an
+     * id for a new value nor rewrite every leaf to a per-leaf encoding without paying O(corpus) on a
+     * single commit. Refusing keeps the store CONSISTENT; {@code jn:create-projection-index} rebuilds
+     * it.
+     */
+    GLOBAL_DICTIONARY_NOT_MAINTAINABLE,
+    /** Both the incremental patch and the full rebuild failed — the corruption valve. */
+    MAINTENANCE_FAILED,
+    /** Leaf descriptors disagreed with this metadata about a column's encoding. */
+    KIND_INCONSISTENT_STORE,
+    /**
+     * A resource-wide dictionary hit its byte budget mid-build, so the load abandoned the projection
+     * rather than the collector abandoning the load. Distinct from
+     * {@link #GLOBAL_DICTIONARY_NOT_MAINTAINABLE}: nothing is wrong with the store's shape, the
+     * projection simply never finished. Raising the budget or supplying a row-count hint avoids it.
+     */
+    GLOBAL_DICTIONARY_BUDGET_EXCEEDED,
+    /**
+     * NOT PRODUCED BY ANYTHING YET — reserved for task #52.
+     *
+     * <p>
+     * A projection that needs a full rebuild but must not pay for it inside the committing transaction.
+     * Today a refused incremental patch calls {@code rebuildFully()} on the commit thread,
+     * re-extracting every record of the resource: unbounded by corpus size, reached from its refusal
+     * sites, and on a large resource a multi-minute commit. The fix is to record the need HERE, let the
+     * commit finish, and rebuild on request or in the background.
+     * </p>
+     *
+     * <p>
+     * Declared now so #52 need not change this wire format later — it is one of the eight values the
+     * flag bits can carry, and adding it costs nothing while renumbering would cost a migration. It
+     * differs semantically from every value above: those mean "retired until someone acts", this one
+     * means "still wanted, known incomplete".
+     * </p>
+     */
+    REBUILD_PENDING;
+
+    /**
+     * The remedy for this state, in the form someone can actually run.
+     *
+     * <p>
+     * Not "rebuild required" — a reason that does not name its own fix makes the operator rediscover
+     * what the writer already knew. Downstream declines should quote this verbatim rather than
+     * paraphrase it.
+     * </p>
+     */
+    public String remedy() {
+      return switch (this) {
+        case GLOBAL_DICTIONARY_BUDGET_EXCEEDED ->
+          "Either give the loader an expected-row-count hint, so the election declines the oversized"
+              + " column up front and the rest of the projection still builds, or raise"
+              + " -Dsirix.projection.globalDict.budgetBytes; then rebuild with"
+              + " jn:create-projection-index($doc, '<root-path>', '<fields>').";
+        default -> "Rebuild the projection with jn:create-projection-index($doc, '<root-path>', '<fields>')"
+            + " — the same call that created it; it re-elects encodings from the current data.";
+      };
+    }
+  }
+
+  private static final StaleReason[] STALE_REASONS = StaleReason.values();
+
+  /**
    * Wire-format version. Version zero stores set-summary capabilities separately from bounded chunks.
    * Unknown versions are declined rather than interpreted with shifted fields.
    */
@@ -188,7 +279,32 @@ public final class ProjectionIndexMetadata {
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE, null, null);
+    return staleTombstone(StaleReason.UNSPECIFIED);
+  }
+
+  /**
+   * Stale marker carrying WHY, so a later decline can quote the writer instead of guessing.
+   *
+   * @param reason why the projection is being retired; never {@code null}
+   */
+  public static ProjectionIndexMetadata staleTombstone(final StaleReason reason) {
+    Objects.requireNonNull(reason, "reason");
+    final byte flags = (byte) (FLAG_STALE | (reason.ordinal() << STALE_REASON_SHIFT));
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null);
+  }
+
+  /**
+   * Why this projection was tombstoned, or {@link StaleReason#UNSPECIFIED} when it is not stale at
+   * all — callers should test {@link #isStale()} first; a reason without staleness means nothing.
+   */
+  public StaleReason staleReason() {
+    final int ordinal = (flags & STALE_REASON_MASK) >> STALE_REASON_SHIFT;
+    // A blob written by a newer build could name a reason this one has never heard of. That is not
+    // a corrupt payload and must not be treated as one: the projection is still stale, which is the
+    // only part the reader acts on.
+    return ordinal < STALE_REASONS.length
+        ? STALE_REASONS[ordinal]
+        : StaleReason.UNSPECIFIED;
   }
 
 
@@ -251,6 +367,27 @@ public final class ProjectionIndexMetadata {
 
   public byte[] columnKinds() {
     return columnKinds.clone();
+  }
+
+  /**
+   * Whether any column is encoded against a resource-wide value dictionary.
+   *
+   * <p>
+   * The question commit-time maintenance has to ask before it touches a leaf. Such a column's rows
+   * hold DICTIONARY IDS, and the id space is owned by a writer that exists only during a build — so
+   * an incremental patcher can neither mint an id for a value the dictionary has never seen nor
+   * re-encode the column without rewriting every leaf. It reads this metadata's OWN kinds rather than
+   * a leaf's, deliberately: the metadata is the authority on the store's shape and a leaf descriptor
+   * is a falsifiable sample of it, which is the whole lesson of task #45.
+   * </p>
+   */
+  public boolean hasGlobalDictionaryColumn() {
+    for (final byte kind : columnKinds) {
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

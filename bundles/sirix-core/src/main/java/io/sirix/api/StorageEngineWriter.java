@@ -135,6 +135,46 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
+   * Adds {@code delta} occurrences to an EXISTING interned name's count in one record touch — the
+   * batched sibling of the per-occurrence counting in {@code createNameKey}; the parallel bulk
+   * importer applies per-chunk occurrence deltas through it before any flush epoch can rotate.
+   *
+   * @param key the interned name key
+   * @param delta additional occurrences; must be positive
+   * @param nodeKind the kind selecting the dictionary
+   */
+  default void addNameCount(int key, int delta, NodeKind nodeKind) {
+    throw new UnsupportedOperationException("batched name counting is not supported by this writer");
+  }
+
+  /**
+   * Adopts an externally BUILT document leaf page into this writer's transaction intent log — the
+   * parallel bulk importer's installation seam. The page must cover unwritten territory: its record
+   * page key must resolve to a reference with no persisted predecessor and no log entry. The adopted
+   * page becomes the container's MODIFIED half (an empty complete twin is created), mirroring exactly
+   * what the ordinary fresh-page path produces, so read-back, async flush and commit treat it like
+   * any other freshly written page.
+   *
+   * @param page a fully built page for a contiguous pre-reserved key range
+   */
+  default void adoptDocumentLeafPage(KeyValueLeafPage page) {
+    throw new UnsupportedOperationException("bulk page adoption is not supported by this writer");
+  }
+
+  /**
+   * Resolves the LIVE (CoW-checked) modified half of a document leaf page for direct record blitting
+   * — the parallel bulk importer's stitch seam for pages that are already in the intent log (the
+   * page-0 prologue and chunk-boundary pages). Goes through the ordinary prepare-record-page
+   * machinery, so a frozen-snapshot instance is deep-copied first and caches stay coherent.
+   *
+   * @param recordPageKey the document record page key
+   * @return the modified page, safe for direct writes on the writer thread
+   */
+  default KeyValueLeafPage prepareDocumentLeafForBlit(long recordPageKey) {
+    throw new UnsupportedOperationException("bulk page blitting is not supported by this writer");
+  }
+
+  /**
    * Remove an entry from the storage.
    *
    * @param key entry key from entry to be removed

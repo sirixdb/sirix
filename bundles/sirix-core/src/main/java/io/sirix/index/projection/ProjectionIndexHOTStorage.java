@@ -11,6 +11,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
+import io.sirix.index.hot.HOTBulkSlotLoader;
 import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -23,6 +24,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import org.jspecify.annotations.Nullable;
@@ -117,6 +119,40 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /** Whether fresh side refs may enter the bounded pre-publication append pipeline. */
   private final boolean stageFreshSidePages;
 
+  /**
+   * Entry-count cap for bulk slot accumulation ({@code docs/HOT_BULK_BUILD.md} §2: at 8 M entries the
+   * transient footprint — arena plus the not-yet-spill-eligible built pages — stays ≈1.6 GB).
+   */
+  private static final int BULK_SLOT_MAX_ENTRIES = 8_000_000;
+
+  /** Arena-byte cap for bulk slot accumulation (payload bytes). */
+  private static final long BULK_SLOT_MAX_ARENA_BYTES = 512L << 20;
+
+  /**
+   * Active bulk slot accumulator, or {@code null} on the ordinary per-entry path. Engaged only on a
+   * VIRGIN tree ({@link #beginBulkSlotAccumulation}); while active, every slot write funnels into it
+   * and point reads of accumulated keys are served from it (read-through), so the accumulator and the
+   * empty tree partition the key space. See {@link HOTBulkSlotLoader}.
+   */
+  private @Nullable HOTBulkSlotLoader bulkSlotLoader;
+
+  /** Witness counter: DISTINCT entries materialized by bulk splices on this storage (tests). */
+  private int bulkSplicedEntryCount;
+
+  /** Side-page payload byte budget for deferred attaches during bulk slot accumulation. */
+  private static final long BULK_SIDE_PENDING_MAX_BYTES = 512L << 20;
+
+  /**
+   * Deferred side-page attaches while bulk slot accumulation is active, keyed by side-map refKey
+   * ({@code (ownerSlotKey << 16) | columnSegmentId}), insertion-ordered, last-writer-wins. Payload
+   * arrays are RETAINED, not copied — the exact ownership contract of the immediate
+   * {@code new OverflowPage(bytes)} attach they stand in for.
+   */
+  private final Long2ObjectLinkedOpenHashMap<byte[]> pendingSideAttaches = new Long2ObjectLinkedOpenHashMap<>();
+
+  /** Total payload bytes retained in {@link #pendingSideAttaches}. */
+  private long pendingSideBytes;
+
   public ProjectionIndexHOTStorage(final StorageEngineWriter storageEngineWriter, final int indexNumber) {
     this(storageEngineWriter, indexNumber, false);
   }
@@ -198,9 +234,119 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /** Discard this definition's sub-tree and start a fresh empty one. */
   public void resetTree() {
+    final HOTBulkSlotLoader loader = bulkSlotLoader;
+    if (loader != null) {
+      // The tree restarts; accumulated state belongs to the discarded incarnation.
+      bulkSlotLoader = null;
+      loader.clear();
+      pendingSideAttaches.clear();
+      pendingSideBytes = 0;
+    }
     final ProjectionIndexPage projPage = prepareWritableProjectionIndexPage();
     projPage.resetProjectionIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
     rootReference = projPage.getOrCreateReference(indexNumber);
+  }
+
+  /**
+   * Engage bulk slot accumulation for a FRESH build: subsequent slot writes are collected in a
+   * {@link HOTBulkSlotLoader} and materialized in ONE canonical {@code HOTBulkBuilder} pass (9–14×
+   * the per-entry path at 1 M–10 M slots — {@code docs/HOT_BULK_BUILD.md} §2) instead of paying a
+   * descent per slot. A no-op unless the tree is VIRGIN — that is the positive witness the
+   * read-through contract rests on: while accumulating, a key is either in the loader or it was never
+   * written, so point reads serve accumulated keys from the loader and everything else from the
+   * (empty) tree.
+   *
+   * <p>
+   * Self-defending behavior keeps every other contract intact: a capacity trip
+   * ({@link HOTBulkSlotLoader#tryAdd} refusing) splices the accumulated prefix — the tree is still
+   * virgin at that moment, so the splice is legal — and falls back to the per-entry path; side-page
+   * attaches against accumulated owner slots ({@link #putSegmentPage}) are DEFERRED (payloads
+   * retained under the side budget, served read-through, attached through the production path right
+   * after the splice); {@link #resetTree} discards the accumulator.
+   * </p>
+   */
+  public void beginBulkSlotAccumulation() {
+    if (bulkSlotLoader != null || !isEmptyTree()) {
+      return;
+    }
+    bulkSlotLoader = new HOTBulkSlotLoader(BULK_SLOT_MAX_ENTRIES, BULK_SLOT_MAX_ARENA_BYTES);
+  }
+
+  /**
+   * Materialize everything accumulated since {@link #beginBulkSlotAccumulation} as this index's tree
+   * (production {@code spliceBulkBuiltRoot}: empty-tree guard, canonical build, fresh-subtree TIL
+   * registration) and leave accumulation mode. A no-op when accumulation is not active; safe in
+   * {@code finally} blocks — on a failed build it persists exactly the prefix the per-entry path
+   * would have persisted.
+   */
+  public void finalizeBulkSlotAccumulation() {
+    final HOTBulkSlotLoader loader = bulkSlotLoader;
+    if (loader == null) {
+      return;
+    }
+    bulkSlotLoader = null;
+    bulkSplicedEntryCount += loader.spliceInto(this);
+    attachPendingSidePages();
+  }
+
+  /**
+   * Attach every deferred side page against the freshly spliced leaves, through the production
+   * {@link #putSegmentPage} path (owner-residency check, replace semantics, append-pipeline staging).
+   * Runs with the loader already disabled, so the attaches hit real pages.
+   */
+  private void attachPendingSidePages() {
+    if (pendingSideAttaches.isEmpty()) {
+      pendingSideBytes = 0;
+      return;
+    }
+    final long[] refKeys = pendingSideAttaches.keySet().toLongArray();
+    for (final long refKey : refKeys) {
+      final byte[] payload = pendingSideAttaches.get(refKey);
+      putSegmentPage(HOTLeafPage.overflowPageRefOwnerSlot(refKey), (int) (refKey & 0xFFFFL), payload);
+    }
+    pendingSideAttaches.clear();
+    pendingSideBytes = 0;
+  }
+
+  /**
+   * Move an active bulk-slot accumulation from {@code source} onto this storage — the epoch-rebind
+   * transplant. A post-pass build rides the writer's async-flush epochs
+   * ({@code ProjectionIndexBuilder.BulkBuildEpoch#rebind} constructs a fresh storage per epoch); the
+   * accumulator holds only un-materialized slot writes for the SAME still-virgin tree, so it is
+   * tree-state-independent and moves wholesale: loader, deferred side attaches (insertion order
+   * preserved — this map is empty on a freshly bound storage), byte accounting and the splice witness
+   * counter. A no-op when {@code source} is this storage or holds no accumulation.
+   *
+   * @throws IllegalStateException if BOTH storages accumulate — two accumulators over one tree would
+   *         fork the read-through truth
+   */
+  void adoptBulkSlotAccumulation(final ProjectionIndexHOTStorage source) {
+    if (source == this || source == null || source.bulkSlotLoader == null) {
+      return;
+    }
+    if (bulkSlotLoader != null) {
+      throw new IllegalStateException(
+          "cannot adopt a bulk slot accumulation into a storage that is already accumulating (indexNumber="
+              + indexNumber + ')');
+    }
+    bulkSlotLoader = source.bulkSlotLoader;
+    source.bulkSlotLoader = null;
+    pendingSideAttaches.putAll(source.pendingSideAttaches);
+    source.pendingSideAttaches.clear();
+    pendingSideBytes += source.pendingSideBytes;
+    source.pendingSideBytes = 0;
+    bulkSplicedEntryCount += source.bulkSplicedEntryCount;
+    source.bulkSplicedEntryCount = 0;
+  }
+
+  /** Whether bulk slot accumulation is currently active (test/diagnostic). */
+  boolean isBulkAccumulating() {
+    return bulkSlotLoader != null;
+  }
+
+  /** DISTINCT entries materialized by bulk splices on this storage so far (test/diagnostic). */
+  int bulkSplicedEntryCount() {
+    return bulkSplicedEntryCount;
   }
 
   /**
@@ -3377,6 +3523,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /** Writer-side raw slot read: {@code null} when the leaf/slot is absent. */
   private byte @Nullable [] readSlotValueForWrite(final long slotKey) {
+    final HOTBulkSlotLoader loader = bulkSlotLoader;
+    if (loader != null) {
+      // Read-through: while accumulating on a virgin tree, a key is either in the loader or it
+      // was never written, so an accumulated payload is authoritative (zero-length = tombstoned,
+      // exactly what this method returns for one) and a miss falls through to the empty tree.
+      final byte[] accumulated = loader.lastPayload(slotKey);
+      if (accumulated != null) {
+        return accumulated;
+      }
+    }
     final byte[] keyBuf = KEY_BUFFER.get();
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
     final HOTLeafPage leaf = getLeafForRead(keyBuf);
@@ -3397,6 +3553,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   void writeSlotValue(final long slotKey, final byte[] value) {
     if (rootReference == null) {
       throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
+    }
+    final HOTBulkSlotLoader loader = bulkSlotLoader;
+    if (loader != null) {
+      if (loader.tryAdd(slotKey, value)) {
+        return;
+      }
+      // Capacity/contract trip: splice the accumulated prefix (the tree is still virgin — every
+      // write since begin was accumulated), then fall through to the per-entry path.
+      finalizeBulkSlotAccumulation();
     }
     final byte[] keyBuf = KEY_BUFFER.get();
     final int keyLen = PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
@@ -3457,6 +3622,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       throw new IllegalArgumentException("bytes must not be null");
     }
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
+    if (bulkSlotLoader != null) {
+      if (bulkSlotLoader.containsKey(ownerSlotKey) && pendingSideBytes + bytes.length <= BULK_SIDE_PENDING_MAX_BYTES) {
+        // The owning slot exists only in the accumulator, so a physical attach is impossible —
+        // and splicing here would forfeit the rest of the build's accumulation. Defer instead:
+        // retain the payload (the same ownership contract as the immediate OverflowPage attach)
+        // and run it through this very method right after the splice, against real leaves.
+        final byte[] replaced = pendingSideAttaches.put(refKey, bytes);
+        if (replaced != null) {
+          pendingSideBytes -= replaced.length;
+        }
+        pendingSideBytes += bytes.length;
+        return;
+      }
+      // Owner slot not accumulated (a pre-existing caller-order bug surfaces identically on the
+      // per-entry path below) or the side budget is exhausted: materialize the prefix and attach
+      // against real pages from here on.
+      finalizeBulkSlotAccumulation();
+    }
     final byte[] keyBuf = KEY_BUFFER.get();
     final int keyLen = PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
@@ -3499,6 +3682,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       throw new SirixIOException("Projection HOT index not initialised for indexNumber=" + indexNumber);
     }
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
+    if (bulkSlotLoader != null) {
+      final byte[] pending = pendingSideAttaches.remove(refKey);
+      if (pending != null) {
+        // A deferred attach removed before the splice was simply never attached.
+        pendingSideBytes -= pending.length;
+        return;
+      }
+    }
     final byte[] keyBuf = KEY_BUFFER.get();
     PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
     // Probe read-only first: an unconditional prepareLeafOfTree would CoW the leaf (and its
@@ -3553,6 +3744,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public byte @Nullable [] getSegmentPageBytes(final long ownerSlotKey, final int columnSegmentId) {
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
+    if (bulkSlotLoader != null) {
+      final byte[] pending = pendingSideAttaches.get(refKey);
+      if (pending != null) {
+        // Deferred-attach read-through — the same no-mutate contract as the shared backing store.
+        return pending;
+      }
+    }
     final byte[] keyBuf = KEY_BUFFER.get();
     PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
     final HOTLeafPage leaf = getLeafForRead(keyBuf);

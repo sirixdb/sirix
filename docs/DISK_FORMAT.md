@@ -9,7 +9,9 @@ change to any pinned structure fails CI. From here, ANY change to the bytes in t
 a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
 byte (PIXM/PIXC/PIX1, per-record versions) — accompanied by an update to the golden constants
-and a migration note here.
+and a migration note here. Nothing has been bumped under that rule yet: SirixDB has no released
+consumers, so structures still evolve IN PLACE and the golden pins alone make each change
+deliberate (see §2, "PathStats trailer").
 
 ## 1. Files
 
@@ -196,6 +198,21 @@ fail-fast lookups, never ordinals.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
   (`DeltaVarIntCodec`), varint revisions, fixed 8-byte rolling hash (elided page-wide when all
   zero), typed number payloads (Double/Float fixed, Int/Long zigzag varint).
+- **PathStats trailer** (`NodeKind.PATH`, present iff the resource has `withPathStatistics`):
+  `[i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min][i64 max]`
+  `[minBytes][maxBytes][hll][u8 minDirty][u8 maxDirty][f64 sumFraction][u8 sumDirty]`
+  `[u8 doubleTyped][u8 countDirty][pageKeys?]`, where each optional block is a length-prefixed
+  payload with `-1` meaning absent and the page-key trailer may be missing entirely.
+  `sumHi` is the high half of a 128-bit integral accumulator, so what is persisted depends on the
+  observed VALUES and not on how many flushes or chunks the load took.
+  **No per-record version discriminator, by decision.** This record is versioned by neither a
+  leading marker nor `BinaryEncodingVersion`: while SirixDB has no released consumers the layout is
+  changed IN PLACE — as it was when `sumHi` was inserted after `sum` — rather than accreting version
+  machinery and migration branches that nothing would ever exercise. The consequence is stated
+  plainly: a resource is readable only by builds sharing this layout, in either direction, with no
+  diagnostic. The golden byte pin in `GoldenFormatTest.pathStatsRecordBytesArePinned` is what keeps
+  a layout change deliberate. Add a discriminator when there is a released version to stay
+  compatible with, not before.
 
 The **lightweight-compression direction is already the design**: per-section/columnar encodings
 inside the page (templates, FOR+bit-packing, dictionaries, elision bitmaps, FSST) rather than a
@@ -348,6 +365,12 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                          int buildRevision; rootPath; columns[];
                                          setSummaryCapabilityColumns[]; dictionaryAnchors[] }
                                          (a few hundred B → inline; no metadata page on open).
+                                         flags: bit0 = STALE; bits1-3 = the StaleReason ordinal
+                                         (WIRE VALUES — append only, never renumber; an ordinal
+                                         this build does not know reads as UNSPECIFIED and the
+                                         entry stays stale). The reason bits are additive: they
+                                         were always zero before, so a tombstone written without
+                                         them parses identically and ver stays 0.
                                          ver=0 is the ONLY supported version: any other value
                                          parses to null → "no metadata" → fail-closed decline.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is

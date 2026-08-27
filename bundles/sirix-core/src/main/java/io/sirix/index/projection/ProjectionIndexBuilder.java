@@ -40,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongFunction;
 
@@ -115,6 +116,12 @@ public final class ProjectionIndexBuilder {
   private long lastNormalRecordKey = Long.MIN_VALUE;
   private @Nullable SirixDeweyID lastOrderLabel;
   private final @Nullable LongFunction<SirixDeweyID> orderLabelResolver;
+
+  /** Armed by the explicit build only; the walk toggles it around top-level record-set arrays. */
+  private @Nullable InOrderLabelLane inOrderLane;
+
+  /** The document root {@link #tryFastArrayIteration} started from; -1 outside a fast iteration. */
+  private long fastIterationDocRoot = -1;
 
   /**
    * The label source a WALKING build resolves against when the caller supplied none — a heap-backed
@@ -240,6 +247,22 @@ public final class ProjectionIndexBuilder {
   /** How many global columns the latest successful build to report its diagnostic produced. */
   public static int globalDictionaryColumnsBuilt() {
     return GLOBAL_DICTIONARY_COLUMNS.get();
+  }
+
+  /**
+   * Persistent-radix probes the latest reported build's dictionaries issued, same atomic-handoff
+   * semantics as {@link #globalDictionaryColumnsBuilt()}. Load-bearing witness for the intern-table
+   * retention contract: a bulk load that keeps its tables resident until {@code finish()} creates no
+   * generation mid-load, so its interns can never reach the persistent-probe branch and this must
+   * report {@code 0}. A non-zero value on a fresh bulk load means the uncached per-value radix-walk
+   * regime is back. (Loads into a resource that already carries a durable generation legitimately
+   * probe it; those report their real count.)
+   */
+  private static final AtomicLong PERSISTENT_DICTIONARY_PROBES = new AtomicLong();
+
+  /** Persistent-dictionary probes reported by the latest build's diagnostic handoff. */
+  public static long persistentDictionaryProbesReported() {
+    return PERSISTENT_DICTIONARY_PROBES.get();
   }
 
   /**
@@ -585,95 +608,215 @@ public final class ProjectionIndexBuilder {
 
   private static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final NodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter, final boolean emptyRecordSetAllowed) {
-    final ProjectionIndexHOTStorage storage =
-        ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+    // Bounded retention: without intermediate flushes every page this build creates stays pinned in
+    // the transaction intent log until the caller's single commit — at 100M ClickBench rows that is
+    // ~20 GB of live 64 KiB frames, more than the whole off-heap arena on a 32 GB machine. Riding
+    // the writer's ordinary async-flush epochs keeps the log at one epoch of pages instead. The
+    // rotations are safe even when the transaction holds uncommitted document records this build
+    // still has to read: a flushed page of the open revision resolves back from disk through the
+    // log's recorded offsets (verified by a 40k-record forced-flush build, checksum-exact), and
+    // nothing becomes a visible revision before the caller's commit — rollback still discards
+    // every flushed page, exactly as for bulk-import epochs.
+    final boolean intermediateFlushEnabled =
+        !"false".equals(System.getProperty("sirix.projection.buildIntermediateFlush"));
+    final BulkBuildEpoch epoch = new BulkBuildEpoch(storageEngineWriter, indexDef.getID());
     // Explicit creation/recreation owns this complete index sub-tree. Reset it before emitting V0
     // so stale row groups and sparse negative record locators from an earlier incarnation cannot
     // survive under the new metadata. Ordinary transaction maintenance never takes this path.
-    storage.resetTree();
-    final ProjectionStructuralOrderDirectory.Accessor structuralOrderDirectory =
-        ProjectionStructuralOrderDirectory.open(storage);
-    // No document-wide pre-pass: the directory mints a record's order label the first time this
-    // build asks for one, so it costs exactly one slot per emitted record and no second walk.
-    structuralOrderDirectory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-    final LongFunction<ImmutableNode> documentNodeLookup =
-        nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-    final LongFunction<SirixDeweyID> orderLabelResolver = recordKey -> structuralOrderDirectory.fullLabel(recordKey,
-        documentNodeLookup, ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
-    final int priorRowGroupCount = 0;
-    final ProjectionSetSummaryChunks.BuildAccumulator setSummaries = new ProjectionSetSummaryChunks.BuildAccumulator();
-    if (emptyRecordSetAllowed && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
-      final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
-      final byte[] columnKinds = new byte[fieldTypes.size()];
-      for (int i = 0; i < columnKinds.length; i++) {
-        columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i), indexDef.getProjectionFields().get(i));
-      }
-      try {
-        finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
-            rtx.getRevisionNumber(), columnKinds, setSummaries, null, null);
-        publishGlobalDictionaryColumnsBuilt(0);
-      } finally {
-        setSummaries.release();
-      }
-      return;
-    }
-    // Streaming build (descriptor layout): each leaf is written the moment the builder emits
-    // it — one leaf in memory at a time, matching this class's streaming contract instead of
-    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Retained derived
-    // state is bounded: at most one 32-leaf fence tail, one 256-leaf Bloom window per
-    // string column and only set-summary values that still fit their one persisted summary chunk.
-    final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
-    final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
-    final boolean hasSetColumn = hasStringSetColumn(indexDef);
-    final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
-        new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
-    final ProjectionRecordLocator.Accessor recordLocator = ProjectionRecordLocator.open(storage);
-    final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(indexDef, pathSummary, leaf -> {
-      if (leaf.getRowCount() == 0) {
-        throw new IllegalStateException("Projection leaf " + fenceWriter.rowGroupCount() + " is empty");
-      }
-      final int physicalSlot = fenceWriter.rowGroupCount() + 1;
-      // Accumulate the index-wide per-value ROW counts while the leaf is in hand. Summing the
-      // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
-      // already count rows rather than occurrences.
-      if (hasSetColumn) {
-        setSummaries.append(leaf);
-      }
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
-      storage.putRowGroupAsColumnSegmentSlots(physicalSlot, encoded);
-      fenceWriter.append(storage, leaf.firstRecordKey(), leaf.lastRecordKey());
-      persistOrderExceptionLocators(leaf, physicalSlot, recordLocator);
-      bloomChunks.append(encoded, physicalSlot, storage);
-    }, false, orderLabelResolver);
+    epoch.storage.resetTree();
+    // Fresh build on a virgin tree: accumulate every slot write and materialize the tree in one
+    // canonical bulk pass (docs/HOT_BULK_BUILD.md §2 — measured 9–14× the per-entry path
+    // for the order-label and column-segment shapes). Point reads during the build are served
+    // from the accumulator (read-through); side-page attaches are deferred under a byte budget;
+    // a capacity trip splices the prefix and falls back to per-entry. The accumulator lives
+    // OUTSIDE the transaction-intent log, so it also LOWERS mid-build live-entry retention —
+    // epoch rebinds transplant it (BulkBuildEpoch.rebind). The finally-splice persists exactly
+    // what the per-entry path would have persisted on a failure.
+    epoch.storage.beginBulkSlotAccumulation();
     try {
-      if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
-        builder.build(jsonRtx);
-      } else if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
-        builder.build(xmlRtx);
-      } else {
-        throw new IllegalArgumentException("projection build requires a JSON or XML node transaction");
+      // No document-wide pre-pass: the directory mints a record's order label the first time this
+      // build asks for one, so it costs exactly one slot per emitted record and no second walk.
+      epoch.orderDirectory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+      final LongFunction<ImmutableNode> documentNodeLookup =
+          nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      // In-order lane: while the walk iterates the members of a top-level record-set array, labels
+      // mint by the pure append algebra with ZERO document lookups. The general fullLabel path mints
+      // the FIRST record's label by labelling its ENTIRE maximal unlabelled sibling run — on a fresh
+      // 100M build that is a full-corpus sibling walk plus one slot write per record before the first
+      // row extracts, and none of it can flush because no leaf boundary has been reached yet. The
+      // lane is byte-equivalent for exactly this arrival order (the argument lives on
+      // fullLabelForInOrderAppend) and the carry survives epoch rebinds because the caller holds it.
+      final InOrderLabelLane inOrderLane = new InOrderLabelLane();
+      final LongFunction<SirixDeweyID> orderLabelResolver = recordKey -> {
+        if (inOrderLane.containerKey >= 0) {
+          final SirixDeweyID fullLabel = epoch.orderDirectory.fullLabelForInOrderAppend(recordKey,
+              inOrderLane.containerKey, Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), inOrderLane.previousLocal);
+          inOrderLane.previousLocal = epoch.orderDirectory.lastInOrderAppendedLocal();
+          return fullLabel;
+        }
+        return epoch.orderDirectory.fullLabel(recordKey, documentNodeLookup,
+            ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
+      };
+      final int priorRowGroupCount = 0;
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries =
+          new ProjectionSetSummaryChunks.BuildAccumulator();
+      if (emptyRecordSetAllowed && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+        final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
+        final byte[] columnKinds = new byte[fieldTypes.size()];
+        for (int i = 0; i < columnKinds.length; i++) {
+          columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i), indexDef.getProjectionFields().get(i));
+        }
+        try {
+          finishPersist(indexDef, epoch.storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
+              rtx.getRevisionNumber(), columnKinds, setSummaries, null, null);
+          publishGlobalDictionaryColumnsBuilt(0);
+        } finally {
+          setSummaries.release();
+        }
+        return;
       }
-      final byte[] columnKinds = builder.columnKinds();
-      bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
-      // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
-      // so nothing can be persisted about a dictionary until every id it will ever mint is known.
-      final long[] valueDictionaryHeaderKeys =
-          flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
-      fenceWriter.finish(storage, priorRowGroupCount);
-      finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), priorRowGroupCount,
-          rtx.getRevisionNumber(), columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
-      builder.publishGlobalDictionaryColumnsBuilt();
-    } finally {
+      // Streaming build (descriptor layout): each leaf is written the moment the builder emits
+      // it — one leaf in memory at a time, matching this class's streaming contract instead of
+      // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Retained derived
+      // state is bounded: at most one 32-leaf fence tail, one 256-leaf Bloom window per
+      // string column and only set-summary values that still fit their one persisted summary chunk.
+      final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
+      final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
+      final boolean hasSetColumn = hasStringSetColumn(indexDef);
+      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
+          new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
+      final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(indexDef, pathSummary, leaf -> {
+        if (leaf.getRowCount() == 0) {
+          throw new IllegalStateException("Projection leaf " + fenceWriter.rowGroupCount() + " is empty");
+        }
+        final int physicalSlot = fenceWriter.rowGroupCount() + 1;
+        // Accumulate the index-wide per-value ROW counts while the leaf is in hand. Summing the
+        // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
+        // already count rows rather than occurrences.
+        if (hasSetColumn) {
+          setSummaries.append(leaf);
+        }
+        final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+            ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
+        epoch.storage.putRowGroupAsColumnSegmentSlots(physicalSlot, encoded);
+        fenceWriter.append(epoch.storage, leaf.firstRecordKey(), leaf.lastRecordKey());
+        persistOrderExceptionLocators(leaf, physicalSlot, epoch.recordLocator);
+        bloomChunks.append(encoded, physicalSlot, epoch.storage);
+        // Rotate the async-flush epoch at the same log-entry bound the bulk import uses, then rebind
+        // every storage-facing accessor: a flush serializes and releases the pages behind them, so a
+        // handle cached across the boundary would touch freed frames. The heap-side writers (fences,
+        // Bloom window, set summaries, dictionaries) carry build state and take storage per call, so
+        // they cross epochs untouched — the same contract ProjectionBulkLoad established for the
+        // load-time rider.
+        if (intermediateFlushEnabled && storageEngineWriter.isAsyncFlushLogBoundaryReached()) {
+          storageEngineWriter.asyncFlush();
+          epoch.rebind(storageEngineWriter, indexDef.getID());
+        }
+      }, false, orderLabelResolver);
+      builder.inOrderLane = inOrderLane;
       try {
-        bloomChunks.release();
+        if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
+          builder.build(jsonRtx);
+        } else if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
+          builder.build(xmlRtx);
+        } else {
+          throw new IllegalArgumentException("projection build requires a JSON or XML node transaction");
+        }
+        final byte[] columnKinds = builder.columnKinds();
+        bloomChunks.finishChunks(epoch.storage, fenceWriter.rowGroupCount(), columnKinds);
+        // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
+        // so nothing can be persisted about a dictionary until every id it will ever mint is known.
+        final long[] valueDictionaryHeaderKeys =
+            flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
+        fenceWriter.finish(epoch.storage, priorRowGroupCount);
+        finishPersistWithStreamingFences(indexDef, epoch.storage, fenceWriter.rowGroupCount(), priorRowGroupCount,
+            rtx.getRevisionNumber(), columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+        builder.publishGlobalDictionaryColumnsBuilt();
+        // Materialize the accumulated tree now (idempotent — the outer finally is the exception
+        // backstop) and drain the splice burst through the same epoch rotations the in-loop
+        // boundary checks use. The burst lands AFTER the last leaf's boundary check, so without
+        // this the bounded-retention contract would measure the whole freshly spliced tree as
+        // live. Bounded: the pinned-trie spill drains bottom-up (leaves, then interiors whose
+        // children became durable), and the loop stops when the boundary clears or an epoch
+        // stops reducing the log (the unspillable top-level anchors stay for the final commit).
+        epoch.storage.finalizeBulkSlotAccumulation();
+        int previousLive = Integer.MAX_VALUE;
+        while (intermediateFlushEnabled && storageEngineWriter.isAsyncFlushLogBoundaryReached()) {
+          final int live = storageEngineWriter.getLog().liveEntryCount();
+          if (live >= previousLive) {
+            break;
+          }
+          previousLive = live;
+          storageEngineWriter.asyncFlush();
+        }
       } finally {
         try {
-          setSummaries.release();
+          bloomChunks.release();
         } finally {
-          builder.releaseTransientState();
+          try {
+            setSummaries.release();
+          } finally {
+            builder.releaseTransientState();
+          }
         }
       }
+    } finally {
+      // The CURRENT epoch's storage owns the (possibly transplanted) accumulator.
+      epoch.storage.finalizeBulkSlotAccumulation();
+    }
+  }
+
+  /**
+   * Mutable state of the explicit build's in-order order-label lane, shared between the label
+   * resolver (which mints through it while armed) and the record walk (which arms it for exactly the
+   * members of a top-level record-set array and disarms it after). The carry is held HERE, not on the
+   * directory accessor, so an async-flush epoch rebind cannot lose it.
+   */
+  static final class InOrderLabelLane {
+    /** The container whose members are currently arriving in document order; -1 = disarmed. */
+    long containerKey = -1;
+    /** The previous record's LOCAL label — the append algebra's carry. */
+    @Nullable
+    SirixDeweyID previousLocal;
+    /**
+     * The lane serves at most ONE container per build: a second top-level record-set array would
+     * receive the same open-bounds container label as the first, so it takes the general path, whose
+     * neighbour-aware mint keeps sibling containers strictly ordered.
+     */
+    boolean used;
+  }
+
+  /**
+   * The storage-facing bindings of one async-flush epoch of an explicit bulk build. A flush
+   * serializes and releases the pages behind these accessors, so each rotation must re-open them over
+   * the same persisted sub-tree — the contract {@link ProjectionBulkLoad} established for the
+   * load-time rider ("nothing epoch-scoped is ever cached across a commit"). Re-seeding the root
+   * label on rebind is idempotent: the seed only writes when no persisted label exists yet.
+   */
+  private static final class BulkBuildEpoch {
+    private ProjectionIndexHOTStorage storage;
+    private ProjectionStructuralOrderDirectory.Accessor orderDirectory;
+    private ProjectionRecordLocator.Accessor recordLocator;
+
+    private BulkBuildEpoch(final StorageEngineWriter storageEngineWriter, final int indexNumber) {
+      bind(storageEngineWriter, indexNumber);
+    }
+
+    private void bind(final StorageEngineWriter storageEngineWriter, final int indexNumber) {
+      storage = ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexNumber);
+      orderDirectory = ProjectionStructuralOrderDirectory.open(storage);
+      recordLocator = ProjectionRecordLocator.open(storage);
+    }
+
+    private void rebind(final StorageEngineWriter storageEngineWriter, final int indexNumber) {
+      final ProjectionIndexHOTStorage previousStorage = storage;
+      bind(storageEngineWriter, indexNumber);
+      // Transplant an active bulk-slot accumulation onto the fresh storage BEFORE the re-seed:
+      // the accumulator is tree-state-independent (it holds only un-materialized slot writes for
+      // the same still-virgin tree), and the re-seed's read must see the accumulated root label
+      // through the new storage's read-through rather than minting a second one.
+      storage.adoptBulkSlotAccumulation(previousStorage);
+      orderDirectory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     }
   }
 
@@ -963,9 +1106,14 @@ public final class ProjectionIndexBuilder {
     final long docRoot = rtx.getNodeKey();
     if (rootPathNodeKeys.isEmpty())
       return false;
-    boolean processedAny = descendToRoots(rtx, docRoot);
-    rtx.moveTo(docRoot);
-    return processedAny;
+    fastIterationDocRoot = docRoot;
+    try {
+      boolean processedAny = descendToRoots(rtx, docRoot);
+      rtx.moveTo(docRoot);
+      return processedAny;
+    } finally {
+      fastIterationDocRoot = -1;
+    }
   }
 
   /**
@@ -988,12 +1136,28 @@ public final class ProjectionIndexBuilder {
         // its children are the array elements directly.
         final boolean arrayLike = matchKind == NodeKind.ARRAY || matchKind == NodeKind.OBJECT_NAMED_ARRAY;
         if (arrayLike) {
-          if (rtx.moveToFirstChild()) {
-            do {
-              final long elementKey = rtx.getNodeKey();
-              extractRow(rtx, elementKey);
-              rtx.moveTo(elementKey);
-            } while (rtx.moveToRightSibling());
+          // The in-order label lane covers exactly the shape its contract names: the members of a
+          // TOP-LEVEL record-set array, arriving in document order, at most one such container per
+          // build. Everything else stays on the neighbour-aware general mint.
+          final boolean inOrderEligible =
+              inOrderLane != null && !inOrderLane.used && parentKey == fastIterationDocRoot && parentKey >= 0;
+          if (inOrderEligible) {
+            inOrderLane.used = true;
+            inOrderLane.containerKey = matchKey;
+            inOrderLane.previousLocal = null;
+          }
+          try {
+            if (rtx.moveToFirstChild()) {
+              do {
+                final long elementKey = rtx.getNodeKey();
+                extractRow(rtx, elementKey);
+                rtx.moveTo(elementKey);
+              } while (rtx.moveToRightSibling());
+            }
+          } finally {
+            if (inOrderEligible) {
+              inOrderLane.containerKey = -1;
+            }
           }
         } else {
           extractRow(rtx, matchKey);
@@ -1089,6 +1253,38 @@ public final class ProjectionIndexBuilder {
   }
 
   /**
+   * A chunk batch bound to this build's CURRENT field resolution. Called on the coordinator at
+   * chunk-dispatch time, after the chunk's new paths were resolved into the path summary, so the
+   * snapshot contains every path class the chunk's records can carry.
+   */
+  ProjectionChunkRowBatch newChunkBatch(final PathSummaryReader pathSummary, final int expectedRows,
+      final long recordSetKey) {
+    if (!streaming) {
+      throw new IllegalStateException("chunk batches are only available to a streaming builder");
+    }
+    extractor.refresh(pathSummary);
+    return new ProjectionChunkRowBatch(extractor.fieldPcrKeysRef(), extractor.fieldPcrColumnsRef(),
+        extractor.columnKindsRef(), expectedRows, recordSetKey);
+  }
+
+  /**
+   * Append one worker-extracted batch row as the next record, in the caller's order — the batch
+   * counterpart of {@link #appendRecord(JsonNodeReadOnlyTrx, long, SirixDeweyID)}: same leaf
+   * preparation, same extractor buffers, same {@link #appendExtractedRecord} packing, with the rtx
+   * navigation replaced by {@link ProjectionIndexRowExtractor#loadRowFromBatch}.
+   */
+  void appendBatchRow(final ProjectionChunkRowBatch batch, final int row, final long recordKey,
+      final SirixDeweyID orderLabel) {
+    if (!streaming) {
+      throw new IllegalStateException("appendBatchRow() is the streaming builder's entry point; this builder walks");
+    }
+    final byte[] orderLabelBytes = Objects.requireNonNull(orderLabel, "orderLabel must not be null").toBytes();
+    prepareLeafForOrderLabel(orderLabelBytes, "JSON");
+    extractor.loadRowFromBatch(batch, row);
+    appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "JSON");
+  }
+
+  /**
    * Drain a streaming build: flush the partially-filled trailing leaf and, when the build never grew
    * past the dictionary sample, make the per-column dictionary decision and release the held-back
    * leaves. Mirrors the tail of {@link #build} exactly, which is what makes the incremental and
@@ -1106,10 +1302,24 @@ public final class ProjectionIndexBuilder {
 
   void publishGlobalDictionaryColumnsBuilt() {
     publishGlobalDictionaryColumnsBuilt(globalDictionaryColumns);
+    // Summed at publish time rather than accumulated at flush time so the figure is idempotent and
+    // the post-pass path (raw writers, no persistent probes by construction) reports 0 without a
+    // parallel bookkeeping field. Runs before releaseTransientState(), so the encoders are live.
+    long probes = 0;
+    final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
+    if (encoders != null) {
+      for (final GlobalValueDictionaryEncoder encoder : encoders) {
+        if (encoder instanceof final StreamingGlobalDictionary dictionary) {
+          probes += dictionary.persistentProbeCount();
+        }
+      }
+    }
+    PERSISTENT_DICTIONARY_PROBES.set(probes);
   }
 
   private static void publishGlobalDictionaryColumnsBuilt(final int columns) {
     GLOBAL_DICTIONARY_COLUMNS.set(columns);
+    PERSISTENT_DICTIONARY_PROBES.set(0);
   }
 
   /** @return total rows appended across all emitted leaves. */
@@ -1349,7 +1559,26 @@ public final class ProjectionIndexBuilder {
     private final int column;
     private final long budgetBytes;
     private final GlobalValueDictionaryWriter.AdmissionPolicy admissionPolicy;
-    private final GlobalValueDictionaryHotCache hotValues = new GlobalValueDictionaryHotCache();
+    /**
+     * Resident value→id map covering EVERY generation of this load, not just the current epoch's
+     * additions. Replaces the 64-slot hot cache AND the per-value persistent-radix probe that used to
+     * serve values from released generations — the regime measured at ~85% of load CPU. See
+     * {@link GlobalValueDictionaryProbeFront}.
+     */
+    private final GlobalValueDictionaryProbeFront residentFront;
+    /**
+     * Front-completeness invariant: {@code true} while every value in every durable generation
+     * reachable from {@link #headerKey} is present in {@link #residentFront}. Holds by construction
+     * today — (i) with {@code headerKey == 0} there are no durable generations; (ii) the constructor
+     * seeds the election writer's entries; (iii) every mint and every probe-resolved id is put into the
+     * front before it is returned; (iv) {@code flush()} moves additions to durable without changing the
+     * value set; and {@code headerKey} only ever becomes non-zero through our OWN flush. While it
+     * holds, a front miss PROVES a value is new, so minting without consulting the persistent radix
+     * cannot double-assign an id. Any future path that adopts a durable header this front did not
+     * witness (resume-into-existing-dictionary) must clear this flag, which re-arms the guarded probe
+     * below.
+     */
+    private boolean frontCoversDurableGenerations = true;
     private long headerKey;
     private int baseEntryCount;
     private @Nullable ValueDictionaryHeaderNode baseHeader;
@@ -1362,6 +1591,18 @@ public final class ProjectionIndexBuilder {
       this.budgetBytes = initialGeneration.budgetBytes();
       this.admissionPolicy = initialGeneration.admissionPolicy();
       this.additions = initialGeneration;
+      this.residentFront = new GlobalValueDictionaryProbeFront(column, this.budgetBytes);
+      // The initial generation already holds entries (election seeded the sample's distincts before
+      // this wrapper existed). The front must know them: the wrap happens AT the first flush, so a
+      // seeded value's first post-wrap occurrence would otherwise miss the front and walk the
+      // persistent radix — one probe per seeded distinct, exactly the cost class this front removes.
+      // Ids in the initial generation are the global ids (base 0).
+      final int seededEntries = initialGeneration.entryCount();
+      for (int id = 1; id <= seededEntries; id++) {
+        final byte[] valueBytes = initialGeneration.valueBytes(id);
+        residentFront.put(initialGeneration.hashAt(id), initialGeneration.secondaryHashAt(id), valueBytes, 0,
+            valueBytes.length, id);
+      }
     }
 
     void bind(final StorageEngineWriter writer) {
@@ -1406,22 +1647,25 @@ public final class ProjectionIndexBuilder {
       if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
         throw refuseOversizedValue(length);
       }
-      GlobalValueDictionaryWriter generation = additions;
-      if (generation != null) {
-        final int localId = generation.findId(source, offset, length);
-        if (localId > 0) {
-          return Math.addExact(baseEntryCount, localId);
-        }
+      // The resident front answers for every value this load has seen — whichever generation it
+      // went into — in one open-addressing probe. The hashes are computed once and shared with the
+      // put below.
+      final long hash = GlobalValueDictionary.valueHash(source, offset, length);
+      final long secondaryHash = GlobalValueDictionary.secondaryValueHash(source, offset, length);
+      final int knownId = residentFront.findId(hash, secondaryHash, source, offset, length);
+      if (knownId > 0) {
+        return knownId;
       }
-      final int hotId = hotValues.find(source, offset, length);
-      if (hotId > 0) {
-        return hotId;
-      }
-      if (headerKey != 0) {
+      if (headerKey != 0 && !frontCoversDurableGenerations) {
+        // Reachable only for a value in a durable generation this front never saw minted — i.e. a
+        // generation that predates the front. A fresh bulk load can never get here (see the
+        // front-completeness invariant on the flag), which is what dictProbes=0 in the load banner
+        // witnesses; a non-zero count on a fresh load means the ~5-page-decode-per-value probe
+        // regime is back.
         persistentProbeCount++;
         final int existing = GlobalValueDictionary.probe(headerKey, source, offset, length, writer);
         if (existing > 0) {
-          hotValues.put(source, offset, length, existing);
+          residentFront.put(hash, secondaryHash, source, offset, length, existing);
           return existing;
         }
         if (existing == GlobalValueDictionary.ID_UNKNOWN) {
@@ -1429,6 +1673,7 @@ public final class ProjectionIndexBuilder {
               "global dictionary column " + column + " cannot probe generation header " + headerKey);
         }
       }
+      GlobalValueDictionaryWriter generation = additions;
       if (generation == null) {
         generation = new GlobalValueDictionaryWriter(column, budgetBytes, admissionPolicy);
         additions = generation;
@@ -1438,6 +1683,7 @@ public final class ProjectionIndexBuilder {
       if (globalId > Integer.MAX_VALUE) {
         throw new IllegalStateException("global dictionary column " + column + " exhausted dictionary ids");
       }
+      residentFront.put(hash, secondaryHash, source, offset, length, (int) globalId);
       return (int) globalId;
     }
 
@@ -1506,6 +1752,7 @@ public final class ProjectionIndexBuilder {
         additions.release();
         additions = null;
       }
+      residentFront.release();
       baseHeader = null;
       storageEngineWriter = null;
     }

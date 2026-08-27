@@ -268,6 +268,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private volatile SizeClass[] classes;
   private volatile long budgetBytes;
 
+  /** Budget share only oversized allocations may commit — see {@link #initInternal}. */
+  private volatile long oversizedHeadroomBytes;
+
   /**
    * Physical/touchable capacity retained by committed frame slots plus live oversized arenas. A frame
    * slot remains committed across recycle cycles, so its bytes leave this counter only when the whole
@@ -397,6 +400,21 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           "budgetBytes must be >= largest size class (" + SIZE_CLASSES[SIZE_CLASSES.length - 1] + ")");
     }
     this.budgetBytes = budgetBytes;
+    final long configuredHeadroom = Long.getLong("sirix.allocator.oversizedHeadroomBytes", -1L);
+    // Slab-region commitments never release before shutdown (no portable way to decommit pages of
+    // a live mmap'd region), so an unchecked slab peak would permanently starve the oversized path
+    // — the large-value (de)compression buffers a post-ingest query still needs. Fresh-slot
+    // commitment stops short of the full budget; only oversized allocations (whose bytes DO
+    // return on release) may use the headroom. Default: 1/16th of the budget, capped at 1 GiB —
+    // zero for tiny test budgets, so their exhaustion semantics are unchanged.
+    // Only budgets comfortably above embedded/test scale reserve headroom by default: an
+    // allocator budgeted EXACTLY for its slabs (focused tests, tiny embedded configs) must keep
+    // its full slab capacity.
+    this.oversizedHeadroomBytes = configuredHeadroom >= 0
+        ? Math.min(configuredHeadroom, budgetBytes)
+        : (budgetBytes >= 64L * 1024 * 1024
+            ? Math.min(budgetBytes / 16, 1L << 30)
+            : 0L);
     final SizeClass[] cls = new SizeClass[SIZE_CLASSES.length];
     // Per-class virtual reservation is workload-independent; MAP_NORESERVE means physical pages
     // only commit when touched. Cap the number of slots to bound version metadata; its fixed-size
@@ -504,7 +522,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         // A fresh slot adds retained commitment. Recycled slots do not: their pages deliberately
         // remain committed, and charging them again would eventually consume the budget with the
         // same physical slot over and over.
-        if (!reserveCommittedBytes(c.slotSize)) {
+        if (!reserveSlabCommittedBytes(c.slotSize)) {
           return -1;
         }
         slotIdx = popFreshSlot(c);
@@ -554,13 +572,30 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
-  private boolean reserveCommittedBytes(final long bytes) {
+  boolean reserveCommittedBytes(final long bytes) {
+    return reserveCommittedBytesUpTo(bytes, budgetBytes);
+  }
+
+  /**
+   * Fresh-slot (slab) commitment is permanent until shutdown, so it may never consume the oversized
+   * headroom — the slice that keeps large-value buffers allocatable after a slab peak.
+   * Package-private so the witness test can drive the decision table directly.
+   */
+  boolean reserveSlabCommittedBytes(final long bytes) {
+    return reserveCommittedBytesUpTo(bytes, budgetBytes - oversizedHeadroomBytes);
+  }
+
+  long oversizedHeadroomBytes() {
+    return oversizedHeadroomBytes;
+  }
+
+  private boolean reserveCommittedBytesUpTo(final long bytes, final long limit) {
     if (bytes <= 0) {
       throw new IllegalArgumentException("allocation size must be positive: " + bytes);
     }
     long current = committedBytes.getAcquire();
     while (true) {
-      if (current > budgetBytes || bytes > budgetBytes - current) {
+      if (current > limit || bytes > limit - current) {
         return false;
       }
       if (committedBytes.compareAndSet(current, current + bytes)) {

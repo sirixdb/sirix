@@ -1050,6 +1050,80 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void anOverBudgetColumnRoutesToTheWholeLeafKernelInsteadOfDecliningIntoTheSlicedArm() throws IOException {
+    // A whole-column slice fill declines through the store's budget door. Kind-sliceability knows
+    // nothing about that budget, so a planner gating on kind alone selects the sliced arm, the fill
+    // then throws, and the exception lands in the group route's fail-soft catch — which increments
+    // GROUP_AGG_FAILED (documented to mean a defect or corruption) and drops the query to the
+    // GENERIC pipeline, the slowest route there is. The route must be chosen on VIABILITY, so an
+    // over-budget column goes to the whole-leaf byte kernel, still served from the projection.
+    query("""
+          jn:store('json-path1','budgetgroupstr.jn','[
+            {"dept": "Eng",   "age": 30, "city": "Berlin"},
+            {"dept": "Eng",   "age": 45, "city": "Muc"},
+            {"dept": "Sales", "age": 50, "city": "Ulm"},
+            {"age": 99, "city": "Bonn"},
+            {"dept": "HR",    "age": 23},
+            {"dept": "Eng",   "age": 4,  "city": "X"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','budgetgroupstr.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/dept', '/[]/age', '/[]/city'),
+              ('string', 'long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    final String topKQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','budgetgroupstr.jn')[]
+            where $r.age gt 5
+            let $d := $r.dept, $len := fn:string-length($r.city)
+            group by $d
+            let $c := count($r)
+            order by $c descending
+            return {"d": $d, "c": $c, "total": sum($r.age),
+                    "slen": sum($len)}, 1, 3)
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetgroupstr.jn");
+      // Oracle on a NON-auto-wiring chain, computed BEFORE the budget is shrunk — see the string
+      // twin above for the full reasoning.
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, topKQuery);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+      try {
+        final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        final long failedBefore = SirixVectorizedExecutor.groupAggFailedCount();
+        final String served = evaluateQuery(chain, ctx, topKQuery);
+        Assertions.assertEquals(generic, served, "the answer must not change with the fill budget");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "an over-budget column must still be SERVED from the projection, by the whole-leaf kernel");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the sliced arm cannot serve a column whose fill the store refuses");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggFailedCount() - failedBefore,
+            "routing into a fill that declines raises a false defect signal");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void compositeTopKGroupAggregatesServeFromColumnSlices() throws IOException {
     // Unit 4 twin: the COMPOSITE flat arm (Q11 shape — numeric + string 2-key, COUNT(DISTINCT),
     // ordered + capped) must serve from column slices. The record missing `model` exercises the
@@ -2196,6 +2270,263 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
             "the guard must fire only when the window actually contains a miss");
       } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void anOverBudgetSortedScanReEntersTheWholeLeafArmInsteadOfCountingAsCorruption() throws IOException {
+    // The sorted scan performs an unmasked whole-column fill of its ORDER columns, so an
+    // over-budget column reaches the store's decline door. That decline used to escape to the
+    // route's generic RuntimeException handler, which ticks SORTED_SCAN_FAILED — a defect signal —
+    // and dropped the query to the generic navigational pipeline, even though the route has a
+    // whole-leaf byte-scan arm right beside the sliced one.
+    final StringBuilder corpus = new StringBuilder(4096).append('[');
+    for (int i = 0; i < 64; i++) {
+      if (i > 0) {
+        corpus.append(',');
+      }
+      corpus.append("{\"age\":").append((i * 37) % 101).append(",\"tag\":\"t").append(i % 5).append("\"}");
+    }
+    query("jn:store('json-path1','budgetsorted.jn','" + corpus.append(']') + "')");
+    query("""
+          let $doc := jn:doc('json-path1','budgetsorted.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/tag'),
+              ('long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String sortedQuery =
+        "let $doc := jn:doc('json-path1','budgetsorted.jn')\n" + "for $r in $doc[] order by $r.age return $r";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetsorted.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+      final long ageBytes;
+      try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"}, new String[] {"age", "tag"});
+        Assertions.assertNotNull(handle, "the projection must be servable");
+        final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
+        Assertions.assertNotNull(columnStore);
+        ageBytes = columnStore.projectedColumnFillBytes(handle.columnOf("age"));
+      }
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, sortedQuery);
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      // Just under the ORDER column's own projection: the sliced arm cannot fill it, the whole-leaf
+      // arm can.
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(ageBytes - 1);
+      try {
+        final long failedBefore = SirixVectorizedExecutor.sortedScanFailedCount();
+        final long declinedBefore = SirixVectorizedExecutor.sortedScanDeclinedCount();
+        final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, sortedQuery),
+            "the answer must not change with the fill budget");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanFailedCount() - failedBefore,
+            "a priced fill refusal is a routing decision, not a corruption signal");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "the sorted scan must still be SERVED, by the whole-leaf arm it already has");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanDeclinedCount() - declinedBefore,
+            "a decline that re-routes successfully must not count as a route decline");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void anOverBudgetPredicateColumnDeclinesQuietlyInsteadOfCountingAsCorruption() throws IOException {
+    // A CONTAINS literal cannot be bloom-pruned (fingerprints hash whole values), so the predicate
+    // column takes the UNMASKED door and the store prices it against the fill budget. That decline
+    // used to land in the group arm's generic RuntimeException handler, whose own comment says an
+    // exception there "means a defect or corruption": every such query ticked GROUP_AGG_FAILED. A
+    // priced refusal is a routing decision, not a defect, and must be distinguishable from one.
+    final StringBuilder corpus = new StringBuilder(4096).append('[');
+    for (int i = 0; i < 64; i++) {
+      if (i > 0) {
+        corpus.append(',');
+      }
+      // A SHORT group key beside a LONG predicate column, so one column's fill fits a budget the
+      // other's does not — which is the whole point: the arm is selected, then the door refuses.
+      corpus.append("{\"dept\":\"d")
+            .append(i % 4)
+            .append("\",\"age\":")
+            .append(20 + i)
+            .append(",\"city\":\"")
+            .append("metropolis-")
+            .append("qwertyuiop".repeat(12))
+            .append(i)
+            .append("\"}");
+    }
+    query("jn:store('json-path1','budgetcontains.jn','" + corpus.append(']') + "')");
+    query("""
+          let $doc := jn:doc('json-path1','budgetcontains.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/dept', '/[]/age', '/[]/city'),
+              ('string', 'long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String containsGroupBy = """
+          for $r in jn:doc('json-path1','budgetcontains.jn')[]
+          where contains($r.city, "metropolis")
+          let $d := $r.dept
+          group by $d
+          let $c := count($r)
+          order by $c descending
+          return {"d": $d, "c": $c, "total": sum($r.age)}
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetcontains.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+      final long deptBytes;
+      final long cityBytes;
+      try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"},
+                       new String[] {"dept", "age", "city"});
+        Assertions.assertNotNull(handle, "the projection must be servable");
+        final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
+        Assertions.assertNotNull(columnStore, "the handle must be column-lazy for this test to price columns");
+        deptBytes = columnStore.projectedColumnFillBytes(handle.columnOf("dept"));
+        cityBytes = columnStore.projectedColumnFillBytes(handle.columnOf("city"));
+      }
+      Assertions.assertTrue(cityBytes > deptBytes,
+          "the predicate column must project larger than the group key: " + cityBytes + " vs " + deptBytes);
+
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, containsGroupBy);
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      // Between the two: the group key's fill is affordable so the sliced arm IS selected, and the
+      // predicate column's fill is not so the store refuses it once the arm is under way.
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(cityBytes - 1);
+      try {
+        Assertions.assertTrue(deptBytes <= cityBytes - 1, "the group key must stay within the chosen budget");
+        final long failedBefore = SirixVectorizedExecutor.groupAggFailedCount();
+        final long declinedBefore = SirixVectorizedExecutor.groupAggregateDeclinedCount();
+        final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, containsGroupBy),
+            "the answer must not change with the fill budget");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggFailedCount() - failedBefore,
+            "a priced fill refusal is a routing decision, not a corruption signal");
+        // The refusal must land on the WHOLE-LEAF arm, which for this handle is the byte-kernel
+        // scan over projection leaves — not on the generic navigational pipeline. Returning null
+        // here would leave both of these flat and walk every record instead.
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
+            "the query must still be SERVED from the projection, by the whole-leaf arm");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the sliced arm cannot serve a column whose fill the store refuses");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggregateDeclinedCount() - declinedBefore,
+            "a decline that re-routes successfully must not count as a route decline");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void aBloomPrunedPointLookupStillServesWhenTheWholeColumnFillIsOverBudget() throws IOException {
+    // A predicate column is fetched MASKED once the bloom fingerprints prune leaves — a fraction of
+    // the column, and no budget door stands in front of it. Gating that route on the WHOLE-column
+    // fill projection therefore refuses a point lookup that would have read almost nothing, and the
+    // query falls all the way to the generic navigational pipeline. The route gate has to ask about
+    // the fill the route will actually perform.
+    // LONG grp values: the point of the budget here is that the whole-COLUMN fill is refused while
+    // the pruned fetch is not, so the column has to be the expensive thing in the store.
+    final StringBuilder predCorpus = new StringBuilder(4096).append('[');
+    for (int i = 0; i < 6; i++) {
+      if (i > 0) {
+        predCorpus.append(',');
+      }
+      predCorpus.append("{\"uid\":")
+                .append(i % 3 == 0
+                    ? 7
+                    : 3)
+                .append(",\"name\":\"n")
+                .append(i)
+                .append("\",\"grp\":\"")
+                .append("groupvalue-".repeat(24))
+                .append(i % 3)
+                .append("\"}");
+    }
+    query("jn:store('json-path1','budgetpredscan.jn','" + predCorpus.append(']') + "')");
+    query("""
+          let $doc := jn:doc('json-path1','budgetpredscan.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid', '/[]/name', '/[]/grp'),
+              ('long', 'string', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    // An ABSENT literal: every leaf's fingerprint misses, so the prune drops them all and the
+    // masked fetch reads no segment at all — the cheapest possible serve, and the one the
+    // whole-column budget was rejecting.
+    final String absentLookup = "let $doc := jn:doc('json-path1','budgetpredscan.jn')\n"
+        + "for $r in $doc[] where $r.grp = \"nowhere\" return $r";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("budgetpredscan.jn");
+      final int revision = session.getMostRecentRevisionNumber();
+      // A budget that refuses the WHOLE-COLUMN fill of the predicate column but admits the route's
+      // own record-key fill. Budgeting below the keys too would refuse the route for a reason that
+      // has nothing to do with the pruning under test — the keys are its result, not its cost.
+      final long grpBytes;
+      final long keysBytes;
+      try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final ProjectionIndexRegistry.Handle handle =
+            session.getRtxIndexController(revision)
+                   .openProjectionIndex(rtx.getStorageEngineReader(), new String[] {"[]"},
+                       new String[] {"uid", "name", "grp"});
+        Assertions.assertNotNull(handle, "the projection must be servable");
+        final ProjectionColumnStore columnStore = handle.columnStoreOrNull();
+        Assertions.assertNotNull(columnStore);
+        grpBytes = columnStore.projectedColumnFillBytes(handle.columnOf("grp"));
+        keysBytes = columnStore.projectedRecordKeysFillBytes();
+      }
+      Assertions.assertTrue(keysBytes < grpBytes,
+          "the record keys must be cheaper than the whole predicate column: " + keysBytes + " vs " + grpBytes);
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, absentLookup);
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      final long priorBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(grpBytes - 1);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, absentLookup),
+            "the answer must not change with the fill budget");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
+            "a bloom-pruned point lookup must still be SERVED by the predicate-scan route");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
       }

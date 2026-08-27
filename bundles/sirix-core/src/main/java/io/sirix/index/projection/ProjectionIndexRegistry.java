@@ -88,6 +88,14 @@ public final class ProjectionIndexRegistry {
     private volatile String[] fieldChains;
     /** Eagerly-hydrated raw leaves, or the lazily-materialized cache of a column-lazy handle. */
     private volatile List<byte[]> rowGroupPayloads;
+
+    /**
+     * The bounded WINDOW CACHE over the same leaves, for a handle whose whole-leaf materialization is
+     * over the eager budget. Separate from {@link #rowGroupPayloads} because it is NOT resident: every
+     * route predicate that asks "are the leaves in memory" must answer no for it. It holds no
+     * session-derived state, which is what makes it safe on a process-wide handle.
+     */
+    private volatile ProjectionWindowedRowGroupPayloads windowedPayloads;
     /**
      * Column-sliced view (P5b stage 2) — non-null marks a COLUMN-LAZY handle: constructed from
      * descriptors only; {@link #rowGroupPayloads} materializes whole raw leaves on first whole-leaf
@@ -706,23 +714,78 @@ public final class ProjectionIndexRegistry {
      * shared — the {@code materializer} is not consulted again, so eager (pre-materialized) handles
      * accept a {@code null} one.
      *
+     * <p>
+     * The two routes memoize into DIFFERENT fields, because only one of them is resident. Eager leaves
+     * are inert {@code byte[]}s and land in {@link #rowGroupPayloads}. A
+     * {@link ProjectionWindowedRowGroupPayloads} view holds only a bounded window set, so it lands in
+     * {@link #windowedPayloads} and {@link #payloadsMaterialized()} keeps meaning "resident". Both are
+     * memoized HERE, on the handle, whose (resource, def, build revision) cache key is exactly the
+     * identity of the bytes they hold — no shorter-lived owner can memoize a view without multiplying
+     * the residency its window cap bounds.
+     * </p>
+     *
+     * <p>
+     * What the handle memoizes on the windowed route is the WINDOW CACHE, never a list bound to a
+     * session: the cache holds no session-derived field, and each consult wraps it in a thin per-caller
+     * view carrying THAT caller's reader source. A handle that has gone windowed keeps serving through
+     * that cache for as long as callers hand it windowed materializers; it is promoted to resident
+     * leaves only when a caller's materializer actually produces them, never by the handle deciding on
+     * its own to pay for a whole-leaf materialization.
+     * </p>
+     *
      * @throws IllegalStateException when a lazy handle's materializer fails (dead-session window,
      *         truncated/corrupt store) — callers decline to the generic pipeline
      */
     public List<byte[]> rowGroupPayloads(final Supplier<List<byte[]>> materializer) {
-      List<byte[]> leaves = rowGroupPayloads;
-      if (leaves != null) {
-        return leaves;
+      final List<byte[]> resident = rowGroupPayloads;
+      if (resident != null) {
+        return resident;
+      }
+      final ProjectionWindowedRowGroupPayloads windowed = windowedPayloads;
+      if (windowed != null) {
+        return boundView(windowed, materializer);
       }
       synchronized (materializeLock) {
-        leaves = rowGroupPayloads;
-        if (leaves == null) {
-          leaves = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
-              "materializer returned null");
-          rowGroupPayloads = leaves;
+        final List<byte[]> raced = rowGroupPayloads;
+        if (raced != null) {
+          return raced;
         }
-        return leaves;
+        final ProjectionWindowedRowGroupPayloads racedWindow = windowedPayloads;
+        if (racedWindow != null) {
+          return boundView(racedWindow, materializer);
+        }
+        final List<byte[]> built = Objects.requireNonNull(Objects.requireNonNull(materializer, "materializer").get(),
+            "materializer returned null");
+        final ProjectionWindowedRowGroupPayloads cache = ProjectionWindowedRowGroupPayloads.cacheOf(built);
+        if (cache != null) {
+          windowedPayloads = cache;
+        } else {
+          rowGroupPayloads = built;
+        }
+        return built;
       }
+    }
+
+    /**
+     * Wrap the memoized cache for THIS caller. The caller's source comes from its materializer, and a
+     * windowed materializer carries one, so the common path allocates one thin view and reads no bytes.
+     * A materializer that carries none is consulted: if it still built a windowed view, its cache is
+     * discarded in favour of the memoized one and only its source is kept; if it built RESIDENT leaves
+     * instead — a raised budget, or an eager handle — the handle is PROMOTED to them, because the
+     * materialization is already paid for and resident leaves beat windows.
+     */
+    private List<byte[]> boundView(final ProjectionWindowedRowGroupPayloads cache,
+        final Supplier<List<byte[]>> materializer) {
+      if (materializer instanceof ProjectionWindowedRowGroupPayloads.BoundMaterializer bound) {
+        return cache.boundTo(bound.readerSource());
+      }
+      final List<byte[]> built = Objects.requireNonNull(materializer, "materializer").get();
+      final ProjectionWindowedRowGroupPayloads.ReaderSource source = ProjectionWindowedRowGroupPayloads.sourceOf(built);
+      if (source != null) {
+        return cache.boundTo(source);
+      }
+      rowGroupPayloads = built;
+      return built;
     }
 
     /**
@@ -731,6 +794,12 @@ public final class ProjectionIndexRegistry {
      * contiguous byte-kernel scan beats scattered slice reads — the sliced routes exist to avoid the
      * materialization, not to replace the warm scan. Racy by design (a stale {@code null} just serves
      * one more query from slices).
+     *
+     * <p>
+     * A windowed view never sets this: its leaves are fetched per window and evicted under a cap, so
+     * reporting it as materialized would steer every later query off a viable sliced fill and into a
+     * byte-kernel scan that re-reads windows from disk.
+     * </p>
      */
     public boolean payloadsMaterialized() {
       return rowGroupPayloads != null;

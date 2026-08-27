@@ -137,9 +137,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -754,6 +757,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
   private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(SirixVectorizedExecutor.class);
+
+  /**
+   * Shared daemon reaper joining retired executors' pools off the compile path — see
+   * {@link #retireAsync()}.
+   */
+  private static final ExecutorService RETIREMENT_REAPER = Executors.newSingleThreadExecutor(r -> {
+    final Thread thread = new Thread(r, "sirix-executor-retirement");
+    thread.setDaemon(true);
+    return thread;
+  });
+
   /**
    * Per-field cache of the {@code {count, sum, min, max}} tuple produced by
    * {@link #parallelAggregate(String)}. The executor is scoped to a single (session, revision), so
@@ -1052,6 +1067,38 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * Retire without blocking the caller. {@link #retire()} joins the warm-up and worker pools, and a
+   * running whole-leaf warm-up materialization is uncancellable (its parallel arm runs through
+   * {@code ForkJoinTask.invoke}, which ignores interrupts) — retiring synchronously on the compile
+   * path serialized every compile of the chain, and every executor-cache overflow, behind a
+   * potentially multi-GB read. The queue drain and shutdown still run HERE, synchronously (see
+   * {@link #initiatePoolShutdown}); only the join moves to the shared reaper. The caller has already
+   * unpublished this executor, so no new work reaches it, and in-flight scans complete exactly as
+   * under a synchronous retire.
+   */
+  public void retireAsync() {
+    initiatePoolShutdown(false);
+    try {
+      RETIREMENT_REAPER.execute(() -> {
+        try {
+          awaitPoolTermination(false);
+        } catch (final RuntimeException | Error failure) {
+          LOGGER.warn("Background executor retirement failed", failure);
+        } finally {
+          executionLifecycle.unregister(this);
+        }
+      });
+    } catch (final RejectedExecutionException reaperGone) {
+      // JVM shutdown took the reaper: fall back to the synchronous join.
+      try {
+        awaitPoolTermination(false);
+      } finally {
+        executionLifecycle.unregister(this);
+      }
+    }
+  }
+
+  /**
    * Terminally close this executor. Later parallel work is rejected and every locally accepted call
    * is drained. A standalone executor also closes its private execution lifetime; chain-owned
    * executors share a lifetime which {@link io.sirix.query.SirixCompileChain} closes once for all
@@ -1069,7 +1116,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   private void shutdownPoolsAndAwait(final boolean terminal) {
-    boolean interrupted = false;
+    initiatePoolShutdown(terminal);
+    awaitPoolTermination(terminal);
+  }
+
+  /**
+   * The non-blocking half of a shutdown: reject new work, drain queued warm-ups, and run their
+   * cancellation hooks. Runs synchronously in every retirement flavour — queued warm-ups carry
+   * cancellation hooks whose one-shot latches in-flight readers may await, so this must never queue
+   * behind another executor's slow termination.
+   */
+  private void initiatePoolShutdown(final boolean terminal) {
     synchronized (workerPoolLifecycleLock) {
       if (terminal) {
         terminallyClosed = true;
@@ -1096,6 +1153,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       workerPool.shutdown();
     }
+  }
+
+  /** The blocking half: join both pools, release the worker cursors, and terminally drain calls. */
+  private void awaitPoolTermination(final boolean terminal) {
+    boolean interrupted = false;
 
     // A private lifetime has no sibling executors, so terminal close owns its admission fence and
     // detached cursors. A chain closes its shared lifetime before closing the cached executors.
@@ -2257,7 +2319,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       preds = fuseRangePredicates(extracted);
     }
-    if (store != null && predsSliceable(store, preds)) {
+    if (store != null && predsFillable(store, preds)) {
       try {
         return sliceAggregateParallel(store, preds, col, fetcher, aggMask);
       } catch (final IllegalStateException ise) {
@@ -2334,7 +2396,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // SLICED first: only the aggregate + predicate columns' segments are read — the whole-leaf
     // materialization below is the cold-start whale and exists only as the fallback.
     final ProjectionColumnStore store = handle.columnStoreOrNull();
-    if (store != null && store.columnSliceable(col) && predsSliceable(store, preds)) {
+    if (store != null && store.columnFillable(col) && predsFillable(store, preds)) {
       try {
         final int rgc = store.rowGroupCount();
         final int effS = Math.min(threads, Math.max(1, (rgc + 63) / 64));
@@ -2623,10 +2685,59 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static final int SLICED_PROMOTE_AFTER = Integer.getInteger("sirix.projection.slicedPromoteAfter", 2);
 
-  /** Every listed column servable from slices (fail-closed gate for the sliced group route). */
+  /**
+   * Every listed column servable by a WHOLE-COLUMN slice fill (fail-closed gate for the sliced group
+   * route) — viability, not just kind: an over-budget column's fill declines inside the store, so
+   * gating on {@link ProjectionColumnStore#columnFillable} keeps this route from selecting an arm
+   * that cannot complete. Only for columns that reach {@code store.column(...)}; a column filled in a
+   * cheaper mode has its own gate.
+   */
   private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
     for (final int col : cols) {
-      if (!store.columnSliceable(col)) {
+      if (!store.columnFillable(col)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The aggregate columns' gate, asking each column about the mode it will ACTUALLY be filled in: the
+   * {@code COUNT(DISTINCT)} operand at {@code identityOperandIndex} goes through
+   * {@link ProjectionColumnStore#columnDistinctIdentity} (BODY + the ~8 B/entry hash chain, no
+   * dictionary), every other lane through a whole-column fill. Judging the operand by the
+   * whole-column projection rejects a fat dictionary column on bytes its fill never fetches.
+   *
+   * @param identityOperandIndex index into {@code cols} of the distinct-identity operand, or
+   *        {@code -1} when no lane is filled in that mode
+   */
+  private static boolean aggColumnsFillable(final ProjectionColumnStore store, final int[] cols,
+      final int identityOperandIndex) {
+    for (int i = 0; i < cols.length; i++) {
+      final boolean viable = i == identityOperandIndex
+          ? store.columnIdentityFillable(cols[i])
+          : store.columnFillable(cols[i]);
+      if (!viable) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Every predicate column sliceable AND affordable as a whole-column fill. The strict twin of
+   * {@link #predsSliceable}, for the routes that PREFILL every predicate column
+   * ({@link #prefillColumns}, {@link #resolveTreeCols}) rather than fetching it masked — a masked
+   * fetch after a keep-mask prune reads a fraction of the column, so judging it by the whole-column
+   * projection turns a bloom-pruned point lookup into a full navigational fallback.
+   */
+  private static boolean predsFillable(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds) {
+    if (!predsSliceable(store, preds)) {
+      return false;
+    }
+    for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+      if (!store.columnFillable(p.column)) {
         return false;
       }
     }
@@ -2639,7 +2750,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static boolean treeSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree) {
-    if (!predsSliceable(store, tree.leaves)) {
+    if (!predsFillable(store, tree.leaves)) {
       return false;
     }
     for (final ProjectionIndexScan.ColumnPredicate leaf : tree.leaves) {
@@ -3383,7 +3494,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // SLICED first (regime-gated): the payload route hydrates every column of every leaf to
       // read ONE dict column's entries — a first-touch materializer in a fresh process (Q6).
       final ProjectionColumnStore mmStore = handle.columnStoreOrNull();
-      if (mmStore != null && !handle.payloadsMaterialized() && mmStore.columnSliceable(col)) {
+      if (mmStore != null && !handle.payloadsMaterialized() && mmStore.columnFillable(col)) {
         try {
           final ProjectionColumnStore.ColumnSlice[] mmSlices = mmStore.column(col, fetcher);
           final int n = mmStore.rowGroupCount();
@@ -7941,7 +8052,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (store == null) {
       return null;
     }
-    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount());
+    // Budget-aware: a handle whose worst-case resident bytes exceed the eager budget is served by
+    // the windowed payload view — the route that lets fat string columns answer whole-leaf query
+    // shapes (LIKE, distinct) at 100M instead of OOMing the whole-column materialization.
+    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount(),
+        handle.projectedWeightBytes());
   }
 
   /** The write transaction's index controller (wtx mode only). */
@@ -10804,7 +10919,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // SLICED first (regime-gated like the group kernels): the payload route hydrates every
     // column of every leaf to read ONE dict — the suite's first cold materializer (Q5).
     final ProjectionColumnStore cdStore = handle.columnStoreOrNull();
-    if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnSliceable(groupColumn)
+    if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnFillable(groupColumn)
         && cdStore.columnKind(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
       try {
         final ProjectionColumnStore.ColumnSlice[] cdSlices = cdStore.column(groupColumn, columnFetcher());
@@ -11614,7 +11729,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return null;
     }
+    return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
+        keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false);
+  }
 
+  /**
+   * The group-aggregate body, with the sliced arm suppressible.
+   *
+   * <p>
+   * {@code wholeLeafOnly} exists for ONE transition: a column fill the store refuses on budget. The
+   * sliced arm cannot complete without those bytes, but the whole-leaf arm right beside it can — over
+   * an over-budget handle that arm IS the windowed byte-kernel scan the budget declined toward.
+   * Re-entering with the arm suppressed takes it, instead of dropping a query that has a viable
+   * projection route in hand all the way to the generic navigational pipeline.
+   * </p>
+   */
+  private ServedGroups groupByAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
+      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
+      final long[] having, final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return declineGroupAgg("no projection available");
@@ -11965,19 +12102,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // ticking only on a successful slice would move the trigger point. What must not lie about
       // real serves is a different instrument: GROUP_AGG_SLICED_SERVED, ticked at the kernels
       // themselves and read by groupAggSlicedServedCount().
-      final boolean promoteNow = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
-          && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      final boolean promoteNow = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
+          && !handle.payloadsMaterialized() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
       // Latch the ROUTE before the promotion is kicked, so the code enforces the invariant the
       // comment below states ("KEEP SERVING SLICED until it lands") rather than re-deriving it from
       // payloadsMaterialized() after the kick. This is hardening of a documented-but-unenforced
       // guarantee, NOT the fix for a reproducing race: the suspected intra-query window — the
       // background assembly landing between the kick and the re-read, demoting the very query that
       // triggered it — did not reproduce even at -Dsirix.projection.slicedPromoteAfter=1.
-      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
-          && (tree == null
+      final boolean groupSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
+          && !handle.payloadsMaterialized() && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
-          && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
+          && allColumnsSliceable(groupStore, groupCols) && aggColumnsFillable(groupStore, aggColsFlat, cdStringDict
+              ? cdBlock
+              : -1);
       if (promoteNow && !projectionWarmupPool.isShutdown()) {
         // ASYNC promotion: materialize on the owned warm-up lane while THIS query still serves
         // sliced — the synchronous form stalled the promoting query for the whole assembly
@@ -12980,6 +13119,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         System.err.println("[proj] groupAgg overflow at " + firstSirixFrame(overflow));
       }
       return declineGroupAgg("per-group sum overflowed a long");
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // Expected decline, not a defect: the store priced a column fill this arm needed and refused
+      // it. Counting it would put a permanent false corruption signal under every query on a fat
+      // string column. Re-enter over the WHOLE-LEAF arm, which for such a handle is the windowed
+      // byte-kernel scan — returning null here would hand a servable query to the generic
+      // navigational pipeline instead.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] groupAgg sliced fill declined by budget: " + declined.getMessage());
+      }
+      if (wholeLeafOnly) {
+        return declineGroupAgg("column fill over budget on the whole-leaf route too");
+      }
+      return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+          orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
+          keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, true);
     } catch (final RuntimeException e) {
       // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
       // here (unlike a gate decline) means a defect or corruption, and a silent 100%
@@ -13007,6 +13161,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Constant-key group-bys served in one scalar pass (test oracle, same doctrine as the rest). */
   private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
 
+  /**
+   * The const-group twin of {@link #declineGroupAgg}: a decline that falls to the generic pipeline
+   * must move a counter, or a route that stopped serving reads exactly like one that was never asked.
+   * Shares {@code GROUP_AGG_DECLINED} because both arms answer the same question.
+   *
+   * @param reason names the gate; keep it stable and cheap
+   * @return {@code null}, always — the caller's decline value
+   */
+  private static @Nullable Sequence declineConstGroupAgg(final String reason) {
+    GROUP_AGG_DECLINED.increment();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] const-groupAgg decline: " + reason);
+    }
+    return null;
+  }
+
   /** Test observability for {@link #CONST_GROUP_AGG_SERVED}. */
   public static long constGroupAggServedCount() {
     return CONST_GROUP_AGG_SERVED.sum();
@@ -13032,7 +13202,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return null;
     }
+    return constGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames, false);
+  }
 
+  /** As above, with the sliced arm suppressible — see {@link #groupByAggregate}. */
+  private Sequence constGroupAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields, final long[] offsets,
+      final String[] outNames, final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -13107,11 +13283,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // conditions (and in the very order) it always did, while the route itself is latched before
       // the kick so "keep serving sliced until it lands" is enforced by the code and not only
       // promised by a comment. Hardening; the suspected intra-query demotion did not reproduce.
-      final boolean constPromoteNow = GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
-          && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
-      final boolean constSliced =
-          GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
-              && predsSliceable(constStore, preds) && allColumnsSliceable(constStore, aggCols);
+      final boolean constPromoteNow =
+          GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !handle.payloadsMaterialized()
+              && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      final boolean constSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !anyStrlenAgg
+          && !handle.payloadsMaterialized() && predsSliceable(constStore, preds)
+          && allColumnsSliceable(constStore, aggCols);
       if (constPromoteNow) {
         handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
       }
@@ -13220,6 +13397,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // Expected decline: an overflowing sum or shift routes to the interpreter's
       // decimal-promoting arithmetic via the generic pipeline.
       return null;
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // Expected decline: the store refused a priced column fill. Re-enter over the whole-leaf arm
+      // (the windowed byte-kernel scan for such a handle) rather than dropping to the generic
+      // pipeline, and tick no defect counter.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] const-groupAgg sliced fill declined by budget: " + declined.getMessage());
+      }
+      if (wholeLeafOnly) {
+        return declineConstGroupAgg("column fill over budget on the whole-leaf route too");
+      }
+      return constGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames, true);
     } catch (final RuntimeException e) {
       GROUP_AGG_FAILED.increment();
       if (PROJ_DIAG) {
@@ -14381,6 +14569,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       return new ItemSequence(items.toArray(new Item[0]));
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // The store priced a fill this route needed and refused it. This route has no whole-leaf
+      // twin — it exists to skip the keys/records/deref tail — so the caller's record path answers.
+      // Countable as a DECLINE: ticking the defect counter would put a permanent false corruption
+      // signal under every value emission on a fat string column.
+      PREDICATE_VALUE_EMISSION_DECLINED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] predicate value emission declined by budget: " + declined.getMessage());
+      }
+      return null;
     } catch (final RuntimeException e) {
       PREDICATE_VALUE_EMISSION_FAILED.increment();
       if (PROJ_DIAG) {
@@ -14392,6 +14590,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   public long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String[] orderFields, final boolean[] descending, final long limit) {
+    return sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit, false);
+  }
+
+  /**
+   * The sorted-scan body, with the sliced arm suppressible — the same one transition the group arms
+   * make. A column fill the store refuses on budget cannot be served sliced, but the whole-leaf
+   * branch below (over windowed payloads for an over-budget handle) can, so the decline re-enters
+   * there instead of dropping a servable query to the generic navigational pipeline.
+   */
+  private long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String[] orderFields, final boolean[] descending, final long limit, final boolean wholeLeafOnly) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -14447,7 +14656,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // the KEYS chain — never a whole leaf — and for a LIMIT the bounded heap prunes leaves
       // by zone bounds DURING collection, the R2 "heap over zone-map-pruned leaves" shape.
       final ProjectionColumnStore store = handle.columnStoreOrNull();
-      final boolean sliced = store != null && predsSliceable(store, preds);
+      final boolean sliced = !wholeLeafOnly && store != null && predsSliceable(store, preds);
       if (anyStringKey && !(sliced && limit >= 0)) {
         return null;
       }
@@ -14544,6 +14753,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       for (int i = 0; i < n; i++)
         out[i] = keys.getLong(order[i]);
       return out;
+    } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+      // Expected decline, not a defect: the store refused a priced fill. Re-enter over the
+      // whole-leaf arm, which for an over-budget handle is the windowed byte-kernel scan.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] sorted-scan sliced fill declined by budget: " + declined.getMessage());
+      }
+      if (wholeLeafOnly) {
+        SORTED_SCAN_DECLINED.increment();
+        return null;
+      }
+      return sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit, true);
     } catch (final RuntimeException e) {
       SORTED_SCAN_FAILED.increment();
       if (PROJ_DIAG) {
@@ -14608,6 +14828,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /** Sorted-scan serving attempts that FAILED with an exception (not gate declines). */
+  /** Sorted scans that declined on a priced fill BOTH sliced and whole-leaf — a route decision. */
+  private static final LongAdder SORTED_SCAN_DECLINED = new LongAdder();
+
+  /** Test/ops observability for {@link #SORTED_SCAN_DECLINED}. */
+  public static long sortedScanDeclinedCount() {
+    return SORTED_SCAN_DECLINED.sum();
+  }
+
   private static final LongAdder SORTED_SCAN_FAILED = new LongAdder();
 
   /** Test/ops observability for {@link #SORTED_SCAN_FAILED}. */
@@ -14638,6 +14866,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /** Value-emission attempts that FAILED with an exception (not gate declines). */
+  /** Value emissions that declined on a priced fill — a route decision, not corruption. */
+  private static final LongAdder PREDICATE_VALUE_EMISSION_DECLINED = new LongAdder();
+
+  /** Test/ops observability for {@link #PREDICATE_VALUE_EMISSION_DECLINED}. */
+  public static long predicateValueEmissionDeclinedCount() {
+    return PREDICATE_VALUE_EMISSION_DECLINED.sum();
+  }
+
   private static final LongAdder PREDICATE_VALUE_EMISSION_FAILED = new LongAdder();
 
   /** Test/ops observability for {@link #PREDICATE_VALUE_EMISSION_FAILED}. */
@@ -16059,6 +16295,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * Aggregates answered from the PATH SUMMARY's per-path statistics ({@link #tryPathSummaryStats}),
+   * since process start. The positive witness that a query genuinely WAS summary-served — a returned
+   * answer and a declined fallback are otherwise indistinguishable to a caller.
+   */
+  private static final LongAdder PATH_SUMMARY_STATS_SERVED = new LongAdder();
+
+  /** Test observability for {@link #PATH_SUMMARY_STATS_SERVED}. */
+  public static long pathSummaryStatsServed() {
+    return PATH_SUMMARY_STATS_SERVED.sum();
+  }
+
+  /**
    * Try to answer an unfiltered aggregate ({@code sum | avg | min | max | count}) over a single field
    * via the PathSummary's per-path statistics. Returns {@code null} to signal the caller should fall
    * back to a full parallel scan when:
@@ -16163,7 +16411,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (!numeric && !"count".equals(func)) {
           return null;
         }
-        return switch (func) {
+        final Sequence served = switch (func) {
           case "count" -> new Int64(count);
           // Reached only for an all-integral column (guarded above), so the long accumulator IS
           // the exact sum and its integer type is the right one.
@@ -16177,6 +16425,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               : new Int64(pMax);
           default -> null;
         };
+        if (served != null) {
+          PATH_SUMMARY_STATS_SERVED.increment();
+        }
+        return served;
       } finally {
         summary.close();
       }

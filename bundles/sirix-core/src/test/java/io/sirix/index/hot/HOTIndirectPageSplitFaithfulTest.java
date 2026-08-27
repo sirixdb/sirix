@@ -396,16 +396,31 @@ final class HOTIndirectPageSplitFaithfulTest {
   void mergeBiNodePairedLeavesProducesCleanResult() {
     int checked = 0;
     boolean sawCompoundResult = false;
-    // WIDE_SPAN's 8 byte-0 groups give a height-1 root with small leaf children, so adjacent
-    // BiNode-paired leaves have a union that still fits one page — the mergeable case.
+    // A fresh bulk build can no longer contain a mergeable BiNode pair BY CONSTRUCTION — the
+    // highest-fitting-subtree cut already keeps every page-fitting R(S) subtree whole. The
+    // over-partitioned shape the merge exists for is produced by the INCREMENTAL path, so the
+    // scenario manufactures it the production way: splitLeafPage a canonical leaf (re-inserting
+    // an existing key keeps the key set), fold the halves back in via addEntry, and merge the
+    // resulting BiNode-paired pair — the exact split-then-consolidate flow of the live writer.
     for (final int size : new int[] {700, 1_400}) {
       final AtomicLong allocator = new AtomicLong(1);
       final List<byte[]> keys = Workload.WIDE_SPAN.generate(size, 3);
       final HOTBulkBuilder.BuildResult built =
           HOTBulkBuilder.build(entries(keys), 1, IndexType.CAS, allocator::getAndIncrement);
-      if (!(built.rootPage() instanceof HOTIndirectPage root) || root.getHeight() != 1) {
+      if (!(built.rootPage() instanceof HOTIndirectPage canonical) || canonical.getHeight() != 1) {
         closeLeavesOf(built.rootPage());
         continue;
+      }
+      HOTIndirectPage root = canonical;
+      for (int slot = 0; slot < root.getNumChildren(); slot++) {
+        if (root.getChildReference(slot).getPage() instanceof HOTLeafPage splittable && splittable.getEntryCount() >= 2
+            && Arrays.binarySearch(HOTIncrementalInsert.discriminativeBits(root),
+                HOTBulkBuilder.msdb(splittable.getKey(0), splittable.getKey(splittable.getEntryCount() - 1))) < 0) {
+          final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(splittable,
+              splittable.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
+          root = HOTIncrementalInsert.addEntry(root, leafSplit, slot, 1, allocator::getAndIncrement);
+          break;
+        }
       }
       final TreeSet<String> rootKeys = collectKeys(root);
       final List<HOTLeafPage> mergedLeaves = new ArrayList<>();
@@ -443,6 +458,9 @@ final class HOTIndirectPageSplitFaithfulTest {
         assertRoutesAll(mergedRef, toByteList(rootKeys), label);
         checked++;
       }
+      // The folded root holds the split halves (fresh pages the canonical tree never saw);
+      // close() is idempotent, so the shared canonical leaves tolerate the double visit.
+      closeLeavesOf(root);
       closeLeavesOf(built.rootPage());
       for (final HOTLeafPage mergedLeaf : mergedLeaves) {
         mergedLeaf.close();

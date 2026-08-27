@@ -603,7 +603,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
       return;
     }
     try {
-      executor.retire();
+      // Async join: retirement can sit behind an uncancellable multi-GB warm-up read, and every
+      // compile on this chain would serialize behind it. The drain/shutdown half still runs
+      // synchronously inside retireAsync().
+      executor.retireAsync();
     } catch (final Exception ignored) {
       // Retirement must not mask compilation. Terminal chain close still owns the shared fence.
     }

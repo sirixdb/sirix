@@ -210,6 +210,17 @@ final class ProjectionStructuralOrderDirectory {
   static final class Accessor {
     private final SlotStore store;
 
+    /**
+     * Epoch-lived prefix cache for {@link #fullLabelForInOrderAppend}: the document root's and the
+     * record-set container's local suffixes are shared by every record of an in-order load, so they are
+     * read from the store once per accessor rather than once per record.
+     */
+    private long cachedInOrderContainerKey = NULL_NODE_KEY;
+    private long cachedInOrderDocumentRootKey = NULL_NODE_KEY;
+    private int @Nullable [] cachedInOrderDocumentRootSuffix;
+    private int @Nullable [] cachedInOrderContainerSuffix;
+    private @Nullable SirixDeweyID lastInOrderAppendedLocal;
+
     private Accessor(final SlotStore store) {
       this.store = Objects.requireNonNull(store, "store must not be null");
     }
@@ -220,6 +231,99 @@ final class ProjectionStructuralOrderDirectory {
       if (localLabel(nodeKey) == null) {
         putLocalLabel(nodeKey, firstLocalLabel());
       }
+    }
+
+    /**
+     * The full label of {@code recordKey} appended IN DOCUMENT ORDER as the newest record of
+     * {@code containerKey}'s record set, minted without a single document lookup.
+     *
+     * <p>
+     * Byte-equivalent to {@link #fullLabel} for exactly this arrival, by the following argument. The
+     * ancestry {@code fullLabel} would walk is [record, container, document root] — the caller names it
+     * instead of reading it, which is what removes the node lookups. The record's local label is the
+     * {@code appendRun} step ({@link #firstLocalLabel()} for the first record, else
+     * {@link #nextAppendLabel} of the PREVIOUS record's local): {@code mintRun} assigns exactly that
+     * sequence whatever run batching a drain produced, because an append run's labels depend only on
+     * the run's lower bound and every record's lower bound here is its predecessor. The container is
+     * minted alone with open bounds, exactly as {@code ensureLocalLabel} mints a container whose
+     * siblings carry no labels — the caller's contract is that the container has none (the parallel
+     * importer's record set is the document root's only child).
+     *
+     * <p>
+     * The one behaviour {@code fullLabel} has that this lane refuses instead of reproducing is the
+     * bounded rebalance: it fires only when a minted label exceeds {@link #REBALANCE_DIVISIONS}
+     * divisions, which an append-only sequence reaches after several {@code nextAppendLabel} carries —
+     * beyond 10^9 records per container — and under the {@link RelabelSink#SEALED} sink a build uses
+     * the rebalance collects no siblings and keeps the minted label anyway. Refusing loudly is strictly
+     * safer than silently diverging there.
+     *
+     * @param previousRecordLocal the LOCAL label the previous record of this load received, or
+     *        {@code null} for the load's first record; the caller carries it across accessor lifetimes
+     *        (one accessor exists per storage epoch)
+     * @return the record's full label; the freshly minted LOCAL label is available from
+     *         {@link #lastInOrderAppendedLocal()} for the caller to carry forward
+     */
+    SirixDeweyID fullLabelForInOrderAppend(final long recordKey, final long containerKey, final long documentRootKey,
+        final @Nullable SirixDeweyID previousRecordLocal) {
+      validateNodeKey(recordKey, "node");
+      validateNodeKey(containerKey, "container");
+      validateNodeKey(documentRootKey, "document root");
+      if (cachedInOrderDocumentRootKey != documentRootKey || cachedInOrderDocumentRootSuffix == null) {
+        cachedInOrderDocumentRootSuffix = requireLocalLabel(documentRootKey, "document root").getDivisionValues();
+        cachedInOrderDocumentRootKey = documentRootKey;
+      }
+      if (cachedInOrderContainerKey != containerKey || cachedInOrderContainerSuffix == null) {
+        SirixDeweyID containerLocal = localLabel(containerKey);
+        if (containerLocal == null) {
+          // Mint alone with open bounds — identical to ensureLocalLabel's container mint when no
+          // sibling carries a label, which is this lane's contract.
+          containerLocal = firstLocalLabel();
+          putLocalLabel(containerKey, containerLocal);
+        }
+        cachedInOrderContainerSuffix = containerLocal.getDivisionValues();
+        cachedInOrderContainerKey = containerKey;
+      }
+      final SirixDeweyID recordLocal = previousRecordLocal == null
+          ? firstLocalLabel()
+          : nextAppendLabel(previousRecordLocal);
+      if (recordLocal.getDivisionValues().length > REBALANCE_DIVISIONS) {
+        throw new IllegalStateException("in-order projection append label for record " + recordKey + " crossed the "
+            + "rebalance threshold of " + REBALANCE_DIVISIONS + " divisions — unreachable for an append-only "
+            + "sequence below ~10^9 records per container, and the sealed drain lane would keep the label anyway");
+      }
+      putLocalLabel(recordKey, recordLocal);
+      lastInOrderAppendedLocal = recordLocal;
+
+      final int[] documentRootSuffix = cachedInOrderDocumentRootSuffix;
+      final int[] containerSuffix = cachedInOrderContainerSuffix;
+      final int[] recordDivisions = recordLocal.getDivisionValues();
+      final int documentRootSuffixLength = documentRootSuffix.length - 1;
+      final int containerSuffixLength = containerSuffix.length - 1;
+      final int recordSuffixLength = recordDivisions.length - 1;
+      final int divisionCount = 1 + documentRootSuffixLength + containerSuffixLength + recordSuffixLength;
+      if (divisionCount > MAX_FULL_LABEL_DIVISIONS) {
+        throw new IllegalStateException(
+            "projection structural label exceeds " + MAX_FULL_LABEL_DIVISIONS + " divisions");
+      }
+      final int[] divisions = new int[divisionCount];
+      divisions[0] = 1;
+      int at = 1;
+      System.arraycopy(documentRootSuffix, 1, divisions, at, documentRootSuffixLength);
+      at += documentRootSuffixLength;
+      System.arraycopy(containerSuffix, 1, divisions, at, containerSuffixLength);
+      at += containerSuffixLength;
+      System.arraycopy(recordDivisions, 1, divisions, at, recordSuffixLength);
+      final SirixDeweyID fullLabel = new SirixDeweyID(divisionCount, divisions);
+      if (fullLabel.toBytes().length > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+        throw new IllegalStateException("projection structural label exceeds the bounded order-label lane");
+      }
+      return fullLabel;
+    }
+
+    /** The LOCAL label {@link #fullLabelForInOrderAppend} minted last — the caller's carry state. */
+    @Nullable
+    SirixDeweyID lastInOrderAppendedLocal() {
+      return lastInOrderAppendedLocal;
     }
 
     void remove(final long nodeKey) {

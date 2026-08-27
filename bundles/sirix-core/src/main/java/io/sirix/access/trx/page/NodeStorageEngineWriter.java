@@ -52,6 +52,8 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.ValueDictionaryEntryNode;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
@@ -143,7 +145,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * upper bound on attempted KVL pages and matches one serializer window.
    * </p>
    */
-  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 16;
+  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = Integer.getInteger("sirix.asyncFlush.maxLogEntries", 16);
 
   /**
    * Buffered output for page writes.
@@ -590,6 +592,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private long hftCompletedEpochDataGrowNanos;
   private boolean hftCompletedEpochDataGrowExact;
 
+  /**
+   * Phase breakdown summed over every worker run.
+   *
+   * <p>
+   * The per-epoch tuples above retain only the slowest and the most-blocking epoch, and on a bulk
+   * import both are the very first one — the epoch that pays JIT warm-up. Attributing the pipeline
+   * from those alone therefore describes warm-up rather than steady state. These totals answer what
+   * the flush actually spends its time on across the whole transaction, which is what decides whether
+   * widening the pipeline can pay: only the append phase is strictly serialized per writer, so the
+   * overlap a deeper pipeline can win is bounded by it.
+   * </p>
+   */
+  private long hftSerializeJoinWaitNanosTotal;
+  private long hftKvlAppendNanosTotal;
+  private long hftSideNanosTotal;
+  private long hftFinalFlushNanosTotal;
+
   /** Phase breakdown retained for the slowest worker. */
   private long hftMaxWorkerEpochId;
   private long hftMaxWorkerEpochQueueWaitNanos;
@@ -834,7 +853,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             + "nativeReservoirCount=%d nativeReservoirBytes=%d kvlFrameCachePages=%d "
             + "kvlFrameCacheBytes=%d kvlCacheFallbackPages=%d kvlCacheFallbackBytes=%d "
             + "pinnedTrieSpillEpochs=%d pinnedTrieSpillPages=%d pinnedTrieSpillBatchMax=%d "
-            + "pinnedTrieLiveMax=%d pinnedTrieHighWater=%d%n",
+            + "pinnedTrieLiveMax=%d pinnedTrieHighWater=%d "
+            + "serializeJoinWaitTotalNs=%d kvlAppendTotalNs=%d sideTotalNs=%d finalFlushTotalNs=%d%n",
         hftCombinedEpochs, hftSideOnlyEpochs, hftSnapshotKvlPages, hftSnapshotKvlAttemptedPages,
         hftSnapshotKvlPromotedPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages, hftStagedSideBytes,
         hftPeakActiveSideBytes, hftPermitAcquires, hftPermitWaitNanos, hftMaxPermitWaitNanos, hftRotationPermitAcquires,
@@ -845,7 +865,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos, hftNativeReservoirCount, hftNativeReservoirBytes,
         hftKvlFrameCachePages, hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
         hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax,
-        hftPinnedTrieHighWater);
+        hftPinnedTrieHighWater, hftSerializeJoinWaitNanosTotal, hftKvlAppendNanosTotal, hftSideNanosTotal,
+        hftFinalFlushNanosTotal);
     if (hftMaxWorkerEpochId != 0L) {
       System.out.printf(
           "# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
@@ -1283,6 +1304,105 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     cont.getCompleteAsKeyValuePage().setRecord(delNode);
   }
 
+  /**
+   * Writer-scoped memo for projection value-dictionary records, keyed by node key. See the interface
+   * javadoc on {@code StorageEngineReader#cachedProjectionDictionaryRecord} for why this is sound:
+   * the dictionary sub-trie is copy-on-write with freshly minted keys, the one stable-key rewrite
+   * (the generation header) is evicted by the put hook, and this writer is single-threaded. Records
+   * memoized here are heap-materialized (bound flyweights are refused), so entries stay valid after
+   * the async flush releases the pages they were decoded from — which is exactly the moment the
+   * uncached path starts paying a full page decode per record and this memo starts earning its keep
+   * (measured: ~16% of a bulk load's CPU was radix re-reads through that path).
+   *
+   * <p>
+   * BOUNDED, in bytes and in entries, with least-recently-used eviction. Soundness never required a
+   * bound, but retention does: the radix routes every read through here, entry LEAVES included, and
+   * one of those retains its whole UTF-8 value (up to
+   * {@link ValueDictionaryEntryNode#MAX_VALUE_LENGTH}). Uncapped, a high-cardinality column would
+   * leave a heap-resident copy of the entire dictionary standing for the life of the write
+   * transaction, invisible to the dictionary writer's own byte budget. Access order is what makes the
+   * cap keep the speedup: the upper-level radix nodes the walks revisit constantly stay resident,
+   * while the one-shot entry leaves that carry the bytes leave from the tail.
+   */
+  private @Nullable Long2ObjectLinkedOpenHashMap<DataRecord> projectionDictionaryRecordMemo;
+
+  /** Retained-heap estimate of everything currently in {@link #projectionDictionaryRecordMemo}. */
+  private long projectionDictionaryRecordMemoBytes;
+
+  /** Retention ceiling for the memo. */
+  private static final long PROJECTION_DICTIONARY_MEMO_MAX_BYTES = 32L << 20;
+
+  /** Entry ceiling, so a stream of tiny records cannot make the map itself the leak. */
+  private static final int PROJECTION_DICTIONARY_MEMO_MAX_ENTRIES = 1 << 16;
+
+  /** Object header + node key + reference slack charged to every memoized record. */
+  private static final int PROJECTION_DICTIONARY_MEMO_ENTRY_OVERHEAD = 64;
+
+  /**
+   * Retention charged to a structural dictionary node (radix fan-out array, bucket entry arrays,
+   * collision node). Sized to the largest of them rather than measured per instance: the estimate
+   * only has to keep the ceiling honest to within a small factor, and a per-kind measurement on this
+   * path would cost more than the cap saves.
+   */
+  private static final int PROJECTION_DICTIONARY_MEMO_STRUCTURAL_BYTES = 2 << 10;
+
+  @Override
+  public @Nullable DataRecord cachedProjectionDictionaryRecord(final long key) {
+    final Long2ObjectLinkedOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    return memo == null
+        ? null
+        : memo.getAndMoveToFirst(key);
+  }
+
+  @Override
+  public void cacheProjectionDictionaryRecord(final long key, final DataRecord record) {
+    if (record instanceof final FlyweightNode flyweight && flyweight.isBound()) {
+      // A bound flyweight reads through its page's memory segment, which the flush lifecycle may
+      // release — memoizing it would be a use-after-free. Dictionary node classes are plain heap
+      // records, so this guard is expected to never fire; it exists so a future flyweight
+      // conversion fails safe (the read stays correct, merely unmemoized) instead of dangling.
+      return;
+    }
+    final long footprint = projectionDictionaryRecordFootprint(record);
+    if (footprint > PROJECTION_DICTIONARY_MEMO_MAX_BYTES >> 2) {
+      // One outsized value would evict most of the working set just to house itself.
+      return;
+    }
+    Long2ObjectLinkedOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    if (memo == null) {
+      memo = new Long2ObjectLinkedOpenHashMap<>(1 << 12);
+      projectionDictionaryRecordMemo = memo;
+    }
+    final DataRecord previous = memo.putAndMoveToFirst(key, record);
+    if (previous != null) {
+      projectionDictionaryRecordMemoBytes -= projectionDictionaryRecordFootprint(previous);
+    }
+    projectionDictionaryRecordMemoBytes += footprint;
+    while (memo.size() > 1 && (projectionDictionaryRecordMemoBytes > PROJECTION_DICTIONARY_MEMO_MAX_BYTES
+        || memo.size() > PROJECTION_DICTIONARY_MEMO_MAX_ENTRIES)) {
+      projectionDictionaryRecordMemoBytes -= projectionDictionaryRecordFootprint(memo.removeLast());
+    }
+  }
+
+  @Override
+  public void evictProjectionDictionaryRecord(final long key) {
+    final Long2ObjectLinkedOpenHashMap<DataRecord> memo = projectionDictionaryRecordMemo;
+    if (memo == null) {
+      return;
+    }
+    final DataRecord removed = memo.remove(key);
+    if (removed != null) {
+      projectionDictionaryRecordMemoBytes -= projectionDictionaryRecordFootprint(removed);
+    }
+  }
+
+  /** Retained-heap estimate for one memoized dictionary record. */
+  private static long projectionDictionaryRecordFootprint(final DataRecord record) {
+    return PROJECTION_DICTIONARY_MEMO_ENTRY_OVERHEAD + (record instanceof final ValueDictionaryEntryNode entry
+        ? entry.getValueLength()
+        : PROJECTION_DICTIONARY_MEMO_STRUCTURAL_BYTES);
+  }
+
   @Override
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
@@ -1315,6 +1435,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       return record;
     } else if (pageCont != null) {
+      refuseAdoptedImmutablePage(pageCont.getModified(), "read");
       DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
         node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
@@ -2207,10 +2328,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * pre-serialized in parallel before the sequential append pass writes and closes them. Two windows
    * are in flight at once (double buffering), so the transient draw on the shared segment-allocator
    * budget is bounded by {@code 2 × WINDOW} copies, each holding a pooled slotted segment
-   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. At the current 16-page
-   * window this permits at most 32 pooled copies plus their encodings. The double buffering keeps the
-   * flush pool's workers serializing while this thread appends; widening the window past the pool's
-   * appetite only inflates the footprint.
+   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. The double buffering
+   * keeps the flush pool's workers serializing while this thread appends; widening the window past
+   * the pool's appetite only inflates the footprint.
+   *
+   * <p>
+   * <b>Equal to the epoch on purpose, and measured that way.</b> Defining the width as the epoch size
+   * makes an epoch exactly one window, so the loop below joins its only serialization, appends it,
+   * and finds no successor started — the double buffering never actually overlaps anything. That
+   * reads like a defect, and the obvious repair is to size the window independently so several
+   * windows per epoch pipeline against each other. It was tried, on a 1M-row ClickBench bulk import
+   * at {@code maxLogEntries=256} (395 epochs, 264 KVL pages each). The overlap is real and visible in
+   * the phase telemetry — a 64-page window cut the serialization-join stall from 8.1 s to 6.8 s and
+   * total worker time from 10.6 s to 9.7 s — and it bought nothing: interleaved min-of-3 wall time
+   * was 12.047 s at one window per epoch against 12.412 s at four, and a 16-page window (17 windows
+   * per epoch) regressed to 13.8 s as per-window fork/join overhead took over.
+   * </p>
+   *
+   * <p>
+   * The reason is that the append pass this would overlap is the small phase: the flush spends ~77%
+   * of its time waiting on the parallel serialize pool and ~23% appending, and the pool is the
+   * throughput limit for the whole load. Recovering the append window hands the freed capacity
+   * straight back to contention with the insert threads, which is the same effect that makes
+   * oversizing {@code sirix.asyncFlush.parallelism} lose (14 serializers measured slower end to end
+   * than 9, despite a strictly lower worker time). Anyone reaching for a deeper flush pipeline — a
+   * wider window here, or a multi-generation intent log so consecutive epochs overlap — is aiming at
+   * the 23%, and should first check what the serialize stage costs.
+   * </p>
    */
   private static final int SNAPSHOT_FLUSH_WINDOW = MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
 
@@ -2444,9 +2588,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 } finally {
                   // Null the slot only once the copy is closed — a write failure must leave
                   // nothing open, and a slot nulled before the write would hide the copy from
-                  // closeWindowLeftovers.
+                  // closeWindowLeftovers. In-place (adopted) pages are NOT copies: the snapshot
+                  // cleanup is their single closer.
                   currentWindow[i - base] = null;
-                  serializationCopy.close();
+                  if (!serializationCopy.isAdoptedImmutableForFlush()) {
+                    serializationCopy.close();
+                  }
                 }
                 log.setSnapshotDiskOffset(i, shadowRef.getKey());
                 log.setSnapshotHash(i, shadowRef.getHashAsLong(), shadowRef.hasHash());
@@ -2545,6 +2692,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
         hftWorkerRuns++;
         hftWorkerNanos += workerNanos;
+        hftSerializeJoinWaitNanosTotal += serializeJoinWaitNanos;
+        hftKvlAppendNanosTotal += kvlAppendNanos;
+        hftSideNanosTotal += sideNanos;
+        hftFinalFlushNanosTotal += finalFlushNanos;
         hftMaxSnapshotKvlAttemptedPages = Math.max(hftMaxSnapshotKvlAttemptedPages, attemptedKvlPagesInEpoch);
         if (workerNanos > hftMaxWorkerNanos) {
           hftMaxWorkerNanos = workerNanos;
@@ -2844,9 +2995,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * of 32767 — an oversized value must degrade, not turn every write transaction into an
    * ExceptionInInitializerError).
    */
+  /**
+   * The snapshot serialize pool is shared by EVERY writer in the JVM, and its size is the hard
+   * ceiling on concurrent flush serialization. The old default of {@code min(2, cores-1)} was sized
+   * for one writer — two serializers keep pace with one insert thread's rotation cadence — but it
+   * silently capped PARTITIONED parallel ingest at ~2× one writer no matter how many partitions ran:
+   * 16 writers spent ~65% of a 1M-row load parked while exactly two threads serialized every page in
+   * the process (26.6 s). Sizing the pool to about half the machine restored scaling (18.0 s, 55.7k
+   * rows/s, within 19% of the zero-flush bound) and leaves the single-writer full load unchanged
+   * (within noise), since idle work-stealing workers cost nothing. Oversubscribing to cores (16
+   * serializers + 16 writers on 20 cores) measured WORSE than 8 — hence half, not all.
+   */
   private static final ForkJoinPool SNAPSHOT_FLUSH_POOL =
       new ForkJoinPool(Math.min(32767, Math.max(1, Integer.getInteger("sirix.asyncFlush.parallelism",
-          Math.min(2, Runtime.getRuntime().availableProcessors() - 1)))));
+          Math.max(2, Runtime.getRuntime().availableProcessors() / 2 - 1)))));
 
   /**
    * Kick off the parallel deep-copy + pre-serialize pass for the snapshot window starting at
@@ -2981,7 +3143,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           if (!(modified instanceof KeyValueLeafPage kvl)) {
             return;
           }
-          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
+          // Bulk-import ADOPTED pages are immutable post-adoption: serialize IN PLACE, skipping
+          // the defensive copy (1.4 GB of memcpy per 1M rows on the flush lane). Every refusal
+          // exit in the disposable serializer precedes the frame overwrite, so the promote path
+          // still sees an untouched page.
+          final boolean inPlace = kvl.isAdoptedImmutableForFlush();
+          final KeyValueLeafPage serializationCopy = inPlace
+              ? kvl
+              : kvl.deepCopy();
           try {
             if (!serializeDisposableSnapshotKeyValuePage(config, serializationCopy)) {
               // Overlong records still carrying NULL disk keys and identity encodings larger than
@@ -2989,14 +3158,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               // cleanupSnapshot() promotes the ORIGINAL page into the live TIL, where recursive
               // final commit either resolves the overflow or serializes with an ordinary owned
               // cache. No borrowed pooled alias is ever published on this path.
-              serializationCopy.close();
+              if (!inPlace) {
+                serializationCopy.close();
+              }
               log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
               return;
             }
           } catch (final Throwable t) {
             // A copy that never reached the window would be invisible to
             // closeWindowLeftovers — release its pooled segments before recording.
-            serializationCopy.close();
+            if (!inPlace) {
+              serializationCopy.close();
+            }
             throw t;
           }
           window[i - base] = serializationCopy;
@@ -3037,7 +3210,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final KeyValueLeafPage leftover = window[i];
       if (leftover != null) {
         window[i] = null;
-        leftover.close();
+        if (!leftover.isAdoptedImmutableForFlush()) {
+          leftover.close();
+        }
       }
     }
   }
@@ -3119,6 +3294,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private PageContainer deepCopyFrozenContainer(final PageContainer container) {
     final var frozenModified = (KeyValueLeafPage) container.getModified();
+    refuseAdoptedImmutablePage(frozenModified, "copy-on-write");
     final var frozenComplete = (KeyValueLeafPage) container.getComplete();
     final var cowModified = frozenModified.deepCopy();
     final var cowComplete = (frozenComplete == frozenModified)
@@ -4033,6 +4209,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (isClosed) {
       return;
     }
+    projectionDictionaryRecordMemo = null;
+    projectionDictionaryRecordMemoBytes = 0L;
 
     Throwable asyncFailure = null;
     try {
@@ -4347,7 +4525,36 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     assert indexType != null;
     // Traditional KEYED_TRIE path (bit-decomposed).
     // HOT secondary indexes use dedicated HOT*IndexWriter/Reader implementations.
-    return prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
+    final PageContainer container = prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
+    refuseAdoptedImmutablePage(container.getModified(), "prepare-for-modification");
+    return container;
+  }
+
+  /**
+   * Refuse to hand out a bulk-ADOPTED page for reading or modification.
+   *
+   * <p>
+   * {@code markAdoptedImmutableForFlush()} buys the flush lane 1.4 GB of memcpy per million rows by
+   * letting the async snapshot serializer encode the page IN PLACE — the encoded image is copied over
+   * the page's own slotted frame, so from that moment the slot region no longer holds slot data. The
+   * page nevertheless stays resolvable through the intent log's snapshot layer until
+   * {@code cleanupSnapshot()} runs, so the window between the frame overwrite and cleanup is one in
+   * which a read would return garbage and a copy-on-write would propagate it — silently, because
+   * nothing in the record path can tell an encoded frame from a slotted one.
+   *
+   * <p>
+   * The bulk loaders never re-touch an adopted page (tails are adopted only once complete, page 0
+   * goes through {@code prepareDocumentLeafForBlit} and is never marked, and the projection feed no
+   * longer re-reads records), so this can only fire on a caller that kept using the write transaction
+   * between {@code assemble()} and {@code commit()}. Turning that into a refusal is the whole point:
+   * the alternative is corruption with no error.
+   */
+  private static void refuseAdoptedImmutablePage(final @Nullable Page page, final String operation) {
+    if (page instanceof final KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.isAdoptedImmutableForFlush()) {
+      throw new IllegalStateException("Document page " + keyValueLeafPage.getPageKey()
+          + " was adopted immutable for the bulk flush and must not be used for " + operation
+          + "; its slotted frame may already hold the serialized page image");
+    }
   }
 
   /**
@@ -4769,6 +4976,52 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (secondPage != null && !secondPage.isClosed()) {
       secondPage.retire();
     }
+  }
+
+  @Override
+  public void addNameCount(final int key, final int delta, final NodeKind nodeKind) {
+    storageEngineReader.assertNotClosed();
+    getNamePage(newRevisionRootPage).addCount(key, delta, nodeKind, this);
+  }
+
+  @Override
+  public void adoptDocumentLeafPage(final KeyValueLeafPage page) {
+    storageEngineReader.assertNotClosed();
+    final long recordPageKey = page.getPageKey();
+    final PageReference indexReference =
+        storageEngineReader.getPageReference(newRevisionRootPage, IndexType.DOCUMENT, -1);
+    // Walking the trie CoWs the indirect spine into the log exactly as an ordinary insert would.
+    final PageReference reference =
+        keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(IndexType.DOCUMENT), indexReference,
+            recordPageKey, -1, IndexType.DOCUMENT, newRevisionRootPage);
+    if (reference.getKey() != Constants.NULL_ID_LONG || log.get(reference) != null) {
+      throw new IllegalStateException(
+          "bulk adoption requires unwritten territory, but document page " + recordPageKey + " already exists");
+    }
+    // Mirror createFreshRecordPage's container shape: empty COMPLETE twin + the built MODIFIED
+    // page — read-back, flush eligibility and commit all key off that structure.
+    final KeyValueLeafPage completeTwin = new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
+        getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(), null, null, false);
+    appendLogRecord(reference, PageContainer.getInstance(completeTwin, page));
+    storageEngineReader.invalidateMostRecentlyReadRecordPage(IndexType.DOCUMENT, -1);
+    // In-place flush eligibility: no heap records (overflow values need the copy+promote route).
+    boolean hasHeapRecords = false;
+    for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+      if (page.getRecord(slot) != null) {
+        hasHeapRecords = true;
+        break;
+      }
+    }
+    if (!hasHeapRecords) {
+      page.markAdoptedImmutableForFlush();
+    }
+  }
+
+  @Override
+  public KeyValueLeafPage prepareDocumentLeafForBlit(final long recordPageKey) {
+    storageEngineReader.assertNotClosed();
+    final PageContainer container = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
+    return (KeyValueLeafPage) container.getModifiedAsKeyValuePage();
   }
 
   @Override

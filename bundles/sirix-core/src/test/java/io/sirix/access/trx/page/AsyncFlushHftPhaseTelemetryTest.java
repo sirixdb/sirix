@@ -91,6 +91,25 @@ final class AsyncFlushHftPhaseTelemetryTest {
         "hftMaxForegroundFlushNanos"));
     assertTrue(booleanField(measuredWriter, "hftMaxWorkerEpochDataGrowExact"));
     assertTrue(booleanField(measuredWriter, "hftMaxBlockedEpochDataGrowExact"));
+
+    // The per-epoch tuples above retain the slowest and the most-blocking epoch, which on a bulk
+    // import is the JIT-warm-up epoch in both cases; the run totals are what attributes the steady
+    // state. Each total sums every worker run INCLUDING the retained maximum, so it can never be
+    // smaller than it — an accumulation that is dropped or wired to the wrong phase reads as zero
+    // against a positive maximum and fails here rather than silently reporting a flat profile.
+    assertTrue(longField(measuredWriter, "hftSerializeJoinWaitNanosTotal") >= longField(measuredWriter,
+        "hftMaxWorkerEpochSerializeJoinWaitNanos"), "serialize-join total must cover the slowest epoch's share");
+    assertTrue(longField(measuredWriter, "hftKvlAppendNanosTotal") >= longField(measuredWriter,
+        "hftMaxWorkerEpochKvlAppendNanos"), "KVL-append total must cover the slowest epoch's share");
+    assertTrue(
+        longField(measuredWriter, "hftSideNanosTotal") >= longField(measuredWriter, "hftMaxWorkerEpochSideNanos"),
+        "side-page total must cover the slowest epoch's share");
+    assertTrue(longField(measuredWriter, "hftFinalFlushNanosTotal") >= longField(measuredWriter,
+        "hftMaxWorkerEpochFinalFlushNanos"), "final-flush total must cover the slowest epoch's share");
+    // Both phases run in every combined epoch, so with more than one epoch the totals must exceed
+    // any single epoch's contribution rather than merely equal the retained maximum.
+    assertTrue(longField(measuredWriter, "hftKvlAppendNanosTotal") > longField(measuredWriter,
+        "hftMaxWorkerEpochKvlAppendNanos"), "several epochs appended, so the total must exceed one epoch");
   }
 
   @Test

@@ -59,7 +59,9 @@ import io.sirix.diff.JsonDiffSerializer;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathStatsAccumulator;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.index.path.summary.PathSummaryWriter.OPType;
 import io.sirix.node.Bytes;
@@ -105,6 +107,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
@@ -200,7 +204,11 @@ final class JsonNodeTrxImpl extends
       "Insert is not allowed if parent node is not an array node!";
 
   private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
-  private static final QNm ARRAY_SIBLING_PATH_QNM = new QNm("array");
+  // A sibling array resolves the SAME __array__ path step as a first-child array: an array's
+  // path class is a property of WHERE it sits, not of which insert position created it —
+  // [[1],[2]] must put both inner arrays in ONE path class or every path-addressed consumer
+  // (summary counts, projections, CAS indexes) silently sees only the first element.
+
   private static final long UNKNOWN_NOTIFICATION_PATH_NODE_KEY = Long.MIN_VALUE;
   private static final Str STR_TRUE = new Str("true");
   private static final Str STR_FALSE = new Str("false");
@@ -1167,6 +1175,81 @@ final class JsonNodeTrxImpl extends
     }
   }
 
+  // ==== bulk-assembly seam (package-private) ==================================================
+  // The BulkJsonTreeAssembler drives the SAME factory / path-summary / notification machinery as
+  // the cursor inserts, but computes every structural pointer from its own stack before a record
+  // is first written — so it needs the collaborators, not the cursor choreography. Nothing here
+  // widens the public API, and nothing here may be called while ordinary cursor edits are in
+  // flight on this transaction.
+
+  JsonNodeFactory bulkNodeFactory() {
+    return nodeFactory;
+  }
+
+  @Nullable
+  PathSummaryWriter<JsonNodeReadOnlyTrx> bulkPathSummaryWriter() {
+    return pathSummaryWriter;
+  }
+
+  boolean bulkBuildPathSummary() {
+    return buildPathSummary;
+  }
+
+  boolean bulkStoreChildCount() {
+    return storeChildCount;
+  }
+
+  boolean bulkUseTextCompression() {
+    return useTextCompression;
+  }
+
+  boolean bulkHasPrimitiveIndexes() {
+    return indexController.hasAnyPrimitiveIndex();
+  }
+
+  /**
+   * The one index family the parallel importer cannot maintain: valid-time intervals are resolved by
+   * a configured-path visitor over whole records, which has no chunk-local equivalent yet. PATH, CAS
+   * and NAME are fed by the importer's own worker-collected tuples, and PROJECTION by the
+   * coordinator's record attribution.
+   */
+  boolean bulkHasValidTimeIndex() {
+    // Def-based rather than the controller's cached listener flag: the flag is set when listeners
+    // bind, but a VALIDTIME definition catalogued WITHOUT its listener would serialize on commit as
+    // an index nothing maintained — exactly the silent outcome the refusal exists to prevent.
+    return indexController.hasValidTimeIndex() || !bulkIndexDefsOfType(IndexType.VALIDTIME).isEmpty();
+  }
+
+  /** Catalogued definitions of {@code indexType}, for the parallel importer's index maintenance. */
+  Set<IndexDef> bulkIndexDefsOfType(final IndexType indexType) {
+    final Set<IndexDef> defs = new HashSet<>();
+    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
+      if (indexDef.getType() == indexType) {
+        defs.add(indexDef);
+      }
+    }
+    return defs;
+  }
+
+  /** Catalogued PROJECTION definitions, for the parallel importer's arm check. */
+  Set<IndexDef> bulkProjectionIndexDefs() {
+    final Set<IndexDef> projectionDefs = new HashSet<>();
+    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
+      if (indexDef.isProjectionIndex()) {
+        projectionDefs.add(indexDef);
+      }
+    }
+    return projectionDefs;
+  }
+
+  void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey) {
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+  }
+
+  void bulkAccountRecord(final int mutations) {
+    bulkAccountMutations(mutations);
+  }
+
   @Override
   public JsonNodeTrx insertObjectRecordAsLeftSibling(final String key, final ObjectRecordValue<?> value) {
     requireNonNull(key);
@@ -1297,15 +1380,13 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  /** Whether {@code number} is integral AND representable as a {@code long} without loss. */
+  /**
+   * Whether {@code number} is integral AND representable as a {@code long} without loss. Delegates to
+   * the single shared classifier so the cursor path and the bulk loaders can never disagree on which
+   * lane a number takes.
+   */
   private static boolean isExactLong(final Number number) {
-    if (number instanceof Long || number instanceof Integer || number instanceof Short || number instanceof Byte) {
-      return true;
-    }
-    if (number instanceof BigInteger bigInteger) {
-      return bigInteger.bitLength() < Long.SIZE;
-    }
-    return false;
+    return PathStatsAccumulator.isExactLong(number);
   }
 
 
@@ -1994,7 +2075,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getNodeKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
@@ -2041,7 +2122,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();

@@ -25,14 +25,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Decisive empirical probe for the HOT branch-insert {@code betaIsDiscBit} case.
  *
- * <p>Goal — settle whether {@link HOTIncrementalInsert#addChildAtCombination} (the not-full
+ * <p>
+ * Goal — settle whether {@link HOTIncrementalInsert#addChildAtCombination} (the not-full
  * {@code betaIsDiscBit} path) is genuinely routing-correct under STRICT, no-fallback root-to-leaf
  * {@link HOTIndirectPage#findChildIndex} descent, and whether the canonical {@link HOTBulkBuilder}
  * tree of the same key set both routes 100% and contains a child at exactly {@code comboPartial}.
  *
- * <p>The probe faithfully replicates {@code AbstractHOTIndexWriter.tryBranchIncremental}'s
- * {@code betaIsDiscBit} branch: it builds a canonical HOT, picks a fresh in-range key K, performs
- * a real strict descent to a leaf, runs {@link HOTIncrementalInsert#analyzeDescent} +
+ * <p>
+ * The probe faithfully replicates {@code AbstractHOTIndexWriter.tryBranchIncremental}'s
+ * {@code betaIsDiscBit} branch: it builds a canonical HOT, picks a fresh in-range key K, performs a
+ * real strict descent to a leaf, runs {@link HOTIncrementalInsert#analyzeDescent} +
  * {@link HOTIncrementalInsert#getInsertInformation}, and — when {@code info.betaIsDiscBit()} and
  * the insert-depth node is not full — computes {@code comboPartial} exactly as the writer does,
  * folds K's leaf via {@code addChildAtCombination}, and verifies the result.
@@ -69,8 +71,8 @@ final class BetaIsDiscBitRoutingProbe {
 
     for (final KeySet ks : sets) {
       final AtomicLong allocator = new AtomicLong(1);
-      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(ks.keys), 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(entries(ks.keys), 1, IndexType.CAS, allocator::getAndIncrement);
       Page root = built.rootPage();
       if (!(root instanceof HOTIndirectPage)) {
         closeLeaves(root);
@@ -106,9 +108,12 @@ final class BetaIsDiscBitRoutingProbe {
         // ---- replicate tryBranchIncremental's comboPartial exactly ----
         final int[] nodeDiscBits = HOTIncrementalInsert.discriminativeBits(bc.node);
         final int betaColumn = java.util.Arrays.binarySearch(nodeDiscBits, bc.analysis.mismatchBit());
-        final int betaValue = HOTBulkBuilder.bitAt(k, bc.analysis.mismatchBit()) ? 1 : 0;
-        final int comboPartial = bc.info.subtreePrefix()
-            | (betaValue == 1 ? 1 << (nodeDiscBits.length - 1 - betaColumn) : 0);
+        final int betaValue = HOTBulkBuilder.bitAt(k, bc.analysis.mismatchBit())
+            ? 1
+            : 0;
+        final int comboPartial = bc.info.subtreePrefix() | (betaValue == 1
+            ? 1 << (nodeDiscBits.length - 1 - betaColumn)
+            : 0);
 
         // ---- Q2: comboPartial vs K's real densePK at this node ----
         final int densePK = bc.node.computeDensePartialKey(k);
@@ -124,8 +129,8 @@ final class BetaIsDiscBitRoutingProbe {
         assertTrue(comboLeaf.put(k, VALUE), "fresh single-entry leaf must accept the key");
         final HOTIndirectPage foldedNode;
         try {
-          foldedNode = HOTIncrementalInsert.addChildAtCombination(bc.node, comboPartial,
-              swizzle(comboLeaf), bc.node.getHeight(), 1, allocator::getAndIncrement);
+          foldedNode = HOTIncrementalInsert.addChildAtCombination(bc.node, comboPartial, swizzle(comboLeaf),
+              bc.node.getHeight(), 1, allocator::getAndIncrement);
         } catch (IllegalArgumentException dup) {
           // comboPartial already a child partial — addChildAtCombination rejects it.
           comboLeaf.close();
@@ -136,7 +141,15 @@ final class BetaIsDiscBitRoutingProbe {
         bc.nodeRef.setPage(foldedNode);
 
         // ---- Q1: STRICT no-fallback routing of K from the real root ----
-        final HOTLeafPage routed = strictDescend(root, k);
+        // Depth-0 folds replace the ROOT itself: the real writer re-points the spine
+        // reference and every later descent goes through it, but this probe's `root` is a
+        // plain Page variable — descending the stale pre-fold object would report a false
+        // misroute. (Unreachable before the highest-fitting-subtree leaf cut: canonical
+        // roots were always FULL and full nodes divert to the Q4 decomposition.)
+        final Page descentRoot = bc.node == root
+            ? foldedNode
+            : root;
+        final HOTLeafPage routed = strictDescend(descentRoot, k);
         if (routed != null && routed.findEntry(k) >= 0) {
           strictRouteOk++;
         } else {
@@ -149,10 +162,10 @@ final class BetaIsDiscBitRoutingProbe {
                 "[%s] K=%s MISROUTE: node discBits=%s comboPartial=0x%x densePK=0x%x "
                     + "betaCol=%d betaVal=%d | findChildIndex->slot %d (partial 0x%x) "
                     + "comboLeafSlot has partial 0x%x | nodePartials=%s",
-                ks.name, HEX.formatHex(k), java.util.Arrays.toString(nodeDiscBits),
-                comboPartial, densePK, betaColumn, betaValue, chosen,
-                chosen >= 0 && partials != null && chosen < partials.length
-                    ? partials[chosen] : -1,
+                ks.name, HEX.formatHex(k), java.util.Arrays.toString(nodeDiscBits), comboPartial, densePK, betaColumn,
+                betaValue, chosen, chosen >= 0 && partials != null && chosen < partials.length
+                    ? partials[chosen]
+                    : -1,
                 comboPartial, partialsHex(partials)));
           }
         }
@@ -164,19 +177,20 @@ final class BetaIsDiscBitRoutingProbe {
     }
 
     System.out.println("=== Q1/Q2 — not-full betaIsDiscBit addChildAtCombination ===");
-    System.out.printf("  betaIsDiscBit firings=%d | not-full cases folded=%d%n",
-        betaIsDiscBitFirings, notFullCases);
+    System.out.printf("  betaIsDiscBit firings=%d | not-full cases folded=%d%n", betaIsDiscBitFirings, notFullCases);
     System.out.println("  d* child-count histogram at firings: " + childCountHistogram);
     System.out.printf("  Q2: comboPartial == densePK : %d%n", comboEqualsDensePK);
     System.out.printf("  Q2: comboPartial STRICT-SUBSET of densePK : %d%n", comboSubsetOfDensePK);
-    System.out.printf("  Q1: strict route OK=%d | strict MISROUTES=%d%n",
-        strictRouteOk, strictMisroutes);
+    System.out.printf("  Q1: strict route OK=%d | strict MISROUTES=%d%n", strictRouteOk, strictMisroutes);
     for (final String d : misrouteDetails) {
       System.out.println("  " + d);
     }
-    System.out.println("  DECISIVE: not-full betaIsDiscBit routes 100% strict = "
-        + (strictMisroutes == 0 && notFullCases > 0 ? "YES" : strictMisroutes > 0 ? "NO"
-            : "INCONCLUSIVE (no case)"));
+    System.out.println(
+        "  DECISIVE: not-full betaIsDiscBit routes 100% strict = " + (strictMisroutes == 0 && notFullCases > 0
+            ? "YES"
+            : strictMisroutes > 0
+                ? "NO"
+                : "INCONCLUSIVE (no case)"));
     assertTrue(notFullCases > 0, "no not-full betaIsDiscBit case exercised — coverage gap");
     assertTrue(strictMisroutes == 0,
         "not-full betaIsDiscBit addChildAtCombination misrouted " + strictMisroutes + " keys");
@@ -186,9 +200,9 @@ final class BetaIsDiscBitRoutingProbe {
   // Q4 — full-node betaIsDiscBit: the splitIndirect decomposition.
   //
   // For a FULL node where betaIsDiscBit fires, the rebuild fallback can be replaced by:
-  //   splitIndirect(node) -> BiNode on node.MSB; the two halves are not-full;
-  //   K routes (by node.MSB) into one half; addChildAtCombination into that half;
-  //   reassemble the BiNode.
+  // splitIndirect(node) -> BiNode on node.MSB; the two halves are not-full;
+  // K routes (by node.MSB) into one half; addChildAtCombination into that half;
+  // reassemble the BiNode.
   // This probe builds that decomposition and verifies strict routing of K + every key,
   // and cross-checks against HOTBulkBuilder of the same key set.
   // ====================================================================
@@ -214,8 +228,8 @@ final class BetaIsDiscBitRoutingProbe {
 
     for (final KeySet ks : sets) {
       final AtomicLong allocator = new AtomicLong(1);
-      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(ks.keys), 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(entries(ks.keys), 1, IndexType.CAS, allocator::getAndIncrement);
       final Page root = built.rootPage();
       if (!(root instanceof HOTIndirectPage)) {
         closeLeaves(root);
@@ -231,14 +245,15 @@ final class BetaIsDiscBitRoutingProbe {
           break;
         }
         final BetaCase bc = analyzeBetaCase(root, k);
-        if (bc == null || !bc.info.betaIsDiscBit()
-            || bc.node.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
+        if (bc == null || !bc.info.betaIsDiscBit() || bc.node.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
           continue; // need a FULL d*
         }
         casesThisSet++;
         fullCases++;
         final int beta = bc.analysis.mismatchBit();
-        final int betaValue = HOTBulkBuilder.bitAt(k, beta) ? 1 : 0;
+        final int betaValue = HOTBulkBuilder.bitAt(k, beta)
+            ? 1
+            : 0;
 
         // ---- the decomposition: splitIndirect(node) at node.MSB ----
         final HOTIncrementalInsert.BiNode split =
@@ -246,7 +261,9 @@ final class BetaIsDiscBitRoutingProbe {
         // K routes into one half by node.MSB.
         final int nodeMsb = bc.node.getMostSignificantBitIndex();
         final boolean kMsbBit = HOTBulkBuilder.bitAt(k, nodeMsb);
-        final PageReference halfRef = kMsbBit ? split.right() : split.left();
+        final PageReference halfRef = kMsbBit
+            ? split.right()
+            : split.left();
         if (!(halfRef.getPage() instanceof HOTIndirectPage half)) {
           // K's half is a single leaf — addChildAtCombination needs an indirect; skip.
           continue;
@@ -263,41 +280,40 @@ final class BetaIsDiscBitRoutingProbe {
         }
         final HOTIncrementalInsert.InsertInfo halfInfo =
             HOTIncrementalInsert.getInsertInformation(half, childIdx, beta);
-        final HOTLeafPage comboLeaf =
-            new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
+        final HOTLeafPage comboLeaf = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
         assertTrue(comboLeaf.put(k, VALUE));
         final HOTIndirectPage foldedHalf;
         // comboPartial is meaningful only for the betaCol>=0 (still-betaIsDiscBit) branch.
         final int comboPartial = betaCol >= 0
-            ? halfInfo.subtreePrefix() | (betaValue == 1 ? 1 << (halfDiscBits.length - 1 - betaCol)
+            ? halfInfo.subtreePrefix() | (betaValue == 1
+                ? 1 << (halfDiscBits.length - 1 - betaCol)
                 : 0)
             : -1;
         try {
           if (betaCol >= 0) {
             betaSurvivesInHalf++;
-            foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial,
-                swizzle(comboLeaf), half.getHeight(), 1, allocator::getAndIncrement);
+            foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, swizzle(comboLeaf),
+                half.getHeight(), 1, allocator::getAndIncrement);
           } else {
             betaLostInHalf++;
             // beta is new to the half — fold it as a fresh disc bit via addEntryWithInsertInfo.
-            foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue,
-                halfInfo.firstAffected(), halfInfo.affectedCount(), halfInfo.subtreePrefix(),
-                swizzle(comboLeaf), half.getHeight(), 1, allocator::getAndIncrement);
+            foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue, halfInfo.firstAffected(),
+                halfInfo.affectedCount(), halfInfo.subtreePrefix(), swizzle(comboLeaf), half.getHeight(), 1,
+                allocator::getAndIncrement);
           }
         } catch (IllegalArgumentException | IllegalStateException ex) {
           comboLeaf.close();
           decomposeFailed++;
           if (failDetails.size() < 6) {
-            failDetails.add(String.format("[%s] K=%s beta=%d decomposition op threw: %s",
-                ks.name, HEX.formatHex(k), beta, ex.getMessage()));
+            failDetails.add(String.format("[%s] K=%s beta=%d decomposition op threw: %s", ks.name, HEX.formatHex(k),
+                beta, ex.getMessage()));
           }
           continue;
         }
         halfRef.setPage(foldedHalf);
         // Reassemble the BiNode with the folded half.
-        final HOTIndirectPage decomposed = HOTIndirectPage.createBiNode(
-            allocator.getAndIncrement(), 1, split.discriminativeBitIndex(),
-            split.left(), split.right(), split.height());
+        final HOTIndirectPage decomposed = HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1,
+            split.discriminativeBitIndex(), split.left(), split.right(), split.height());
         decomposedOk++;
 
         // ---- STRICT routing of K from the decomposed BiNode ----
@@ -310,8 +326,8 @@ final class BetaIsDiscBitRoutingProbe {
             final int chosen = decomposed.findChildIndex(k);
             failDetails.add(String.format(
                 "[%s] K=%s MISROUTE in decomposed BiNode: beta=%d comboPartial=0x%x "
-                    + "half discBits=%s -> BiNode child %d", ks.name, HEX.formatHex(k), beta,
-                comboPartial, java.util.Arrays.toString(halfDiscBits), chosen));
+                    + "half discBits=%s -> BiNode child %d",
+                ks.name, HEX.formatHex(k), beta, comboPartial, java.util.Arrays.toString(halfDiscBits), chosen));
           }
         }
         comboLeaf.close();
@@ -321,24 +337,22 @@ final class BetaIsDiscBitRoutingProbe {
 
     System.out.println("=== Q4 — full-node betaIsDiscBit splitIndirect decomposition ===");
     System.out.printf("  full-node betaIsDiscBit cases=%d%n", fullCases);
-    System.out.printf("  beta SURVIVES in K's half=%d | beta LOST in half=%d%n",
-        betaSurvivesInHalf, betaLostInHalf);
-    System.out.printf("  decomposition built OK=%d | decomposition not applicable=%d%n",
-        decomposedOk, decomposeFailed);
-    System.out.printf("  strict route OK=%d | strict MISROUTES=%d%n",
-        strictRouteOk, strictMisroutes);
+    System.out.printf("  beta SURVIVES in K's half=%d | beta LOST in half=%d%n", betaSurvivesInHalf, betaLostInHalf);
+    System.out.printf("  decomposition built OK=%d | decomposition not applicable=%d%n", decomposedOk, decomposeFailed);
+    System.out.printf("  strict route OK=%d | strict MISROUTES=%d%n", strictRouteOk, strictMisroutes);
     for (final String d : failDetails) {
       System.out.println("  " + d);
     }
-    System.out.println("  DECISIVE: full-node betaIsDiscBit decomposition routes strict = "
-        + (decomposedOk > 0 && strictMisroutes == 0 ? "YES"
-            : strictMisroutes > 0 ? "NO (misroutes)"
-            : "BLOCKED (beta lost in half / not applicable)"));
+    System.out.println(
+        "  DECISIVE: full-node betaIsDiscBit decomposition routes strict = " + (decomposedOk > 0 && strictMisroutes == 0
+            ? "YES"
+            : strictMisroutes > 0
+                ? "NO (misroutes)"
+                : "BLOCKED (beta lost in half / not applicable)"));
     assertTrue(fullCases > 0, "no full-node betaIsDiscBit case exercised — coverage gap");
     // Report-only: a decomposition that cannot apply (beta lost) is the finding, not a failure.
     if (decomposedOk > 0) {
-      assertTrue(strictMisroutes == 0,
-          "full-node decomposition misrouted " + strictMisroutes + " keys");
+      assertTrue(strictMisroutes == 0, "full-node decomposition misrouted " + strictMisroutes + " keys");
     }
   }
 
@@ -364,8 +378,8 @@ final class BetaIsDiscBitRoutingProbe {
 
     for (final KeySet ks : sets) {
       final AtomicLong allocator = new AtomicLong(1);
-      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(ks.keys), 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(entries(ks.keys), 1, IndexType.CAS, allocator::getAndIncrement);
       Page root = built.rootPage();
       if (!(root instanceof HOTIndirectPage)) {
         closeLeaves(root);
@@ -382,27 +396,28 @@ final class BetaIsDiscBitRoutingProbe {
           break;
         }
         final BetaCase bc = analyzeBetaCase(root, k);
-        if (bc == null || !bc.info.betaIsDiscBit()
-            || bc.node.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
+        if (bc == null || !bc.info.betaIsDiscBit() || bc.node.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
           continue;
         }
         casesThisSet++;
         casesChecked++;
 
         final int[] nodeDiscBits = HOTIncrementalInsert.discriminativeBits(bc.node);
-        final int betaColumn =
-            java.util.Arrays.binarySearch(nodeDiscBits, bc.analysis.mismatchBit());
-        final int betaValue = HOTBulkBuilder.bitAt(k, bc.analysis.mismatchBit()) ? 1 : 0;
-        final int comboPartial = bc.info.subtreePrefix()
-            | (betaValue == 1 ? 1 << (nodeDiscBits.length - 1 - betaColumn) : 0);
+        final int betaColumn = java.util.Arrays.binarySearch(nodeDiscBits, bc.analysis.mismatchBit());
+        final int betaValue = HOTBulkBuilder.bitAt(k, bc.analysis.mismatchBit())
+            ? 1
+            : 0;
+        final int comboPartial = bc.info.subtreePrefix() | (betaValue == 1
+            ? 1 << (nodeDiscBits.length - 1 - betaColumn)
+            : 0);
 
         // Build the canonical tree over the SAME key set PLUS K.
         final TreeSet<byte[]> withK = new TreeSet<>(java.util.Arrays::compareUnsigned);
         withK.addAll(ks.keys);
         withK.add(k);
         final AtomicLong canonAlloc = new AtomicLong(1);
-        final HOTBulkBuilder.BuildResult canon = HOTBulkBuilder.build(
-            entries(new ArrayList<>(withK)), 1, IndexType.CAS, canonAlloc::getAndIncrement);
+        final HOTBulkBuilder.BuildResult canon =
+            HOTBulkBuilder.build(entries(new ArrayList<>(withK)), 1, IndexType.CAS, canonAlloc::getAndIncrement);
 
         // Canonical routes ALL keys strict?
         int misroutes = 0;
@@ -425,9 +440,8 @@ final class BetaIsDiscBitRoutingProbe {
             // What partial DID the canonical tree give K's child?
             final int canonChildPartial = canonicalChildPartialForKey(canon.rootPage(), k);
             noComboDetails.add(String.format(
-                "[%s] K=%s incremental comboPartial=0x%x but canonical child partial=0x%x "
-                    + "(node discBits=%s)", ks.name, HEX.formatHex(k), comboPartial,
-                canonChildPartial, java.util.Arrays.toString(nodeDiscBits)));
+                "[%s] K=%s incremental comboPartial=0x%x but canonical child partial=0x%x " + "(node discBits=%s)",
+                ks.name, HEX.formatHex(k), comboPartial, canonChildPartial, java.util.Arrays.toString(nodeDiscBits)));
           }
         }
         closeLeaves(canon.rootPage());
@@ -453,8 +467,8 @@ final class BetaIsDiscBitRoutingProbe {
   // ====================================================================
 
   /** Bundle of one betaIsDiscBit descent's state. */
-  private record BetaCase(HOTIndirectPage node, PageReference nodeRef, DescentAnalysis analysis,
-                          InsertInfo info) {}
+  private record BetaCase(HOTIndirectPage node, PageReference nodeRef, DescentAnalysis analysis, InsertInfo info) {
+  }
 
   /**
    * Strict-descend {@code key} from {@code root}, build the path-node stack, run
@@ -501,8 +515,8 @@ final class BetaIsDiscBitRoutingProbe {
     }
     final int insertDepth = analysis.insertDepth();
     final HOTIndirectPage node = pn[insertDepth];
-    final InsertInfo info = HOTIncrementalInsert.getInsertInformation(node,
-        analysis.affectedChildIndex(), analysis.mismatchBit());
+    final InsertInfo info =
+        HOTIncrementalInsert.getInsertInformation(node, analysis.affectedChildIndex(), analysis.mismatchBit());
     // pathRefs[insertDepth] is the reference whose page is `node`; for the root it is null,
     // so wrap the root in a synthetic reference for splice-in.
     PageReference nodeRef = pathRefs.get(insertDepth);
@@ -515,10 +529,10 @@ final class BetaIsDiscBitRoutingProbe {
 
   /**
    * Recursively replace every FULL ({@code MAX_NODE_ENTRIES}-child) indirect node with the
-   * materialized {@link HOTIncrementalInsert#splitIndirect} BiNode, producing a tree whose
-   * interior nodes are all not-full — the state the incremental writer's
-   * {@code addChildAtCombination} actually operates on (after an earlier split). Routing is
-   * preserved: splitIndirect is verified routing-correct by {@code HOTIndirectPageSplitFaithfulTest}.
+   * materialized {@link HOTIncrementalInsert#splitIndirect} BiNode, producing a tree whose interior
+   * nodes are all not-full — the state the incremental writer's {@code addChildAtCombination}
+   * actually operates on (after an earlier split). Routing is preserved: splitIndirect is verified
+   * routing-correct by {@code HOTIndirectPageSplitFaithfulTest}.
    */
   private static Page splitAllFullNodes(final Page page, final AtomicLong allocator) {
     if (!(page instanceof HOTIndirectPage node)) {
@@ -534,21 +548,19 @@ final class BetaIsDiscBitRoutingProbe {
     if (node.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
       return node;
     }
-    final HOTIncrementalInsert.BiNode split =
-        HOTIncrementalInsert.splitIndirect(node, 1, allocator::getAndIncrement);
-    return HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1,
-        split.discriminativeBitIndex(), split.left(), split.right(), split.height());
+    final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, 1, allocator::getAndIncrement);
+    return HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1, split.discriminativeBitIndex(), split.left(),
+        split.right(), split.height());
   }
 
   /**
    * Generate betaIsDiscBit candidate keys: walk to every leaf carrying the accumulated set of
-   * ancestor discriminative bits; for several sample keys in each leaf and every ancestor disc
-   * bit {@code b}, emit {@code flip(sample, b)}. The flipped key K then has
+   * ancestor discriminative bits; for several sample keys in each leaf and every ancestor disc bit
+   * {@code b}, emit {@code flip(sample, b)}. The flipped key K then has
    * {@code msdb(K, resident) == b}, an existing ancestor disc bit — exactly the betaIsDiscBit
    * branch-insert scenario. Skips any flip that collides with a present key.
    */
-  private static List<byte[]> betaIsDiscBitCandidates(final Page root,
-      final TreeSet<byte[]> present) {
+  private static List<byte[]> betaIsDiscBitCandidates(final Page root, final TreeSet<byte[]> present) {
     final List<byte[]> out = new ArrayList<>();
     final TreeSet<byte[]> emitted = new TreeSet<>(java.util.Arrays::compareUnsigned);
     collectBetaCandidates(root, new int[0], present, emitted, out);
@@ -610,16 +622,17 @@ final class BetaIsDiscBitRoutingProbe {
       }
       page = ref.getPage();
     }
-    return page instanceof HOTLeafPage leaf ? leaf : null;
+    return page instanceof HOTLeafPage leaf
+        ? leaf
+        : null;
   }
 
   /**
-   * Walk K's strict descent in {@code canonRoot}; at the node whose disc-bit set best matches
-   * the incremental node, check whether any child's stored partial equals {@code comboPartial}.
+   * Walk K's strict descent in {@code canonRoot}; at the node whose disc-bit set best matches the
+   * incremental node, check whether any child's stored partial equals {@code comboPartial}.
    * Conservative: returns true if ANY node on K's path has a child at comboPartial.
    */
-  private static boolean canonicalHasChildAtPartial(final Page canonRoot, final byte[] key,
-      final int comboPartial) {
+  private static boolean canonicalHasChildAtPartial(final Page canonRoot, final byte[] key, final int comboPartial) {
     Page page = canonRoot;
     int depth = 0;
     while (page instanceof HOTIndirectPage node) {
@@ -661,7 +674,9 @@ final class BetaIsDiscBitRoutingProbe {
         break;
       }
       final int[] partials = node.getPartialKeys();
-      lastPartial = partials != null && ci < partials.length ? partials[ci] : -1;
+      lastPartial = partials != null && ci < partials.length
+          ? partials[ci]
+          : -1;
       final PageReference ref = node.getChildReference(ci);
       if (ref == null) {
         break;
@@ -675,7 +690,8 @@ final class BetaIsDiscBitRoutingProbe {
   // Key sets and utilities.
   // ====================================================================
 
-  private record KeySet(String name, List<byte[]> keys) {}
+  private record KeySet(String name, List<byte[]> keys) {
+  }
 
   private static List<byte[]> ascending(final int n) {
     final List<byte[]> keys = new ArrayList<>(n);
@@ -717,8 +733,8 @@ final class BetaIsDiscBitRoutingProbe {
   }
 
   /**
-   * 40-byte keys: an 8-value byte-0 prefix plus a far-out random tail at bytes 30-39 — disc
-   * bits span &gt; 8 bytes, forcing the MultiMask layout (mirrors {@code
+   * 40-byte keys: an 8-value byte-0 prefix plus a far-out random tail at bytes 30-39 — disc bits span
+   * &gt; 8 bytes, forcing the MultiMask layout (mirrors {@code
    * HOTIndirectPageSplitFaithfulTest.WIDE_SPAN}; reproduces the prior "WIDE_SPAN beta=242" case).
    */
   private static List<byte[]> widespan(final int n) {

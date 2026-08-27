@@ -74,7 +74,11 @@ final class ProjectionStreamingGlobalDictionaryTest {
       for (int repeat = 0; repeat < 256; repeat++) {
         assertEquals(3, dictionary.intern("gamma"));
       }
-      assertEquals(2L, dictionary.persistentProbeCount());
+      // The resident probe front keeps every (value, id) of the load in memory across generation
+      // flushes, so re-interning a flushed value never walks the persistent radix. Zero probes IS
+      // the contract now — the old expectation of one probe per flushed value re-encounter was the
+      // ~5-page-decode-per-value regime this front exists to remove. The ids are the real pin.
+      assertEquals(0L, dictionary.persistentProbeCount());
       assertEquals(headerKey, dictionary.flush());
       storage.asyncFlush();
       storage.awaitPendingAsyncFlush();
@@ -89,7 +93,7 @@ final class ProjectionStreamingGlobalDictionaryTest {
       for (int repeat = 0; repeat < 256; repeat++) {
         assertEquals(4, dictionary.intern("delta"));
       }
-      assertEquals(5L, dictionary.persistentProbeCount());
+      assertEquals(0L, dictionary.persistentProbeCount());
       assertEquals(headerKey, dictionary.flush());
       wtx.commit();
     } finally {

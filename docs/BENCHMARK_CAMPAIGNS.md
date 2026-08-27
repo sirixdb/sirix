@@ -152,9 +152,11 @@ suite 2.79× → 2.63×. Corpus grows +7 % on disk.
 ### 4.3 Async promotion of the projection payloads
 
 The projection can serve two ways: *sliced* (decode per-column segments on demand — wins
-cold, because it reads only what the query needs) and *byte-kernel* (operate on fully
-materialized row-group payloads — wins hot). Originally a query that noticed the hot
-regime *synchronously* materialized all payloads, stalling that query 150–250 ms.
+cold, because it reads only what the query needs) and *byte-kernel* (operate on materialized
+row-group payloads — wins hot; a projection too large for the eager budget materializes
+those payloads in bounded windows instead, see `PROJECTION_INDEXES.md`). Originally a query
+that noticed the hot regime *synchronously* materialized all payloads, stalling that query
+150–250 ms.
 Promotion now happens on a background daemon thread after the second sliced serve; the
 serving path flips over only when materialization has finished (fail-soft: if it fails,
 sliced serving continues). Nothing ever waits.
@@ -677,6 +679,14 @@ eviction with `mincore(2)`), waits for the CPU package to drop below 55 °C, run
 in a fresh process, **interleaves the arms** rather than blocking them, and reports the
 best and median of N rounds. Its summary refuses to print a suite figure when any query
 produced no timing, because a partial sum silently reads as a whole one.
+
+The load side of the campaign re-derives through four more `:sirix-query` tasks —
+`clickBenchParallelLoadProbe` (ingest arms), `clickBenchProjectionCost` and
+`clickBenchPrimitiveIndexCost` (index maintenance riding the import) and
+`clickBenchCompositeDifferential` (the partitioned query decomposition). Their arguments and
+switches are tabulated in
+[CLICKBENCH.md](CLICKBENCH.md#import-and-decomposition-harnesses); the figures they produce are
+in [BULK_IMPORT.md](BULK_IMPORT.md).
 
 The serving suites that gate every engine change:
 `ProjectionIndexCatalogServingTest`, `NestedDerefProjectionServingTest`,

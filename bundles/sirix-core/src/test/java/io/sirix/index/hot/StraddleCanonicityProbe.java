@@ -23,10 +23,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Decisive empirical probe: does the canonical {@link HOTBulkBuilder} ever itself produce a
  * compound node with a child that straddles one of that node's own discriminative bits?
  *
- * <p>A child "straddles" disc bit {@code b} when the keys in that child's subtree are not all
- * equal at bit {@code b} (some 0, some 1). For every compound node and every disc bit, this
- * probe walks every child's whole subtree and checks bit-constancy. It also independently
- * verifies that PEXT routing reaches the leaf actually containing each key.
+ * <p>
+ * A child "straddles" disc bit {@code b} when the keys in that child's subtree are not all equal at
+ * bit {@code b} (some 0, some 1). For every compound node and every disc bit, this probe walks
+ * every child's whole subtree and checks bit-constancy. It also independently verifies that PEXT
+ * routing reaches the leaf actually containing each key.
  */
 final class StraddleCanonicityProbe {
 
@@ -50,8 +51,8 @@ final class StraddleCanonicityProbe {
 
     for (final KeySet ks : sets) {
       final AtomicLong allocator = new AtomicLong(1);
-      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(ks.keys), 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(entries(ks.keys), 1, IndexType.CAS, allocator::getAndIncrement);
       final Page root = built.rootPage();
 
       final int[] stat = new int[3]; // {compounds, straddles, misroutes}
@@ -62,10 +63,8 @@ final class StraddleCanonicityProbe {
           stat[2]++;
         }
       }
-      System.out.printf("[%s] keys=%d leafPages=%d indirectPages=%d "
-              + "compoundNodes=%d straddles=%d misroutes=%d%n",
-          ks.name, ks.keys.size(), built.leafCount(), built.indirectCount(),
-          stat[0], stat[1], stat[2]);
+      System.out.printf("[%s] keys=%d leafPages=%d indirectPages=%d " + "compoundNodes=%d straddles=%d misroutes=%d%n",
+          ks.name, ks.keys.size(), built.leafCount(), built.indirectCount(), stat[0], stat[1], stat[2]);
       totalCompounds += stat[0];
       totalStraddles += stat[1];
       totalMisroutes += stat[2];
@@ -74,17 +73,18 @@ final class StraddleCanonicityProbe {
     }
 
     System.out.println("=======================================================");
-    System.out.printf("TOTAL: compoundNodes=%d straddles=%d misroutes=%d%n",
-        totalCompounds, totalStraddles, totalMisroutes);
-    System.out.println("DECISIVE: HOTBulkBuilder produces straddling children = "
-        + (totalStraddles > 0 ? "YES" : "NO"));
-    System.out.println("DECISIVE: canonical trees route 100% correctly = "
-        + (totalMisroutes == 0 ? "YES" : "NO"));
+    System.out.printf("TOTAL: compoundNodes=%d straddles=%d misroutes=%d%n", totalCompounds, totalStraddles,
+        totalMisroutes);
+    System.out.println("DECISIVE: HOTBulkBuilder produces straddling children = " + (totalStraddles > 0
+        ? "YES"
+        : "NO"));
+    System.out.println("DECISIVE: canonical trees route 100% correctly = " + (totalMisroutes == 0
+        ? "YES"
+        : "NO"));
 
     // The probe asserts only routing soundness — straddle COUNT is reported, not asserted,
     // because answering whether straddles occur is the very question under investigation.
-    assertTrue(totalMisroutes == 0,
-        "canonical HOTBulkBuilder tree misrouted " + totalMisroutes + " keys");
+    assertTrue(totalMisroutes == 0, "canonical HOTBulkBuilder tree misrouted " + totalMisroutes + " keys");
   }
 
   // ====================================================================
@@ -120,27 +120,25 @@ final class StraddleCanonicityProbe {
     }
     for (final KeySet workload : sets) {
       final AtomicLong allocator = new AtomicLong(1);
-      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(workload.keys), 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(entries(workload.keys), 1, IndexType.CAS, allocator::getAndIncrement);
       if (!(built.rootPage() instanceof HOTIndirectPage root) || root.getHeight() != 1) {
         closeLeaves(built.rootPage());
         continue;
       }
-      final HOTIncrementalInsert.BiNode split =
-          HOTIncrementalInsert.splitIndirect(root, 1, allocator::getAndIncrement);
+      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(root, 1, allocator::getAndIncrement);
       final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
-          ? split.left() : split.right();
+          ? split.left()
+          : split.right();
       if (!(targetRef.getPage() instanceof HOTIndirectPage target)) {
         closeLeaves(built.rootPage());
         continue;
       }
       for (int slot = 0; slot < target.getNumChildren(); slot++) {
-        if (!(target.getChildReference(slot).getPage() instanceof HOTLeafPage leaf)
-            || leaf.getEntryCount() < 2) {
+        if (!(target.getChildReference(slot).getPage() instanceof HOTLeafPage leaf) || leaf.getEntryCount() < 2) {
           continue;
         }
-        final int beta =
-            HOTBulkBuilder.msdb(leaf.getKey(0), leaf.getKey(leaf.getEntryCount() - 1));
+        final int beta = HOTBulkBuilder.msdb(leaf.getKey(0), leaf.getKey(leaf.getEntryCount() - 1));
         // addEntry folds a NEW disc bit; skip leaves whose MSDB is already a node disc bit
         // (that is addEntryWithInsertInfo's job, not addEntry's).
         if (java.util.Arrays.binarySearch(absoluteDiscBits(target), beta) >= 0) {
@@ -151,21 +149,21 @@ final class StraddleCanonicityProbe {
         final boolean straddleFree = !someSiblingStraddles(target, slot, beta);
 
         // Re-inserting an existing key keeps the key set unchanged; addEntry folds the split.
-        final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(
-            leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-        final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
-            allocator::getAndIncrement);
+        final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
+            IndexType.CAS, allocator::getAndIncrement);
+        final HOTIndirectPage integrated =
+            HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1, allocator::getAndIncrement);
         final PageReference integratedRef = new PageReference();
         integratedRef.setPage(integrated);
 
-        final String label = workload.name + " slot=" + slot
-            + (straddleFree ? " (straddle-free)" : " (STRADDLING — guard would fire)");
+        final String label = workload.name + " slot=" + slot + (straddleFree
+            ? " (straddle-free)"
+            : " (STRADDLING — guard would fire)");
 
         // (a) CANONICITY: zero malformed subtrees per the production detector.
         final List<HOTMalformedSubtreeDetector.MalformedSubtree> malformed =
             HOTMalformedSubtreeDetector.detect(integratedRef, resolver);
-        assertTrue(malformed.isEmpty(),
-            label + ": addEntry fold produced malformed subtree(s) " + malformed);
+        assertTrue(malformed.isEmpty(), label + ": addEntry fold produced malformed subtree(s) " + malformed);
 
         // (b) ROUTING: every key PEXT-descends to its real leaf.
         final List<byte[]> nk = new ArrayList<>();
@@ -181,8 +179,8 @@ final class StraddleCanonicityProbe {
         final AtomicLong refAlloc = new AtomicLong(1);
         final TreeSet<byte[]> nodeKeys = new TreeSet<>(java.util.Arrays::compareUnsigned);
         nodeKeys.addAll(nk);
-        final HOTBulkBuilder.BuildResult ref = HOTBulkBuilder.build(
-            entries(new ArrayList<>(nodeKeys)), 1, IndexType.CAS, refAlloc::getAndIncrement);
+        final HOTBulkBuilder.BuildResult ref =
+            HOTBulkBuilder.build(entries(new ArrayList<>(nodeKeys)), 1, IndexType.CAS, refAlloc::getAndIncrement);
         if (ref.rootPage() instanceof HOTIndirectPage refRoot
             && java.util.Arrays.equals(absoluteDiscBits(refRoot), absoluteDiscBits(integrated))
             && refRoot.getNumChildren() == integrated.getNumChildren()) {
@@ -190,9 +188,8 @@ final class StraddleCanonicityProbe {
           final int[] rp = refRoot.getPartialKeys();
           final int[] ip = integrated.getPartialKeys();
           for (int i = 0; i < integrated.getNumChildren(); i++) {
-            assertTrue(rp[i] == ip[i],
-                label + ": partial[" + i + "] differs — bulk=0x" + Integer.toHexString(rp[i])
-                    + " addEntry=0x" + Integer.toHexString(ip[i]));
+            assertTrue(rp[i] == ip[i], label + ": partial[" + i + "] differs — bulk=0x" + Integer.toHexString(rp[i])
+                + " addEntry=0x" + Integer.toHexString(ip[i]));
           }
           discBitMatches++;
         }
@@ -206,8 +203,7 @@ final class StraddleCanonicityProbe {
       closeLeaves(built.rootPage());
     }
     System.out.printf("[step4] addEntry folds checked=%d (STRADDLING=%d) | all canonical "
-        + "(0 malformed) + route 100%% | disc-bit-identical to HOTBulkBuilder in %d cases | "
-        + "guardRejections=%d%n",
+        + "(0 malformed) + route 100%% | disc-bit-identical to HOTBulkBuilder in %d cases | " + "guardRejections=%d%n",
         totalFoldsChecked, straddlingCasesChecked, discBitMatches, guardRejections);
     // With the guard ENABLED, straddling folds are rejected (guardRejections > 0) and the
     // accepted folds are all straddle-free. With the guard DISABLED, every straddling fold
@@ -220,16 +216,16 @@ final class StraddleCanonicityProbe {
   // ====================================================================
   // STEP 3 — minimum-height preservation. Two complementary checks:
   //
-  //  (A) OPERATION-LEVEL no-inflation: an addEntry fold of a leaf-page split into a
-  //      height-1 node keeps the node at height 1 (height = 1 + max child height; the
-  //      split's halves are leaf pages, height 0). The removed guard used to force a
-  //      rebuildSubtree instead — same height but O(subtree) cost. A pure pessimization.
+  // (A) OPERATION-LEVEL no-inflation: an addEntry fold of a leaf-page split into a
+  // height-1 node keeps the node at height 1 (height = 1 + max child height; the
+  // split's halves are leaf pages, height 0). The removed guard used to force a
+  // rebuildSubtree instead — same height but O(subtree) cost. A pure pessimization.
   //
-  //  (B) SCALE: a random ~20K key set built by HOTBulkBuilder, and the same set whose
-  //      canonical height is what the incremental writer's end-to-end canaries also
-  //      reach (HOTFormalVerificationTest.comprehensiveRandomWithReplacement reports
-  //      observedHeight=2 at ~20K, built via the addEntry/integrate path). We assert the
-  //      bulk height equals that incremental observedHeight (2) — incremental == bulk.
+  // (B) SCALE: a random ~20K key set built by HOTBulkBuilder, and the same set whose
+  // canonical height is what the incremental writer's end-to-end canaries also
+  // reach (HOTFormalVerificationTest.comprehensiveRandomWithReplacement reports
+  // observedHeight=2 at ~20K, built via the addEntry/integrate path). We assert the
+  // bulk height equals that incremental observedHeight (2) — incremental == bulk.
   //
   // Every folded node is also asserted canonical (0 malformed subtrees) and 100%-routing.
   // ====================================================================
@@ -239,13 +235,18 @@ final class StraddleCanonicityProbe {
     final HOTMalformedSubtreeDetector.PageResolver resolver = PageReference::getPage;
 
     // ---- (A) operation-level: addEntry folds never inflate a height-1 node. ----
+    // Grouped keys (top 5 bits = group id, 300 keys per group) force the shape the scenario
+    // needs BY KEY DESIGN — a height-1 root with 16 leaf children — independent of the
+    // builder's leaf-packing policy. A random set no longer reaches it: honest highest-
+    // fitting-subtree cuts turn 20K random keys into ~50 well-filled leaves whose height-1
+    // nodes are too small for splitIndirect to yield indirect halves.
     int foldsChecked = 0;
     int foldsRejectedByGuard = 0;
     for (final int seed : new int[] {99, 100, 101, 102}) {
-      final List<byte[]> keys = random(20_000, seed);
+      final List<byte[]> keys = grouped(16, 300, seed);
       final AtomicLong allocator = new AtomicLong(1);
-      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(keys), 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(entries(keys), 1, IndexType.CAS, allocator::getAndIncrement);
       if (!(built.rootPage() instanceof HOTIndirectPage root)) {
         closeLeaves(built.rootPage());
         continue;
@@ -259,7 +260,8 @@ final class StraddleCanonicityProbe {
       final HOTIncrementalInsert.BiNode split =
           HOTIncrementalInsert.splitIndirect(height1Node, 1, allocator::getAndIncrement);
       final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
-          ? split.left() : split.right();
+          ? split.left()
+          : split.right();
       if (!(targetRef.getPage() instanceof HOTIndirectPage target) || target.getHeight() != 1) {
         closeLeaves(built.rootPage());
         continue;
@@ -267,24 +269,22 @@ final class StraddleCanonicityProbe {
       HOTIndirectPage node = target;
       for (int slot = 0; slot < node.getNumChildren()
           && node.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES; slot++) {
-        if (!(node.getChildReference(slot).getPage() instanceof HOTLeafPage leaf)
-            || leaf.getEntryCount() < 2) {
+        if (!(node.getChildReference(slot).getPage() instanceof HOTLeafPage leaf) || leaf.getEntryCount() < 2) {
           continue;
         }
-        final int beta =
-            HOTBulkBuilder.msdb(leaf.getKey(0), leaf.getKey(leaf.getEntryCount() - 1));
+        final int beta = HOTBulkBuilder.msdb(leaf.getKey(0), leaf.getKey(leaf.getEntryCount() - 1));
         if (java.util.Arrays.binarySearch(absoluteDiscBits(node), beta) >= 0) {
           continue; // MSDB already a node disc bit — addEntryWithInsertInfo's job
         }
         final int heightBefore = node.getHeight();
-        final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(
-            leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-        final HOTIndirectPage folded = HOTIncrementalInsert.addEntry(node, leafSplit, slot, 1,
-            allocator::getAndIncrement);
+        final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
+            IndexType.CAS, allocator::getAndIncrement);
+        final HOTIndirectPage folded =
+            HOTIncrementalInsert.addEntry(node, leafSplit, slot, 1, allocator::getAndIncrement);
         node = folded;
         assertTrue(node.getHeight() == heightBefore,
-            "seed=" + seed + " slot=" + slot + ": addEntry fold inflated height "
-                + heightBefore + " -> " + node.getHeight() + " — minimum-height VIOLATED");
+            "seed=" + seed + " slot=" + slot + ": addEntry fold inflated height " + heightBefore + " -> "
+                + node.getHeight() + " — minimum-height VIOLATED");
         foldsChecked++;
       }
       // The fully-folded node is canonical and routes every key.
@@ -292,8 +292,7 @@ final class StraddleCanonicityProbe {
       incRef.setPage(node);
       final List<HOTMalformedSubtreeDetector.MalformedSubtree> malformed =
           HOTMalformedSubtreeDetector.detect(incRef, resolver);
-      assertTrue(malformed.isEmpty(),
-          "seed=" + seed + ": folded node malformed " + malformed);
+      assertTrue(malformed.isEmpty(), "seed=" + seed + ": folded node malformed " + malformed);
       final List<byte[]> incKeys = new ArrayList<>();
       collectKeys(node, incKeys);
       for (final byte[] k : incKeys) {
@@ -306,27 +305,27 @@ final class StraddleCanonicityProbe {
     // Guard ENABLED: every leaf-split fold here straddles a sibling, so all are rejected
     // (foldsRejectedByGuard > 0, foldsChecked == 0). Guard DISABLED: all folds accepted and
     // verified non-inflating (foldsChecked > 0). Either path exercised the operation.
-    assertTrue(foldsChecked > 0 || foldsRejectedByGuard > 0,
-        "no addEntry fold exercised — coverage gap");
+    assertTrue(foldsChecked > 0 || foldsRejectedByGuard > 0, "no addEntry fold exercised — coverage gap");
 
     // ---- (B) scale: HOTBulkBuilder height of a 20K random set == the height the
     // incremental addEntry/integrate path reaches end-to-end on the same scale. ----
     final List<byte[]> bulk20K = random(20_000, 7);
     final AtomicLong bulkAlloc = new AtomicLong(1);
-    final HOTBulkBuilder.BuildResult bulk = HOTBulkBuilder.build(entries(bulk20K), 1,
-        IndexType.CAS, bulkAlloc::getAndIncrement);
-    final int bulkHeight = bulk.rootPage() instanceof HOTIndirectPage bh ? bh.getHeight() : 0;
+    final HOTBulkBuilder.BuildResult bulk =
+        HOTBulkBuilder.build(entries(bulk20K), 1, IndexType.CAS, bulkAlloc::getAndIncrement);
+    final int bulkHeight = bulk.rootPage() instanceof HOTIndirectPage bh
+        ? bh.getHeight()
+        : 0;
     // HOTFormalVerificationTest.comprehensiveRandomWithReplacement (run in step 2 with the
     // guard disabled) reported observedHeight=2 for its ~20K-distinct random set built via
     // the addEntry/integrate path. A canonical 20K random HOT is height 2.
-    System.out.printf("[step3] (A) %d addEntry folds accepted (none inflated height), "
+    System.out.printf(
+        "[step3] (A) %d addEntry folds accepted (none inflated height), "
             + "%d rejected by the straddle guard | (B) HOTBulkBuilder(20K random) height=%d "
-            + "(incremental addEntry path reaches observedHeight=2 — see "
-            + "HOTFormalVerificationTest canary)%n",
+            + "(incremental addEntry path reaches observedHeight=2 — see " + "HOTFormalVerificationTest canary)%n",
         foldsChecked, foldsRejectedByGuard, bulkHeight);
-    assertTrue(bulkHeight == 2,
-        "HOTBulkBuilder(20K random) height " + bulkHeight + " != 2 (the incremental "
-            + "observedHeight) — incremental and bulk heights diverge");
+    assertTrue(bulkHeight == 2, "HOTBulkBuilder(20K random) height " + bulkHeight + " != 2 (the incremental "
+        + "observedHeight) — incremental and bulk heights diverge");
     closeLeaves(bulk.rootPage());
   }
 
@@ -350,7 +349,9 @@ final class StraddleCanonicityProbe {
         final ConstancyState st = bitConstancy(subtreeKeys, b);
         if (st == ConstancyState.MIXED) {
           stat[1]++;
-          final int sparse = partials != null && c < partials.length ? partials[c] : -1;
+          final int sparse = partials != null && c < partials.length
+              ? partials[c]
+              : -1;
           // Is bit b on the child's block-path? Under sparse-path encoding the child's stored
           // partial has the column for an on-path-AND-took-1-side disc bit set. We report the
           // stored partial, the bit column, and whether that column bit is set, plus the full
@@ -363,14 +364,15 @@ final class StraddleCanonicityProbe {
               break;
             }
           }
-          final int colBitWeight = col >= 0 ? (1 << (m - 1 - col)) : 0;
+          final int colBitWeight = col >= 0
+              ? (1 << (m - 1 - col))
+              : 0;
           final boolean colBitSet = sparse >= 0 && (sparse & colBitWeight) != 0;
           System.out.printf(
               "  STRADDLE [%s] node(pk=%d,layout=%s) child[%d] straddles discBit=%d "
-                  + "(col=%d, colWeight=0x%x, storedPartial=0x%x, colBitSet=%b) "
-                  + "subtreeKeys=%d discBits=%s%n",
-              label, node.getPageKey(), node.getLayoutType(), c, b, col, colBitWeight,
-              sparse, colBitSet, subtreeKeys.size(), java.util.Arrays.toString(discBits));
+                  + "(col=%d, colWeight=0x%x, storedPartial=0x%x, colBitSet=%b) " + "subtreeKeys=%d discBits=%s%n",
+              label, node.getPageKey(), node.getLayoutType(), c, b, col, colBitWeight, sparse, colBitSet,
+              subtreeKeys.size(), java.util.Arrays.toString(discBits));
         }
       }
     }
@@ -380,12 +382,11 @@ final class StraddleCanonicityProbe {
   }
 
   /**
-   * Whether some non-affected sibling of {@code node} (any child slot != {@code affectedSlot})
-   * has a subtree that straddles bit {@code beta} — the structural condition the now-removed
-   * straddle guard used to reject; this probe still detects it for diagnostic counting.
+   * Whether some non-affected sibling of {@code node} (any child slot != {@code affectedSlot}) has a
+   * subtree that straddles bit {@code beta} — the structural condition the now-removed straddle guard
+   * used to reject; this probe still detects it for diagnostic counting.
    */
-  private static boolean someSiblingStraddles(final HOTIndirectPage node, final int affectedSlot,
-      final int beta) {
+  private static boolean someSiblingStraddles(final HOTIndirectPage node, final int affectedSlot, final int beta) {
     for (int c = 0; c < node.getNumChildren(); c++) {
       if (c == affectedSlot) {
         continue;
@@ -399,7 +400,9 @@ final class StraddleCanonicityProbe {
     return false;
   }
 
-  private enum ConstancyState { ALL_ZERO, ALL_ONE, MIXED, EMPTY }
+  private enum ConstancyState {
+    ALL_ZERO, ALL_ONE, MIXED, EMPTY
+  }
 
   private static ConstancyState bitConstancy(final List<byte[]> keys, final int absBit) {
     boolean seen0 = false;
@@ -424,8 +427,8 @@ final class StraddleCanonicityProbe {
   }
 
   /**
-   * The node's discriminative bits as absolute MSB-first positions, reconstructed from the
-   * page's mask (SingleMask) or extraction positions+masks (MultiMask).
+   * The node's discriminative bits as absolute MSB-first positions, reconstructed from the page's
+   * mask (SingleMask) or extraction positions+masks (MultiMask).
    */
   private static int[] absoluteDiscBits(final HOTIndirectPage node) {
     final TreeSet<Integer> bits = new TreeSet<>();
@@ -448,8 +451,7 @@ final class StraddleCanonicityProbe {
         final int keyBytePos = extractionPositions[i] & 0xFF;
         final int chunkIdx = i / 8;
         final int byteOffsetInChunk = i % 8;
-        final long byteMask =
-            (extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL;
+        final long byteMask = (extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL;
         for (int b = 0; b < 8; b++) {
           if ((byteMask & (1L << (7 - b))) != 0) {
             bits.add(keyBytePos * 8 + b);
@@ -495,8 +497,7 @@ final class StraddleCanonicityProbe {
     return best[0];
   }
 
-  private static void findLargestHeight1Node(final Page page, final HOTIndirectPage[] best,
-      final int[] bestKeys) {
+  private static void findLargestHeight1Node(final Page page, final HOTIndirectPage[] best, final int[] bestKeys) {
     if (!(page instanceof HOTIndirectPage node)) {
       return;
     }
@@ -540,7 +541,8 @@ final class StraddleCanonicityProbe {
   // Key sets.
   // ====================================================================
 
-  private record KeySet(String name, List<byte[]> keys) {}
+  private record KeySet(String name, List<byte[]> keys) {
+  }
 
   private static List<byte[]> ascending(final int n) {
     final List<byte[]> keys = new ArrayList<>(n);
@@ -557,6 +559,30 @@ final class StraddleCanonicityProbe {
       set.add(rng.nextLong());
     }
     final List<byte[]> keys = new ArrayList<>(n);
+    for (final long k : set) {
+      keys.add(beKey(k));
+    }
+    return keys;
+  }
+
+  /**
+   * Keys whose top 5 bits carry a group id: the {@code R(S)} recursion consumes exactly those bits
+   * first, so a build yields one leaf per group under a root compound node with {@code groups}
+   * children — the shape is forced by the KEYS, not by any leaf-packing heuristic of the builder.
+   * Requires {@code 256 < perGroup ≤ 512}: one group must fit a leaf page while a PAIR must not, or
+   * the highest-fitting-subtree cut lands a level higher.
+   */
+  private static List<byte[]> grouped(final int groups, final int perGroup, final long seed) {
+    final Random rng = new Random(0xA5A5_5A5AL ^ seed);
+    final TreeSet<Long> set = new TreeSet<>(Long::compareUnsigned);
+    for (int g = 0; g < groups; g++) {
+      final long prefix = (long) g << 59;
+      final int before = set.size();
+      while (set.size() < before + perGroup) {
+        set.add(prefix | (rng.nextLong() >>> 5));
+      }
+    }
+    final List<byte[]> keys = new ArrayList<>(set.size());
     for (final long k : set) {
       keys.add(beKey(k));
     }

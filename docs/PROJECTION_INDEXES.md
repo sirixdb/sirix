@@ -56,9 +56,9 @@ larger filter — are answered from the projection instead of the tree.
 ### Building during the load (one pass)
 
 `jn:create-projection-index` walks a *finished* resource, so it costs a second pass over the
-corpus. Embedded callers can instead declare the projection up front and let the shred itself
-produce the rows — the definition is catalogued on the still-empty resource and the load's own
-change notifications feed the builder, so the index is complete when the load commits:
+corpus. Embedded callers can instead declare the projection up front and let the load itself
+produce the rows — the definition is catalogued on the still-empty resource and the load feeds
+the builder as it shreds, so the index is complete when the load commits:
 
 ```java
 final var projection = new ProjectionSpec("/[]",
@@ -69,9 +69,20 @@ store.create("mydb", "sales.jn", jsonReader, projection);
 ```
 
 The spec uses exactly the vocabulary of the query form (same root path, field paths, and type
-names), so the two cannot drift apart. Until the load's final commit the projection's metadata
-slot holds the stale tombstone, so an interrupted load leaves queries on the generic pipeline
-rather than serving them from a half-filled index.
+names), so the two cannot drift apart. A sequential shred feeds the builder through its own
+change notifications; the parallel bulk importer feeds the same builder from the rows its build
+workers extract, so both routes produce a byte-identical index — see
+[`BULK_IMPORT.md`](BULK_IMPORT.md) for the load-side contract (armed builds, refusals, cost).
+
+Until the load's final commit the projection's metadata slot holds the stale tombstone, so an
+interrupted load leaves queries on the generic pipeline rather than serving them from a
+half-filled index. One failure completes the LOAD but not the projection: a resource-wide value
+dictionary that hits its byte budget mid-build abandons the projection rather than the load. That
+prints `[proj] PROJECTION ABANDONED` on stderr (unconditionally — the warning alone is invisible
+under the shipped log configuration), and the tombstone records the reason plus its remedy: give
+the loader an expected-row-count hint so the oversized column is declined up front and the rest of
+the projection still builds, or raise `-Dsirix.projection.globalDict.budgetBytes`, then rebuild
+with `jn:create-projection-index`.
 
 ## Querying
 
@@ -132,6 +143,15 @@ chunks, bounded per-column set summaries, sparse locators, and immutable global-
 radix paths. An unresolvable or corrupt touched unit fails the owning transaction and requires
 rollback. Calling `jn:create-projection-index` with a different shape creates an additional
 projection.
+
+Serving is memory-bounded, not all-or-nothing. Kernels that want a column's whole byte image get
+it eagerly while the projection's worst-case resident size fits
+`-Dsirix.projection.eagerMaterializeBytes` (default: the smaller of half the projection cache
+budget and a quarter of the heap); above that the same kernels read through bounded 128-leaf
+windows instead, and a column fill that would exceed the budget declines: the query re-enters the
+windowed whole-leaf route where one exists, and otherwise falls back to the record path.
+Declining is a routing decision, not a corruption signal — the index stays valid and keeps
+serving everything else.
 
 Uncommitted state is servable too: an executor constructed over an open write transaction
 (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates, group-bys and

@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.LongSupplier;
 import io.sirix.page.HOTIndirectPage;
@@ -90,6 +91,34 @@ import java.util.Objects;
  * @see HOTIndirectPage
  */
 public final class HOTTrieWriter {
+
+  /**
+   * In-place leaf splits performed — the task #57 split path, where the left half keeps its original
+   * {@link PageReference} and therefore its pre-split fragment chain. Observability only; a test that
+   * claims to exercise that path must prove it reached THIS split and not one of the two immune
+   * implementations that allocate fresh references.
+   *
+   * <p>
+   * OFF unless {@code -Dsirix.hot.mergeDiag=true} — the same switch that gates the fragment-merge
+   * counters in {@code VersioningType}, so one flag turns the whole HOT diagnostic family on. The
+   * split runs on the write path, and a shared counter there is exactly the kind of always-on
+   * debugging apparatus the performance rules forbid; gated on a {@code static final} the branch
+   * folds away entirely.
+   * </p>
+   */
+  private static final boolean HOT_MERGE_DIAG = Boolean.getBoolean("sirix.hot.mergeDiag");
+
+  private static final LongAdder IN_PLACE_LEAF_SPLITS = new LongAdder();
+
+  /** In-place leaf splits counted since the last reset; always {@code 0} when diagnostics are off. */
+  public static long inPlaceLeafSplits() {
+    return IN_PLACE_LEAF_SPLITS.sum();
+  }
+
+  /** Zero the split counter — a counter that cannot be reset cannot witness a specific operation. */
+  public static void resetInPlaceLeafSplits() {
+    IN_PLACE_LEAF_SPLITS.reset();
+  }
 
   /** Maximum tree height - increased to handle unbalanced trees during inserts. */
   private static final int MAX_TREE_HEIGHT = 64;
@@ -1201,6 +1230,14 @@ public final class HOTTrieWriter {
       rightRef.setPage(rightPage);
       log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
       rightPageOwnershipTransferred = true;
+
+      // TASK #57 WITNESS. This is the IN-PLACE split: the non-root branch below reuses leafRef for
+      // the left half, so the pre-split fragment chain stays attached to it. The other two split
+      // implementations allocate fresh references and are immune. Counted so a test can prove it
+      // reached THIS split rather than one of the immune ones.
+      if (HOT_MERGE_DIAG) {
+        IN_PLACE_LEAF_SPLITS.increment();
+      }
 
       // Both halves are complete dumps after split — release the stale completePageRef
       // so the orphaned original page can be reclaimed by TIL.put() and GC.

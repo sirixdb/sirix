@@ -1264,6 +1264,124 @@ public enum VersioningType {
   private static final byte[] EMPTY_VALUE = new byte[0];
 
   /**
+   * Fragment-merge instrumentation, OFF unless {@code -Dsirix.hot.mergeDiag=true}, following the
+   * {@link #COMBINE_DIAG} convention already used in this file.
+   *
+   * <h2>Why this is gated rather than always-on</h2>
+   *
+   * {@code mergeHOTFragmentsByKey} is the DEFAULT READ path — its single-fragment branch runs on
+   * every versioned page read — and {@code carryForwardAgingHOTEntries} runs inside the COMMIT path
+   * once per entry of an aging fragment (measured: 1018 entries in one ordinary commit). A shared
+   * atomic on either is a contended cache line on a hot path, which is precisely what the performance
+   * rules in CLAUDE.md forbid. The gate is a {@code static final} read of a non-constant, so the
+   * branch is folded away entirely once C2 sees it: with diagnostics off these counters cost nothing
+   * at all.
+   *
+   * <h2>And nothing shared is touched per iteration, even when ON</h2>
+   *
+   * The two loops accumulate into LOCALS and publish ONE add per merge / per rotation. So the
+   * per-entry cost is a register increment rather than an atomic, and the counters keep their exact
+   * values. Granularity of the STORAGE is per-call; granularity of the NUMBER is unchanged.
+   *
+   * <h2>The counters themselves</h2>
+   *
+   * This path had NO instrumentation at all, which is why a versioned-merge test once passed while
+   * its merge counters read zero: a warm cache served already-merged pages, every assertion was
+   * satisfied by the single-fragment path, and nothing could tell the difference. Any gate that
+   * claims to exercise fragment reconstruction has to prove it ENTERED — an absence of failures
+   * proves only that the code may never have run.
+   *
+   * <p>
+   * {@link #completeDumpsWalkedPast()} is the sharp one. The merge loop below now TERMINATES at a
+   * complete dump — a dump is a replacement snapshot, and walking past it could resurrect keys a
+   * split relocated (task #57) — so this counter is structurally zero today. It is kept as a
+   * permanent sentinel: if a future change removes or weakens that break, the counter goes nonzero
+   * and the tests asserting on it point back at this investigation, instead of at a corrupt database
+   * months later. Observability only — nothing here changes what the merge does.
+   * </p>
+   */
+  private static final boolean HOT_MERGE_DIAG = Boolean.getBoolean("sirix.hot.mergeDiag");
+
+  private static final LongAdder SINGLE_FRAGMENT_READS = new LongAdder();
+
+  private static final LongAdder MULTI_FRAGMENT_MERGES = new LongAdder();
+
+  private static final LongAdder FRAGMENTS_WALKED = new LongAdder();
+
+  private static final LongAdder COMPLETE_DUMP_SHORT_CIRCUITS = new LongAdder();
+
+  private static final LongAdder COMPLETE_DUMPS_WALKED_PAST = new LongAdder();
+
+  private static final LongAdder CARRY_FORWARD_ROTATIONS = new LongAdder();
+
+  private static final LongAdder CARRY_FORWARD_ENTRIES_REEMITTED = new LongAdder();
+
+  /**
+   * Whether merge diagnostics are collecting. A test that asserts on these counters MUST check this
+   * first: with the gate off every counter reads zero, and "zero walked past a complete dump" from a
+   * disabled instrument is indistinguishable from the same reading from a healthy one. Assert the
+   * instrument is live, then assert on it.
+   */
+  public static boolean hotMergeDiagEnabled() {
+    return HOT_MERGE_DIAG;
+  }
+
+  /** SLIDING_SNAPSHOT window rotations that ran the aging-entry carry-forward. */
+  public static long carryForwardRotations() {
+    return CARRY_FORWARD_ROTATIONS.sum();
+  }
+
+  /**
+   * Entries the carry-forward re-emitted. A VOLUME COUNTER, NOT A DEFECT WITNESS — re-emitting live
+   * entries that would otherwise age out is the carry-forward's job, and a healthy commit measures
+   * over a thousand. Use it as a denominator, never as evidence that something went wrong.
+   */
+  public static long carryForwardEntriesReemitted() {
+    return CARRY_FORWARD_ENTRIES_REEMITTED.sum();
+  }
+
+  /** Reads served by a single fragment — no reconstruction happened. */
+  public static long singleFragmentReads() {
+    return SINGLE_FRAGMENT_READS.sum();
+  }
+
+  /** Reads that actually reconstructed a page from a chain of fragments. */
+  public static long multiFragmentMerges() {
+    return MULTI_FRAGMENT_MERGES.sum();
+  }
+
+  /** Older fragments visited across all merges. */
+  public static long fragmentsWalked() {
+    return FRAGMENTS_WALKED.sum();
+  }
+
+  /** Merges answered wholly by a complete newest fragment. */
+  public static long completeDumpShortCircuits() {
+    return COMPLETE_DUMP_SHORT_CIRCUITS.sum();
+  }
+
+  /**
+   * Older fragments walked THROUGH despite a fragment having declared the chain complete — the task
+   * #57 precondition. Structurally zero while the merge loop's complete-dump break stands; it is kept
+   * as a permanent sentinel so that if the break is ever removed or weakened, a test fails instead of
+   * a database quietly corrupting.
+   */
+  public static long completeDumpsWalkedPast() {
+    return COMPLETE_DUMPS_WALKED_PAST.sum();
+  }
+
+  /** Zero every merge counter; a counter that cannot be reset cannot witness a specific operation. */
+  public static void resetFragmentMergeCounters() {
+    SINGLE_FRAGMENT_READS.reset();
+    MULTI_FRAGMENT_MERGES.reset();
+    FRAGMENTS_WALKED.reset();
+    COMPLETE_DUMP_SHORT_CIRCUITS.reset();
+    COMPLETE_DUMPS_WALKED_PAST.reset();
+    CARRY_FORWARD_ROTATIONS.reset();
+    CARRY_FORWARD_ENTRIES_REEMITTED.reset();
+  }
+
+  /**
    * Merge HOT fragments by full key. Single newest-fragment fast path returns the page directly.
    * Multi-fragment path copies the newest, then walks older fragments inserting any keys absent from
    * the result until it reaches a complete dump. Tombstones in newer fragments shadow older entries;
@@ -1271,12 +1389,22 @@ public enum VersioningType {
    */
   private static HOTLeafPage mergeHOTFragmentsByKey(final List<HOTLeafPage> pages) {
     if (pages.size() == 1) {
+      // THE DEFAULT READ PATH. Gated so it folds to nothing when diagnostics are off.
+      if (HOT_MERGE_DIAG) {
+        SINGLE_FRAGMENT_READS.increment();
+      }
       return pages.getFirst();
     }
 
     final HOTLeafPage newest = pages.getFirst();
     if (newest.isCompleteDump()) {
+      if (HOT_MERGE_DIAG) {
+        COMPLETE_DUMP_SHORT_CIRCUITS.increment();
+      }
       return newest;
+    }
+    if (HOT_MERGE_DIAG) {
+      MULTI_FRAGMENT_MERGES.increment();
     }
 
     // Newest fragment is the base; copy() bulk-copies its entries and resets the dirty bitmap on
@@ -1287,8 +1415,22 @@ public enum VersioningType {
     result.setCompletePageRef(null);
     result.clearDirtyBitmap();
 
+    // TASK #57 SENTINEL — OBSERVATION ONLY. The break at the bottom of this loop is the guard: a
+    // complete dump is a replacement snapshot, and walking past it could resurrect keys a split
+    // relocated. The locals below count what the walk does, and walkedPastDump can only become
+    // nonzero if a future change removes or weakens that break — at which point the counter goes
+    // nonzero and the tests asserting on it point back here instead of at a corrupt database
+    // months later. Accumulated in LOCALS and published once below, so the loop never touches
+    // shared state.
+    boolean pastACompleteDump = false;
+    int walked = 0;
+    int walkedPastDump = 0;
     for (int i = 1; i < pages.size(); i++) {
       final HOTLeafPage olderPage = pages.get(i);
+      walked++;
+      if (pastACompleteDump) {
+        walkedPastDump++;
+      }
       final int olderCount = olderPage.getEntryCount();
       for (int j = 0; j < olderCount; j++) {
         final byte[] key = olderPage.getKey(j);
@@ -1322,8 +1464,17 @@ public enum VersioningType {
       // former range. Continuing past this boundary would merge those stale entries back into the
       // left-hand leaf and make them visible again.
       if (olderPage.isCompleteDump()) {
+        // Arm the sentinel before breaking: if this break is ever removed, the next iteration is
+        // exactly what walkedPastDump records.
+        pastACompleteDump = true;
         break;
       }
+    }
+
+    // ONE publish per merge rather than one per fragment.
+    if (HOT_MERGE_DIAG) {
+      FRAGMENTS_WALKED.add(walked);
+      COMPLETE_DUMPS_WALKED_PAST.add(walkedPastDump);
     }
 
     // Re-tighten the prefix after cross-fragment fills — the original combine path lacked this
@@ -1632,6 +1783,13 @@ public enum VersioningType {
     if (fragmentCount == 0) {
       return;
     }
+    if (HOT_MERGE_DIAG) {
+      CARRY_FORWARD_ROTATIONS.increment();
+    }
+    // Re-emissions accumulate in a LOCAL and publish once at the end: this loop runs once per entry
+    // of the aging fragment on the DEFAULT COMMIT PATH — over a thousand iterations in an ordinary
+    // commit — so it must not touch a shared counter per iteration.
+    long reemitted = 0;
     final HOTLeafPage oldest = fragmentsNewestFirst.get(fragmentCount - 1);
     final int oldestEntryCount = oldest.getEntryCount();
     for (int j = 0; j < oldestEntryCount; j++) {
@@ -1657,8 +1815,20 @@ public enum VersioningType {
       }
       final int idx = modifiedLeaf.findEntry(key);
       if (idx >= 0) {
+        // NOTE WHAT IS RE-EMITTED: the entry of modifiedLeaf — the CURRENT combined state — and
+        // never the aging fragment's bytes. That is why carry-forward cannot resurrect a deleted
+        // key: for a tombstoned key the current entry IS the tombstone, so marking it dirty
+        // re-emits the DELETE. The shadowing test above is therefore an optimisation (skip work a
+        // newer fragment already covers), not a correctness guard — verified by mutation, which
+        // made it treat a newer tombstone as non-shadowing and changed only the re-emission count
+        // (6->7, 18->19), never an answer.
+        reemitted++;
         modifiedLeaf.markEntryDirty(idx);
       }
+    }
+    // ONE publish per rotation rather than one per entry.
+    if (HOT_MERGE_DIAG) {
+      CARRY_FORWARD_ENTRIES_REEMITTED.add(reemitted);
     }
   }
 

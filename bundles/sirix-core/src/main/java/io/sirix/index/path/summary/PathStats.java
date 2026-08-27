@@ -34,7 +34,25 @@ public final class PathStats {
 
   public long count;
   public long nullCount;
+  /**
+   * Low (unsigned) half of the 128-bit integral accumulator, and the exact {@code long} total
+   * whenever {@link #sumFitsLong()} holds.
+   */
   public long sum;
+  /**
+   * High (signed) half of the 128-bit integral accumulator.
+   *
+   * <p>
+   * The persisted accumulator is 128 bits wide so that what it holds is a function of the OBSERVED
+   * VALUES and nothing else — not of how many flushes the ingestion happened to take, nor of how a
+   * bulk load happened to chunk the input. A 64-bit accumulator that drops an overflowing addend
+   * answers {@code [M, M, -M]} one way when a flush lands after the second value and another way when
+   * it does not, so the same document loaded two supported ways would persist different statistics
+   * and decline in different places. Here every intermediate is exact and {@link #sumFitsLong()} asks
+   * the only question a reader cares about: is the TRUE total representable as the {@code long} that
+   * {@code sum}/{@code avg} would be served from?
+   */
+  public long sumHi;
   public long min = EMPTY_MIN;
   public long max = EMPTY_MAX;
   public byte @Nullable [] minBytes;
@@ -125,10 +143,73 @@ public final class PathStats {
 
   public PathStats() {}
 
+  /**
+   * Whether the exact integral total is representable as a {@code long} — the high half is nothing
+   * but the sign extension of the low half.
+   */
+  public boolean sumFitsLong() {
+    return sumFitsLong(sumHi, sum);
+  }
+
+  /** Whether the 128-bit value {@code (hi, lo)} is representable as a signed {@code long}. */
+  public static boolean sumFitsLong(final long hi, final long lo) {
+    return hi == (lo >> 63);
+  }
+
+  /**
+   * High half of {@code (hi, lo) + (addHi, addLo)}, given the already-computed low half
+   * {@code resultLo = lo + addLo}.
+   *
+   * <p>
+   * The single source of truth for the 128-bit carry rule, shared with {@link PathStatsAccumulator}
+   * so the batch accumulator and the persisted one cannot drift. Two adds and an unsigned compare —
+   * no allocation, no boxing, nothing that must not sit on a per-value ingestion path.
+   */
+  public static long addCarry(final long hi, final long addHi, final long lo, final long resultLo) {
+    return hi + addHi + (Long.compareUnsigned(resultLo, lo) < 0
+        ? 1L
+        : 0L);
+  }
+
+  /**
+   * High half of {@code (hi, lo) - (subHi, subLo)}, borrowing out of the low half.
+   *
+   * <p>
+   * A subtraction primitive rather than "negate and add", because on two's-complement 64-bit integers
+   * negation is not total: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE}, so cancelling an
+   * observation of that value by adding its negation ADDS it a second time. That is not a corner that
+   * can be waved off now that representability is derived from the exact total — the doubled value
+   * can land back inside {@code long} range, where nothing marks it and the wrong sum is served.
+   * Subtracting the sign-extended pair directly has no such hole.
+   */
+  public static long subBorrow(final long hi, final long subHi, final long lo, final long subLo) {
+    return hi - subHi - (Long.compareUnsigned(lo, subLo) < 0
+        ? 1L
+        : 0L);
+  }
+
   public synchronized boolean isEmpty() {
-    return count == 0L && nullCount == 0L && sum == 0L && sumFraction == 0.0d && !sumDirty && !doubleTyped
-        && !countDirty && min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null && hll == null
-        && !minDirty && !maxDirty && pageKeys == null;
+    return countAndSumLanesEmpty() && boundLanesEmpty() && sketchAndTrailerEmpty();
+  }
+
+  /**
+   * The counting and summing lanes, including the 128-bit sum's high word and the flags that mark
+   * either untrustworthy. Callers hold this record's monitor (see {@link #isEmpty()}), so the split
+   * helpers are deliberately unsynchronized rather than redundantly re-entering it.
+   */
+  private boolean countAndSumLanesEmpty() {
+    return count == 0L && nullCount == 0L && sum == 0L && sumHi == 0L && sumFraction == 0.0d && !sumDirty
+        && !doubleTyped && !countDirty;
+  }
+
+  /** The numeric and byte-valued bounds, with their dirty flags. */
+  private boolean boundLanesEmpty() {
+    return min == EMPTY_MIN && max == EMPTY_MAX && minBytes == null && maxBytes == null && !minDirty && !maxDirty;
+  }
+
+  /** The distinct-value sketch and the optional page-key trailer. */
+  private boolean sketchAndTrailerEmpty() {
+    return hll == null && pageKeys == null;
   }
 
   /**
@@ -136,14 +217,23 @@ public final class PathStats {
    * {@link io.sirix.node.NodeKind#PATH}.
    *
    * <p>
-   * This is the frozen V0 layout. {@code sumFraction} and the three flags below sit between
-   * {@code maxDirty} and the page-key trailer; any future rearrangement requires a new resource
-   * encoding version before resources using that layout are written.
+   * Layout: {@code [i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min][i64 max]} then the byte
+   * bounds, the HLL blob, the dirty flags, {@code sumFraction}, the three trailing flags and the
+   * optional page-key trailer. {@code sumFraction} and the flags sit between {@code maxDirty} and
+   * that trailer.
+   *
+   * <p>
+   * The record carries NO version discriminator, by decision: SirixDB has no released consumers, so
+   * the layout is changed in place — as {@code sumHi} was when the integral accumulator widened to
+   * 128 bits — rather than accreting per-record version machinery that nothing would ever exercise. A
+   * resource written by one build is only readable by builds that share its layout. Introduce a
+   * discriminator when there is something to stay compatible WITH, not before.
    */
   public void writeTo(final BytesOut<?> sink) {
     sink.writeLong(count);
     sink.writeLong(nullCount);
     sink.writeLong(sum);
+    sink.writeLong(sumHi);
     sink.writeLong(min);
     sink.writeLong(max);
     writeOptionalBytes(sink, minBytes);
@@ -244,13 +334,14 @@ public final class PathStats {
    *
    * <p>
    * Tolerates a record that stops before the optional trailing presence-bitmap field, which is the
-   * only shape variation within V0.
+   * only shape variation the layout admits.
    */
   public static PathStats readFrom(final BytesIn<?> source) {
     final PathStats s = new PathStats();
     s.count = source.readLong();
     s.nullCount = source.readLong();
     s.sum = source.readLong();
+    s.sumHi = source.readLong();
     s.min = source.readLong();
     s.max = source.readLong();
     s.minBytes = readOptionalBytes(source);

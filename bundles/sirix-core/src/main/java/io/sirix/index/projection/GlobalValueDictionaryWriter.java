@@ -409,9 +409,15 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     final long futureRetained = saturatedAdd(retainedBytes(),
         retainedGrowthBytes(requiredChunks, arenaChunkCapacity, idArrayCapacity, tableCapacity));
     final long flushPeak = flushPeakBytes(futureRetained, id, requiredArenaLength, Math.max(maxValueLength, len));
-    if (budgetBytes != Long.MAX_VALUE
-        && Math.max(saturatedAdd(retainedBytes(), allocationBytes), flushPeak) > budgetBytes) {
-      refuseAdmission(null);
+    final long retainedPlusPending = saturatedAdd(retainedBytes(), allocationBytes);
+    if (budgetBytes != Long.MAX_VALUE && Math.max(retainedPlusPending, flushPeak) > budgetBytes) {
+      // Report whichever of the two terms the max() picked, so the notice quotes the number that
+      // actually breached rather than a smaller one the reader cannot reconcile with the budget.
+      if (retainedPlusPending >= flushPeak) {
+        refuseBudget(retainedPlusPending, "retained+pending");
+      } else {
+        refuseBudget(flushPeak, "flush-peak");
+      }
     }
 
     final long[] nextOffsets = idArrayCapacity == offsets.length
@@ -725,8 +731,9 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   }
 
   private void ensureFlushFitsBudget(final long reservationBytes) {
-    if (budgetBytes != Long.MAX_VALUE && saturatedAdd(retainedBytes(), reservationBytes) > budgetBytes) {
-      refuseAdmission(null);
+    final long retainedPlusReservation = saturatedAdd(retainedBytes(), reservationBytes);
+    if (budgetBytes != Long.MAX_VALUE && retainedPlusReservation > budgetBytes) {
+      refuseBudget(retainedPlusReservation, "retained+flush-reservation");
     }
   }
 
@@ -738,22 +745,47 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     if (workspaceBytes < 0) {
       throw new IllegalArgumentException("workspaceBytes must be non-negative");
     }
-    if (budgetBytes != Long.MAX_VALUE && saturatedAdd(retainedBytes(), workspaceBytes) > budgetBytes) {
-      refuseAdmission(null);
+    final long retainedPlusWorkspace = saturatedAdd(retainedBytes(), workspaceBytes);
+    if (budgetBytes != Long.MAX_VALUE && retainedPlusWorkspace > budgetBytes) {
+      refuseBudget(retainedPlusWorkspace, "retained+append-workspace");
     }
   }
 
+  /**
+   * Refuse a STRUCTURAL admission — a ceiling that is not weighed in bytes against the budget, so the
+   * decline must not claim any byte quantity exceeded it.
+   */
   private void refuseAdmission(final String detail) {
-    final GlobalDictionaryBudgetExceededException decline =
-        new GlobalDictionaryBudgetExceededException(column, retainedBytes(), budgetBytes, entryCount, detail);
+    throw policyDecline(GlobalDictionaryBudgetExceededException.structuralDecline(column, retainedBytes(), budgetBytes,
+        entryCount, detail), detail);
+  }
+
+  /**
+   * Refuse a BYTE-BUDGET admission, carrying the term the guard actually compared against the budget.
+   *
+   * <p>
+   * Every guard here weighs retention plus a reservation, never retention alone, so the decline has
+   * to carry that sum: quoting {@link #retainedBytes()} instead would report a figure BELOW the
+   * budget it announces as breached — the guard's own arithmetic, contradicted by its own message.
+   * </p>
+   *
+   * @param breachingBytes the quantity that exceeded {@link #budgetBytes}
+   * @param breachingTerm what that quantity is, for a message that explains itself
+   */
+  private void refuseBudget(final long breachingBytes, final String breachingTerm) {
+    throw policyDecline(GlobalDictionaryBudgetExceededException.budgetBreach(column, retainedBytes(), breachingBytes,
+        breachingTerm, budgetBytes, entryCount, null), null);
+  }
+
+  private RuntimeException policyDecline(final GlobalDictionaryBudgetExceededException decline, final String detail) {
     if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
-      throw new IllegalStateException("Forced global value dictionary for column " + column
+      return new IllegalStateException("Forced global value dictionary for column " + column
           + " cannot continue safely: " + (detail == null
               ? "configured aggregate budget exhausted"
               : detail),
           decline);
     }
-    throw decline;
+    return decline;
   }
 
   /**
@@ -779,8 +811,8 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   static RuntimeException oversizedValueRefusal(final int column, final int length, final long retainedBytes,
       final long budgetBytes, final int entryCount, final AdmissionPolicy admissionPolicy) {
     final String detail = "value length " + length + " exceeds the safe V0 limit of " + MAX_VALUE_BYTES + " bytes";
-    final GlobalDictionaryBudgetExceededException decline =
-        new GlobalDictionaryBudgetExceededException(column, retainedBytes, budgetBytes, entryCount, detail);
+    final GlobalDictionaryBudgetExceededException decline = GlobalDictionaryBudgetExceededException.structuralDecline(
+        column, retainedBytes, budgetBytes, entryCount, detail);
     if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
       return new IllegalStateException(
           "Forced global value dictionary for column " + column + " cannot continue safely: " + detail, decline);

@@ -17,49 +17,53 @@ import java.util.function.LongSupplier;
 /**
  * Pure bulk-build / rebuild primitive for HOT (Height-Optimized Trie) secondary indexes.
  *
- * <p>Given a list of {@code (key, value)} entries sorted ascending by unsigned big-endian
+ * <p>
+ * Given a list of {@code (key, value)} entries sorted ascending by unsigned big-endian
  * (lexicographic) key, {@link #build} materializes a correct HOT subtree out of real
- * {@link HOTLeafPage} and {@link HOTIndirectPage} objects and returns its root. The function is
- * a faithful port of the formally-verified model in {@code HOTFormalModelTest} (the
- * {@code buildR} / {@code bulk} / sparse-path encoding triple) — see
- * {@code docs/HOT_FORMAL_FOUNDATION.md} (Theorem 1). It is property-test-verified there over
- * thousands of adversarial key sets.
+ * {@link HOTLeafPage} and {@link HOTIndirectPage} objects and returns its root. The function is a
+ * faithful port of the formally-verified model in {@code HOTFormalModelTest} (the {@code buildR} /
+ * {@code bulk} / sparse-path encoding triple) — see {@code docs/HOT_FORMAL_FOUNDATION.md} (Theorem
+ * 1). It is property-test-verified there over thousands of adversarial key sets.
  *
- * <p><b>Purity.</b> {@code build} allocates exclusively new pages and never mutates any page
- * passed in or referenced elsewhere. It performs no I/O. Page keys are drawn from the supplied
+ * <p>
+ * <b>Purity.</b> {@code build} allocates exclusively new pages and never mutates any page passed in
+ * or referenced elsewhere. It performs no I/O. Page keys are drawn from the supplied
  * {@link LongSupplier} — the caller controls allocation so the result can be spliced in via
  * copy-on-write with full path-copy to the root (Sirix's persistent-page discipline).
  *
- * <p><b>Algorithm.</b> Two deterministic phases (foundation §3.2):
+ * <p>
+ * <b>Algorithm.</b> Two deterministic phases (foundation §3.2):
  * <ol>
- *   <li>Build {@code R(S)}, Binna's binary Patricia trie of the key set, by the standard MSDB
- *       recursion. The most-significant differing bit (MSDB) between two variable-length keys
- *       compared as unsigned big-endian is the first differing byte, then the most significant
- *       differing bit within that byte.</li>
- *   <li>Compress {@code R(S)}: cut a {@link HOTLeafPage} at the highest {@code R(S)} subtree
- *       whose key group fits a page (&le; {@link HOTLeafPage#MAX_ENTRIES} entries <em>and</em>
- *       &le; page byte capacity); SMHP-partition the remaining upper structure into
- *       {@link HOTIndirectPage} compound nodes of &le; {@link HOTIndirectPage#MAX_NODE_ENTRIES}
- *       children; sparse-path-encode the stored partial keys.</li>
+ * <li>Build {@code R(S)}, Binna's binary Patricia trie of the key set, by the standard MSDB
+ * recursion. The most-significant differing bit (MSDB) between two variable-length keys compared as
+ * unsigned big-endian is the first differing byte, then the most significant differing bit within
+ * that byte.</li>
+ * <li>Compress {@code R(S)}: cut a {@link HOTLeafPage} at the highest {@code R(S)} subtree whose
+ * key group fits a page (&le; {@link HOTLeafPage#MAX_ENTRIES} entries <em>and</em> &le; page byte
+ * capacity); SMHP-partition the remaining upper structure into {@link HOTIndirectPage} compound
+ * nodes of &le; {@link HOTIndirectPage#MAX_NODE_ENTRIES} children; sparse-path-encode the stored
+ * partial keys.</li>
  * </ol>
  * Because a leaf page stores a <em>complete</em> {@code R(S)} subtree, every ancestor
- * discriminative bit is constant across the leaf's keys (Fact R1), so invariant I5 holds
- * regardless of leaf cardinality.
+ * discriminative bit is constant across the leaf's keys (Fact R1), so invariant I5 holds regardless
+ * of leaf cardinality.
  *
- * <p><b>Tombstones.</b> A tombstone (a {@code NodeReferences} value tagged {@code 0xFE}) is a
- * key and is included like any other entry — it occupies a leaf slot and participates in
- * {@code R(S)} construction.
+ * <p>
+ * <b>Tombstones.</b> A tombstone (a {@code NodeReferences} value tagged {@code 0xFE}) is a key and
+ * is included like any other entry — it occupies a leaf slot and participates in {@code R(S)}
+ * construction.
  *
- * <p><b>MultiMask encoding consistency.</b> The stored partial of child {@code i} is the
- * sparse-path encoding: bit {@code j} is set iff the block BiNode {@code discBits[j]} lies on
- * the path to child {@code i} <em>and</em> that path takes the 1-side. Discriminative bits are
- * packed MSB-first by absolute bit position — {@code discBits[0]} (smallest absolute position,
- * most significant) gets weight {@code 1 << (m-1)}. This is exactly the bit order
- * {@link HOTIndirectPage}'s routing produces from {@code Long.compress} (SingleMask) and from
- * the chunked {@code computeMultiMaskPartialKey} (MultiMask): the lowest long-bit / lowest
- * result-bit corresponds to the least-significant captured key bit. The builder chooses the
- * SingleMask layout when every discriminative bit fits an 8-byte window and the MultiMask
- * layout otherwise; both decode the partials identically.
+ * <p>
+ * <b>MultiMask encoding consistency.</b> The stored partial of child {@code i} is the sparse-path
+ * encoding: bit {@code j} is set iff the block BiNode {@code discBits[j]} lies on the path to child
+ * {@code i} <em>and</em> that path takes the 1-side. Discriminative bits are packed MSB-first by
+ * absolute bit position — {@code discBits[0]} (smallest absolute position, most significant) gets
+ * weight {@code 1 << (m-1)}. This is exactly the bit order {@link HOTIndirectPage}'s routing
+ * produces from {@code Long.compress} (SingleMask) and from the chunked
+ * {@code computeMultiMaskPartialKey} (MultiMask): the lowest long-bit / lowest result-bit
+ * corresponds to the least-significant captured key bit. The builder chooses the SingleMask layout
+ * when every discriminative bit fits an 8-byte window and the MultiMask layout otherwise; both
+ * decode the partials identically.
  *
  * @author Johannes Lichtenberger
  * @see HOTLeafPage
@@ -78,11 +82,11 @@ public final class HOTBulkBuilder {
   }
 
   /**
-   * A single {@code (key, value)} entry. Both arrays are treated as immutable; the builder
-   * never modifies them and never retains references beyond the {@link #build} call other than
-   * by copying their bytes into freshly allocated leaf pages.
+   * A single {@code (key, value)} entry. Both arrays are treated as immutable; the builder never
+   * modifies them and never retains references beyond the {@link #build} call other than by copying
+   * their bytes into freshly allocated leaf pages.
    *
-   * @param key   the full index key (variable-length, compared unsigned big-endian)
+   * @param key the full index key (variable-length, compared unsigned big-endian)
    * @param value the value payload (a tombstone is a 1-byte {@code 0xFE})
    */
   public record Entry(byte[] key, byte[] value) {
@@ -93,33 +97,32 @@ public final class HOTBulkBuilder {
   }
 
   /**
-   * The result of a bulk build: the root page and a {@link PageReference} that already has the
-   * root swizzled in via {@link PageReference#setPage}. Every page in the subtree is reachable
-   * from {@code rootReference} and has a page key drawn from the caller's allocator.
+   * The result of a bulk build: the root page and a {@link PageReference} that already has the root
+   * swizzled in via {@link PageReference#setPage}. Every page in the subtree is reachable from
+   * {@code rootReference} and has a page key drawn from the caller's allocator.
    *
    * @param rootReference a reference whose in-memory page is {@link #rootPage}
-   * @param rootPage      the root of the built HOT subtree (a {@link HOTLeafPage} when the key
-   *                      set fits a single page, otherwise a {@link HOTIndirectPage})
-   * @param leafCount     number of leaf pages created
+   * @param rootPage the root of the built HOT subtree (a {@link HOTLeafPage} when the key set fits a
+   *        single page, otherwise a {@link HOTIndirectPage})
+   * @param leafCount number of leaf pages created
    * @param indirectCount number of indirect pages created
    */
-  public record BuildResult(PageReference rootReference, Page rootPage, int leafCount,
-                             int indirectCount) {}
+  public record BuildResult(PageReference rootReference, Page rootPage, int leafCount, int indirectCount) {
+  }
 
   /**
    * Build a HOT subtree from sorted, distinct entries.
    *
-   * @param sortedEntries     entries sorted strictly ascending by unsigned big-endian key; must
-   *                          contain no duplicate keys
-   * @param revision          the revision number stamped onto every created page
-   * @param indexType         the index type ({@code PATH} / {@code CAS} / {@code NAME})
-   * @param pageKeyAllocator  supplier of fresh persistent page keys; called once per created
-   *                          page (leaf and indirect)
+   * @param sortedEntries entries sorted strictly ascending by unsigned big-endian key; must contain
+   *        no duplicate keys
+   * @param revision the revision number stamped onto every created page
+   * @param indexType the index type ({@code PATH} / {@code CAS} / {@code NAME})
+   * @param pageKeyAllocator supplier of fresh persistent page keys; called once per created page
+   *        (leaf and indirect)
    * @return the build result; {@code rootPage} is {@code null}-free
-   * @throws NullPointerException     if any argument is {@code null}
+   * @throws NullPointerException if any argument is {@code null}
    * @throws IllegalArgumentException if {@code sortedEntries} is empty, not strictly ascending,
-   *                                  contains a duplicate key, or contains a single entry whose
-   *                                  bytes cannot fit a leaf page
+   *         contains a duplicate key, or contains a single entry whose bytes cannot fit a leaf page
    */
   public static BuildResult build(final java.util.List<Entry> sortedEntries, final int revision,
       final IndexType indexType, final LongSupplier pageKeyAllocator) {
@@ -141,12 +144,11 @@ public final class HOTBulkBuilder {
       if (i > 0) {
         final int cmp = Arrays.compareUnsigned(keys[i - 1], keys[i]);
         if (cmp == 0) {
-          throw new IllegalArgumentException(
-              "duplicate key at index " + i + ": " + hex(keys[i]));
+          throw new IllegalArgumentException("duplicate key at index " + i + ": " + hex(keys[i]));
         }
         if (cmp > 0) {
-          throw new IllegalArgumentException("entries not sorted ascending at index " + i
-              + ": " + hex(keys[i - 1]) + " > " + hex(keys[i]));
+          throw new IllegalArgumentException(
+              "entries not sorted ascending at index " + i + ": " + hex(keys[i - 1]) + " > " + hex(keys[i]));
         }
       }
     }
@@ -170,23 +172,25 @@ public final class HOTBulkBuilder {
   }
 
   /** A leaf of {@code R(S)}: the contiguous key group {@code keys[lo..hi]}. */
-  private record RLeaf(int lo, int hi) implements RNode {}
+  private record RLeaf(int lo, int hi) implements RNode {
+  }
 
   /**
-   * A branch of {@code R(S)}: splits {@code keys[lo..hi]} on the discriminative bit
-   * {@code beta} (an absolute MSB-first bit position). All keys under {@code left} have
-   * {@code key[beta] == 0}, all under {@code right} have {@code key[beta] == 1}.
+   * A branch of {@code R(S)}: splits {@code keys[lo..hi]} on the discriminative bit {@code beta} (an
+   * absolute MSB-first bit position). All keys under {@code left} have {@code key[beta] == 0}, all
+   * under {@code right} have {@code key[beta] == 1}.
    */
-  private record RBranch(int lo, int hi, int beta, RNode left, RNode right) implements RNode {}
+  private record RBranch(int lo, int hi, int beta, RNode left, RNode right) implements RNode {
+  }
 
   private static int rSize(final RNode r) {
     return r.hi() - r.lo() + 1;
   }
 
   /**
-   * Build {@code R(keys[lo..hi])} by the MSDB recursion. {@code keys} is sorted strictly
-   * ascending unsigned; both halves of every branch are non-empty because {@code beta} is a
-   * genuinely differing bit.
+   * Build {@code R(keys[lo..hi])} by the MSDB recursion. {@code keys} is sorted strictly ascending
+   * unsigned; both halves of every branch are non-empty because {@code beta} is a genuinely differing
+   * bit.
    */
   private static RNode buildR(final byte[][] keys, final int lo, final int hi) {
     if (lo == hi) {
@@ -203,15 +207,19 @@ public final class HOTBulkBuilder {
 
   /**
    * Most significant differing bit position (absolute, MSB-first; bit 0 = MSB of byte 0) of two
-   * distinct variable-length keys compared as unsigned big-endian. Missing trailing bytes are
-   * treated as {@code 0x00}, so {@code "AB"} and {@code "AB\0..."} would be equal — the caller
-   * guarantees distinct keys, so a differing bit always exists.
+   * distinct variable-length keys compared as unsigned big-endian. Missing trailing bytes are treated
+   * as {@code 0x00}, so {@code "AB"} and {@code "AB\0..."} would be equal — the caller guarantees
+   * distinct keys, so a differing bit always exists.
    */
   static int msdb(final byte[] a, final byte[] b) {
     final int max = Math.max(a.length, b.length);
     for (int i = 0; i < max; i++) {
-      final int av = i < a.length ? (a[i] & 0xFF) : 0;
-      final int bv = i < b.length ? (b[i] & 0xFF) : 0;
+      final int av = i < a.length
+          ? (a[i] & 0xFF)
+          : 0;
+      final int bv = i < b.length
+          ? (b[i] & 0xFF)
+          : 0;
       final int x = av ^ bv;
       if (x != 0) {
         // Most significant differing bit within the byte: 0 = MSB ... 7 = LSB.
@@ -251,8 +259,8 @@ public final class HOTBulkBuilder {
     private int leafCount;
     private int indirectCount;
 
-    BulkContext(final byte[][] keys, final byte[][] values, final int revision,
-        final IndexType indexType, final LongSupplier pageKeyAllocator) {
+    BulkContext(final byte[][] keys, final byte[][] values, final int revision, final IndexType indexType,
+        final LongSupplier pageKeyAllocator) {
       this.keys = keys;
       this.values = values;
       this.revision = revision;
@@ -261,9 +269,9 @@ public final class HOTBulkBuilder {
     }
 
     /**
-     * Compress the {@code R(S)} node {@code r} into a HOT page. A node becomes a leaf page when
-     * its key group fits a page; otherwise it becomes an indirect page whose block is grown
-     * greedily to {@code MAX_FANOUT} children (any frontier is invariant-correct by Theorem 1).
+     * Compress the {@code R(S)} node {@code r} into a HOT page. A node becomes a leaf page when its key
+     * group fits a page; otherwise it becomes an indirect page whose block is grown greedily to
+     * {@code MAX_FANOUT} children (any frontier is invariant-correct by Theorem 1).
      */
     Page bulk(final RNode r) {
       final int size = rSize(r);
@@ -276,8 +284,7 @@ public final class HOTBulkBuilder {
           return leaf;
         }
         if (r instanceof RLeaf) {
-          throw new IllegalArgumentException(
-              "single entry exceeds leaf page capacity: key " + hex(keys[r.lo()]));
+          throw new IllegalArgumentException("single entry exceeds leaf page capacity: key " + hex(keys[r.lo()]));
         }
       }
       // r has > MAX_LEAF_ENTRIES keys, or its group did not fit a page: it is an RBranch.
@@ -285,11 +292,43 @@ public final class HOTBulkBuilder {
     }
 
     /**
-     * Speculatively build a leaf page holding {@code keys[lo..hi]}. Returns {@code null} if the
-     * entries do not fit a page (entry-count or byte-capacity overflow signalled by
-     * {@link HOTLeafPage#put} returning {@code false} on a genuine — non-duplicate — insert).
-     * The keys are distinct, so a {@code false} return is unambiguously overflow. A discarded
-     * speculative page is {@link HOTLeafPage#close closed} so its off-heap segment is released.
+     * Expansion predicate for a frontier node: only a branch whose key group does NOT fit a single leaf
+     * page may be split further. A fitting group is left whole so {@link #bulk} cuts it as one page —
+     * the "highest fitting {@code R(S)} subtree" policy.
+     */
+    private boolean isExpandable(final RNode r) {
+      return r instanceof RBranch && !fitsLeafPage(r.lo(), r.hi());
+    }
+
+    /**
+     * Conservative page-fit test for {@code keys[lo..hi]}: entry count within
+     * {@link HOTLeafPage#MAX_ENTRIES} and the worst-case slot-heap footprint within
+     * {@link HOTLeafPage#DEFAULT_SIZE}. The footprint upper bound charges the FULL key per entry
+     * ({@code 2 + keyLen + 2 + valueLen}); the page stores only the post-prefix suffix
+     * ({@code suffixLen ≤ keyLen}), so a group that passes here can never overflow the real page and
+     * {@code tryBuildLeaf} cannot fail on it. The sum exits early once over budget, bounding the walk
+     * at {@code O(capacity / entrySize)} regardless of group size.
+     */
+    private boolean fitsLeafPage(final int lo, final int hi) {
+      if (hi - lo + 1 > MAX_LEAF_ENTRIES) {
+        return false;
+      }
+      long bytes = 0;
+      for (int i = lo; i <= hi; i++) {
+        bytes += 4 + keys[i].length + values[i].length;
+        if (bytes > HOTLeafPage.DEFAULT_SIZE) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Speculatively build a leaf page holding {@code keys[lo..hi]}. Returns {@code null} if the entries
+     * do not fit a page (entry-count or byte-capacity overflow signalled by {@link HOTLeafPage#put}
+     * returning {@code false} on a genuine — non-duplicate — insert). The keys are distinct, so a
+     * {@code false} return is unambiguously overflow. A discarded speculative page is
+     * {@link HOTLeafPage#close closed} so its off-heap segment is released.
      */
     private HOTLeafPage tryBuildLeaf(final int lo, final int hi) {
       final int count = hi - lo + 1;
@@ -311,31 +350,49 @@ public final class HOTBulkBuilder {
 
     /**
      * Compress one {@code R(S)} branch into a HOT indirect compound node. Mirrors
-     * {@code HOTFormalModelTest.bulk}: greedily expand the block frontier (always splitting the
-     * largest still-expandable frontier node) until the block has {@code MAX_FANOUT} children
-     * or no frontier node can be split; then derive the discriminative-bit set, the
-     * sparse-path partials, and recurse into each child.
+     * {@code HOTFormalModelTest.bulk}: greedily expand the block frontier (always splitting the largest
+     * still-expandable frontier node) until the block has {@code MAX_FANOUT} children or no frontier
+     * node can be split; then derive the discriminative-bit set, the sparse-path partials, and recurse
+     * into each child.
+     *
+     * <p>
+     * <b>Leaf-boundary stop.</b> A frontier node whose whole key group fits one leaf page is never
+     * expanded: expanding it would split a page-fitting {@code R(S)} subtree across several frontier
+     * slots, each of which then compresses into its own (fragmented, under-filled) page. Stopping there
+     * realizes the documented cut policy ("the highest {@code R(S)} subtree whose key group fits a
+     * page"). Any frontier is invariant-correct (Theorem 1), so only packing changes; height can only
+     * shrink (a would-be sub-indirect becomes a height-0 leaf child).
+     *
+     * <p>
+     * Guarded by {@code HOTBulkBuilderTest} V6, which asserts the built leaf count equals the number of
+     * maximal page-fitting {@code R(S)} subtrees — an oracle derived from {@code R(S)} alone, so it is
+     * independent of this frontier logic. Dropping the {@link #fitsLeafPage} term below makes it fail.
      */
     private HOTIndirectPage buildIndirect(final RBranch root) {
       // Frontier: the block's exit points, each with the block-internal path that reaches it.
-      // A path step is {beta, side} with side 0 = left, 1 = right.
+      // A path step is {beta, side} with side 0 = left, 1 = right. fexpandable[i] caches the
+      // expansion predicate (branch AND does not fit a leaf page), computed once per entry —
+      // the byte-fit walk is O(min(group, capacity/entry)) and must not rerun per pick loop.
       final RNode[] fnodes = new RNode[MAX_FANOUT];
       final int[][][] fpaths = new int[MAX_FANOUT][][];
+      final boolean[] fexpandable = new boolean[MAX_FANOUT];
       int fcount = 0;
       fnodes[fcount] = root.left();
       fpaths[fcount] = new int[][] {{root.beta(), 0}};
+      fexpandable[fcount] = isExpandable(root.left());
       fcount++;
       fnodes[fcount] = root.right();
       fpaths[fcount] = new int[][] {{root.beta(), 1}};
+      fexpandable[fcount] = isExpandable(root.right());
       fcount++;
 
       while (fcount < MAX_FANOUT) {
-        // Pick the largest expandable (RBranch) frontier node.
+        // Pick the largest expandable frontier node.
         int idx = -1;
         int best = -1;
         for (int i = 0; i < fcount; i++) {
-          if (fnodes[i] instanceof RBranch rb) {
-            final int s = rSize(rb);
+          if (fexpandable[i]) {
+            final int s = rSize(fnodes[i]);
             if (s > best) {
               best = s;
               idx = i;
@@ -352,10 +409,13 @@ public final class HOTBulkBuilder {
         // Replace fnodes[idx] by rb.left(); insert rb.right() at idx+1, shifting the tail.
         System.arraycopy(fnodes, idx + 1, fnodes, idx + 2, fcount - (idx + 1));
         System.arraycopy(fpaths, idx + 1, fpaths, idx + 2, fcount - (idx + 1));
+        System.arraycopy(fexpandable, idx + 1, fexpandable, idx + 2, fcount - (idx + 1));
         fnodes[idx] = rb.left();
         fpaths[idx] = leftPath;
+        fexpandable[idx] = isExpandable(rb.left());
         fnodes[idx + 1] = rb.right();
         fpaths[idx + 1] = rightPath;
+        fexpandable[idx + 1] = isExpandable(rb.right());
         fcount++;
       }
 
@@ -397,14 +457,15 @@ public final class HOTBulkBuilder {
       int maxChildHeight = 0;
       for (final PageReference child : children) {
         final Page cp = child.getPage();
-        final int h = cp instanceof HOTIndirectPage hi ? hi.getHeight() : 0;
+        final int h = cp instanceof HOTIndirectPage hi
+            ? hi.getHeight()
+            : 0;
         if (h > maxChildHeight) {
           maxChildHeight = h;
         }
       }
       indirectCount++;
-      return assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
-          pageKeyAllocator);
+      return assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
     }
   }
 
@@ -416,29 +477,29 @@ public final class HOTBulkBuilder {
   }
 
   /**
-   * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path
-   * partials, and the child references. Children must already be in strictly ascending
-   * partial-key order (foundation §4, I7) — {@code R(S)} left-to-right order for a bulk build,
-   * a contiguous re-encoded sub-block for an incremental split — so no re-sort is needed. Picks
-   * the SingleMask layout when the bits fit an 8-byte window and the MultiMask layout otherwise;
-   * both decode {@code partials} identically.
+   * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path partials, and
+   * the child references. Children must already be in strictly ascending partial-key order
+   * (foundation §4, I7) — {@code R(S)} left-to-right order for a bulk build, a contiguous re-encoded
+   * sub-block for an incremental split — so no re-sort is needed. Picks the SingleMask layout when
+   * the bits fit an 8-byte window and the MultiMask layout otherwise; both decode {@code partials}
+   * identically.
    *
-   * <p>Package-private: shared with {@link HOTIncrementalInsert}'s {@code splitIndirect} and
+   * <p>
+   * Package-private: shared with {@link HOTIncrementalInsert}'s {@code splitIndirect} and
    * {@code addEntry}, which re-encode a node's sub-block exactly as a bulk build encodes an
    * {@code R(S)} branch.
    *
-   * @param discBits         discriminative bits as sorted ascending absolute (MSB-first)
-   *                         positions; {@code discBits[0]} is the assembled node's MSB
-   * @param partials         per-child sparse-path partial keys, parallel to {@code children}
-   * @param children         child references in ascending partial-key order
-   * @param height           the assembled node's height ({@code 1 + max child height})
-   * @param revision         the revision stamped onto the created page
+   * @param discBits discriminative bits as sorted ascending absolute (MSB-first) positions;
+   *        {@code discBits[0]} is the assembled node's MSB
+   * @param partials per-child sparse-path partial keys, parallel to {@code children}
+   * @param children child references in ascending partial-key order
+   * @param height the assembled node's height ({@code 1 + max child height})
+   * @param revision the revision stamped onto the created page
    * @param pageKeyAllocator supplier of a fresh persistent page key
    * @return a freshly allocated compound node
    */
-  static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials,
-      final PageReference[] children, final int height, final int revision,
-      final LongSupplier pageKeyAllocator) {
+  static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials, final PageReference[] children,
+      final int height, final int revision, final LongSupplier pageKeyAllocator) {
     final int numChildren = children.length;
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
@@ -454,10 +515,8 @@ public final class HOTBulkBuilder {
         bitMask |= 1L << (63 - absBitInWindow);
       }
       return numChildren <= 16
-          ? HOTIndirectPage.createSpanNode(pageKey, revision, firstByte, bitMask, partials,
-              children, height)
-          : HOTIndirectPage.createMultiNode(pageKey, revision, firstByte, bitMask, partials,
-              children, height);
+          ? HOTIndirectPage.createSpanNode(pageKey, revision, firstByte, bitMask, partials, children, height)
+          : HOTIndirectPage.createMultiNode(pageKey, revision, firstByte, bitMask, partials, children, height);
     }
 
     // MultiMask: discriminative bits span more than 8 bytes. Group them by key byte.
@@ -486,13 +545,15 @@ public final class HOTBulkBuilder {
       idx++;
     }
     return numChildren <= 16
-        ? HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, extractionPositions,
-            extractionMasks, numExtractionBytes, partials, children, height, msbIndex)
-        : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision, extractionPositions,
-            extractionMasks, numExtractionBytes, partials, children, height, msbIndex);
+        ? HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, extractionPositions, extractionMasks,
+            numExtractionBytes, partials, children, height, msbIndex)
+        : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision, extractionPositions, extractionMasks,
+            numExtractionBytes, partials, children, height, msbIndex);
   }
 
   private static String hex(final byte[] b) {
-    return b == null ? "null" : java.util.HexFormat.of().formatHex(b);
+    return b == null
+        ? "null"
+        : java.util.HexFormat.of().formatHex(b);
   }
 }

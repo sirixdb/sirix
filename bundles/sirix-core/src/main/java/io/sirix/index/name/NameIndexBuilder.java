@@ -95,6 +95,35 @@ public final class NameIndexBuilder {
     return VisitResultType.CONTINUE;
   }
 
+  /**
+   * Primitive entry for feeders that hold no node object — the parallel bulk importer's coordinator
+   * drain. Same include/exclude filter and the same bulk-vs-incremental arm as {@link #build}.
+   */
+  public void add(final QNm name, final long nodeKey) {
+    final boolean included = (includes.isEmpty() || includes.contains(name));
+    final boolean excluded = (!excludes.isEmpty() && excludes.contains(name));
+    if (!included || excluded) {
+      return;
+    }
+    try {
+      if (useHOT) {
+        assert hotWriter != null;
+        if (bulkLoader != null) {
+          bulkLoader.add(name, nodeKey);
+        } else {
+          hotWriter.indexNodeKey(name, nodeKey);
+        }
+      } else {
+        assert rbTreeWriter != null;
+        final Optional<NodeReferences> references = rbTreeWriter.get(name, SearchMode.EQUAL);
+        rbTreeWriter.index(name, references.orElseGet(NodeReferences::new).addNodeKey(nodeKey),
+            RBTreeReader.MoveCursor.NO_MOVE);
+      }
+    } catch (final SirixIOException e) {
+      LOGGER.error(e.getMessage(), e);
+    }
+  }
+
   private void buildRBTree(QNm name, ImmutableNode node) {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(name, SearchMode.EQUAL);

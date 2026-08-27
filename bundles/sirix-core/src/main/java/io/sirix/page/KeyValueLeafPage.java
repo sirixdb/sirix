@@ -327,6 +327,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private long recordPageKey;
 
   /**
+   * Set when a bulk-import ADOPTED page enters the intent log: nothing mutates the page after
+   * adoption, so the async snapshot flush may serialize it IN PLACE (skipping the defensive deep copy
+   * that exists to protect concurrently mutated pages) — the disposable encode then clobbers this
+   * page's own frame, which is fine because the snapshot cleanup is its single closer and nothing
+   * reads the frame after the flush.
+   */
+  private boolean adoptedImmutableForFlush;
+
+  /**
    * The record-ID mapped to the records. Lazily allocated on first write to save ~8KB per page when
    * FlyweightNode records go directly to the slotted page heap (zero records[] path).
    */
@@ -827,6 +836,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return recordPageKey == other.recordPageKey && revision == other.revision;
     }
     return false;
+  }
+
+  public void markAdoptedImmutableForFlush() {
+    this.adoptedImmutableForFlush = true;
+  }
+
+  public boolean isAdoptedImmutableForFlush() {
+    return adoptedImmutableForFlush;
   }
 
   @Override

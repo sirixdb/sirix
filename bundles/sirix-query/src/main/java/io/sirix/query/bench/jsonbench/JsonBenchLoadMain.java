@@ -138,8 +138,12 @@ public final class JsonBenchLoadMain {
     // or group-by kernel.
     if (projection && incrementalProjection) {
       // Built by the shred itself — its cost is already inside the load time reported above.
-      System.out.printf("# projection: columns=%d globalDictColumns=%d built DURING the shred (one pass)%n",
-          JsonBenchProjection.COLUMN_PATHS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt());
+      // dictProbes must be 0 on a one-pass load: retained intern tables mean interning never
+      // reaches the persistent radix (non-zero = the per-value durable-read regime is back).
+      System.out.printf(
+          "# projection: columns=%d globalDictColumns=%d dictProbes=%d built DURING the shred (one pass)%n",
+          JsonBenchProjection.COLUMN_PATHS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
+          ProjectionIndexBuilder.persistentDictionaryProbesReported());
     } else if (projection) {
       try {
         final double projectionSeconds = JsonBenchProjection.create(dbDir);

@@ -313,6 +313,32 @@ public final class Names {
   }
 
   /**
+   * Adds {@code delta} occurrences to an EXISTING interned name's count in one touch — the batched
+   * form of the per-occurrence increment in {@link #setName}: one
+   * {@code prepareRecordForModification} on the shared count record instead of {@code delta} of them.
+   * The parallel bulk importer accumulates per-chunk occurrence deltas and applies them at the
+   * pre-rotation flush point (the same point path-reference deltas use), so the count pages stay hot
+   * in the intent log across async flush epochs.
+   *
+   * @param key the name key returned by {@link #setName}/{@link #keyForName}; must be interned
+   * @param delta how many additional occurrences to record; must be positive
+   * @param storageEngineWriter the writer for the count-record modification
+   */
+  public void addCount(final int key, final int delta, final StorageEngineWriter storageEngineWriter) {
+    if (delta <= 0) {
+      throw new IllegalArgumentException("delta must be positive: " + delta);
+    }
+    if (!countNameMapping.containsKey(key)) {
+      throw new IllegalArgumentException("name key " + key + " is not interned; addCount only batches EXISTING names");
+    }
+    countNameMapping.put(key, countNameMapping.get(key) + delta);
+    final long nodeKey = countNodeMap.get(key);
+    final HashCountEntryNode hashCountEntryNode =
+        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
+    hashCountEntryNode.incrementValueBy(delta);
+  }
+
+  /**
    * Find the slot {@code name} owns, walking the linear probe chain from its hash: the first slot
    * holding exactly these bytes, or — if the name is not stored — the first free slot at which it
    * should be inserted.

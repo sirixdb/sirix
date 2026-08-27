@@ -62,6 +62,17 @@ public final class HashCountEntryNode implements DataRecord {
     return this;
   }
 
+  /**
+   * Batched form of {@link #incrementValue()} for delta application; {@code delta} must be positive.
+   */
+  public HashCountEntryNode incrementValueBy(final int delta) {
+    if (delta <= 0) {
+      throw new IllegalArgumentException("delta must be positive: " + delta);
+    }
+    value += delta;
+    return this;
+  }
+
   public HashCountEntryNode decrementValue() {
     value--;
     return this;

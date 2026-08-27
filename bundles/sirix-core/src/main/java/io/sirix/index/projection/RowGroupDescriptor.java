@@ -435,6 +435,35 @@ public final class RowGroupDescriptor {
     return d[OFF_KINDS + column];
   }
 
+  /**
+   * Whether two descriptors declare the SAME encoding for every column.
+   *
+   * <p>
+   * Every leaf of one projection must, and the store depends on that hard enough to read the kinds
+   * from leaf 0 alone and dispatch an entire query on them. When maintenance broke the invariant —
+   * writing one leaf's descriptor as {@code STRING_DICT} beside a payload that was still
+   * {@code STRING_GLOBAL} — nothing noticed until a decode four rounds later reported the column as
+   * corrupt (tasks #45, #50). Checking costs one range comparison because the kinds are contiguous,
+   * so the invariant can be VERIFIED instead of assumed.
+   * </p>
+   *
+   * <p>
+   * Descriptors that disagree about how many columns they have disagree, full stop: they cannot be
+   * describing the same projection.
+   * </p>
+   *
+   * @param a one descriptor; never {@code null}
+   * @param b the other; never {@code null}
+   * @return whether both declare identical kinds for identically many columns
+   */
+  public static boolean kindsAgree(final byte[] a, final byte[] b) {
+    final int columns = columnCount(a);
+    if (columns != columnCount(b)) {
+      return false;
+    }
+    return Arrays.equals(a, OFF_KINDS, OFF_KINDS + columns, b, OFF_KINDS, OFF_KINDS + columns);
+  }
+
   public static int columnSegmentCount(final byte[] d) {
     return getShortLE(d, OFF_KINDS + columnCount(d)) & 0xFFFF;
   }
