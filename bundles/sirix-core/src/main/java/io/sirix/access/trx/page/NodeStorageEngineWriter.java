@@ -2620,12 +2620,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return;
       }
       injectAsyncFlushFault("write");
+      // One epoch per flush. It bounds how long a refusal mark is honoured (see
+      // MAX_SKIPPED_FLUSH_EPOCHS), and under the diagnostic it also separates a page encoded twice
+      // inside one flush from a page encoded again in every flush it survives.
+      flushEpoch++;
       if (PageSectionDiag.ENABLED) {
-        // One epoch per flush: the repeat ledger uses it to separate a page encoded twice inside a
-        // single flush from a page that is encoded again in every flush it survives.
         PageSectionDiag.noteFlushEpoch();
       }
-      final BytesOut<?> bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+      final boolean ownsRetainedAppendBuffer = RETAIN_APPEND_BUFFER && appendBufferInUse.compareAndSet(false, true);
+      final BytesOut<?> bgBuffer;
+      if (ownsRetainedAppendBuffer) {
+        BytesOut<?> retained = retainedAppendBuffer;
+        if (retained == null) {
+          retained = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+          retainedAppendBuffer = retained;
+        }
+        // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
+        // be able to leave a prefix for this one to write out.
+        retained.clear();
+        bgBuffer = retained;
+      } else {
+        bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+      }
       final PageReference shadowRef = new PageReference();
       try {
         final ResourceConfiguration config = getResourceSession().getResourceConfig();
@@ -2806,7 +2822,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         markAsyncFlushProgress();
         injectAsyncFlushFault("after-flush");
       } finally {
-        bgBuffer.close();
+        if (ownsRetainedAppendBuffer) {
+          // Keep the buffer, drop its contents, then publish the release. The volatile write is what
+          // hands the next owner a buffer it can see in full.
+          bgBuffer.clear();
+          appendBufferInUse.set(false);
+        } else {
+          bgBuffer.close();
+        }
       }
       if (asyncSnapshotIncludesLog) {
         log.markSnapshotFlushComplete();
@@ -4452,11 +4475,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     projectionDictionaryRecordMemo = null;
     projectionDictionaryRecordMemoBytes = 0L;
 
+    // The retained append buffer is off-heap and outlives every epoch by design, so this close is
+    // the one place it is released. awaitInFlightAsyncFlushOnly() below fences any owner first;
+    // releasing the flag as well keeps a post-close reuse from resurrecting a closed buffer.
+    final BytesOut<?> retainedBuffer = retainedAppendBuffer;
+    if (retainedBuffer != null) {
+      retainedAppendBuffer = null;
+      appendBufferInUse.set(true);
+    }
+
     Throwable asyncFailure = null;
     try {
       awaitInFlightAsyncFlushOnly();
     } catch (final Throwable t) {
       asyncFailure = t;
+    }
+    if (retainedBuffer != null) {
+      try {
+        retainedBuffer.close();
+      } catch (final RuntimeException releaseFailure) {
+        LOGGER.warn("Releasing the retained append buffer failed", releaseFailure);
+      }
     }
     if (asyncFlushWorkerRunning) {
       final Throwable unfencedFailure =
@@ -5374,6 +5413,64 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       !"false".equalsIgnoreCase(System.getProperty("sirix.flush.skipRefusedOverflowLeaves"));
 
   /**
+   * How many flush epochs a refusal may be honoured for before the leaf is offered to the encoder
+   * again.
+   *
+   * <p>
+   * The two ways of being wrong are not symmetric, and neither is unsafe. Encoding a leaf that would
+   * have been refused costs one encode — today's behaviour. Skipping a leaf that could now be written
+   * defers it to the recursive final commit, which is the SAME outcome the refusal it stands in for
+   * produces; but a mark that never expired would make that deferral unbounded, and an unbounded
+   * deferral is how intent-log residency turns into an exhausted arena. This bound makes the
+   * divergence from unmodified behaviour finite by construction rather than by argument: a leaf can
+   * be excluded from the async flush for at most this many epochs, after which it is encoded and
+   * either flushes or refuses again. At 64 the safety valve costs about 1.6 % of the encodes the
+   * lever removes.
+   * </p>
+   *
+   * <p>
+   * Package-private and non-final for the test's bound-zero arm, exactly as
+   * {@link #MAX_KVL_FLUSH_DEFERRALS} is.
+   * </p>
+   */
+  static int MAX_SKIPPED_FLUSH_EPOCHS = 64;
+
+  /**
+   * Flush epochs this writer has begun. Incremented by the flush driver before each snapshot epoch
+   * and read by its serializer workers, hence {@code volatile}; it feeds only the refusal table's
+   * expiry, so a missed increment costs at most one deferred encode.
+   */
+  private volatile long flushEpoch;
+
+  /**
+   * Whether the sole append owner reuses one off-heap append buffer across flush epochs instead of
+   * allocating a {@link Writer#FLUSH_SIZE} buffer per epoch.
+   *
+   * <p>
+   * The allocation profile put 0.40 GB per 1M-row load on this one statement — a fresh buffer for
+   * every epoch, on a lane that by construction has exactly ONE owner at a time. Kill switch
+   * {@code -Dsirix.flush.retainAppendBuffer=false} restores the per-epoch allocation.
+   * </p>
+   */
+  private static final boolean RETAIN_APPEND_BUFFER =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.flush.retainAppendBuffer"));
+
+  /**
+   * The reused append buffer. Written and read by whichever thread wins {@link #appendBufferInUse},
+   * whose CAS/release pair is the happens-before edge; {@code volatile} so that edge is explicit
+   * rather than inferred.
+   */
+  private volatile @Nullable BytesOut<?> retainedAppendBuffer;
+
+  /**
+   * Guards {@link #retainedAppendBuffer} against an overlapping flush. The admission control should
+   * make one impossible, so this never contends — but reuse must be an OPTIMISATION that cannot
+   * corrupt an append if that assumption ever weakens, and a loser simply allocates its own buffer
+   * exactly as before.
+   */
+  private final AtomicBoolean appendBufferInUse = new AtomicBoolean();
+
+  /**
    * Leaf identities whose pre-serialization minted overflow carriers only the recursive final commit
    * can key. Always allocated so the kill switch can be flipped inside one JVM.
    */
@@ -5387,7 +5484,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private void noteRefusedOverflowLeaf(final KeyValueLeafPage page) {
     if (skipRefusedOverflowLeaves) {
-      refusedOverflowLeaves.note(page.getPageKey(), page.getIndexType().getID());
+      refusedOverflowLeaves.note(page.getPageKey(), page.getIndexType().getID(), flushEpoch);
     }
   }
 
@@ -5398,8 +5495,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * @return {@code true} when the encode is known to end in a discard
    */
   private boolean wasRefusedForUnresolvedCarriers(final KeyValueLeafPage page) {
-    return skipRefusedOverflowLeaves && refusedOverflowLeaves.contains(page.getPageKey(),
-        page.getIndexType().getID());
+    return skipRefusedOverflowLeaves && refusedOverflowLeaves.shouldSkip(page.getPageKey(),
+        page.getIndexType().getID(), flushEpoch, MAX_SKIPPED_FLUSH_EPOCHS);
   }
 
   @Override

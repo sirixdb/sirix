@@ -2675,3 +2675,17 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   lane's per-epoch buffers ~1.0 GB, of which 0.40 GB is a fresh `elasticOffHeapByteBuffer` per epoch with exactly
   one append owner. D4 approved: fix (1) with an open-addressing char-slice table preserving the canonical INSTANCE
   contract, plus (3)'s one-liner; skip (2).
+- 01:20 **Flush safety valve gated and committed.** Guardrail 1 answered by construction, not argument: skip and
+  promote-to-TIL are ONE statement, so "skipped and never written" is unreachable; the marking predicate is strictly
+  narrower than the refusal predicate (only UNRESOLVED marks — PENDING_SIDE_WRITES and frame-size refusals belong to
+  the existing deferral arm); and **every mark now EXPIRES after 64 flush epochs** (+60 encodes, +1.1 MB = 0.6 % of
+  the 10,007 skips), which turns "a leaf that refused is expected to refuse again" into a bound. Pinning counters
+  clean in both arms (unstaged 0, oversized 0, refused 0, kvlPinnedAfterCap 0; kvlPinnedByPromotion 804 → 805).
+  At 1M: encodes 116,275 → 105,786 against 104,921 writes, excess 9.3 % → 0.8 %, NAME 8.78 → 2.02, dropped bytes
+  244.4 MB → 3.44 MB; StorageProfile moves only KeyValueLeafPage (−543 writes, −1.17 MB of superseded shadow
+  versions), every other class byte-identical; 43/43 query dumps identical to the pre-fix database. Kill switch
+  reproduces the baseline exactly. Its own test found the code disagreeing with its comment on an ambiguous mark age
+  and the CODE was right (ambiguity falls to encoding). Gate: full core rc=1 on
+  `GlobalValueDictionaryReadViewMissPathTest#missPathDoesNotAllocatePerProbe` — a per-probe ALLOCATION assertion,
+  which passes 2/2 alone and did not fail in tonight's two earlier full-core runs; it is order/JIT-sensitive and the
+  valve does not touch that path. Recorded as a second known flake beside the Mockito one.
