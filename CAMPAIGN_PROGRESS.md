@@ -2543,3 +2543,9 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   3.77M field-records/s at RSS ≤ 5 GB while building the path summary + projection index. Open gap: no allocation/
   GC profile OF A LOAD in this session. → future brief "ingestion HFT" (stop discarding serializations first; the
   counter gap IS the metric).
+- 22:20 **REBUILD #2 DONE at `c0d2e8ee5`: `sirix.data` = 69,625,839,616 B = 69.6 GB — from 131.9 GB this morning
+  (−47.2 %) and 90.4 GB at rebuild #1 (−23.0 %); load 46m 10s (unchanged); acceptance OK, 99,997,497 rows.**
+  Page classes: KeyValueLeafPage 49.94 GB (≈ 499 B/row; morning ≈ 1,130), OverflowPage 17.45 GB (the projection's
+  per-leaf string dictionaries — P2's target), HOTLeafPage 1.93 GB. ClickBench data_size context: Umbra 8.3 /
+  CedarDB 8.5 / ClickHouse 15.3 / DuckDB 20.5 / PostgreSQL 106.5 GB. **43-query vectorized leg launched DETACHED
+  (setsid nohup) at 22:20** — 3 tries, dumps → `results-vec`, `--require-vectorized-serving`, 8 GB heap.
