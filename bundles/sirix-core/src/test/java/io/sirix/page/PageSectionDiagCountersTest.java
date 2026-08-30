@@ -224,6 +224,74 @@ final class PageSectionDiagCountersTest {
   }
 
   @Test
+  @DisplayName("the post-codec attribution charges every staged section and sums to at least the real body")
+  void postCodecAttributionChargesEverySection() {
+    final Snapshot before = Snapshot.take();
+
+    final ResourceConfiguration config = newConfig();
+    final KeyValueLeafPage page = newPage(config, 0);
+    long nodeKey = 0;
+    for (int i = 0; i < RECORDS_PER_KIND; i++) {
+      writeNumber(page, nodeKey++, 100 + i, 4_000_000_000_000_000_000L + i);
+      writeString(page, nodeKey++, 200 + i, "value-" + i + "-" + "p".repeat(40));
+      writeBoolean(page, nodeKey++, 300 + i, (i & 1) == 0);
+    }
+    final int expectedRecords = 3 * RECORDS_PER_KIND;
+
+    serialize(config, page);
+    final Snapshot after = Snapshot.take();
+    page.close();
+
+    assertEquals(1, after.postCodecPages - before.postCodecPages, "the attribution ran on exactly one page");
+
+    // Every section the page staged is charged, with a raw size that matches what it holds.
+    final long dirRaw = after.postCodecRawFor(PageSectionDiag.SECTION_COMPACT_DIR)
+        - before.postCodecRawFor(PageSectionDiag.SECTION_COMPACT_DIR);
+    assertEquals((long) expectedRecords * PageLayout.COMPACT_DIR_ENTRY_SIZE, dirRaw,
+        "the compact directory's raw size is two bytes per populated slot");
+    final long heapRaw = after.postCodecRawFor(PageSectionDiag.SECTION_HEAP)
+        - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP);
+    assertTrue(heapRaw > 0, "the heap must be charged");
+    final long fusedRaw = after.postCodecRawFor(PageSectionDiag.SECTION_HEAP_FUSED)
+        - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP_FUSED);
+    assertEquals(heapRaw, fusedRaw, "this fixture holds only fused records, so the whole heap is that class");
+    assertEquals(0, after.postCodecRawFor(PageSectionDiag.SECTION_HEAP_STRUCTURAL)
+        - before.postCodecRawFor(PageSectionDiag.SECTION_HEAP_STRUCTURAL),
+        "and none of it is structural");
+
+    // The load-bearing property: a section compressed ALONE cannot beat the same bytes compressed as
+    // part of the whole body, because the codec also sees repetition across sections. If the sum ever
+    // came out under the real body the attribution would be reporting a saving that does not exist.
+    final long sectionSum = after.postCodecSectionSum - before.postCodecSectionSum;
+    final long actualBody = after.postCodecActualBody - before.postCodecActualBody;
+    assertTrue(actualBody > 0, "the body must have been written");
+    assertTrue(sectionSum >= actualBody,
+        "the sections compressed on their own must sum to at least the real body — " + sectionSum + " vs "
+            + actualBody);
+    // And the sum is exactly the whole-section lanes, with the per-kind heap lanes left out — they are
+    // PARTS of the heap lane, and counting a record's bytes twice would make the attribution lie.
+    long wholeSectionEncoded = 0;
+    for (int section = 0; section <= PageSectionDiag.SECTION_HEAP; section++) {
+      wholeSectionEncoded += after.postCodecEncodedFor(section) - before.postCodecEncodedFor(section);
+    }
+    assertEquals(wholeSectionEncoded, sectionSum,
+        "the reported sum must be the whole-section lanes and nothing else");
+    final long fusedEncoded = after.postCodecEncodedFor(PageSectionDiag.SECTION_HEAP_FUSED)
+        - before.postCodecEncodedFor(PageSectionDiag.SECTION_HEAP_FUSED);
+    assertTrue(fusedEncoded > 0, "the fused-record lane must be charged, and separately from the sum");
+
+    // The compact directory's predictability, the T1-b question: every entry after the first of each
+    // template repeats that template's kind, and this fixture's records are uniform per kind, so most
+    // entries are predictable.
+    final long dirEntries = after.compactDirEntries - before.compactDirEntries;
+    final long predictable = after.compactDirPredictableEntries - before.compactDirPredictableEntries;
+    assertEquals(expectedRecords, dirEntries, "every populated slot is one directory entry");
+    assertTrue(predictable > 0 && predictable < dirEntries,
+        "some but not all entries repeat their template's previous kind and length — " + predictable + " of "
+            + dirEntries);
+  }
+
+  @Test
   @DisplayName("raw slab slots fall to the inline body path and are counted with their reason")
   void inlineBodyPathIsCountedWithItsReason() {
     final Snapshot before = Snapshot.take();
@@ -390,6 +458,13 @@ final class PageSectionDiagCountersTest {
     private final long[] regionWritten = new long[RegionTable.KIND_COUNT];
     private final long[] regionWrittenCount = new long[RegionTable.KIND_COUNT];
     private final long regionWrittenAllKinds;
+    private final long[] postCodecRaw = new long[PageSectionDiag.SECTION_COUNT];
+    private final long[] postCodecEncoded = new long[PageSectionDiag.SECTION_COUNT];
+    private final long postCodecPages;
+    private final long postCodecSectionSum;
+    private final long postCodecActualBody;
+    private final long compactDirEntries;
+    private final long compactDirPredictableEntries;
 
     private Snapshot() {
       pages = PageSectionDiag.pagesCounted();
@@ -430,6 +505,23 @@ final class PageSectionDiagCountersTest {
         written += regionWritten[kind];
       }
       regionWrittenAllKinds = written;
+      for (int section = 0; section < PageSectionDiag.SECTION_COUNT; section++) {
+        postCodecRaw[section] = PageSectionDiag.postCodecSectionRawBytes(section);
+        postCodecEncoded[section] = PageSectionDiag.postCodecSectionEncodedBytes(section);
+      }
+      postCodecPages = PageSectionDiag.postCodecPages();
+      postCodecSectionSum = PageSectionDiag.postCodecSectionSum();
+      postCodecActualBody = PageSectionDiag.postCodecActualBody();
+      compactDirEntries = PageSectionDiag.compactDirEntries();
+      compactDirPredictableEntries = PageSectionDiag.compactDirPredictableEntries();
+    }
+
+    long postCodecRawFor(final int section) {
+      return postCodecRaw[section];
+    }
+
+    long postCodecEncodedFor(final int section) {
+      return postCodecEncoded[section];
     }
 
     static Snapshot take() {

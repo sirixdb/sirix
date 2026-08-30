@@ -6098,10 +6098,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         return null;
       }
     }
+    // The per-tag directory may live in the zone map; a page read whole always carries both, and a
+    // page that carries only the values is declined rather than mis-decoded.
+    final MemorySegment directory = regionPayload(RegionTable.KIND_NUMBER_ZONEMAP);
+    if (directory == null && NumberRegion.needsExternalDirectory(payload)) {
+      return null;
+    }
     synchronized (this) {
       h = cachedNumberHeader;
       if (h == null) {
-        h = new NumberRegion.Header().parseInto(payload);
+        h = new NumberRegion.Header().parseInto(payload, directory);
         cachedNumberHeader = h;
       }
     }

@@ -270,7 +270,15 @@ public final class RegionsOnlyPage implements AutoCloseable {
     if (payload == null || payload.byteSize() == 0) {
       return null;
     }
-    return scratch.parseInto(payload);
+    // A per-tag column whose directory lives in the zone map is only readable together with it. A
+    // read mask that asked for the values and not the summary therefore DECLINES here — the caller
+    // falls back to the record path, as it does for any column not on the wire — rather than
+    // decoding packed bytes against a directory it does not have.
+    final MemorySegment directory = regions.payload(RegionTable.KIND_NUMBER_ZONEMAP);
+    if (directory == null && NumberRegion.needsExternalDirectory(payload)) {
+      return null;
+    }
+    return scratch.parseInto(payload, directory);
   }
 
   /**

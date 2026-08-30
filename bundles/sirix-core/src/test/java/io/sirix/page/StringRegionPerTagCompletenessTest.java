@@ -9,7 +9,9 @@ import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.StructuralKeyColumnCodec;
 import io.sirix.node.json.ObjectNamedStringNode;
+import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
@@ -100,18 +102,27 @@ final class StringRegionPerTagCompletenessTest {
   private Arena arena;
   private boolean perTagCompletenessBefore;
   private boolean derivedElisionBefore;
+  private boolean siblingColumnsBefore;
+  private boolean runLengthLaneBefore;
 
   @BeforeEach
   void setUp() {
     arena = Arena.ofConfined();
     perTagCompletenessBefore = PageKind.STRING_REGION_PER_TAG_COMPLETENESS;
     derivedElisionBefore = PageKind.DERIVED_ELISION_SECTIONS;
+    siblingColumnsBefore = PageKind.SIBLING_KEY_COLUMNS_ENABLED;
+    runLengthLaneBefore = StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED;
   }
 
   @AfterEach
   void tearDown() {
     PageKind.STRING_REGION_PER_TAG_COMPLETENESS = perTagCompletenessBefore;
+    NumberRegion.setPerTagWidthEnabled(true);
+    StringRegion.setPlainLaneEnabled(true);
+    NumberRegion.setExternalHeaderEnabled(true);
     PageKind.DERIVED_ELISION_SECTIONS = derivedElisionBefore;
+    PageKind.SIBLING_KEY_COLUMNS_ENABLED = siblingColumnsBefore;
+    StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = runLengthLaneBefore;
     if (arena != null) {
       arena.close();
     }
@@ -365,8 +376,13 @@ final class StringRegionPerTagCompletenessTest {
   void killSwitchIsByteIdenticalToHead() {
     PageKind.STRING_REGION_PER_TAG_COMPLETENESS = false;
     // The pin is of HEAD's bytes, so every lever landed since then has to be off for it to mean what
-    // its name says — the derived elision sections included.
+    // its name says — the derived elision sections and the structural columns included.
     PageKind.DERIVED_ELISION_SECTIONS = false;
+    PageKind.SIBLING_KEY_COLUMNS_ENABLED = false;
+    StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = false;
+    NumberRegion.setPerTagWidthEnabled(false); // B5-c's per-tag number region, landed after the pin
+    StringRegion.setPlainLaneEnabled(false); // B5-c's string-region framing, landed after the pin
+    NumberRegion.setExternalHeaderEnabled(false); // B5-c's folded per-tag directory, landed after the pin
     final ResourceConfiguration config = newConfig();
     final KeyValueLeafPage page = newPage(config);
     try {

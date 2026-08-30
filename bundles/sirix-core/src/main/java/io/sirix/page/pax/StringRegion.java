@@ -100,6 +100,88 @@ public final class StringRegion {
   public static final byte ENC_DICT_BITPACKED_ZM_ELEMENTS = 1;
 
   /**
+   * Same column, framed for a page that holds a record's worth of each field rather than a column's.
+   *
+   * <p>
+   * The dictionary form was designed for the case it is named after: eight departments repeated three
+   * hundred times. A leaf of a wide record-shaped corpus is the opposite — a few rows of thirty-odd
+   * fields, where a fat field's handful of values are all distinct. There the framing was the cost:
+   * four fixed-width arrays per tag (16 bytes) and a four-byte length per dictionary entry, for
+   * entries whose values are usually under 128 bytes and whose dictionary buys no deduplication at
+   * all.
+   *
+   * <p>
+   * Three changes, each chosen by measurement rather than by shape:
+   * <ul>
+   * <li>the per-tag arrays are varints, and {@code tagStart} and {@code count} are running sums of
+   * what is already there rather than arrays of their own;</li>
+   * <li>a tag's length table has a width of its own — one, two or four bytes, signed, so the sign
+   * still carries the FSST flag and a length stays a single O(1) read;</li>
+   * <li>a tag whose values are ALL DISTINCT takes the plain lane: its values are stored in slot
+   * order and its rank IS its dictionary id, so it writes no dict ids at all. All-distinct is a
+   * precondition, not a heuristic — rank and id must stay a bijection or an equality count over a
+   * duplicated value would answer for one of its occurrences.</li>
+   * </ul>
+   *
+   * <pre>
+   * byte    encodingKind = 2
+   * byte    tagKind
+   * byte    flags                 // bit0 = array-element staging ran (the ..._ELEMENTS promise)
+   * uvarint retainedTagCount
+   * uvarint suppressedTagCount    // zero on every page without an oversized string
+   * per retained tag:
+   *   svarint parentDictDelta     // parentDict[i] - parentDict[i-1], first from 0
+   *   uvarint tagCount            // tagStart is the running sum
+   *   uvarint tagMeta             // bit0 plain lane, bits1-2 length width (0:1B 1:2B 2:4B),
+   *                               // bits3.. dictionary size (absent, i.e. 0, on the plain lane,
+   *                               // where it equals tagCount)
+   * per suppressed tag:
+   *   svarint tagDelta            // first from 0
+   * per retained tag:
+   *   length[dictSize] at the tag's width, signed, negative = FSST-encoded
+   *   byte[] the entries' stored bytes
+   * byte[]  valueDictIds          // DICT-lane tags only, packed at the derived width
+   * </pre>
+   *
+   * <p>
+   * {@code count}, {@code tagStart} and {@code valueBitWidth} are derived at parse. Everything a
+   * reader sees on {@link Header} is what it saw before, so no consumer outside this class learns
+   * that the framing changed.
+   */
+  public static final byte ENC_VARINT_FRAMED = 2;
+
+  /** {@link #ENC_VARINT_FRAMED} flag bit: array-element staging ran for this page. */
+  private static final int FLAG_ELEMENTS_STAGED = 1;
+
+  /** Length-table widths a tag may choose, indexed by the two-bit code in {@code tagMeta}. */
+  private static final int[] LENGTH_WIDTHS = {1, 2, 4};
+
+  /**
+   * Write {@link #ENC_VARINT_FRAMED}. Off pins the encoder to the dictionary layout byte for byte,
+   * the suppressed-tag list and its sign-bit marker included.
+   */
+  private static volatile Boolean VARINT_FRAMING_OVERRIDE = null;
+
+  /** Test hook: force-enable/disable the varint framing without restarting the JVM. */
+  public static void setPlainLaneEnabled(final boolean enabled) {
+    VARINT_FRAMING_OVERRIDE = enabled;
+  }
+
+  /** Test hook: clear the override and fall back to the system property. */
+  public static void clearPlainLaneOverride() {
+    VARINT_FRAMING_OVERRIDE = null;
+  }
+
+  /** Kill switch {@code -Dsirix.page.stringRegion.plainLane=false}; on by default. */
+  public static boolean plainLaneEnabled() {
+    final Boolean override = VARINT_FRAMING_OVERRIDE;
+    if (override != null) {
+      return override;
+    }
+    return !"false".equalsIgnoreCase(System.getProperty("sirix.page.stringRegion.plainLane"));
+  }
+
+  /**
    * Tag dictionary classification; see {@link Header#tagKind}. Same semantics as
    * {@link NumberRegion#TAG_KIND_NAME}/{@link NumberRegion#TAG_KIND_PATH_NODE}:
    * {@link #TAG_KIND_NAME} tags are nameKeys (compression-safe only), {@link #TAG_KIND_PATH_NODE}
@@ -180,12 +262,38 @@ public final class StringRegion {
     public int[] suppressedTags;
     /** For each tag: offset (within payload) of the per-tag length table. */
     public int[] tagStringDictOffset;
+    /**
+     * For each tag: offset (within payload) of the entries' bytes, i.e. just past its length table.
+     * Derived, so a reader never has to know how wide that table's fields are.
+     */
+    public int[] tagStringBytesOffset;
+    /** For each tag: bytes per length-table field — 1, 2 or 4. Four on the dictionary layout. */
+    public byte[] tagLengthWidth;
+    /**
+     * For each tag: whether the tag took the plain lane, where the value's RANK within the tag is its
+     * dictionary id and no id is stored. False for every tag of the dictionary layout.
+     */
+    public boolean[] tagPlainLane;
+    /**
+     * For each tag: index of its first value within the packed dict-id lane. Equals
+     * {@link #tagStart} whenever no tag took the plain lane, which is every page of the dictionary
+     * layout; a plain tag contributes nothing to the lane and its entry is not meaningful.
+     */
+    public int[] tagIdLaneStart;
+    /**
+     * True when the dict-id lane is indexed by the absolute value index — no tag took the plain lane.
+     * The per-value decoders take a branch-free path on it, which is every legacy page.
+     */
+    public boolean idLaneIsAbsolute;
     /** valueDictIds byte-region offset within the payload. */
     public int valueDictIdsOffset;
     /** valueDictIds bit-width (same as valueBitWidth; duplicated for convenience). */
     public int valueBitWidthEff;
 
     public Header parseInto(final MemorySegment payload) {
+      if (payload.get(ValueLayout.JAVA_BYTE, 0L) == ENC_VARINT_FRAMED) {
+        return parseVarintFramed(payload);
+      }
       int pos = 0;
       encodingKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
       tagKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
@@ -237,6 +345,7 @@ public final class StringRegion {
       } else {
         suppressedTagCount = 0;
       }
+      ensureDerivedTagArrays(parentDictSize);
       // Per-tag local dicts: lengths[...] + bytes[...]
       for (int t = 0; t < parentDictSize; t++) {
         tagStringDictOffset[t] = pos;
@@ -244,12 +353,196 @@ public final class StringRegion {
         int total = 0;
         for (int i = 0; i < n; i++)
           total += Math.abs(getInt(payload, pos + i * 4));
+        // The dictionary layout is the varint one's special case: four-byte fields, no plain lane,
+        // and a dict-id lane the absolute value index addresses. Normalising it here is what keeps
+        // every accessor below layout-free.
+        tagStringBytesOffset[t] = pos + n * 4;
+        tagLengthWidth[t] = 4;
+        tagPlainLane[t] = false;
+        tagIdLaneStart[t] = tagStart[t];
         pos += n * 4 + total;
       }
+      idLaneIsAbsolute = true;
       valueDictIdsOffset = pos;
       valueBitWidthEff = valueBitWidth & 0xFF;
       return this;
     }
+
+    /**
+     * Parse the {@link #ENC_VARINT_FRAMED} layout into exactly the fields the dictionary layout
+     * fills, deriving {@code count}, {@code tagStart} and {@code valueBitWidth} rather than reading
+     * them.
+     */
+    private Header parseVarintFramed(final MemorySegment payload) {
+      long pos = 1;
+      tagKind = payload.get(ValueLayout.JAVA_BYTE, pos++);
+      final int flags = payload.get(ValueLayout.JAVA_BYTE, pos++) & 0xFF;
+      encodingKind = (flags & FLAG_ELEMENTS_STAGED) != 0
+          ? ENC_DICT_BITPACKED_ZM_ELEMENTS
+          : ENC_DICT_BITPACKED_ZM;
+      final long tags = VarInt.readUnsigned(payload, pos);
+      pos += VarInt.sizeOfUnsigned(tags);
+      final long suppressed = VarInt.readUnsigned(payload, pos);
+      pos += VarInt.sizeOfUnsigned(suppressed);
+      if (tags < 0L || tags > Integer.MAX_VALUE || suppressed < 0L || suppressed > Integer.MAX_VALUE) {
+        throw new IllegalArgumentException("string region declares " + tags + " tags and " + suppressed
+            + " suppressed tags");
+      }
+      parentDictSize = (int) tags;
+      suppressedTagCount = (int) suppressed;
+      ensureTagArrays(parentDictSize);
+      ensureDerivedTagArrays(parentDictSize);
+      if (suppressedTags == null || suppressedTags.length < suppressedTagCount) {
+        suppressedTags = new int[Math.max(4, suppressedTagCount)];
+      }
+
+      int previousTag = 0;
+      int running = 0;
+      int laneRunning = 0;
+      int maxDictLane = 0;
+      boolean anyPlain = false;
+      for (int t = 0; t < parentDictSize; t++) {
+        final long tagDelta = VarInt.readSigned(payload, pos);
+        pos += VarInt.sizeOfSigned(tagDelta);
+        previousTag = (int) (previousTag + tagDelta);
+        parentDict[t] = previousTag;
+
+        final long values = VarInt.readUnsigned(payload, pos);
+        pos += VarInt.sizeOfUnsigned(values);
+        if (values < 0L || values > Integer.MAX_VALUE - running) {
+          throw new IllegalArgumentException("string region tag " + t + " declares " + values + " values");
+        }
+        tagCount[t] = (int) values;
+        tagStart[t] = running;
+        running += (int) values;
+
+        final long meta = VarInt.readUnsigned(payload, pos);
+        pos += VarInt.sizeOfUnsigned(meta);
+        final boolean plain = (meta & 1L) != 0L;
+        final int widthCode = (int) ((meta >>> 1) & 3L);
+        if (widthCode >= LENGTH_WIDTHS.length) {
+          throw new IllegalArgumentException("string region tag " + t + " declares length width code " + widthCode);
+        }
+        tagPlainLane[t] = plain;
+        anyPlain |= plain;
+        tagLengthWidth[t] = (byte) LENGTH_WIDTHS[widthCode];
+        final long dictSize = plain
+            ? values
+            : meta >>> 3;
+        if (dictSize < 0L || dictSize > Integer.MAX_VALUE) {
+          throw new IllegalArgumentException("string region tag " + t + " declares dictionary size " + dictSize);
+        }
+        tagStringDictSize[t] = (int) dictSize;
+        if (plain) {
+          tagIdLaneStart[t] = -1;
+        } else {
+          tagIdLaneStart[t] = laneRunning;
+          laneRunning += (int) values;
+          if (dictSize > maxDictLane) {
+            maxDictLane = (int) dictSize;
+          }
+        }
+      }
+      count = running;
+      idLaneIsAbsolute = !anyPlain;
+
+      int previousSuppressed = 0;
+      for (int i = 0; i < suppressedTagCount; i++) {
+        final long tagDelta = VarInt.readSigned(payload, pos);
+        pos += VarInt.sizeOfSigned(tagDelta);
+        previousSuppressed = (int) (previousSuppressed + tagDelta);
+        suppressedTags[i] = previousSuppressed;
+      }
+
+      for (int t = 0; t < parentDictSize; t++) {
+        tagStringDictOffset[t] = (int) pos;
+        final int n = tagStringDictSize[t];
+        final int width = tagLengthWidth[t];
+        final long bytesStart = pos + (long) n * width;
+        long total = 0;
+        for (int i = 0; i < n; i++) {
+          total += Math.abs(readLengthField(payload, (int) pos + i * width, width));
+        }
+        tagStringBytesOffset[t] = (int) bytesStart;
+        pos = bytesStart + total;
+      }
+      // The width is a function of the dict-lane dictionaries, so it is derived rather than stored.
+      // No dict-lane tag at all means no id bytes: every value is addressed by its rank.
+      valueBitWidth = (byte) (maxDictLane == 0
+          ? 0
+          : Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxDictLane - 1))));
+      valueBitWidthEff = valueBitWidth & 0xFF;
+      valueDictIdsOffset = (int) pos;
+      if (pos + (((long) laneRunning * valueBitWidthEff + 7L) >>> 3) > payload.byteSize()) {
+        throw new IllegalArgumentException("string region needs more bytes than the payload holds");
+      }
+      return this;
+    }
+
+    private void ensureTagArrays(final int size) {
+      final int capacity = Math.max(4, size);
+      if (parentDict == null || parentDict.length < size) {
+        parentDict = new int[capacity];
+      }
+      if (tagStart == null || tagStart.length < size) {
+        tagStart = new int[capacity];
+      }
+      if (tagCount == null || tagCount.length < size) {
+        tagCount = new int[capacity];
+      }
+      if (tagStringDictSize == null || tagStringDictSize.length < size) {
+        tagStringDictSize = new int[capacity];
+      }
+      if (tagStringDictOffset == null || tagStringDictOffset.length < size) {
+        tagStringDictOffset = new int[capacity];
+      }
+    }
+
+    private void ensureDerivedTagArrays(final int size) {
+      final int capacity = Math.max(4, size);
+      if (tagStringBytesOffset == null || tagStringBytesOffset.length < size) {
+        tagStringBytesOffset = new int[capacity];
+      }
+      if (tagLengthWidth == null || tagLengthWidth.length < size) {
+        tagLengthWidth = new byte[capacity];
+      }
+      if (tagPlainLane == null || tagPlainLane.length < size) {
+        tagPlainLane = new boolean[capacity];
+      }
+      if (tagIdLaneStart == null || tagIdLaneStart.length < size) {
+        tagIdLaneStart = new int[capacity];
+      }
+    }
+
+    /**
+     * The tag whose value range contains {@code index}, or {@code -1} when it is out of range.
+     * Binary search over {@link #tagStart}, which is ascending by construction.
+     */
+    public int tagOfIndex(final int index) {
+      if (index < 0 || index >= count || parentDictSize == 0) {
+        return -1;
+      }
+      int lo = 0;
+      int hi = parentDictSize - 1;
+      while (lo < hi) {
+        final int mid = (lo + hi + 1) >>> 1;
+        if (tagStart[mid] <= index) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      return lo;
+    }
+  }
+
+  /** One signed length field, at whatever width its tag chose. */
+  private static int readLengthField(final MemorySegment payload, final int offset, final int width) {
+    return switch (width) {
+      case 1 -> payload.get(ValueLayout.JAVA_BYTE, offset);
+      case 2 -> payload.get(LE.SHORT, offset);
+      default -> getInt(payload, offset);
+    };
   }
 
   // ──────────────────────────────────────────────────────────── decoding
@@ -267,8 +560,52 @@ public final class StringRegion {
     return -1;
   }
 
+  /**
+   * The lane index of an absolute value index, i.e. where its dict id sits in the packed lane.
+   *
+   * <p>
+   * The two coincide unless some tag took the plain lane and therefore contributes no ids, which is
+   * why {@link Header#idLaneIsAbsolute} short-circuits every legacy page.
+   */
+  private static int laneIndexOf(final Header h, final int tag, final int absoluteIndex) {
+    return h.tagIdLaneStart[tag] + (absoluteIndex - h.tagStart[tag]);
+  }
+
+  /**
+   * Resolve the tag a dict-id window belongs to, refusing one that crosses a tag boundary.
+   *
+   * <p>
+   * A dictionary id is tag-local — id 3 under one tag and id 3 under another are different strings —
+   * so a window spanning tags never had a meaning. Only reached on a page that carries a plain-lane
+   * tag; the dictionary layout keeps its branch-free absolute indexing.
+   */
+  private static int tagOfWindow(final Header h, final int start, final int n) {
+    final int tag = h.tagOfIndex(start);
+    if (tag < 0 || start + n > h.tagStart[tag] + h.tagCount[tag]) {
+      throw new IllegalArgumentException(
+          "dict-id window [" + start + ", " + (start + n) + ") does not lie within one tag");
+    }
+    return tag;
+  }
+
   /** Decode the dict-id for the {@code index}-th value (absolute, tag-grouped). */
   public static int decodeDictIdAt(final MemorySegment payload, final Header h, final int index) {
+    if (!h.idLaneIsAbsolute) {
+      final int tag = h.tagOfIndex(index);
+      if (tag < 0) {
+        throw new IndexOutOfBoundsException("value index " + index + " is outside the region's " + h.count + " values");
+      }
+      if (h.tagPlainLane[tag]) {
+        // The plain lane stores no ids: the value's rank within its tag IS its dictionary id.
+        return index - h.tagStart[tag];
+      }
+      return decodeDictIdAtLane(payload, h, laneIndexOf(h, tag, index));
+    }
+    return decodeDictIdAtLane(payload, h, index);
+  }
+
+  /** Decode the dict-id sitting at {@code index} of the packed lane. */
+  private static int decodeDictIdAtLane(final MemorySegment payload, final Header h, final int index) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0)
       return 0;
@@ -298,6 +635,26 @@ public final class StringRegion {
       final long[] counts) {
     if (n <= 0)
       return;
+    int laneStart = start;
+    if (!h.idLaneIsAbsolute) {
+      final int tag = tagOfWindow(h, start, n);
+      if (h.tagPlainLane[tag]) {
+        // Every value of a plain tag is its own dictionary entry, so each id in the window occurs
+        // exactly once and the histogram is known without reading anything.
+        final int firstRank = start - h.tagStart[tag];
+        for (int i = 0; i < n; i++) {
+          counts[firstRank + i]++;
+        }
+        return;
+      }
+      laneStart = laneIndexOf(h, tag, start);
+    }
+    countDictIdsInLane(payload, h, laneStart, n, counts);
+  }
+
+  /** {@link #countDictIds} over lane indices, the translation already done. */
+  private static void countDictIdsInLane(final MemorySegment payload, final Header h, final int start, final int n,
+      final long[] counts) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) {
       counts[0] += n;
@@ -350,6 +707,29 @@ public final class StringRegion {
     if (n <= 0) {
       return 0;
     }
+    int laneStart = start;
+    if (!h.idLaneIsAbsolute) {
+      final int tag = tagOfWindow(h, start, n);
+      if (h.tagPlainLane[tag]) {
+        // The window's ids are exactly its ranks, so membership is read straight off the bitmap.
+        final int firstRank = start - h.tagStart[tag];
+        int matched = 0;
+        for (int i = 0; i < n; i++) {
+          final int id = firstRank + i;
+          if (id < dictSize && (idSet[id >>> 6] & (1L << (id & 63))) != 0L) {
+            matched++;
+          }
+        }
+        return matched;
+      }
+      laneStart = laneIndexOf(h, tag, start);
+    }
+    return countDictIdSetInLane(payload, h, laneStart, n, idSet, dictSize);
+  }
+
+  /** {@link #countDictIdSet} over lane indices, the translation already done. */
+  private static int countDictIdSetInLane(final MemorySegment payload, final Header h, final int start, final int n,
+      final long[] idSet, final int dictSize) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) {
       return (idSet.length > 0 && (idSet[0] & 1L) != 0L)
@@ -362,7 +742,7 @@ public final class StringRegion {
     }
     int matched = 0;
     for (int i = 0; i < n; i++) {
-      final int id = decodeDictIdAt(payload, h, start + i);
+      final int id = decodeDictIdAtLane(payload, h, start + i);
       if (id < dictSize && (idSet[id >>> 6] & (1L << (id & 63))) != 0L) {
         matched++;
       }
@@ -376,17 +756,18 @@ public final class StringRegion {
    */
   public static int decodeStringOffset(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     final int dictStart = h.tagStringDictOffset[tag];
-    final int n = h.tagStringDictSize[tag];
+    final int width = h.tagLengthWidth[tag];
     // lengths[0..n), then bytes — walk lengths to sum offsets.
-    int off = dictStart + n * 4;
+    int off = h.tagStringBytesOffset[tag];
     for (int i = 0; i < dictId; i++) {
-      off += Math.abs(getInt(payload, dictStart + i * 4));
+      off += Math.abs(readLengthField(payload, dictStart + i * width, width));
     }
     return off;
   }
 
   public static int decodeStringLength(final MemorySegment payload, final Header h, final int tag, final int dictId) {
-    return Math.abs(getInt(payload, h.tagStringDictOffset[tag] + dictId * 4));
+    final int width = h.tagLengthWidth[tag];
+    return Math.abs(readLengthField(payload, h.tagStringDictOffset[tag] + dictId * width, width));
   }
 
   /**
@@ -396,7 +777,8 @@ public final class StringRegion {
    */
   public static boolean isEntryCompressed(final MemorySegment payload, final Header h, final int tag,
       final int dictId) {
-    return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4) < 0;
+    final int width = h.tagLengthWidth[tag];
+    return readLengthField(payload, h.tagStringDictOffset[tag] + dictId * width, width) < 0;
   }
 
   /** {@link #findDictId} result: the tag's dictionary holds no entry equal to the literal. */
@@ -434,9 +816,10 @@ public final class StringRegion {
       final byte @Nullable [] encodedLiteral) {
     final int dictStart = h.tagStringDictOffset[tag];
     final int n = h.tagStringDictSize[tag];
-    int off = dictStart + n * 4;
+    final int width = h.tagLengthWidth[tag];
+    int off = h.tagStringBytesOffset[tag];
     for (int i = 0; i < n; i++) {
-      final int lenField = getInt(payload, dictStart + i * 4);
+      final int lenField = readLengthField(payload, dictStart + i * width, width);
       final boolean compressed = lenField < 0;
       final int storedLen = compressed
           ? -lenField
@@ -476,6 +859,22 @@ public final class StringRegion {
       final int dictId) {
     if (n <= 0)
       return 0;
+    int laneStart = start;
+    if (!h.idLaneIsAbsolute) {
+      final int tag = tagOfWindow(h, start, n);
+      if (h.tagPlainLane[tag]) {
+        // Rank IS the id and the tag's values are all distinct, so the id occurs at most once.
+        final int rank = dictId - (start - h.tagStart[tag]);
+        return rank >= 0 && rank < n ? 1 : 0;
+      }
+      laneStart = laneIndexOf(h, tag, start);
+    }
+    return countDictIdInLane(payload, h, laneStart, n, dictId);
+  }
+
+  /** {@link #countDictId} over lane indices, the translation already done. */
+  private static int countDictIdInLane(final MemorySegment payload, final Header h, final int start, final int n,
+      final int dictId) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) {
       return dictId == 0
@@ -530,6 +929,27 @@ public final class StringRegion {
       final int dictId, final long[] rowBits) {
     if (n <= 0)
       return 0;
+    int laneStart = start;
+    if (!h.idLaneIsAbsolute) {
+      final int tag = tagOfWindow(h, start, n);
+      if (h.tagPlainLane[tag]) {
+        final int words = (n + 63) >>> 6;
+        Arrays.fill(rowBits, 0, words, 0L);
+        final int rank = dictId - (start - h.tagStart[tag]);
+        if (rank < 0 || rank >= n) {
+          return 0;
+        }
+        rowBits[rank >>> 6] |= 1L << (rank & 63);
+        return 1;
+      }
+      laneStart = laneIndexOf(h, tag, start);
+    }
+    return selectDictIdIntoLane(payload, h, laneStart, n, dictId, rowBits);
+  }
+
+  /** {@link #selectDictIdInto} over lane indices, the translation already done. */
+  private static int selectDictIdIntoLane(final MemorySegment payload, final Header h, final int start, final int n,
+      final int dictId, final long[] rowBits) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) {
       // A one-entry dictionary packs to zero bits: every value is id 0, so the answer is all rows
@@ -575,6 +995,24 @@ public final class StringRegion {
       final int dictId, final long[] liveBits) {
     if (n <= 0)
       return 0;
+    int laneStart = start;
+    if (!h.idLaneIsAbsolute) {
+      final int tag = tagOfWindow(h, start, n);
+      if (h.tagPlainLane[tag]) {
+        final int rank = dictId - (start - h.tagStart[tag]);
+        if (rank < 0 || rank >= n) {
+          return 0;
+        }
+        return (int) ((liveBits[rank >>> 6] >>> (rank & 63)) & 1L);
+      }
+      laneStart = laneIndexOf(h, tag, start);
+    }
+    return countDictIdMaskedInLane(payload, h, laneStart, n, dictId, liveBits);
+  }
+
+  /** {@link #countDictIdMasked} over lane indices, the translation already done. */
+  private static int countDictIdMaskedInLane(final MemorySegment payload, final Header h, final int start, final int n,
+      final int dictId, final long[] liveBits) {
     final int bw = h.valueBitWidthEff;
     if (bw == 0) {
       if (dictId != 0) {
@@ -667,6 +1105,10 @@ public final class StringRegion {
     private int suppressedTagCount;
     /** Reusable retained-tag index buffer for {@link #encodeInto}; never escapes the encoder. */
     private int[] retainedTags = new int[4];
+    /** Reusable per-tag lane decision for the varint framing; never escapes the encoder. */
+    private boolean[] plainLane = new boolean[4];
+    /** Reusable per-tag length-table widths for the varint framing; never escapes the encoder. */
+    private byte[] lengthWidths = new byte[4];
     /**
      * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset; only
      * the logical length returns to zero. Entries in the alternative name/path encoder may temporarily
@@ -1035,6 +1477,9 @@ public final class StringRegion {
         // absent region, so the page keeps its strings in the heap and publishes nothing.
         return 0;
       }
+      if (plainLaneEnabled()) {
+        return encodeVarintFramed(tagKind, elementsStaged, retained, ps, count);
+      }
       final int bitWidth = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxLocalDict - 1)));
       // +1 byte for tagKind prefix.
       final long suppressedSize = suppressedTagCount == 0
@@ -1132,6 +1577,178 @@ public final class StringRegion {
       }
       encodedLength = totalLength;
       return totalLength;
+    }
+
+    /**
+     * Serialize the {@link #ENC_VARINT_FRAMED} layout.
+     *
+     * <p>
+     * The lane decision is per tag and is not a heuristic: a tag goes plain exactly when its
+     * dictionary has one entry per value, i.e. its values are all distinct. Then dropping the ids
+     * costs nothing to look up — rank IS the id — and saves every one of them. A tag with even one
+     * repeat keeps the dictionary, because rank and id would no longer be a bijection and an
+     * equality count would answer for one occurrence of a value instead of all of them.
+     *
+     * @param retained tag ids that survive suppression, in write order
+     * @param ps number of retained tags
+     * @param count total values across retained tags
+     */
+    private int encodeVarintFramed(final byte tagKind, final boolean elementsStaged, final int[] retained,
+        final int ps, final int count) {
+      // Per-tag decisions first: they size the header, the length tables and the id lane.
+      final boolean[] plain = plainScratch(ps);
+      final byte[] widths = lengthWidthScratch(ps);
+      int laneValues = 0;
+      int maxLaneDict = 0;
+      long dictBytesSize = 0L;
+      long headerSize = 1L + 1L + 1L + VarInt.sizeOfUnsigned(ps) + VarInt.sizeOfUnsigned(suppressedTagCount);
+      int previousTag = 0;
+      for (int r = 0; r < ps; r++) {
+        final int t = retained[r];
+        final int values = tagDictIds[t].size();
+        final int sz = tagDictSize[t];
+        final boolean tagIsPlain = sz == values;
+        plain[r] = tagIsPlain;
+        int width = 1;
+        for (int i = 0; i < sz; i++) {
+          final int field = tagCompressed[t][i]
+              ? -tagLengths[t][i]
+              : tagLengths[t][i];
+          if (field < Byte.MIN_VALUE || field > Byte.MAX_VALUE) {
+            width = Math.max(width, field < Short.MIN_VALUE || field > Short.MAX_VALUE
+                ? 4
+                : 2);
+          }
+          dictBytesSize += tagLengths[t][i];
+        }
+        widths[r] = (byte) width;
+        dictBytesSize += (long) sz * width;
+
+        final int tagValue = tagOrder.getInt(t);
+        headerSize += VarInt.sizeOfSigned((long) tagValue - previousTag);
+        previousTag = tagValue;
+        headerSize += VarInt.sizeOfUnsigned(values);
+        headerSize += VarInt.sizeOfUnsigned(tagMeta(tagIsPlain, width, sz));
+        if (!tagIsPlain) {
+          laneValues += values;
+          if (sz > maxLaneDict) {
+            maxLaneDict = sz;
+          }
+        }
+      }
+      int previousSuppressed = 0;
+      for (int t = 0; t < tagOrder.size(); t++) {
+        if (tagSuppressed[t]) {
+          final int tagValue = tagOrder.getInt(t);
+          headerSize += VarInt.sizeOfSigned((long) tagValue - previousSuppressed);
+          previousSuppressed = tagValue;
+        }
+      }
+      final int bitWidth = maxLaneDict == 0
+          ? 0
+          : Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxLaneDict - 1)));
+      final long laneBytes = ((long) laneValues * bitWidth + 7L) >>> 3;
+      final int totalLength = checkedEncodedLength(headerSize + dictBytesSize + laneBytes);
+      ensureOutputCapacity(totalLength);
+
+      int pos = 0;
+      output[pos++] = ENC_VARINT_FRAMED;
+      output[pos++] = tagKind;
+      output[pos++] = (byte) (elementsStaged
+          ? FLAG_ELEMENTS_STAGED
+          : 0);
+      pos = VarInt.writeUnsigned(output, pos, ps);
+      pos = VarInt.writeUnsigned(output, pos, suppressedTagCount);
+      previousTag = 0;
+      for (int r = 0; r < ps; r++) {
+        final int t = retained[r];
+        final int tagValue = tagOrder.getInt(t);
+        pos = VarInt.writeSigned(output, pos, (long) tagValue - previousTag);
+        previousTag = tagValue;
+        pos = VarInt.writeUnsigned(output, pos, tagDictIds[t].size());
+        pos = VarInt.writeUnsigned(output, pos, tagMeta(plain[r], widths[r], tagDictSize[t]));
+      }
+      previousSuppressed = 0;
+      for (int t = 0; t < tagOrder.size(); t++) {
+        if (tagSuppressed[t]) {
+          final int tagValue = tagOrder.getInt(t);
+          pos = VarInt.writeSigned(output, pos, (long) tagValue - previousSuppressed);
+          previousSuppressed = tagValue;
+        }
+      }
+      for (int r = 0; r < ps; r++) {
+        final int t = retained[r];
+        final int sz = tagDictSize[t];
+        final int width = widths[r];
+        for (int i = 0; i < sz; i++) {
+          // The sign carries the FSST flag at every width, exactly as the four-byte field did.
+          StringRegion.writeLengthField(output, pos, width, tagCompressed[t][i]
+              ? -tagLengths[t][i]
+              : tagLengths[t][i]);
+          pos += width;
+        }
+        for (int i = 0; i < sz; i++) {
+          final int len = tagLengths[t][i];
+          tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
+          pos += len;
+        }
+      }
+      final int laneBase = pos;
+      // bitPackAppend ORs lanes into the destination, so the reused buffer's high bits from the
+      // preceding page have to go before the first OR.
+      Arrays.fill(output, laneBase, totalLength, (byte) 0);
+      int bitPos = 0;
+      for (int r = 0; r < ps; r++) {
+        if (plain[r]) {
+          continue;
+        }
+        final IntArrayList ids = tagDictIds[retained[r]];
+        final int sz = ids.size();
+        final int[] idsArr = ids.elements();
+        for (int i = 0; i < sz; i++) {
+          bitPackAppend(output, laneBase, bitPos, idsArr[i], bitWidth);
+          bitPos += bitWidth;
+        }
+      }
+      if (laneBase + (int) laneBytes != totalLength) {
+        throw new IllegalStateException(
+            "string region size mismatch: expected=" + totalLength + " written=" + (laneBase + laneBytes));
+      }
+      if (count <= 0) {
+        throw new IllegalStateException("string region encoded " + count + " values");
+      }
+      encodedLength = totalLength;
+      return totalLength;
+    }
+
+    /** {@code tagMeta}: plain flag, length-width code, and the dictionary size of a dict-lane tag. */
+    private static long tagMeta(final boolean plain, final int width, final int dictSize) {
+      final int widthCode = width == 1
+          ? 0
+          : (width == 2
+              ? 1
+              : 2);
+      return (plain
+          ? 0L
+          : (long) dictSize << 3) | ((long) widthCode << 1) | (plain
+              ? 1L
+              : 0L);
+    }
+
+    /** Reusable per-tag lane decisions; never escapes the encoder. */
+    private boolean[] plainScratch(final int tags) {
+      if (plainLane.length < tags) {
+        plainLane = new boolean[Math.max(tags, plainLane.length << 1)];
+      }
+      return plainLane;
+    }
+
+    /** Reusable per-tag length widths; never escapes the encoder. */
+    private byte[] lengthWidthScratch(final int tags) {
+      if (lengthWidths.length < tags) {
+        lengthWidths = new byte[Math.max(tags, lengthWidths.length << 1)];
+      }
+      return lengthWidths;
     }
 
     /** Mutable scratch buffer. The next call to {@link #encodeInto} may overwrite or replace it. */
@@ -1277,11 +1894,35 @@ public final class StringRegion {
 
   // ────────────────────────────────────────────────── internal helpers
 
+  private static final VarHandle SHORT_LE =
+      MethodHandles.byteArrayViewVarHandle(short[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle LONG_LE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   private static int getInt(final MemorySegment buf, final long off) {
     return buf.get(LE.INT, off);
+  }
+
+  /**
+   * One signed length field read out of an encoder-side {@code byte[]} rather than a payload
+   * segment, for the sketch, which is built over the encoder's scratch before the region is
+   * installed.
+   */
+  static int readLengthFieldFromArray(final byte[] payload, final int offset, final int width) {
+    return switch (width) {
+      case 1 -> payload[offset];
+      case 2 -> (short) SHORT_LE.get(payload, offset);
+      default -> (int) INT_LE.get(payload, offset);
+    };
+  }
+
+  /** Write one signed length field at the width its tag chose. */
+  private static void writeLengthField(final byte[] target, final int offset, final int width, final int value) {
+    switch (width) {
+      case 1 -> target[offset] = (byte) value;
+      case 2 -> SHORT_LE.set(target, offset, (short) value);
+      default -> putInt(target, offset, value);
+    }
   }
 
   private static void putInt(final byte[] buf, final int off, final int v) {

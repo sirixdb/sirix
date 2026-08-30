@@ -309,6 +309,38 @@ final class ColumnKernelFuzzTest {
       final int end, final VectorOperators.Comparison op1, final long t1,
       final VectorOperators.Comparison op2, final long t2, final long[] live, final long want,
       final long wantLive) {
+    if (h.isPerTag()) {
+      // A per-tag payload has no page-wide frame at all: each tag's values are packed at its own
+      // width in its own byte-aligned run, so the direct entry points are called with THAT frame
+      // and tag-relative indices. Reaching for h.valueBytesOffset here is exactly the mistake the
+      // sentinel makes loud, and this branch is the one that proves the per-tag frame is right.
+      final int tag = NumberRegion.tagOfIndex(h, start);
+      final int width = h.tagWidth[tag] & 0xFF;
+      final int from = start - h.tagStart[tag];
+      final int to = end - h.tagStart[tag];
+      if (width >= 1 && width <= BitUnpackSimd.MAX_BIT_WIDTH) {
+        assertEquals(want,
+                     NumberRegionSimd.countBitPackedRange(payload, h.tagValueOffset[tag],
+                                                          h.tagDecodeBase[tag], width, from, to,
+                                                          op1, t1, op2, t2),
+                     describe(shape, vector, c) + ": per-tag countBitPackedRange");
+        assertEquals(wantLive,
+                     NumberRegionSimd.countBitPackedRangeMasked(payload, h.tagValueOffset[tag],
+                                                                h.tagDecodeBase[tag], width, from,
+                                                                to, op1, t1, op2, t2, live),
+                     describe(shape, vector, c) + ": per-tag countBitPackedRangeMasked");
+      } else if (width == 64) {
+        assertEquals(want,
+                     NumberRegionSimd.countPlainLongRange(payload, h.tagValueOffset[tag], from, to,
+                                                          op1, t1, op2, t2),
+                     describe(shape, vector, c) + ": per-tag countPlainLongRange");
+        assertEquals(wantLive,
+                     NumberRegionSimd.countPlainLongRangeMasked(payload, h.tagValueOffset[tag],
+                                                                from, to, op1, t1, op2, t2, live),
+                     describe(shape, vector, c) + ": per-tag countPlainLongRangeMasked");
+      }
+      return;
+    }
     if (NumberRegion.isBitPacked(h.encodingKind)) {
       assertEquals(want,
                    NumberRegionSimd.countBitPackedRange(payload, h.valueBytesOffset,

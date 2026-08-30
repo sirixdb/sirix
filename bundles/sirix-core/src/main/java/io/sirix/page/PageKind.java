@@ -43,6 +43,7 @@ import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.exception.SirixIOException;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import io.sirix.node.Utils;
@@ -178,7 +179,7 @@ public enum PageKind {
       source.readInt(); // onDiskHeapSize
       final int templateCount = source.readByte() & 0xFF;
       if (templateCount > 0) {
-        source.readByte(); // structural flags
+        skipStructuralFlags(source);
       }
       source.readInt(); // templatePoolBytes
       if (chunkedBody) {
@@ -252,7 +253,7 @@ public enum PageKind {
       source.readInt(); // onDiskHeapSize
       final int templateCount = source.readByte() & 0xFF;
       if (templateCount > 0) {
-        source.readByte(); // structural flags: hash/parentKey/pathNodeKey/value/nameKey elision
+        skipStructuralFlags(source);
       }
       source.readInt(); // templatePoolBytes
       long fsstSymbolTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
@@ -465,6 +466,12 @@ public enum PageKind {
       final long[] parentKeyValues;
       final byte[] parentKeyWidths;
       final boolean parentKeyColumnActive;
+      final long[] rightSibKeyValues;
+      final byte[] rightSibKeyWidths;
+      final boolean rightSibColumnActive;
+      final long[] leftSibKeyValues;
+      final byte[] leftSibKeyWidths;
+      final boolean leftSibColumnActive;
       final byte[] pathNodeKeyColumnBytes; // raw PathNodeKeyRegion payload (bitmap-indexed)
       final int pathNodeKeyColumnLen; // valid bytes of the payload, which is read into a larger scratch
       final byte[] pathNodeKeyWidths; // per-slot varint width after reinject
@@ -519,6 +526,12 @@ public enum PageKind {
           parentKeyValues = null;
           parentKeyWidths = null;
           parentKeyColumnActive = false;
+          rightSibKeyValues = null;
+          rightSibKeyWidths = null;
+          rightSibColumnActive = false;
+          leftSibKeyValues = null;
+          leftSibKeyWidths = null;
+          leftSibColumnActive = false;
           pathNodeKeyColumnBytes = null;
           pathNodeKeyColumnLen = 0;
           pathNodeKeyWidths = null;
@@ -624,6 +637,21 @@ public enum PageKind {
           // [if parentKeyColumnActive] int columnLen + column bytes
           // heap bytes (onDiskHeapSize)
           final int structuralFlags = source.readByte() & 0xFF;
+          // A second flags byte only exists when one of the levers that did not fit the first is on,
+          // so a page using none of them is byte-identical to what a pre-change writer produced.
+          final int extendedFlags = (structuralFlags & STRUCT_FLAG_EXTENDED) != 0
+              ? source.readByte() & 0xFF
+              : 0;
+          if ((extendedFlags & ~(EXT_FLAG_RIGHT_SIB_COLUMN | EXT_FLAG_LEFT_SIB_COLUMN)) != 0) {
+            throw new SirixIOException("page " + recordPageKey + " declares unknown extended structural flags 0x"
+                + Integer.toHexString(extendedFlags));
+          }
+          if ((structuralFlags & STRUCT_FLAG_EXTENDED) != 0 && extendedFlags == 0) {
+            throw new SirixIOException("page " + recordPageKey
+                + " announces an extended structural-flags byte that turns nothing on");
+          }
+          rightSibColumnActive = (extendedFlags & EXT_FLAG_RIGHT_SIB_COLUMN) != 0;
+          leftSibColumnActive = (extendedFlags & EXT_FLAG_LEFT_SIB_COLUMN) != 0;
           hashElisionActive = (structuralFlags & STRUCT_FLAG_HASH_ELISION) != 0;
           parentKeyColumnActive = (structuralFlags & STRUCT_FLAG_PARENT_KEY_COLUMN) != 0;
           pathNodeKeyColumnActive = (structuralFlags & STRUCT_FLAG_PATH_NODE_KEY_COLUMN) != 0;
@@ -660,6 +688,12 @@ public enum PageKind {
           final int maxParentKeyColBytes = parentKeyColumnActive
               ? 4 + populatedCount * 11
               : 0;
+          final int maxRightSibColBytes = rightSibColumnActive
+              ? 4 + populatedCount * 11
+              : 0;
+          final int maxLeftSibColBytes = leftSibColumnActive
+              ? 4 + populatedCount * 11
+              : 0;
           // pathNodeKey column size upper bound: 4 (len) + 1 + 256*4 + 2 + 128 + slotCount.
           final int maxPathNodeKeyColBytes = pathNodeKeyColumnActive
               ? 4 + 1 + 256 * 4 + 2 + 128 + populatedCount
@@ -681,12 +715,15 @@ public enum PageKind {
           final int minimumMetadataBytes = checkedPageBodySize(recordPageKey, "minimum deduplicated META",
               (long) compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes
                   + (parentKeyColumnActive ? Integer.BYTES : 0)
+                  + (rightSibColumnActive ? Integer.BYTES : 0)
+                  + (leftSibColumnActive ? Integer.BYTES : 0)
                   + (pathNodeKeyColumnActive ? Integer.BYTES : 0)
                   + (valueElisionActive ? (derivedElisionSections ? 1 : Integer.BYTES) : 0)
                   + (nameKeyElisionActive ? (derivedElisionSections ? 1 : Integer.BYTES) : 0));
           final int maximumMetadataBytes = checkedPageBodySize(recordPageKey, "maximum deduplicated META",
               (long) compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes + maxParentKeyColBytes
-                  + maxPathNodeKeyColBytes + maxValueElisionBytes + maxNameKeyElisionBytes);
+                  + maxRightSibColBytes + maxLeftSibColBytes + maxPathNodeKeyColBytes + maxValueElisionBytes
+                  + maxNameKeyElisionBytes);
           final MemorySegment blobStaging;
           final int metadataLength;
           if (chunkedBody) {
@@ -888,6 +925,28 @@ public enum PageKind {
             parentKeyWidths = null;
           }
 
+          // The two sibling columns, in the order the writer staged them and behind the same length
+          // prefix. Both decode in bulk for the same reason the parentKey column does: decodeSlot
+          // restarts its override walk at slot 0, so a per-slot decode would be quadratic on the page.
+          if (rightSibColumnActive) {
+            rightSibKeyValues = SLOT_RIGHT_SIB_READ_SCRATCH.get();
+            rightSibKeyWidths = SLOT_RIGHT_SIB_READ_WIDTH_SCRATCH.get();
+            blobPos = readStructuralKeyColumn(metadataStaging, blobPos, maxRightSibColBytes, populatedCount,
+                slotNodeKeys, rightSibKeyValues, "right-sibling");
+          } else {
+            rightSibKeyValues = null;
+            rightSibKeyWidths = null;
+          }
+          if (leftSibColumnActive) {
+            leftSibKeyValues = SLOT_LEFT_SIB_READ_SCRATCH.get();
+            leftSibKeyWidths = SLOT_LEFT_SIB_READ_WIDTH_SCRATCH.get();
+            blobPos = readStructuralKeyColumn(metadataStaging, blobPos, maxLeftSibColBytes, populatedCount,
+                slotNodeKeys, leftSibKeyValues, "left-sibling");
+          } else {
+            leftSibKeyValues = null;
+            leftSibKeyWidths = null;
+          }
+
           // Read pathNodeKey column when active. Layout: int length prefix + payload.
           if (pathNodeKeyColumnActive) {
             final int pb0 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos) & 0xFF;
@@ -1056,6 +1115,8 @@ public enum PageKind {
           deriver.bindTemplates(compactDir, slotTemplateIds, templatePool, templateOffsets, inMemDataLengths);
           deriver.bindHashElision(hashElisionActive, zeroHashBitmap);
           deriver.bindParentKeyColumn(parentKeyColumnActive, parentKeyValues, parentKeyWidths);
+          deriver.bindSiblingKeyColumns(rightSibColumnActive, rightSibKeyValues, rightSibKeyWidths, leftSibColumnActive,
+              leftSibKeyValues, leftSibKeyWidths);
           deriver.bindPathNodeKeyColumn(pathNodeKeyColumnActive, pathNodeKeyColumnBytes, pathNodeKeyWidths);
           deriver.bindValueElision(valueElisionActive, valueElidedCount, valueElidedSlots, valueElidedWidths, valueOffs,
               valueWidths);
@@ -1080,6 +1141,12 @@ public enum PageKind {
         parentKeyValues = null;
         parentKeyWidths = null;
         parentKeyColumnActive = false;
+        rightSibKeyValues = null;
+        rightSibKeyWidths = null;
+        rightSibColumnActive = false;
+        leftSibKeyValues = null;
+        leftSibKeyWidths = null;
+        leftSibColumnActive = false;
         pathNodeKeyColumnBytes = null;
         pathNodeKeyColumnLen = 0;
         pathNodeKeyWidths = null;
@@ -1445,8 +1512,10 @@ public enum PageKind {
           // region table this page was just given.
           attachLazyChunks(page, slottedPage, recordPageKey, populatedCount, templateCount, templatePoolBytes,
               compactDir, slotTemplateIds, templatePool, templateOffsets, inMemDataLengths, hashElisionActive,
-              zeroHashBitmap, parentKeyColumnActive, parentKeyValues, parentKeyWidths, pathNodeKeyColumnActive,
-              pathNodeKeyColumnBytes, pathNodeKeyColumnLen, pathNodeKeyWidths, valueElisionActive, valueElidedCount,
+              zeroHashBitmap, parentKeyColumnActive, parentKeyValues, parentKeyWidths, rightSibColumnActive,
+              rightSibKeyValues, rightSibKeyWidths, leftSibColumnActive, leftSibKeyValues, leftSibKeyWidths,
+              pathNodeKeyColumnActive, pathNodeKeyColumnBytes, pathNodeKeyColumnLen, pathNodeKeyWidths,
+              valueElisionActive, valueElidedCount,
               valueElidedSlots, valueElidedTypes, valueElidedWidths, valueElidedAbsIdx, valueOffs, valueWidths,
               nameKeyElisionActive, nameKeyOffs, nameKeyWidths, slotOfEntry, chunkFirstSlot, chunkLastSlot,
               chunkHeapFrom, chunkHeapTo);
@@ -1504,6 +1573,8 @@ public enum PageKind {
         final int[] compactDir, final byte[] slotTemplateIds, final byte[] templatePool, final int[] templateOffsets,
         final int[] inMemDataLengths, final boolean hashElisionActive, final byte[] zeroHashBitmap,
         final boolean parentKeyColumnActive, final long[] parentKeyValues, final byte[] parentKeyWidths,
+        final boolean rightSibColumnActive, final long[] rightSibKeyValues, final byte[] rightSibKeyWidths,
+        final boolean leftSibColumnActive, final long[] leftSibKeyValues, final byte[] leftSibKeyWidths,
         final boolean pathNodeKeyColumnActive, final byte[] pathNodeKeyColumnBytes, final int pathNodeKeyColumnLen,
         final byte[] pathNodeKeyWidths, final boolean valueElisionActive, final int valueElidedCount,
         final short[] valueElidedSlots, final byte[] valueElidedTypes, final int[] valueElidedWidths,
@@ -1531,6 +1602,18 @@ public enum PageKind {
             : null,
             parentKeyColumnActive
                 ? Arrays.copyOf(parentKeyWidths, populatedCount)
+                : null);
+        state.bindSiblingKeyColumns(rightSibColumnActive, rightSibColumnActive
+            ? Arrays.copyOf(rightSibKeyValues, populatedCount)
+            : null,
+            rightSibColumnActive
+                ? Arrays.copyOf(rightSibKeyWidths, populatedCount)
+                : null,
+            leftSibColumnActive, leftSibColumnActive
+                ? Arrays.copyOf(leftSibKeyValues, populatedCount)
+                : null,
+            leftSibColumnActive
+                ? Arrays.copyOf(leftSibKeyWidths, populatedCount)
                 : null);
         state.bindPathNodeKeyColumn(pathNodeKeyColumnActive, pathNodeKeyColumnActive
             ? Arrays.copyOf(pathNodeKeyColumnBytes, pathNodeKeyColumnLen)
@@ -2062,6 +2145,49 @@ public enum PageKind {
     }
 
     /**
+     * Collect one structural-key field of one record into the parallel arrays its column is built from.
+     *
+     * <p>
+     * Participation is decided by the record's OFFSET TABLE — the field exists, is not the record's
+     * last, and the width it implies is sane — never by the decoded value. The reader re-derives the
+     * same predicate from the template, which IS that offset table, so the two cannot come apart the
+     * day a node legitimately holds {@code NULL_NODE_KEY} in a field it does have.
+     *
+     * @param fieldIdx the field's index for this record's kind, or -1 when the kind has no such field
+     * @param slotNodeKey the record's node key, the base the stored delta is against
+     * @param entryIdx the record's rank in populated-bitmap order
+     * @param values receives the decoded key, or {@code NULL_NODE_KEY} for a non-participant
+     * @param widths receives the stripped width, or 0 for a non-participant
+     * @param offs receives the field's offset within the data region
+     * @return the stripped width, 0 when the slot does not take part
+     */
+    private static int collectStructuralKey(final MemorySegment slottedPage, final long recordBase, final int fc,
+        final int fieldIdx, final long slotNodeKey, final int entryIdx, final long[] values, final byte[] widths,
+        final short[] offs) {
+      if (fieldIdx >= 0 && fieldIdx + 1 < fc) {
+        // No kind places a structural key last, so the width is always the delta to the next field's
+        // offset. Requiring a non-terminal field is what lets the reader re-derive participation from
+        // the template alone.
+        final int pair = offsetTablePair(slottedPage, recordBase + 1 + fieldIdx);
+        final int off = pair & 0xFF;
+        final int width = ((pair >>> 8) & 0xFF) - off;
+        if (width > 0 && width <= 10) {
+          values[entryIdx] =
+              DeltaVarIntCodec.decodeDeltaFromSegment(slottedPage, recordBase + 1 + fc + off, slotNodeKey);
+          widths[entryIdx] = (byte) width;
+          offs[entryIdx] = (short) off;
+          return width;
+        }
+      }
+      // Pathological or absent — leave the bytes inline for this slot. The column stays active for the
+      // rest of the page and the reader reaches the same verdict from the same offset-table bytes.
+      values[entryIdx] = Fixed.NULL_NODE_KEY.getStandardProperty();
+      widths[entryIdx] = 0;
+      offs[entryIdx] = 0;
+      return 0;
+    }
+
+    /**
      * Emit the compact-dir + heap bytes with offset-table template dedup + compressed heap. Gracefully
      * falls back to the plain inline-heap path (emitted with a zero-byte {@code templateCount} marker)
      * when dedup doesn't pay (e.g. every record has a unique offset table or records are raw slab bytes
@@ -2152,6 +2278,12 @@ public enum PageKind {
           final long[] slotParentKeys = SLOT_PARENT_KEY_SCRATCH.get();
           final byte[] slotParentKeyWidths = SLOT_PARENT_KEY_WIDTH_SCRATCH.get();
           final short[] slotParentKeyOffs = SLOT_PARENT_KEY_OFF_SCRATCH.get();
+          final long[] slotRightSibKeys = SLOT_RIGHT_SIB_KEY_SCRATCH.get();
+          final byte[] slotRightSibWidths = SLOT_RIGHT_SIB_WIDTH_SCRATCH.get();
+          final short[] slotRightSibOffs = SLOT_RIGHT_SIB_OFF_SCRATCH.get();
+          final long[] slotLeftSibKeys = SLOT_LEFT_SIB_KEY_SCRATCH.get();
+          final byte[] slotLeftSibWidths = SLOT_LEFT_SIB_WIDTH_SCRATCH.get();
+          final short[] slotLeftSibOffs = SLOT_LEFT_SIB_OFF_SCRATCH.get();
           final byte[] slotPnkWidths = SLOT_PATH_NODE_KEY_WIDTH_SCRATCH.get();
           final short[] slotPnkOffs = SLOT_PATH_NODE_KEY_OFF_SCRATCH.get();
           final int[] pnkCompactValues = PATH_NODE_KEY_COLUMN_ENABLED
@@ -2198,6 +2330,10 @@ public enum PageKind {
           int zeroHashCount = 0;
           int parentKeySlotsWithField = 0;
           int parentKeyTotalStrippedBytes = 0;
+          int rightSibSlotsWithField = 0;
+          int rightSibTotalStrippedBytes = 0;
+          int leftSibSlotsWithField = 0;
+          int leftSibTotalStrippedBytes = 0;
           int pnkSlotsWithField = 0;
           int pnkCompactCount = 0;
           int pnkTotalStrippedBytes = 0;
@@ -2266,37 +2402,33 @@ public enum PageKind {
                 }
               }
             }
-            // --- parentKey column scan ---
+            // --- structural-key column scans (parentKey, right sibling, left sibling) ---
+            // Three columns, one predicate. In DFS order a right sibling is usually the very next slot
+            // and a left sibling the previous one, so both compress to a couple of bits per slot under
+            // the same codec the parentKey column already uses.
             if (PARENT_KEY_COLUMN_ENABLED) {
-              final int pkFieldIdx = NodeFieldLayout.parentKeyFieldIndexForKind(kindId);
-              if (pkFieldIdx < 0 || pkFieldIdx + 1 >= fc) {
-                slotParentKeys[i] = Fixed.NULL_NODE_KEY.getStandardProperty();
-                slotParentKeyWidths[i] = 0;
-                slotParentKeyOffs[i] = 0;
-              } else {
-                // parentKey is always field index 0 (see NodeFieldLayout — all 17 kinds that
-                // have a parentKey place it at index 0), and no kind has a single field, so the
-                // width is always the delta to field 1's offset. Requiring a non-terminal field
-                // is what lets the reader re-derive this slot's participation from the template
-                // alone, rather than from the decoded value.
-                final int pkPair = offsetTablePair(slottedPage, recordBase + 1 + pkFieldIdx);
-                final int pkOff = pkPair & 0xFF;
-                final int pkWidth = ((pkPair >>> 8) & 0xFF) - pkOff;
-                if (pkWidth <= 0 || pkWidth > 10) {
-                  // Pathological — leave the bytes inline for this slot. The column stays
-                  // active for the rest of the page and the reader reaches the same verdict
-                  // from the same offset-table bytes.
-                  slotParentKeys[i] = Fixed.NULL_NODE_KEY.getStandardProperty();
-                  slotParentKeyWidths[i] = 0;
-                  slotParentKeyOffs[i] = 0;
-                } else {
-                  slotParentKeys[i] =
-                      DeltaVarIntCodec.decodeDeltaFromSegment(slottedPage, recordBase + 1 + fc + pkOff, slotNodeKey);
-                  slotParentKeyWidths[i] = (byte) pkWidth;
-                  slotParentKeyOffs[i] = (short) pkOff;
-                  parentKeySlotsWithField++;
-                  parentKeyTotalStrippedBytes += pkWidth;
-                }
+              final int pkWidth = collectStructuralKey(slottedPage, recordBase, fc,
+                  NodeFieldLayout.parentKeyFieldIndexForKind(kindId), slotNodeKey, i, slotParentKeys,
+                  slotParentKeyWidths, slotParentKeyOffs);
+              if (pkWidth > 0) {
+                parentKeySlotsWithField++;
+                parentKeyTotalStrippedBytes += pkWidth;
+              }
+            }
+            if (SIBLING_KEY_COLUMNS_ENABLED) {
+              final int rightWidth = collectStructuralKey(slottedPage, recordBase, fc,
+                  NodeFieldLayout.rightSiblingKeyFieldIndexForKind(kindId), slotNodeKey, i, slotRightSibKeys,
+                  slotRightSibWidths, slotRightSibOffs);
+              if (rightWidth > 0) {
+                rightSibSlotsWithField++;
+                rightSibTotalStrippedBytes += rightWidth;
+              }
+              final int leftWidth = collectStructuralKey(slottedPage, recordBase, fc,
+                  NodeFieldLayout.leftSiblingKeyFieldIndexForKind(kindId), slotNodeKey, i, slotLeftSibKeys,
+                  slotLeftSibWidths, slotLeftSibOffs);
+              if (leftWidth > 0) {
+                leftSibSlotsWithField++;
+                leftSibTotalStrippedBytes += leftWidth;
               }
             }
             // --- pathNodeKey column scan ---
@@ -2524,6 +2656,49 @@ public enum PageKind {
           }
           final boolean parentKeyColumnActive = parentKeyColumnBytes != null;
 
+          // The two sibling columns, judged exactly as the parentKey column is: encode into the
+          // scratch, keep it only when the bytes it takes — plus its own length prefix — come out
+          // under the varints it displaces.
+          byte[] rightSibColumnBytes = null;
+          int rightSibColumnLen = 0;
+          if (SIBLING_KEY_COLUMNS_ENABLED && rightSibSlotsWithField > 0) {
+            final byte[] rightScratch = structuralColumnScratch(RIGHT_SIB_COLUMN_SCRATCH, populatedCount);
+            final int encodedLen =
+                StructuralKeyColumnCodec.encodeByteArray(rightScratch, 0, slotRightSibKeys, populatedCount,
+                    slotNodeKeys);
+            if (finerDiag) {
+              PageSectionDiag.recordRightSibKeyColumnCandidate(rightSibTotalStrippedBytes, encodedLen);
+            }
+            if (encodedLen + 4 < rightSibTotalStrippedBytes) {
+              rightSibColumnBytes = rightScratch;
+              rightSibColumnLen = encodedLen;
+              if (finerDiag) {
+                PageSectionDiag.recordRightSibKeyColumn(rightSibTotalStrippedBytes - encodedLen - 4);
+              }
+            }
+          }
+          final boolean rightSibColumnActive = rightSibColumnBytes != null;
+
+          byte[] leftSibColumnBytes = null;
+          int leftSibColumnLen = 0;
+          if (SIBLING_KEY_COLUMNS_ENABLED && leftSibSlotsWithField > 0) {
+            final byte[] leftScratch = structuralColumnScratch(LEFT_SIB_COLUMN_SCRATCH, populatedCount);
+            final int encodedLen =
+                StructuralKeyColumnCodec.encodeByteArray(leftScratch, 0, slotLeftSibKeys, populatedCount,
+                    slotNodeKeys);
+            if (finerDiag) {
+              PageSectionDiag.recordLeftSibKeyColumnCandidate(leftSibTotalStrippedBytes, encodedLen);
+            }
+            if (encodedLen + 4 < leftSibTotalStrippedBytes) {
+              leftSibColumnBytes = leftScratch;
+              leftSibColumnLen = encodedLen;
+              if (finerDiag) {
+                PageSectionDiag.recordLeftSibKeyColumn(leftSibTotalStrippedBytes - encodedLen - 4);
+              }
+            }
+          }
+          final boolean leftSibColumnActive = leftSibColumnBytes != null;
+
           // pathNodeKey column is active iff at least one slot has a pathNodeKey
           // field AND the dict encoding pays off vs. raw delta-varints. Unlike
           // parentKey (a wide pile of independent node keys), pathNodeKey typically
@@ -2673,6 +2848,12 @@ public enum PageKind {
             if (parentKeyColumnActive) {
               onDiskLen -= slotParentKeyWidths[i] & 0xFF;
             }
+            if (rightSibColumnActive) {
+              onDiskLen -= slotRightSibWidths[i] & 0xFF;
+            }
+            if (leftSibColumnActive) {
+              onDiskLen -= slotLeftSibWidths[i] & 0xFF;
+            }
             if (pathNodeKeyColumnActive) {
               onDiskLen -= slotPnkWidths[i] & 0xFF;
             }
@@ -2710,7 +2891,17 @@ public enum PageKind {
             structuralFlags |= STRUCT_FLAG_NAME_KEY_ELISION;
           if (derivedElisionSections && (valueElisionActive || nameKeyElisionActive))
             structuralFlags |= STRUCT_FLAG_DERIVED_ELISION;
+          int extendedFlags = 0;
+          if (rightSibColumnActive)
+            extendedFlags |= EXT_FLAG_RIGHT_SIB_COLUMN;
+          if (leftSibColumnActive)
+            extendedFlags |= EXT_FLAG_LEFT_SIB_COLUMN;
+          if (extendedFlags != 0)
+            structuralFlags |= STRUCT_FLAG_EXTENDED;
           sink.writeByte((byte) structuralFlags);
+          if (extendedFlags != 0) {
+            sink.writeByte((byte) extendedFlags);
+          }
           sink.writeInt(br.templatesByteLength);
 
           // Stage ALL structural metadata + heap into one contiguous buffer so the
@@ -2739,6 +2930,12 @@ public enum PageKind {
           final int stagedParentKeyColBytes = parentKeyColumnActive
               ? (4 + parentKeyColumnLen)
               : 0;
+          final int stagedRightSibColBytes = rightSibColumnActive
+              ? (4 + rightSibColumnLen)
+              : 0;
+          final int stagedLeftSibColBytes = leftSibColumnActive
+              ? (4 + leftSibColumnLen)
+              : 0;
           final int stagedPathNodeKeyColBytes = pathNodeKeyColumnActive
               ? (4 + pathNodeKeyColumnLen)
               : 0;
@@ -2751,8 +2948,8 @@ public enum PageKind {
               ? nameKeyElisionSectionBytes
               : 0;
           final int structuralBytes = compactDirBytes + br.templatesByteLength + populatedCount + stagedHashBitmapBytes
-              + stagedParentKeyColBytes + stagedPathNodeKeyColBytes + stagedValueElisionBytes
-              + stagedNameKeyElisionBytes;
+              + stagedParentKeyColBytes + stagedRightSibColBytes + stagedLeftSibColBytes + stagedPathNodeKeyColBytes
+              + stagedValueElisionBytes + stagedNameKeyElisionBytes;
           final int totalStagingBytes = structuralBytes + onDiskHeapSize;
           if (finerDiag) {
             // The staged sizes are exactly what the writer is about to emit, so the diagnostic reports
@@ -2781,6 +2978,12 @@ public enum PageKind {
           if (parentKeyColumnActive) {
             sections.appendParentKeyColumn(parentKeyColumnBytes, parentKeyColumnLen);
           }
+          if (rightSibColumnActive) {
+            sections.appendRightSibKeyColumn(rightSibColumnBytes, rightSibColumnLen);
+          }
+          if (leftSibColumnActive) {
+            sections.appendLeftSibKeyColumn(leftSibColumnBytes, leftSibColumnLen);
+          }
           if (pathNodeKeyColumnActive) {
             sections.appendPathNodeKeyColumn(pathNodeKeyColumnBytes, pathNodeKeyColumnLen);
           }
@@ -2803,9 +3006,10 @@ public enum PageKind {
           long stagePos = sections.beginHeap();
           stagePos = stageEncodedHeap(slottedPage, staging, stagePos, populatedCount, slotFieldCounts, slotHeapOffs,
               slotDataLens, slotTemplateIds, hashElisionActive, zeroHashBitmap, slotHashOffs, parentKeyColumnActive,
-              slotParentKeyWidths, pathNodeKeyColumnActive, slotPnkWidths, slotPnkOffs, valueElisionActive,
-              slotValueElided, slotValueWidths, slotValueOffs, nameKeyElisionActive, slotNameKeyElided,
-              slotNameKeyWidths, slotNameKeyOffs);
+              slotParentKeyWidths, rightSibColumnActive, slotRightSibWidths, slotRightSibOffs, leftSibColumnActive,
+              slotLeftSibWidths, slotLeftSibOffs, pathNodeKeyColumnActive, slotPnkWidths, slotPnkOffs,
+              valueElisionActive, slotValueElided, slotValueWidths, slotValueOffs, nameKeyElisionActive,
+              slotNameKeyElided, slotNameKeyWidths, slotNameKeyOffs);
           sections.endHeap(stagePos);
           assert sections.totalLength() == totalStagingBytes
               && sections.metaLength() + sections.heapLength() == totalStagingBytes
@@ -2850,10 +3054,24 @@ public enum PageKind {
             sink.writeInt(compressedLen);
             sink.writeByte((byte) 1); // codec: 1 = LZ4, 0 = ZeroRunByteCodec, 2 = ByteRunCodec
             sink.writeSegment(lz4Out, 0, compressedLen);
+            if (finerDiag) {
+              recordPostCodecAttribution(staging, sections, compressedLen, populatedCount, slotKindIds,
+                  slotOnDiskLens, slotTemplateIds, 1);
+            }
           } else {
             // Smallest-of-codecs bake-off with sticky-winner election —
             // shared with the inline path, see emitSmallestBody.
+            final long beforeBody = finerDiag
+                ? sink.writePosition()
+                : 0L;
             emitSmallestBody(sink, staging, totalStagingBytes);
+            if (finerDiag) {
+              // Post-codec attribution, charged under the codec this page actually emitted — which is
+              // not always the elected one, since the pages between probes write the smaller of
+              // zero-run and LZ77 whatever the election says.
+              recordPostCodecAttribution(staging, sections, sink.writePosition() - beforeBody - 5, populatedCount,
+                  slotKindIds, slotOnDiskLens, slotTemplateIds, STICKY_CODEC.get()[STICKY_LAST_EMITTED]);
+            }
           }
           if (finerDiag) {
             final long diagS3 = sink.writePosition();
@@ -2891,6 +3109,166 @@ public enum PageKind {
      * Zero allocation: the fold rides a thread-local {@code long[]} and is cleared as it is emitted,
      * so it is left zeroed for the next page without a full-array wipe.
      */
+    /**
+     * Attribute the body's post-codec bytes to the sections that produced them.
+     *
+     * <p>
+     * The body is staged as one contiguous buffer and compressed as one blob, so what any single
+     * section costs on disk is not observable from the wire — only the total is. This compresses each
+     * staged section ON ITS OWN with the codec the page actually used, which is an upper bound for its
+     * share: the whole body is always at least as compressible as the sum of its parts, because the
+     * codec also sees repetition ACROSS sections. The gap between the sum and the real body is exactly
+     * that cross-section gain, and it is reported rather than hidden.
+     *
+     * <p>
+     * Why it matters: a lever judged on staged bytes can move a kilobyte per page and nothing on disk,
+     * because the bytes it removed were the ones the codec was already collapsing. Only an
+     * attribution like this can tell the two apart.
+     *
+     * <p>
+     * Diagnostic only, behind {@code -Dsirix.pageSectionDiag=true}, and it re-compresses the body's
+     * bytes a further two to three times — never enable it on a measured ingest.
+     *
+     * <p>
+     * Not reached on a chunk-framed body, which compresses its META frame and each chunk separately
+     * already — the split it would report is the one it is written with.
+     *
+     * @param actualBodyBytes what the whole body compressed to, without its length and codec header
+     * @param codec the codec the page emitted, so every section is charged what the page really paid
+     */
+    private static void recordPostCodecAttribution(final MemorySegment staging, final BodySections sections,
+        final long actualBodyBytes, final int populatedCount, final int[] slotKindIds, final int[] slotOnDiskLens,
+        final byte[] slotTemplateIds, final int codec) {
+      long offset = 0;
+      long encodedSum = 0;
+      for (int section = 0; section <= PageSectionDiag.SECTION_HEAP; section++) {
+        final int length = sections.sectionLength(section);
+        if (length == 0) {
+          continue;
+        }
+        final int encoded = encodedSizeWithCodec(codec, staging, offset, length);
+        PageSectionDiag.recordPostCodecSection(section, length, encoded);
+        encodedSum += encoded;
+        offset += length;
+      }
+      PageSectionDiag.recordPostCodecBody(encodedSum, actualBodyBytes);
+
+      // The heap again, split three ways by record kind. The three lanes are PARTS of the heap lane
+      // above and are deliberately left out of the sum: a record's bytes must be counted once.
+      final long heapStart = sections.heapStart();
+      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec,
+          HEAP_CLASS_FUSED, PageSectionDiag.SECTION_HEAP_FUSED);
+      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec,
+          HEAP_CLASS_STRUCTURAL, PageSectionDiag.SECTION_HEAP_STRUCTURAL);
+      gatherAndRecordHeapClass(staging, heapStart, populatedCount, slotKindIds, slotOnDiskLens, codec,
+          HEAP_CLASS_OTHER, PageSectionDiag.SECTION_HEAP_OTHER);
+
+      // How much of the compact directory a template-implied one could drop (T1-b): an entry is
+      // predictable when its kind AND its on-disk length repeat the previous entry of the same
+      // template. The kind alone is already implied by the template; the length is the open question.
+      final int[] lastKind = DIAG_TEMPLATE_LAST_KIND.get();
+      final int[] lastLength = DIAG_TEMPLATE_LAST_LENGTH.get();
+      Arrays.fill(lastKind, -1);
+      Arrays.fill(lastLength, -1);
+      int predictable = 0;
+      for (int i = 0; i < populatedCount; i++) {
+        final int templateId = slotTemplateIds[i] & 0xFF;
+        if (lastKind[templateId] == slotKindIds[i] && lastLength[templateId] == slotOnDiskLens[i]) {
+          predictable++;
+        }
+        lastKind[templateId] = slotKindIds[i];
+        lastLength[templateId] = slotOnDiskLens[i];
+      }
+      PageSectionDiag.recordCompactDirPredictability(populatedCount, predictable);
+    }
+
+    /**
+     * Gather one class of records out of the staged heap and record what the page's codec makes of
+     * them alone.
+     *
+     * <p>
+     * A class's records are not contiguous, so they are copied into a scratch first. That is the price
+     * of asking "what do the fused records cost" of a codec that only ever saw them interleaved.
+     */
+    private static void gatherAndRecordHeapClass(final MemorySegment staging, final long heapStart,
+        final int populatedCount, final int[] slotKindIds, final int[] slotOnDiskLens, final int codec,
+        final int heapClass, final int section) {
+      final MemorySegment gather = diagGatherScratch(sumOnDiskLengths(populatedCount, slotOnDiskLens));
+      long gathered = 0;
+      long heapOffset = heapStart;
+      for (int i = 0; i < populatedCount; i++) {
+        final int length = slotOnDiskLens[i];
+        if (heapClassOf(slotKindIds[i]) == heapClass) {
+          MemorySegment.copy(staging, heapOffset, gather, gathered, length);
+          gathered += length;
+        }
+        heapOffset += length;
+      }
+      if (gathered == 0) {
+        return;
+      }
+      PageSectionDiag.recordPostCodecSection(section, gathered,
+          encodedSizeWithCodec(codec, gather, 0L, Math.toIntExact(gathered)));
+    }
+
+    private static int sumOnDiskLengths(final int populatedCount, final int[] slotOnDiskLens) {
+      int total = 0;
+      for (int i = 0; i < populatedCount; i++) {
+        total += slotOnDiskLens[i];
+      }
+      return total;
+    }
+
+    /** Which of the three attribution classes a record kind belongs to. */
+    private static int heapClassOf(final int kindId) {
+      if (KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
+        return HEAP_CLASS_FUSED;
+      }
+      return kindId == OBJECT_KIND_ID || kindId == ARRAY_KIND_ID
+          ? HEAP_CLASS_STRUCTURAL
+          : HEAP_CLASS_OTHER;
+    }
+
+    /** What {@code codec} compresses {@code [off, off + length)} to, without emitting it. */
+    private static int encodedSizeWithCodec(final int codec, final MemorySegment src, final long off,
+        final int length) {
+      if (codec == 1) {
+        // LZ4 works segment to segment, so this arm needs its own output segment rather than the byte
+        // array the RLE and LZ77 codecs write into.
+        final FFILz4Compressor lz4 = V1_HEAP_LZ4.get();
+        if (lz4 == null) {
+          return length;
+        }
+        final int bound = lz4.compressBound(length);
+        MemorySegment out = DIAG_LZ4_OUT_SCRATCH.get();
+        if (out.byteSize() < bound) {
+          out = Arena.ofAuto().allocate(Math.max((long) bound, out.byteSize() * 2L));
+          DIAG_LZ4_OUT_SCRATCH.set(out);
+        }
+        final int encoded = lz4.getCompressionMode() == FFILz4Compressor.CompressionMode.HIGH_COMPRESSION
+            ? lz4.compressSegmentHC(src.asSlice(off, length), out.asSlice(0, bound), HEAP_LZ4_HC_LEVEL)
+            : lz4.compressSegment(src.asSlice(off, length), out.asSlice(0, bound));
+        return encoded < 0
+            ? length
+            : encoded;
+      }
+      final int bound = switch (codec) {
+        case 0 -> ZeroRunByteCodec.maxEncodedSize(length);
+        case 2 -> ByteRunCodec.maxEncodedSize(length);
+        default -> SirixLZ77Codec.maxEncodedSize(length);
+      };
+      byte[] out = DIAG_CODEC_OUT_SCRATCH.get();
+      if (out.length < bound) {
+        out = new byte[Math.max(bound, out.length * 2)];
+        DIAG_CODEC_OUT_SCRATCH.set(out);
+      }
+      return switch (codec) {
+        case 0 -> ZeroRunByteCodec.encode(src, off, length, out, 0);
+        case 2 -> ByteRunCodec.encode(src, off, length, out, 0);
+        default -> SirixLZ77Codec.encode(src, off, length, out, 0);
+      };
+    }
+
     private static void recordHeapCompositionDiag(final int populatedCount, final int[] slotKindIds,
         final int[] slotOnDiskLens, final short[] slotDiagValueWidths, final byte[] slotValueElided,
         final boolean valueElisionActive) {
@@ -2939,17 +3317,21 @@ public enum PageKind {
         final int populatedCount, final byte[] slotFieldCounts, final int[] slotHeapOffs, final int[] slotDataLens,
         final byte[] slotTemplateIds, final boolean hashElisionActive, final byte[] zeroHashBitmap,
         final short[] slotHashOffs, final boolean parentKeyColumnActive, final byte[] slotParentKeyWidths,
+        final boolean rightSibColumnActive, final byte[] slotRightSibWidths, final short[] slotRightSibOffs,
+        final boolean leftSibColumnActive, final byte[] slotLeftSibWidths, final short[] slotLeftSibOffs,
         final boolean pathNodeKeyColumnActive, final byte[] slotPnkWidths, final short[] slotPnkOffs,
         final boolean valueElisionActive, final byte[] slotValueElided, final short[] slotValueWidths,
         final short[] slotValueOffs, final boolean nameKeyElisionActive, final byte[] slotNameKeyElided,
         final byte[] slotNameKeyWidths, final short[] slotNameKeyOffs) {
-      // heap (records with templateId replacing offset table; hash, parentKey,
-      // pathNodeKey, value, and nameKey optionally stripped). Up to 5 skip
-      // ranges per slot, sorted ascending by offset, so the general case
-      // collapses to "copy gaps, skip ranges" in one pass.
+      // heap (records with templateId replacing the offset table; hash, parentKey, pathNodeKey, value
+      // and nameKey optionally stripped). The stripped ranges are collected per slot and walked in
+      // ascending offset order, so the general case collapses to "copy the gaps, skip the ranges" in
+      // one pass.
       //
-      // HFT-grade: no allocation. We inline the five (from, to) pairs into stack
-      // locals and do at most ten compares for a 5-element bubble sort.
+      // HFT-grade: no allocation. The two range arrays are per-thread scratch taken once for the page,
+      // never per slot, and the insertion that keeps them ordered runs over a handful of entries.
+      final int[] rangeFrom = STRIP_RANGE_FROM_SCRATCH.get();
+      final int[] rangeTo = STRIP_RANGE_TO_SCRATCH.get();
       for (int i = 0; i < populatedCount; i++) {
         final int fc = slotFieldCounts[i];
         final long recordBase = PageLayout.HEAP_START + slotHeapOffs[i];
@@ -2962,6 +3344,12 @@ public enum PageKind {
         final int stripPkWidth = parentKeyColumnActive
             ? (slotParentKeyWidths[i] & 0xFF)
             : 0;
+        final int stripRightSibWidth = rightSibColumnActive
+            ? (slotRightSibWidths[i] & 0xFF)
+            : 0;
+        final int stripLeftSibWidth = leftSibColumnActive
+            ? (slotLeftSibWidths[i] & 0xFF)
+            : 0;
         final int stripPnkWidth = pathNodeKeyColumnActive
             ? (slotPnkWidths[i] & 0xFF)
             : 0;
@@ -2973,213 +3361,42 @@ public enum PageKind {
         final int stripNameKeyWidth = stripNameKey
             ? (slotNameKeyWidths[i] & 0xFF)
             : 0;
-        // Build up to 5 skip ranges (from, to) relative to data-region start.
-        // parentKey: offset 0, width stripPkWidth (always at the front when active)
-        // pnk: offset slotPnkOffs[i], width stripPnkWidth
-        // hash: offset slotHashOffs[i], width HASH_WIDTH
-        // value: offset slotValueOffs[i], width stripValueWidth
-        // nameKey: offset slotNameKeyOffs[i], width stripNameKeyWidth
-        int r0From = 0, r0To = 0;
-        int r1From = 0, r1To = 0;
-        int r2From = 0, r2To = 0;
-        int r3From = 0, r3To = 0;
-        int r4From = 0, r4To = 0;
+        // Collect the stripped ranges, kept sorted by start offset as they are inserted, then walk
+        // them once: copy the gaps, skip the ranges. Which field sits where inside the data region is
+        // kind-specific, so the order the strips are collected in is not the order they appear in —
+        // hence the insertion rather than a hand-ordered list.
         int rCount = 0;
         if (stripPkWidth > 0) {
-          r0From = 0;
-          r0To = stripPkWidth;
-          rCount = 1;
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, 0, stripPkWidth);
+        }
+        if (stripRightSibWidth > 0) {
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotRightSibOffs[i] & 0xFFFF, stripRightSibWidth);
+        }
+        if (stripLeftSibWidth > 0) {
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotLeftSibOffs[i] & 0xFFFF, stripLeftSibWidth);
         }
         if (stripPnkWidth > 0) {
-          final int pnkFrom = slotPnkOffs[i] & 0xFFFF;
-          final int pnkTo = pnkFrom + stripPnkWidth;
-          if (rCount == 0) {
-            r0From = pnkFrom;
-            r0To = pnkTo;
-            rCount = 1;
-          } else {
-            r1From = pnkFrom;
-            r1To = pnkTo;
-            rCount = 2;
-          }
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotPnkOffs[i] & 0xFFFF, stripPnkWidth);
         }
         if (stripHash) {
-          final int hFrom = slotHashOffs[i] & 0xFFFF;
-          final int hTo = hFrom + NodeFieldLayout.HASH_WIDTH;
-          if (rCount == 0) {
-            r0From = hFrom;
-            r0To = hTo;
-            rCount = 1;
-          } else if (rCount == 1) {
-            r1From = hFrom;
-            r1To = hTo;
-            rCount = 2;
-          } else {
-            r2From = hFrom;
-            r2To = hTo;
-            rCount = 3;
-          }
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotHashOffs[i] & 0xFFFF,
+              NodeFieldLayout.HASH_WIDTH);
         }
         if (stripValue) {
-          final int vFrom = slotValueOffs[i] & 0xFFFF;
-          final int vTo = vFrom + stripValueWidth;
-          if (rCount == 0) {
-            r0From = vFrom;
-            r0To = vTo;
-            rCount = 1;
-          } else if (rCount == 1) {
-            r1From = vFrom;
-            r1To = vTo;
-            rCount = 2;
-          } else if (rCount == 2) {
-            r2From = vFrom;
-            r2To = vTo;
-            rCount = 3;
-          } else {
-            r3From = vFrom;
-            r3To = vTo;
-            rCount = 4;
-          }
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotValueOffs[i] & 0xFFFF, stripValueWidth);
         }
         if (stripNameKey) {
-          final int nkFrom = slotNameKeyOffs[i] & 0xFFFF;
-          final int nkTo = nkFrom + stripNameKeyWidth;
-          if (rCount == 0) {
-            r0From = nkFrom;
-            r0To = nkTo;
-            rCount = 1;
-          } else if (rCount == 1) {
-            r1From = nkFrom;
-            r1To = nkTo;
-            rCount = 2;
-          } else if (rCount == 2) {
-            r2From = nkFrom;
-            r2To = nkTo;
-            rCount = 3;
-          } else if (rCount == 3) {
-            r3From = nkFrom;
-            r3To = nkTo;
-            rCount = 4;
-          } else {
-            r4From = nkFrom;
-            r4To = nkTo;
-            rCount = 5;
-          }
-        }
-        // Bubble-sort up to 5 ranges by from-offset ascending. 10 compares
-        // worst case — still cheap, branch-predictable, and register-resident.
-        if (rCount >= 2 && r0From > r1From) {
-          int tf = r0From, tt = r0To;
-          r0From = r1From;
-          r0To = r1To;
-          r1From = tf;
-          r1To = tt;
-        }
-        if (rCount >= 3) {
-          if (r1From > r2From) {
-            int tf = r1From, tt = r1To;
-            r1From = r2From;
-            r1To = r2To;
-            r2From = tf;
-            r2To = tt;
-          }
-          if (r0From > r1From) {
-            int tf = r0From, tt = r0To;
-            r0From = r1From;
-            r0To = r1To;
-            r1From = tf;
-            r1To = tt;
-          }
-        }
-        if (rCount >= 4) {
-          if (r2From > r3From) {
-            int tf = r2From, tt = r2To;
-            r2From = r3From;
-            r2To = r3To;
-            r3From = tf;
-            r3To = tt;
-          }
-          if (r1From > r2From) {
-            int tf = r1From, tt = r1To;
-            r1From = r2From;
-            r1To = r2To;
-            r2From = tf;
-            r2To = tt;
-          }
-          if (r0From > r1From) {
-            int tf = r0From, tt = r0To;
-            r0From = r1From;
-            r0To = r1To;
-            r1From = tf;
-            r1To = tt;
-          }
-        }
-        if (rCount == 5) {
-          if (r3From > r4From) {
-            int tf = r3From, tt = r3To;
-            r3From = r4From;
-            r3To = r4To;
-            r4From = tf;
-            r4To = tt;
-          }
-          if (r2From > r3From) {
-            int tf = r2From, tt = r2To;
-            r2From = r3From;
-            r2To = r3To;
-            r3From = tf;
-            r3To = tt;
-          }
-          if (r1From > r2From) {
-            int tf = r1From, tt = r1To;
-            r1From = r2From;
-            r1To = r2To;
-            r2From = tf;
-            r2To = tt;
-          }
-          if (r0From > r1From) {
-            int tf = r0From, tt = r0To;
-            r0From = r1From;
-            r0To = r1To;
-            r1From = tf;
-            r1To = tt;
-          }
+          rCount = insertStripRange(rangeFrom, rangeTo, rCount, slotNameKeyOffs[i] & 0xFFFF, stripNameKeyWidth);
         }
         // Walk ranges: copy gaps, skip ranges.
         int cursor = 0;
-        if (rCount >= 1) {
-          if (r0From > cursor) {
-            MemorySegment.copy(slottedPage, recordBase + 1 + fc + cursor, staging, stagePos, r0From - cursor);
-            stagePos += r0From - cursor;
+        for (int r = 0; r < rCount; r++) {
+          final int from = rangeFrom[r];
+          if (from > cursor) {
+            MemorySegment.copy(slottedPage, recordBase + 1 + fc + cursor, staging, stagePos, from - cursor);
+            stagePos += from - cursor;
           }
-          cursor = r0To;
-        }
-        if (rCount >= 2) {
-          if (r1From > cursor) {
-            MemorySegment.copy(slottedPage, recordBase + 1 + fc + cursor, staging, stagePos, r1From - cursor);
-            stagePos += r1From - cursor;
-          }
-          cursor = r1To;
-        }
-        if (rCount >= 3) {
-          if (r2From > cursor) {
-            MemorySegment.copy(slottedPage, recordBase + 1 + fc + cursor, staging, stagePos, r2From - cursor);
-            stagePos += r2From - cursor;
-          }
-          cursor = r2To;
-        }
-        if (rCount >= 4) {
-          if (r3From > cursor) {
-            MemorySegment.copy(slottedPage, recordBase + 1 + fc + cursor, staging, stagePos, r3From - cursor);
-            stagePos += r3From - cursor;
-          }
-          cursor = r3To;
-        }
-        if (rCount == 5) {
-          if (r4From > cursor) {
-            MemorySegment.copy(slottedPage, recordBase + 1 + fc + cursor, staging, stagePos, r4From - cursor);
-            stagePos += r4From - cursor;
-          }
-          cursor = r4To;
+          cursor = rangeTo[r];
         }
         // Final tail from cursor to dataBytes.
         if (dataBytes > cursor) {
@@ -3188,6 +3405,39 @@ public enum PageKind {
         }
       }
       return stagePos;
+    }
+
+    /**
+     * Insert one stripped range into an offset-ordered list, and report the new length.
+     *
+     * <p>
+     * At most {@link #STRIP_RANGE_CAPACITY} ranges exist for a record and they arrive nearly sorted, so
+     * an insertion is a compare and, occasionally, one shift. The alternative — collecting them in
+     * field-index order and asserting monotonicity — would tie the caller to a per-kind field ordering
+     * that {@code NodeFieldLayout} deliberately does not promise.
+     *
+     * @param from the range start offsets, ordered ascending
+     * @param to the matching range end offsets
+     * @param count how many ranges the list already holds
+     * @param rangeStart the new range's start offset within the record's data region
+     * @param width the new range's width in bytes
+     * @return {@code count + 1}
+     */
+    private static int insertStripRange(final int[] from, final int[] to, final int count, final int rangeStart,
+        final int width) {
+      if (count == from.length) {
+        throw new SirixIOException("more than " + from.length
+            + " stripped ranges on one record — raise STRIP_RANGE_CAPACITY alongside the lever that added one");
+      }
+      int at = count;
+      while (at > 0 && from[at - 1] > rangeStart) {
+        from[at] = from[at - 1];
+        to[at] = to[at - 1];
+        at--;
+      }
+      from[at] = rangeStart;
+      to[at] = rangeStart + width;
+      return count + 1;
     }
 
     /**
@@ -4144,19 +4394,32 @@ public enum PageKind {
               ? numberPathBuf
               : parBuf;
           final NumberRegion.Encoder numberEncoder = NUMBER_REGION_ENCODER.get();
-          final int numberPayloadLength = numberEncoder.encodeInto(valBuf, numberTagBuf, count, numberTagKind);
+          // This writer publishes the zone map immediately below, so the value region may leave its
+          // per-tag directory there instead of carrying a second copy of it.
+          int numberPayloadLength = numberEncoder.encodeInto(valBuf, numberTagBuf, count, numberTagKind, true);
           table.set(RegionTable.KIND_NUMBER, numberEncoder.output(), numberPayloadLength);
           final NumberRegion.Header header;
           if (numberPayloadLength > 0) {
             header = WRITER_NUMBER_HEADER_SCRATCH.get();
-            header.parseInto(table.payload(RegionTable.KIND_NUMBER));
+            // From the encoder, not from a parse of what it just wrote: the directory is what the
+            // zone map is about to publish, and re-reading it out of the payload was only ever
+            // possible because the payload repeated it.
+            numberEncoder.directoryInto(header);
             // Lift the per-tag zone maps into their own independently readable region. Written here rather
             // than derived on read because the point is for a scan to see them WITHOUT touching the
-            // number payload they currently live inside — see NumberZoneMapRegion.
+            // number payload — see NumberZoneMapRegion.
             regionEncodeScratch = REGION_ENCODE_SCRATCH.get();
             final int zoneMapLength = NumberZoneMapRegion.encodeInto(header, regionEncodeScratch);
             if (zoneMapLength != NumberZoneMapRegion.ENCODE_FAILED) {
               table.set(RegionTable.KIND_NUMBER_ZONEMAP, regionEncodeScratch, zoneMapLength);
+            } else {
+              // No summary to hold the directory: re-encode the value region self-contained rather
+              // than write one nothing can decode. Unreachable for a region with tags, and cheap
+              // enough that proving it unreachable is not worth depending on.
+              numberPayloadLength = numberEncoder.encodeInto(valBuf, numberTagBuf, count, numberTagKind, false);
+              table.set(RegionTable.KIND_NUMBER, numberEncoder.output(), numberPayloadLength);
+              table.set(RegionTable.KIND_NUMBER_ZONEMAP, null, 0);
+              numberEncoder.directoryInto(header);
             }
           } else {
             header = null;
@@ -4367,6 +4630,44 @@ public enum PageKind {
     }
 
     /**
+     * Read one {@link StructuralKeyColumnCodec} column out of the decoded metadata and decode it in
+     * bulk into {@code values}.
+     *
+     * @param metadataStaging the decoded META bytes
+     * @param blobPos offset of the column's four-byte length prefix
+     * @param maxColumnBytes the bound the page's header implies for this column
+     * @param populatedCount entries the column must cover
+     * @param slotNodeKeys per-entry node keys, the predictor the codec encodes against
+     * @param values receives one decoded key per entry
+     * @param name the column's name, for the failure message
+     * @return the offset one past the column's last byte
+     */
+    private static long readStructuralKeyColumn(final MemorySegment metadataStaging, final long blobPos,
+        final int maxColumnBytes, final int populatedCount, final long[] slotNodeKeys, final long[] values,
+        final String name) {
+      final int b0 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos) & 0xFF;
+      final int b1 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 1) & 0xFF;
+      final int b2 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 2) & 0xFF;
+      final int b3 = metadataStaging.get(ValueLayout.JAVA_BYTE, blobPos + 3) & 0xFF;
+      final int columnLength = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+      if (columnLength < 0 || columnLength > maxColumnBytes - 4) {
+        throw new SirixIOException("invalid " + name + " column length: " + columnLength);
+      }
+      byte[] scratch = STRUCTURAL_COLUMN_READ_SCRATCH.get();
+      if (scratch.length < columnLength) {
+        scratch = new byte[Math.max(columnLength, scratch.length * 2)];
+        STRUCTURAL_COLUMN_READ_SCRATCH.set(scratch);
+      }
+      MemorySegment.copy(metadataStaging, ValueLayout.JAVA_BYTE, blobPos + 4, scratch, 0, columnLength);
+      final int decoded = StructuralKeyColumnCodec.decodeAll(scratch, 0, values, slotNodeKeys);
+      if (decoded != populatedCount) {
+        throw new SirixIOException(
+            "the " + name + " column covers " + decoded + " slots, the page has " + populatedCount);
+      }
+      return blobPos + 4 + columnLength;
+    }
+
+    /**
      * The tag whose half-open value range {@code [tagStart, tagStart + tagCount)} contains
      * {@code absIdx}, or -1. Linear over the tag dictionary, which is a handful of entries.
      */
@@ -4456,7 +4757,9 @@ public enum PageKind {
           }
           if (numberHeader == null) {
             numberHeader = NUMBER_HEADER_SCRATCH.get();
-            numberHeader.parseInto(numberPayload);
+            // The per-tag directory may live in the zone map. A page is read whole here — the region
+            // table came from RegionTable.read with every kind — so the pair is always in hand.
+            numberHeader.parseInto(numberPayload, regionTable.payload(RegionTable.KIND_NUMBER_ZONEMAP));
             if (NumberRegion.isDelta(numberHeader.encodingKind)) {
               long[] scratch = NUMBER_VALUES_SCRATCH.get();
               if (scratch.length < numberHeader.count) {
@@ -6862,6 +7165,21 @@ public enum PageKind {
   private static final int STRUCT_FLAG_DERIVED_ELISION = 0x20;
 
   /**
+   * Flag bit: a second structural-flags byte follows, carrying the levers that did not fit the first.
+   *
+   * <p>
+   * Set only when one of those levers is actually on, so a page that uses none of them writes the one
+   * byte it always wrote. That is what lets the kill switches restore the pre-change encoding exactly.
+   */
+  private static final int STRUCT_FLAG_EXTENDED = 0x80;
+
+  /** Extended flag bit: the page carries a right-sibling-key column. */
+  private static final int EXT_FLAG_RIGHT_SIB_COLUMN = 0x01;
+
+  /** Extended flag bit: the page carries a left-sibling-key column. */
+  private static final int EXT_FLAG_LEFT_SIB_COLUMN = 0x02;
+
+  /**
    * Whether the elision sections are written in their derived form.
    *
    * <p>
@@ -6906,6 +7224,201 @@ public enum PageKind {
   /** Reader-side destination for a compact pathNodeKey column expanded back to random access. */
   private static final ThreadLocal<byte[]> PATH_NODE_KEY_EXPANDED_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT + 1_160]);
+
+  /**
+   * How many stripped ranges one record can carry: parentKey, pathNodeKey, hash, value, name key —
+   * with room for the structural columns that follow. Sized as a constant so the writer's and reader's
+   * range arrays cannot disagree about it.
+   */
+  private static final int STRIP_RANGE_CAPACITY = 8;
+
+  /** Range-start scratch for {@code stageEncodedHeap}; taken once per page, never per slot. */
+  private static final ThreadLocal<int[]> STRIP_RANGE_FROM_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[STRIP_RANGE_CAPACITY]);
+
+  /** Range-end scratch for {@code stageEncodedHeap}. */
+  private static final ThreadLocal<int[]> STRIP_RANGE_TO_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[STRIP_RANGE_CAPACITY]);
+
+  /**
+   * Whether the right- and left-sibling keys move into their own columns. <b>Off by default, on the
+   * measurement below.</b>
+   *
+   * <p>
+   * In document order a right sibling is usually the very next node key and a left sibling the
+   * previous one, so both collapse to two bits per slot under the codec the parentKey column already
+   * uses: on a 105-field record load the columns take 275 B per page where the varints they replace
+   * take 1,019, and the staged heap falls from 6.97 to 5.97 B per record.
+   *
+   * <p>
+   * <b>And almost none of that reaches the wire.</b> Those varints are the same two bytes in every
+   * record, so the body codec was already collapsing them for nothing, while the bit-packed column is
+   * close to incompressible. Over 92 pages of that load the encoded body goes 34,348 → 36,115 B
+   * (+4.3 % of the body, ~+14 B per page once the column codec's run-length lane is in play; +19 B
+   * before it) — and the same figure appears on a high-entropy variant of the same shape, so it is the
+   * column's own bytes rather than the fixture's regularity. On a synthetic page whose sibling keys
+   * are exactly ±1 it comes out about 21 bytes ahead instead. The sign is data-dependent and the
+   * magnitude is nil either way: 930 raw bytes per page become 14 on the wire.
+   *
+   * <p>
+   * A raw-byte win that does not survive the codec is the trap this campaign already walked into once
+   * with the elision tuples, so the lever ships proven and dormant rather than on. Turn it on with
+   * {@code -Dsirix.page.body.structuralColumns=true} to re-measure: on data whose sibling keys are NOT
+   * a constant delta — heavy update traffic, moved subtrees — the arithmetic can come out the other
+   * way, and the switch is how to find out. Not final, so a byte-identity test can flip it after class
+   * load.
+   */
+  public static boolean SIBLING_KEY_COLUMNS_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.page.body.structuralColumns", "false"));
+
+  /** Per-thread per-entry decoded right-sibling keys, the right-sibling column's input. */
+  private static final ThreadLocal<long[]> SLOT_RIGHT_SIB_KEY_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread per-entry right-sibling varint widths, zero where the slot keeps the bytes inline. */
+  private static final ThreadLocal<byte[]> SLOT_RIGHT_SIB_WIDTH_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread per-entry right-sibling field offsets within the record's data region. */
+  private static final ThreadLocal<short[]> SLOT_RIGHT_SIB_OFF_SCRATCH =
+      ThreadLocal.withInitial(() -> new short[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread per-entry decoded left-sibling keys, the left-sibling column's input. */
+  private static final ThreadLocal<long[]> SLOT_LEFT_SIB_KEY_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread per-entry left-sibling varint widths, zero where the slot keeps the bytes inline. */
+  private static final ThreadLocal<byte[]> SLOT_LEFT_SIB_WIDTH_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread per-entry left-sibling field offsets within the record's data region. */
+  private static final ThreadLocal<short[]> SLOT_LEFT_SIB_OFF_SCRATCH =
+      ThreadLocal.withInitial(() -> new short[PageLayout.SLOT_COUNT]);
+
+  /** Writer-side encoded bytes of the right-sibling column. */
+  private static final ThreadLocal<byte[]> RIGHT_SIB_COLUMN_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[StructuralKeyColumnCodec.maxEncodedSize(PageLayout.SLOT_COUNT)]);
+
+  /** Writer-side encoded bytes of the left-sibling column. */
+  private static final ThreadLocal<byte[]> LEFT_SIB_COLUMN_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[StructuralKeyColumnCodec.maxEncodedSize(PageLayout.SLOT_COUNT)]);
+
+  /** Reader-side decoded right-sibling keys, one per entry. */
+  private static final ThreadLocal<long[]> SLOT_RIGHT_SIB_READ_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Reader-side decoded left-sibling keys, one per entry. */
+  private static final ThreadLocal<long[]> SLOT_LEFT_SIB_READ_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Reader-side per-entry right-sibling widths the expansion reinjects. */
+  private static final ThreadLocal<byte[]> SLOT_RIGHT_SIB_READ_WIDTH_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
+
+  /** Reader-side staging for one {@link StructuralKeyColumnCodec} column's encoded bytes. */
+  private static final ThreadLocal<byte[]> STRUCTURAL_COLUMN_READ_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[StructuralKeyColumnCodec.maxEncodedSize(PageLayout.SLOT_COUNT)]);
+
+  /** Reader-side per-entry left-sibling widths the expansion reinjects. */
+  private static final ThreadLocal<byte[]> SLOT_LEFT_SIB_READ_WIDTH_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
+
+  /**
+   * A structural column's encode destination, grown to what the codec can need for this page.
+   *
+   * @param scratch the thread-local holding it
+   * @param populatedCount entries the column covers
+   * @return a buffer of at least {@code StructuralKeyColumnCodec.maxEncodedSize(populatedCount)} bytes
+   */
+  private static byte[] structuralColumnScratch(final ThreadLocal<byte[]> scratch, final int populatedCount) {
+    byte[] buffer = scratch.get();
+    final int needed = StructuralKeyColumnCodec.maxEncodedSize(populatedCount);
+    if (buffer.length < needed) {
+      buffer = new byte[needed];
+      scratch.set(buffer);
+    }
+    return buffer;
+  }
+
+  /** {@code expandEntryInto} range discriminator: the slot's parentKey varint. */
+  private static final int INJECT_PARENT_KEY = 0;
+
+  /** {@code expandEntryInto} range discriminator: the slot's pathNodeKey varint. */
+  private static final int INJECT_PATH_NODE_KEY = 1;
+
+  /** {@code expandEntryInto} range discriminator: the slot's all-zero hash. */
+  private static final int INJECT_HASH = 2;
+
+  /** {@code expandEntryInto} range discriminator: the slot's elided payload. */
+  private static final int INJECT_VALUE = 3;
+
+  /** {@code expandEntryInto} range discriminator: the slot's elided name key. */
+  private static final int INJECT_NAME_KEY = 4;
+
+  /** {@code expandEntryInto} range discriminator: the slot's right-sibling varint. */
+  private static final int INJECT_RIGHT_SIB_KEY = 5;
+
+  /** {@code expandEntryInto} range discriminator: the slot's left-sibling varint. */
+  private static final int INJECT_LEFT_SIB_KEY = 6;
+
+  /**
+   * Step over a deduplicated body's structural-flags byte — and the extended byte behind it, when the
+   * first one says there is one.
+   *
+   * <p>
+   * Three readers parse this header independently: the full deserialization, the region-table probe
+   * and the regions-only decode. Sharing the step is what keeps a new flag from silently desynching
+   * two of them, which is exactly what an extra byte nobody skipped would do.
+   *
+   * @param source positioned at the structural-flags byte
+   */
+  private static void skipStructuralFlags(final BytesIn<?> source) {
+    if ((source.readByte() & STRUCT_FLAG_EXTENDED) != 0) {
+      source.readByte();
+    }
+  }
+
+  /** Post-codec attribution class: a fused {@code OBJECT_NAMED_*} record. */
+  private static final int HEAP_CLASS_FUSED = 0;
+
+  /** Post-codec attribution class: a structural {@code OBJECT} or {@code ARRAY} record. */
+  private static final int HEAP_CLASS_STRUCTURAL = 1;
+
+  /** Post-codec attribution class: everything else. */
+  private static final int HEAP_CLASS_OTHER = 2;
+
+  /** Node kind id of {@code OBJECT}, for the attribution's structural class. */
+  private static final int OBJECT_KIND_ID = 24;
+
+  /** Node kind id of {@code ARRAY}. */
+  private static final int ARRAY_KIND_ID = 25;
+
+  /** Diagnostic-only codec output, sized for whatever section the attribution is measuring. */
+  private static final ThreadLocal<byte[]> DIAG_CODEC_OUT_SCRATCH = ThreadLocal.withInitial(() -> new byte[1]);
+
+  /** Diagnostic-only LZ4 output, for attributing a body the LZ4 arm wrote. */
+  private static final ThreadLocal<MemorySegment> DIAG_LZ4_OUT_SCRATCH =
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1));
+
+  /** Diagnostic-only gather buffer for one class of the staged heap's records. */
+  private static final ThreadLocal<MemorySegment> DIAG_GATHER_SCRATCH =
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1));
+
+  /** Per-template last record kind, for the compact directory's predictability count. */
+  private static final ThreadLocal<int[]> DIAG_TEMPLATE_LAST_KIND = ThreadLocal.withInitial(() -> new int[256]);
+
+  /** Per-template last on-disk record length. */
+  private static final ThreadLocal<int[]> DIAG_TEMPLATE_LAST_LENGTH = ThreadLocal.withInitial(() -> new int[256]);
+
+  /** Grow (or re-allocate) the per-thread diagnostic gather segment. */
+  private static MemorySegment diagGatherScratch(final int needed) {
+    MemorySegment segment = DIAG_GATHER_SCRATCH.get();
+    if (segment.byteSize() < needed) {
+      segment = Arena.ofAuto().allocate(Math.max((long) needed, segment.byteSize() * 2L));
+      DIAG_GATHER_SCRATCH.set(segment);
+    }
+    return segment;
+  }
 
   /** Per-thread {@link ElisionDeriver} for the reader's metadata reconstruction. */
   private static final ThreadLocal<ElisionDeriver> READER_ELISION_DERIVER =
@@ -6976,7 +7489,15 @@ public enum PageKind {
    * {@code {winnerCodecId, warmupPagesSeen, pagesSinceProbe}}. The winner id matches the wire codec
    * byte (0 = {@link ZeroRunByteCodec}, 2 = {@link ByteRunCodec}, 3 = {@link SirixLZ77Codec}).
    */
-  private static final ThreadLocal<int[]> STICKY_CODEC = ThreadLocal.withInitial(() -> new int[3]);
+  private static final ThreadLocal<int[]> STICKY_CODEC = ThreadLocal.withInitial(() -> new int[4]);
+
+  /**
+   * Index into {@link #STICKY_CODEC} holding the codec the last body emitted on this thread actually
+   * used — which is not always the elected one, since the pages between probes write the smaller of
+   * zero-run and LZ77 whatever the election says. Read only by the post-codec attribution, so it can
+   * charge each section under the codec the page really paid.
+   */
+  private static final int STICKY_LAST_EMITTED = 3;
 
   /**
    * Whether the pages between probes encode with the elected codec ALONE ({@code true}) instead of
@@ -7317,6 +7838,7 @@ public enum PageKind {
       sink.writeInt(v3Len);
       sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec
       sink.write(v3Buf, 0, v3Len);
+      sticky[STICKY_LAST_EMITTED] = 3;
       if (PAGE_SECTION_DIAG) {
         PageSectionDiag.recordCodecLz77(v3Len);
       }
@@ -7324,6 +7846,7 @@ public enum PageKind {
       sink.writeInt(v2Len);
       sink.writeByte((byte) 2); // codec: 2 = ByteRunCodec
       sink.write(v2Buf, 0, v2Len);
+      sticky[STICKY_LAST_EMITTED] = 2;
       if (PAGE_SECTION_DIAG) {
         PageSectionDiag.recordCodecByteRun(v2Len);
       }
@@ -7331,6 +7854,7 @@ public enum PageKind {
       sink.writeInt(v0Len);
       sink.writeByte((byte) 0); // codec: 0 = ZeroRunByteCodec
       sink.write(rle, 0, v0Len);
+      sticky[STICKY_LAST_EMITTED] = 0;
       if (PAGE_SECTION_DIAG) {
         PageSectionDiag.recordCodecZeroRun(v0Len);
       }
@@ -7343,6 +7867,7 @@ public enum PageKind {
    */
   private static void emitWithCodec(final int codec, final BytesOut<?> sink, final MemorySegment staging,
       final int totalBytes) {
+    STICKY_CODEC.get()[STICKY_LAST_EMITTED] = codec;
     switch (codec) {
       case 3 -> {
         final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBytes);
@@ -7819,6 +8344,16 @@ public enum PageKind {
     /** Receives the parentKey varint width the expansion pass has to reinject. */
     private byte[] parentKeyWidths;
 
+    private boolean rightSibColumnActive;
+    /** Decoded right-sibling key per entry, re-encoded as a delta against the node key on expansion. */
+    private long[] rightSibKeyValues;
+    /** Receives the right-sibling varint width the expansion pass has to reinject. */
+    private byte[] rightSibKeyWidths;
+
+    private boolean leftSibColumnActive;
+    private long[] leftSibKeyValues;
+    private byte[] leftSibKeyWidths;
+
     private boolean pathNodeKeyColumnActive;
     /** Raw {@link PathNodeKeyRegion} payload, slot-bitmap indexed. */
     private byte[] pathNodeKeyColumnBytes;
@@ -7835,6 +8370,15 @@ public enum PageKind {
     private byte[] nameKeyElidedWidthsPacked;
     private short[] nameKeyOffs;
     private byte[] nameKeyWidths;
+
+    /**
+     * Reinjection-range scratch, one set per decode-state instance and therefore per thread. Held here
+     * rather than in a {@link ThreadLocal} because the carrier already is one, and because a chunk
+     * expanded lazily on another thread gets that thread's carrier.
+     */
+    private final int[] injectRangeOffsets = new int[STRIP_RANGE_CAPACITY];
+    private final int[] injectRangeWidths = new int[STRIP_RANGE_CAPACITY];
+    private final int[] injectRangeKinds = new int[STRIP_RANGE_CAPACITY];
 
     /** Cursor into the value-elision section; advances per named slot, in slot-ascending order. */
     private int valueElidedReadCursor;
@@ -7860,6 +8404,17 @@ public enum PageKind {
       this.parentKeyColumnActive = parentKeyColumnActive;
       this.parentKeyValues = parentKeyValues;
       this.parentKeyWidths = parentKeyWidths;
+    }
+
+    void bindSiblingKeyColumns(final boolean rightSibColumnActive, final long[] rightSibKeyValues,
+        final byte[] rightSibKeyWidths, final boolean leftSibColumnActive, final long[] leftSibKeyValues,
+        final byte[] leftSibKeyWidths) {
+      this.rightSibColumnActive = rightSibColumnActive;
+      this.rightSibKeyValues = rightSibKeyValues;
+      this.rightSibKeyWidths = rightSibKeyWidths;
+      this.leftSibColumnActive = leftSibColumnActive;
+      this.leftSibKeyValues = leftSibKeyValues;
+      this.leftSibKeyWidths = leftSibKeyWidths;
     }
 
     void bindPathNodeKeyColumn(final boolean pathNodeKeyColumnActive, final byte[] pathNodeKeyColumnBytes,
@@ -7958,16 +8513,19 @@ public enum PageKind {
       // those bytes and the reader would never put them back.
       int pkWidth = 0;
       if (parentKeyColumnActive) {
-        final int pkFieldIdx = NodeFieldLayout.parentKeyFieldIndexForKind(kindId);
-        if (pkFieldIdx >= 0 && pkFieldIdx + 1 < fc) {
-          final int computed =
-              OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, pkFieldIdx + 1)
-                  - OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, pkFieldIdx);
-          if (computed > 0 && computed <= 10) {
-            pkWidth = computed;
-            inMemLen += pkWidth;
-          }
-        }
+        pkWidth = structuralKeyWidth(templateId, fc, NodeFieldLayout.parentKeyFieldIndexForKind(kindId));
+        inMemLen += pkWidth;
+      }
+      // The two sibling columns, under the same rule and read out of the same template.
+      int rightSibWidth = 0;
+      if (rightSibColumnActive) {
+        rightSibWidth = structuralKeyWidth(templateId, fc, NodeFieldLayout.rightSiblingKeyFieldIndexForKind(kindId));
+        inMemLen += rightSibWidth;
+      }
+      int leftSibWidth = 0;
+      if (leftSibColumnActive) {
+        leftSibWidth = structuralKeyWidth(templateId, fc, NodeFieldLayout.leftSiblingKeyFieldIndexForKind(kindId));
+        inMemLen += leftSibWidth;
       }
       // pathNodeKey width reconstruction: read from the template via its
       // offset-table entries. pnk is at a kind-specific interior index,
@@ -8100,10 +8658,70 @@ public enum PageKind {
       if (parentKeyColumnActive && parentKeyWidths != null) {
         parentKeyWidths[entryIdx] = (byte) pkWidth;
       }
+      if (rightSibColumnActive && rightSibKeyWidths != null) {
+        rightSibKeyWidths[entryIdx] = (byte) rightSibWidth;
+      }
+      if (leftSibColumnActive && leftSibKeyWidths != null) {
+        leftSibKeyWidths[entryIdx] = (byte) leftSibWidth;
+      }
       if (pathNodeKeyColumnActive && pathNodeKeyWidths != null) {
         pathNodeKeyWidths[entryIdx] = (byte) pnkWidth;
       }
       return inMemLen;
+    }
+
+    /**
+     * The varint width the writer stripped for one structural-key field, or 0 when the slot kept its
+     * bytes inline.
+     *
+     * <p>
+     * Read out of the TEMPLATE — which is the record's offset table — under exactly the predicate the
+     * writer's {@code collectStructuralKey} applied to that same table. Deciding on the decoded value
+     * instead would come apart the day a node legitimately holds {@code NULL_NODE_KEY} in a field it
+     * does have.
+     */
+    private int structuralKeyWidth(final int templateId, final int fc, final int fieldIdx) {
+      if (fieldIdx < 0 || fieldIdx + 1 >= fc) {
+        return 0;
+      }
+      final int computed =
+          OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, fieldIdx + 1)
+              - OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, fieldIdx);
+      return computed > 0 && computed <= 10
+          ? computed
+          : 0;
+    }
+
+    /**
+     * Insert one reinjection range into an offset-ordered list, and report the new length. The mirror
+     * of the writer's {@code insertStripRange}, carrying which field each range belongs to.
+     *
+     * @param offs the range offsets, ordered ascending
+     * @param widths the matching widths
+     * @param kinds the matching {@code INJECT_*} discriminators
+     * @param count how many ranges the list already holds
+     * @param off the new range's offset within the record's in-memory data region
+     * @param width the new range's width in bytes
+     * @param kind which field the range reinjects
+     * @return {@code count + 1}
+     */
+    private static int insertInjectRange(final int[] offs, final int[] widths, final int[] kinds, final int count,
+        final int off, final int width, final int kind) {
+      if (count == offs.length) {
+        throw new SirixIOException("more than " + offs.length
+            + " reinjection ranges on one record — raise STRIP_RANGE_CAPACITY alongside the lever that added one");
+      }
+      int at = count;
+      while (at > 0 && offs[at - 1] > off) {
+        offs[at] = offs[at - 1];
+        widths[at] = widths[at - 1];
+        kinds[at] = kinds[at - 1];
+        at--;
+      }
+      offs[at] = off;
+      widths[at] = width;
+      kinds[at] = kind;
+      return count + 1;
     }
 
     /**
@@ -8155,6 +8773,20 @@ public enum PageKind {
       final int pkWidth = (parentKeyColumnActive && parentKeyWidths != null)
           ? (parentKeyWidths[entryIdx] & 0xFF)
           : 0;
+      final int rightSibWidth = (rightSibColumnActive && rightSibKeyWidths != null)
+          ? (rightSibKeyWidths[entryIdx] & 0xFF)
+          : 0;
+      final int rightSibOffInData = rightSibWidth > 0
+          ? OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId,
+              NodeFieldLayout.rightSiblingKeyFieldIndexForKind(kindId))
+          : -1;
+      final int leftSibWidth = (leftSibColumnActive && leftSibKeyWidths != null)
+          ? (leftSibKeyWidths[entryIdx] & 0xFF)
+          : 0;
+      final int leftSibOffInData = leftSibWidth > 0
+          ? OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId,
+              NodeFieldLayout.leftSiblingKeyFieldIndexForKind(kindId))
+          : -1;
       final int pnkWidth = (pathNodeKeyColumnActive && pathNodeKeyWidths != null)
           ? (pathNodeKeyWidths[entryIdx] & 0xFF)
           : 0;
@@ -8194,204 +8826,44 @@ public enum PageKind {
       final int nameKeyOffInData = nameKeyWidthLocal > 0
           ? (nameKeyOffs[entryIdx] & 0xFFFF)
           : -1;
-      // Build up to 5 insertion ranges (in-memory-offset, width), sorted
-      // by in-memory-offset ascending. In-memory offset math:
-      // parentKey: at offset 0, width pkWidth (always first when active)
-      // pnk: at offset pnkOffInData, width pnkWidth
-      // hash: at offset hashOffInData, width HASH_WIDTH
-      // value: at offset valueOffInData, width valueWidth
-      // nameKey: at offset nameKeyOffInData, width nameKeyWidthLocal
-      // A 5-entry bubble sort costs at most 10 compares — branch-predictable
-      // and register-resident in the hot path.
-      int i0Off = 0, i0Width = 0, i0Kind = 0; // 0=pk, 1=pnk, 2=hash, 3=value, 4=nameKey
-      int i1Off = 0, i1Width = 0, i1Kind = 0;
-      int i2Off = 0, i2Width = 0, i2Kind = 0;
-      int i3Off = 0, i3Width = 0, i3Kind = 0;
-      int i4Off = 0, i4Width = 0, i4Kind = 0;
+      // Collect the reinjection ranges (in-memory offset, width, which field), kept sorted by offset
+      // as they are inserted. Which field sits where inside the data region is kind-specific, so the
+      // order they are collected in is not the order they appear in.
+      //   parentKey: offset 0, width pkWidth (always first when active)
+      //   pnk:       offset pnkOffInData, width pnkWidth
+      //   hash:      offset hashOffInData, width HASH_WIDTH
+      //   value:     offset valueOffInData, width valueWidth
+      //   nameKey:   offset nameKeyOffInData, width nameKeyWidthLocal
+      final int[] injectOffs = injectRangeOffsets;
+      final int[] injectWidths = injectRangeWidths;
+      final int[] injectKinds = injectRangeKinds;
       int iCount = 0;
       if (pkWidth > 0) {
-        i0Off = 0;
-        i0Width = pkWidth;
-        i0Kind = 0;
-        iCount = 1;
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, 0, pkWidth, INJECT_PARENT_KEY);
+      }
+      if (rightSibWidth > 0) {
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, rightSibOffInData, rightSibWidth,
+            INJECT_RIGHT_SIB_KEY);
+      }
+      if (leftSibWidth > 0) {
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, leftSibOffInData, leftSibWidth,
+            INJECT_LEFT_SIB_KEY);
       }
       if (pnkWidth > 0) {
-        if (iCount == 0) {
-          i0Off = pnkOffInData;
-          i0Width = pnkWidth;
-          i0Kind = 1;
-          iCount = 1;
-        } else {
-          i1Off = pnkOffInData;
-          i1Width = pnkWidth;
-          i1Kind = 1;
-          iCount = 2;
-        }
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, pnkOffInData, pnkWidth,
+            INJECT_PATH_NODE_KEY);
       }
       if (hashStripped) {
-        if (iCount == 0) {
-          i0Off = hashOffInData;
-          i0Width = NodeFieldLayout.HASH_WIDTH;
-          i0Kind = 2;
-          iCount = 1;
-        } else if (iCount == 1) {
-          i1Off = hashOffInData;
-          i1Width = NodeFieldLayout.HASH_WIDTH;
-          i1Kind = 2;
-          iCount = 2;
-        } else {
-          i2Off = hashOffInData;
-          i2Width = NodeFieldLayout.HASH_WIDTH;
-          i2Kind = 2;
-          iCount = 3;
-        }
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, hashOffInData,
+            NodeFieldLayout.HASH_WIDTH, INJECT_HASH);
       }
       if (valueWidth > 0) {
-        if (iCount == 0) {
-          i0Off = valueOffInData;
-          i0Width = valueWidth;
-          i0Kind = 3;
-          iCount = 1;
-        } else if (iCount == 1) {
-          i1Off = valueOffInData;
-          i1Width = valueWidth;
-          i1Kind = 3;
-          iCount = 2;
-        } else if (iCount == 2) {
-          i2Off = valueOffInData;
-          i2Width = valueWidth;
-          i2Kind = 3;
-          iCount = 3;
-        } else {
-          i3Off = valueOffInData;
-          i3Width = valueWidth;
-          i3Kind = 3;
-          iCount = 4;
-        }
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, valueOffInData, valueWidth,
+            INJECT_VALUE);
       }
       if (nameKeyWidthLocal > 0) {
-        if (iCount == 0) {
-          i0Off = nameKeyOffInData;
-          i0Width = nameKeyWidthLocal;
-          i0Kind = 4;
-          iCount = 1;
-        } else if (iCount == 1) {
-          i1Off = nameKeyOffInData;
-          i1Width = nameKeyWidthLocal;
-          i1Kind = 4;
-          iCount = 2;
-        } else if (iCount == 2) {
-          i2Off = nameKeyOffInData;
-          i2Width = nameKeyWidthLocal;
-          i2Kind = 4;
-          iCount = 3;
-        } else if (iCount == 3) {
-          i3Off = nameKeyOffInData;
-          i3Width = nameKeyWidthLocal;
-          i3Kind = 4;
-          iCount = 4;
-        } else {
-          i4Off = nameKeyOffInData;
-          i4Width = nameKeyWidthLocal;
-          i4Kind = 4;
-          iCount = 5;
-        }
-      }
-      if (iCount >= 2 && i0Off > i1Off) {
-        int tOff = i0Off, tW = i0Width, tK = i0Kind;
-        i0Off = i1Off;
-        i0Width = i1Width;
-        i0Kind = i1Kind;
-        i1Off = tOff;
-        i1Width = tW;
-        i1Kind = tK;
-      }
-      if (iCount >= 3) {
-        if (i1Off > i2Off) {
-          int tOff = i1Off, tW = i1Width, tK = i1Kind;
-          i1Off = i2Off;
-          i1Width = i2Width;
-          i1Kind = i2Kind;
-          i2Off = tOff;
-          i2Width = tW;
-          i2Kind = tK;
-        }
-        if (i0Off > i1Off) {
-          int tOff = i0Off, tW = i0Width, tK = i0Kind;
-          i0Off = i1Off;
-          i0Width = i1Width;
-          i0Kind = i1Kind;
-          i1Off = tOff;
-          i1Width = tW;
-          i1Kind = tK;
-        }
-      }
-      if (iCount >= 4) {
-        if (i2Off > i3Off) {
-          int tOff = i2Off, tW = i2Width, tK = i2Kind;
-          i2Off = i3Off;
-          i2Width = i3Width;
-          i2Kind = i3Kind;
-          i3Off = tOff;
-          i3Width = tW;
-          i3Kind = tK;
-        }
-        if (i1Off > i2Off) {
-          int tOff = i1Off, tW = i1Width, tK = i1Kind;
-          i1Off = i2Off;
-          i1Width = i2Width;
-          i1Kind = i2Kind;
-          i2Off = tOff;
-          i2Width = tW;
-          i2Kind = tK;
-        }
-        if (i0Off > i1Off) {
-          int tOff = i0Off, tW = i0Width, tK = i0Kind;
-          i0Off = i1Off;
-          i0Width = i1Width;
-          i0Kind = i1Kind;
-          i1Off = tOff;
-          i1Width = tW;
-          i1Kind = tK;
-        }
-      }
-      if (iCount == 5) {
-        if (i3Off > i4Off) {
-          int tOff = i3Off, tW = i3Width, tK = i3Kind;
-          i3Off = i4Off;
-          i3Width = i4Width;
-          i3Kind = i4Kind;
-          i4Off = tOff;
-          i4Width = tW;
-          i4Kind = tK;
-        }
-        if (i2Off > i3Off) {
-          int tOff = i2Off, tW = i2Width, tK = i2Kind;
-          i2Off = i3Off;
-          i2Width = i3Width;
-          i2Kind = i3Kind;
-          i3Off = tOff;
-          i3Width = tW;
-          i3Kind = tK;
-        }
-        if (i1Off > i2Off) {
-          int tOff = i1Off, tW = i1Width, tK = i1Kind;
-          i1Off = i2Off;
-          i1Width = i2Width;
-          i1Kind = i2Kind;
-          i2Off = tOff;
-          i2Width = tW;
-          i2Kind = tK;
-        }
-        if (i0Off > i1Off) {
-          int tOff = i0Off, tW = i0Width, tK = i0Kind;
-          i0Off = i1Off;
-          i0Width = i1Width;
-          i0Kind = i1Kind;
-          i1Off = tOff;
-          i1Width = tW;
-          i1Kind = tK;
-        }
+        iCount = insertInjectRange(injectOffs, injectWidths, injectKinds, iCount, nameKeyOffInData, nameKeyWidthLocal,
+            INJECT_NAME_KEY);
       }
 
       // Walk in-memory offsets; between insertions, copy on-disk bytes.
@@ -8400,30 +8872,9 @@ public enum PageKind {
       int inMemCursor = 0;
       final long nodeKey = pageKeyBase + slot;
       for (int ri = 0; ri < iCount; ri++) {
-        final int rOff;
-        final int rWidth;
-        final int rKind;
-        if (ri == 0) {
-          rOff = i0Off;
-          rWidth = i0Width;
-          rKind = i0Kind;
-        } else if (ri == 1) {
-          rOff = i1Off;
-          rWidth = i1Width;
-          rKind = i1Kind;
-        } else if (ri == 2) {
-          rOff = i2Off;
-          rWidth = i2Width;
-          rKind = i2Kind;
-        } else if (ri == 3) {
-          rOff = i3Off;
-          rWidth = i3Width;
-          rKind = i3Kind;
-        } else {
-          rOff = i4Off;
-          rWidth = i4Width;
-          rKind = i4Kind;
-        }
+        final int rOff = injectOffs[ri];
+        final int rWidth = injectWidths[ri];
+        final int rKind = injectKinds[ri];
         // Copy on-disk bytes from inMemCursor → rOff (in-memory) = (rOff - inMemCursor) bytes.
         final int gap = rOff - inMemCursor;
         if (gap < 0) {
@@ -8436,15 +8887,29 @@ public enum PageKind {
           readPos += gap;
           inMemCursor += gap;
         }
-        // Inject rWidth bytes at rKind (0=pk, 1=pnk, 2=hash, 3=value, 4=nameKey).
-        if (rKind == 0) {
+        // Inject rWidth bytes for the field this range names.
+        if (rKind == INJECT_PARENT_KEY) {
           final long pk = parentKeyValues[entryIdx];
           final int actualWidth = DeltaVarIntCodec.writeDeltaToSegment(slottedPage, writePos, pk, nodeKey);
           if (actualWidth != rWidth) {
             throw new SirixIOException("parentKey width mismatch at slot " + slot + ": expected=" + rWidth + " actual="
                 + actualWidth + " value=" + pk + " nodeKey=" + nodeKey);
           }
-        } else if (rKind == 1) {
+        } else if (rKind == INJECT_RIGHT_SIB_KEY) {
+          final long rightSib = rightSibKeyValues[entryIdx];
+          final int actualWidth = DeltaVarIntCodec.writeDeltaToSegment(slottedPage, writePos, rightSib, nodeKey);
+          if (actualWidth != rWidth) {
+            throw new SirixIOException("right-sibling width mismatch at slot " + slot + ": expected=" + rWidth
+                + " actual=" + actualWidth + " value=" + rightSib + " nodeKey=" + nodeKey);
+          }
+        } else if (rKind == INJECT_LEFT_SIB_KEY) {
+          final long leftSib = leftSibKeyValues[entryIdx];
+          final int actualWidth = DeltaVarIntCodec.writeDeltaToSegment(slottedPage, writePos, leftSib, nodeKey);
+          if (actualWidth != rWidth) {
+            throw new SirixIOException("left-sibling width mismatch at slot " + slot + ": expected=" + rWidth
+                + " actual=" + actualWidth + " value=" + leftSib + " nodeKey=" + nodeKey);
+          }
+        } else if (rKind == INJECT_PATH_NODE_KEY) {
           final int pnkValue = PathNodeKeyRegion.pathNodeKeyForSlot(pathNodeKeyColumnBytes, slot);
           if (pnkValue < 0) {
             throw new SirixIOException("pathNodeKey lookup failed for slot " + slot);
@@ -8454,10 +8919,10 @@ public enum PageKind {
             throw new SirixIOException("pathNodeKey width mismatch at slot " + slot + ": expected=" + rWidth
                 + " actual=" + actualWidth + " value=" + pnkValue + " nodeKey=" + nodeKey);
           }
-        } else if (rKind == 2) {
+        } else if (rKind == INJECT_HASH) {
           // Hash: write 8 zero bytes.
           slottedPage.set(LE.LONG, writePos, 0L);
-        } else if (rKind == 3) {
+        } else if (rKind == INJECT_VALUE) {
           // Value: zero-fill placeholder; the second-pass injectValueElidedBytes
           // pass populates [type:1][varint] from the NumberRegion + tag/slotRank.
           // We zero-fill to keep the heap deterministic for the codec layer.
@@ -8465,7 +8930,7 @@ public enum PageKind {
             slottedPage.set(ValueLayout.JAVA_BYTE, writePos + z, (byte) 0);
           }
         } else {
-          // nameKey (rKind == 4): zero-fill placeholder. The second-pass
+          // nameKey (INJECT_NAME_KEY): zero-fill placeholder. The second-pass
           // injectNameKeyElidedRecords (called after regionTable.read())
           // resolves the int nameKey via
           // ObjectKeyNameKeyRegion.nameKeyForSlot and re-encodes the
@@ -8517,6 +8982,8 @@ public enum PageKind {
     private int slotTemplateIdsLen;
     private int zeroHashBitmapLen;
     private int parentKeyColumnLen;
+    private int rightSibColumnLen;
+    private int leftSibColumnLen;
     private int pathNodeKeyColumnLen;
     private int valueElisionLen;
     private int nameKeyElisionLen;
@@ -8536,6 +9003,8 @@ public enum PageKind {
       slotTemplateIdsLen = 0;
       zeroHashBitmapLen = 0;
       parentKeyColumnLen = 0;
+      rightSibColumnLen = 0;
+      leftSibColumnLen = 0;
       pathNodeKeyColumnLen = 0;
       valueElisionLen = 0;
       nameKeyElisionLen = 0;
@@ -8579,6 +9048,22 @@ public enum PageKind {
       MemorySegment.copy(column, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
       pos += len;
       parentKeyColumnLen = 4 + len;
+    }
+
+    /** Right-sibling column: int length prefix + {@link StructuralKeyColumnCodec} bytes. */
+    void appendRightSibKeyColumn(final byte[] column, final int len) {
+      putIntBE(len);
+      MemorySegment.copy(column, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
+      pos += len;
+      rightSibColumnLen = 4 + len;
+    }
+
+    /** Left-sibling column: int length prefix + {@link StructuralKeyColumnCodec} bytes. */
+    void appendLeftSibKeyColumn(final byte[] column, final int len) {
+      putIntBE(len);
+      MemorySegment.copy(column, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
+      pos += len;
+      leftSibColumnLen = 4 + len;
     }
 
     /** pathNodeKey column: int length prefix + {@link PathNodeKeyRegion} bytes. */
@@ -8699,12 +9184,43 @@ public enum PageKind {
     /** Bytes of page-global metadata staged ahead of the heap. */
     long metaLength() {
       return (long) compactDirLen + templatePoolLen + slotTemplateIdsLen + zeroHashBitmapLen + parentKeyColumnLen
-          + pathNodeKeyColumnLen + valueElisionLen + nameKeyElisionLen;
+          + rightSibColumnLen + leftSibColumnLen + pathNodeKeyColumnLen + valueElisionLen + nameKeyElisionLen;
     }
 
     /** Bytes of record heap staged behind the metadata. */
     int heapLength() {
       return heapLen;
+    }
+
+    /** Staging offset of the first heap byte, i.e. the end of the metadata sections. */
+    long heapStart() {
+      return heapStart;
+    }
+
+    /**
+     * The staged length of one section, by {@link PageSectionDiag}'s section id.
+     *
+     * <p>
+     * Read only by the post-codec attribution, which needs to slice the staging buffer the way it was
+     * filled. Sections are appended in this order, so a caller walks them with a running offset.
+     *
+     * @param section a {@code PageSectionDiag.SECTION_*} id naming one of the staged sections
+     * @return its length in bytes, 0 when the page did not write it
+     */
+    int sectionLength(final int section) {
+      return switch (section) {
+        case PageSectionDiag.SECTION_COMPACT_DIR -> compactDirLen;
+        case PageSectionDiag.SECTION_TEMPLATES -> templatePoolLen + slotTemplateIdsLen;
+        case PageSectionDiag.SECTION_ZERO_HASH_BITMAP -> zeroHashBitmapLen;
+        case PageSectionDiag.SECTION_PARENT_KEY_COLUMN -> parentKeyColumnLen;
+        case PageSectionDiag.SECTION_RIGHT_SIB_COLUMN -> rightSibColumnLen;
+        case PageSectionDiag.SECTION_LEFT_SIB_COLUMN -> leftSibColumnLen;
+        case PageSectionDiag.SECTION_PATH_NODE_KEY_COLUMN -> pathNodeKeyColumnLen;
+        case PageSectionDiag.SECTION_VALUE_ELISION -> valueElisionLen;
+        case PageSectionDiag.SECTION_NAME_KEY_ELISION -> nameKeyElisionLen;
+        case PageSectionDiag.SECTION_HEAP -> heapLen;
+        default -> 0;
+      };
     }
 
     /** Total bytes staged. */

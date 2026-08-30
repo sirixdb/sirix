@@ -257,6 +257,9 @@ public final class NumberRegionSimd {
   /** Dispatch an inclusive-bound count to the kernel for this encoding. */
   private static long count(final MemorySegment payload, final NumberRegion.Header h, final int start,
       final int end, final long lo, final long hi, final long[] liveBits) {
+    if (h.isPerTag()) {
+      return countPerTag(payload, h, start, end, lo, hi, liveBits);
+    }
     if (NumberRegion.isDelta(h.encodingKind)) {
       return NumberRegionDeltaSimd.countRange(payload, h, start, end, lo, hi, liveBits);
     }
@@ -265,6 +268,84 @@ public final class NumberRegionSimd {
                          hi, liveBits);
     }
     return countPlain(payload, h.valueBytesOffset, start, end, lo, hi, liveBits);
+  }
+
+  // ───────────────────────────────────────────────────────── per-tag kernels
+  //
+  // A per-tag payload is a run of independently framed columns: each tag has its own base, its own
+  // width and its own byte-aligned start. That is exactly the shape these kernels already take —
+  // (offset, base, width, range) — so the vector path is not lost, it is entered once per tag with
+  // that tag's frame. Scans reach here with one tag's window, which is the single-segment case; the
+  // loop exists so a caller that hands over a wider window still gets a right answer.
+
+  /** Inclusive-bound count over a per-tag payload, segment by segment. */
+  private static long countPerTag(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long lo, final long hi, final long[] liveBits) {
+    final int limit = Math.min(end, h.count);
+    int tag = NumberRegion.tagOfIndex(h, start);
+    if (tag < 0) {
+      return 0L;
+    }
+    long total = 0L;
+    int cursor = start;
+    while (cursor < limit && tag < h.dictSize) {
+      final int tagStart = h.tagStart[tag];
+      final int segmentEnd = Math.min(limit, tagStart + h.tagCount[tag]);
+      if (liveBits != null && (cursor != start || segmentEnd != limit)) {
+        // The liveness bitmap is indexed relative to `start`, and a lane group must not straddle a
+        // word. Re-basing it per segment would break both, so a masked count that spans tags is
+        // declined rather than answered against a shifted bitmap.
+        return -1L;
+      }
+      final long counted =
+          countTagSegment(payload, h, tag, cursor - tagStart, segmentEnd - tagStart, lo, hi, liveBits);
+      if (counted < 0L) {
+        return -1L;
+      }
+      total += counted;
+      cursor = segmentEnd;
+      tag++;
+    }
+    return total;
+  }
+
+  /** One tag's window, dispatched on that tag's width. */
+  private static long countTagSegment(final MemorySegment payload, final NumberRegion.Header h,
+      final int tag, final int from, final int to, final long lo, final long hi,
+      final long[] liveBits) {
+    if (from >= to) {
+      return 0L;
+    }
+    final int width = h.tagWidth[tag] & 0xFF;
+    if (width == 0) {
+      // Constant tag: the header answers it, no value is read at all.
+      final long constant = h.tagMin[tag];
+      if (constant < lo || constant > hi) {
+        return 0L;
+      }
+      return liveBits == null
+          ? to - from
+          : liveCount(liveBits, to - from);
+    }
+    if (width == 64) {
+      return countPlain(payload, h.tagValueOffset[tag], from, to, lo, hi, liveBits);
+    }
+    return countPacked(payload, h.tagValueOffset[tag], h.tagDecodeBase[tag], width, from, to, lo, hi,
+                       liveBits);
+  }
+
+  /** Live values among the first {@code n} bits of a relative-indexed liveness bitmap. */
+  private static long liveCount(final long[] liveBits, final int n) {
+    long live = 0L;
+    final int fullWords = n >>> 6;
+    for (int w = 0; w < fullWords; w++) {
+      live += Long.bitCount(liveBits[w]);
+    }
+    final int tail = n & 63;
+    if (tail != 0) {
+      live += Long.bitCount(liveBits[fullWords] & ((1L << tail) - 1L));
+    }
+    return live;
   }
 
   // ───────────────────────────────────────────────────── plain-long kernels
@@ -538,6 +619,9 @@ public final class NumberRegionSimd {
       out[2] = Long.MIN_VALUE;
       return true;
     }
+    if (h.isPerTag()) {
+      return aggregatePerTag(payload, h, start, end, out);
+    }
     if (NumberRegion.isDelta(h.encodingKind)) {
       return NumberRegionDeltaSimd.aggregateRange(payload, h, start, end, out);
     }
@@ -546,6 +630,61 @@ public final class NumberRegionSimd {
                                 end, out);
     }
     aggregatePlainLong(payload, h.valueBytesOffset, start, end, out);
+    return true;
+  }
+
+  /**
+   * Sum/min/max over a per-tag payload.
+   *
+   * <p>{@code out} doubles as the per-segment destination and is only written with the folded
+   * result at the end, so a window spanning several tags still allocates nothing.
+   */
+  private static boolean aggregatePerTag(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long[] out) {
+    final int limit = Math.min(end, h.count);
+    int tag = NumberRegion.tagOfIndex(h, start);
+    if (tag < 0) {
+      out[0] = 0L;
+      out[1] = Long.MAX_VALUE;
+      out[2] = Long.MIN_VALUE;
+      return true;
+    }
+    long sum = 0L;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    int cursor = start;
+    while (cursor < limit && tag < h.dictSize) {
+      final int tagStart = h.tagStart[tag];
+      final int segmentEnd = Math.min(limit, tagStart + h.tagCount[tag]);
+      final int from = cursor - tagStart;
+      final int to = segmentEnd - tagStart;
+      if (from < to) {
+        final int width = h.tagWidth[tag] & 0xFF;
+        if (width == 0) {
+          final long constant = h.tagMin[tag];
+          out[0] = constant * (to - from);
+          out[1] = constant;
+          out[2] = constant;
+        } else if (width == 64) {
+          aggregatePlainLong(payload, h.tagValueOffset[tag], from, to, out);
+        } else if (!aggregateBitPacked(payload, h.tagValueOffset[tag], h.tagDecodeBase[tag], width,
+                                       from, to, out)) {
+          return false;
+        }
+        sum += out[0];
+        if (out[1] < min) {
+          min = out[1];
+        }
+        if (out[2] > max) {
+          max = out[2];
+        }
+      }
+      cursor = segmentEnd;
+      tag++;
+    }
+    out[0] = sum;
+    out[1] = min;
+    out[2] = max;
     return true;
   }
 
@@ -726,6 +865,9 @@ public final class NumberRegionSimd {
     if (lo > hi) {
       return 0;
     }
+    if (h.isPerTag()) {
+      return selectPerTag(payload, h, start, end, lo, hi, outIndices);
+    }
     if (NumberRegion.isDelta(h.encodingKind)) {
       // A delta column cannot be range-tested in place — the stored values are a recurrence — but
       // the block replay the counting kernel already performs yields them in order, and the
@@ -739,15 +881,78 @@ public final class NumberRegionSimd {
       return -1;
     }
     final long base = packed ? h.valueBase : 0L;
+    return selectWindow(payload, h.valueBytesOffset, h.valueBitWidth & 0xFF, packed, plan, base, lo,
+                        hi, start, end, outIndices, 0);
+  }
+
+  /**
+   * Selection over a per-tag payload: one framed window per tag, indices rebased to the region as
+   * each segment finishes.
+   *
+   * <p>Indices come out of the per-tag kernels relative to the tag, and ascending; adding the tag's
+   * start restores the region-absolute, ascending order the contract promises, and does it over the
+   * slice just written rather than by branching inside the vector loop.
+   */
+  private static int selectPerTag(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long lo, final long hi, final int[] outIndices) {
+    final int limit = Math.min(end, h.count);
+    int tag = NumberRegion.tagOfIndex(h, start);
+    if (tag < 0) {
+      return 0;
+    }
     int out = 0;
+    int cursor = start;
+    while (cursor < limit && tag < h.dictSize) {
+      final int tagStart = h.tagStart[tag];
+      final int segmentEnd = Math.min(limit, tagStart + h.tagCount[tag]);
+      final int from = cursor - tagStart;
+      final int to = segmentEnd - tagStart;
+      final int before = out;
+      if (from < to) {
+        final int width = h.tagWidth[tag] & 0xFF;
+        if (width == 0) {
+          final long constant = h.tagMin[tag];
+          if (constant >= lo && constant <= hi) {
+            for (int i = from; i < to; i++) {
+              outIndices[out++] = i;
+            }
+          }
+        } else {
+          final boolean packed = width != 64;
+          final BitUnpackSimd.Plan plan = packed
+              ? BitUnpackSimd.planFor(width)
+              : null;
+          if (packed && plan == null) {
+            return -1;
+          }
+          out = selectWindow(payload, h.tagValueOffset[tag], width, packed, plan,
+                             packed ? h.tagDecodeBase[tag] : 0L, lo, hi, from, to, outIndices, out);
+        }
+        for (int k = before; k < out; k++) {
+          outIndices[k] += tagStart;
+        }
+      }
+      cursor = segmentEnd;
+      tag++;
+    }
+    return out;
+  }
+
+  /** Vector body then scalar tail over one framed window, appending after {@code written}. */
+  private static int selectWindow(final MemorySegment payload, final int valueBytesOffset,
+      final int bitWidth, final boolean packed, final BitUnpackSimd.Plan plan, final long base,
+      final long lo, final long hi, final int start, final int end, final int[] outIndices,
+      final int written) {
+    int out = written;
     int i = start;
     if (BitUnpackSimd.vectorProfitable(end - start)) {
-      final long progress =
-          selectMatchingVector(payload, h, packed, plan, base, lo, hi, start, end, outIndices);
+      final long progress = selectMatchingVector(payload, valueBytesOffset, bitWidth, packed, plan,
+                                                 base, lo, hi, start, end, outIndices, written);
       i = (int) (progress >>> 32);
       out = (int) progress;
     }
-    return selectMatchingScalar(payload, h, packed, plan, base, lo, hi, i, end, out, outIndices);
+    return selectMatchingScalar(payload, valueBytesOffset, packed, plan, base, lo, hi, i, end, out,
+                                outIndices);
   }
 
   /** Reject a selection buffer that cannot hold every row of the window before any work is done. */
@@ -763,25 +968,25 @@ public final class NumberRegionSimd {
    * Vector body of {@link #selectMatching}: the resume index in the high word, the number of
    * indices written in the low one.
    */
-  private static long selectMatchingVector(final MemorySegment payload,
-      final NumberRegion.Header h, final boolean packed, final BitUnpackSimd.Plan plan,
+  private static long selectMatchingVector(final MemorySegment payload, final int valueBytesOffset,
+      final int bitWidth, final boolean packed, final BitUnpackSimd.Plan plan,
       final long base, final long lo, final long hi, final int start, final int end,
-      final int[] outIndices) {
-    int out = 0;
+      final int[] outIndices, final int written) {
+    int out = written;
     int i = start;
     final LongVector loV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, lo - base);
     final LongVector spanV = LongVector.broadcast(ColumnLoad.LONG_SPECIES, hi - lo);
     final int lastGroup = packed
-        ? BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), h.valueBytesOffset, h.valueBitWidth)
+        ? BitUnpackSimd.lastVectorGroupStart(payload.byteSize(), valueBytesOffset, bitWidth)
         : Integer.MAX_VALUE;
     // Lane ordinals, added to the group's start index to turn a lane position into a row index.
     final LongVector laneIota = LongVector.zero(ColumnLoad.LONG_SPECIES).addIndex(1);
     for (; i <= end - LANES && i <= lastGroup; i += LANES) {
       final LongVector v;
       if (packed) {
-        v = plan.unpack(payload, h.valueBytesOffset, i);
+        v = plan.unpack(payload, valueBytesOffset, i);
       } else {
-        final long byteOff = (long) h.valueBytesOffset + (long) i * Long.BYTES;
+        final long byteOff = (long) valueBytesOffset + (long) i * Long.BYTES;
         if (!ColumnLoad.canLoad(payload, byteOff)) {
           break;
         }
@@ -802,14 +1007,14 @@ public final class NumberRegionSimd {
   }
 
   /** Scalar tail of {@link #selectMatching}, resuming at {@code i}; answers the total written. */
-  private static int selectMatchingScalar(final MemorySegment payload, final NumberRegion.Header h,
+  private static int selectMatchingScalar(final MemorySegment payload, final int valueBytesOffset,
       final boolean packed, final BitUnpackSimd.Plan plan, final long base, final long lo,
       final long hi, final int from, final int end, final int written, final int[] outIndices) {
     int out = written;
     for (int i = from; i < end; i++) {
       final long v = packed
-          ? base + plan.decodeAt(payload, h.valueBytesOffset, i)
-          : plainAt(payload, h.valueBytesOffset, i);
+          ? base + plan.decodeAt(payload, valueBytesOffset, i)
+          : plainAt(payload, valueBytesOffset, i);
       if (v >= lo && v <= hi) {
         outIndices[out++] = i;
       }

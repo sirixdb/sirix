@@ -1,6 +1,7 @@
 package io.sirix.page.pax;
 
 import jdk.incubator.vector.VectorOperators;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +22,14 @@ import java.lang.foreign.ValueLayout;
  */
 @DisplayName("NumberRegionDelta")
 final class NumberRegionDeltaTest {
+
+  /** The encoder's write-path toggles are static; a case that pins one must not leak it. */
+  @AfterEach
+  void clearEncoderOverrides() {
+    NumberRegion.clearPerTagWidthOverride();
+    NumberRegion.clearCompactWriteOverride();
+    NumberRegion.clearDeltaWriteOverride();
+  }
 
   private static MemorySegment onHeap(final int bytes) {
     return MemorySegment.ofArray(new byte[bytes]);
@@ -300,8 +309,8 @@ final class NumberRegionDeltaTest {
     final NumberRegion.Header h = new NumberRegion.Header().parseInto(PaxTestSegments.of(wire));
     // Random within a narrow band ⇒ delta-of-delta is wider than FOR residuals,
     // so the bake-off should not pick delta.
-    assertTrue(NumberRegion.isBitPacked(h.encodingKind),
-        "expected FOR/bit-packed, got kind " + h.encodingKind);
+    assertTrue(NumberRegion.isBitPacked(h.encodingKind) || NumberRegion.isPerTagFor(h.encodingKind),
+        "expected a frame-of-reference encoding, got kind " + h.encodingKind);
     for (int i = 0; i < n; i++) {
       assertEquals(values[i], NumberRegion.decodeValueAt(PaxTestSegments.of(wire), h, i));
     }
@@ -384,6 +393,11 @@ final class NumberRegionDeltaTest {
     // is a single jump of ~2^55, whose zig-zagged delta-of-delta needs 57 bits — wider than the
     // 55-bit FOR residual — so the bake-off must keep FOR. Before the cap was raised to the
     // vector plans' ceiling, this column was stored as plain 64-bit longs.
+    //
+    // Pinned to the PAGE-WIDE frame: the subject here is the page-wide header's width field and
+    // the direct kernel call that reads it. The per-tag layout reaches width 55 through its own
+    // header, which NumberRegionPerTagForTest covers at the same ceiling.
+    NumberRegion.setPerTagWidthEnabled(false);
     final int n = 300;
     final long[] values = new long[n];
     final int[] tags = new int[n];

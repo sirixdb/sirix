@@ -2482,3 +2482,49 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   staged elision metadata 0.80, string region on 100 % of pages, stranded 0. Query leg launched 20:55 from the
   worktree (`queries100m-vec-wt.sh`, 8 GB, 3 tries, dumps → `results-vec`), to compare with this morning's Σ cold
   807 s / hot 705 s and its 43 dumps.
+- 21:02 **B5-c COMPLETE — Proposal B built (kind 7: number region = values only, the zone map IS the per-tag
+  directory; `RegionTable.read` ORs the summary into any mask asking for the number column, so all region-only
+  doors — incl. executor 18701 — are correct without edits; self-contained fallback when the summary is refused;
+  value-elision reinject at PageKind:4762 and ElisionDeriver:263 taught the pair — mandatory one-liners in held
+  files, flagged):** record-shaped pair on the wire 1,784 → 1,390 B (−22.1 %), number framing 2 B/page, fixed
+  overhead 4.798 → 1.210 → **0.777 B/record** across d1–d4; page-level mutation = B3-a's whole-page pin moves with
+  the fold on and matches HEAD with all three switches off; 30+ classes green incl. DerivedElisionSection 10/10.
+  Both agents done and holding ⇒ the working tree IS the wave-3 state → `wave3-final-snap` taken; pins + 1M
+  measurement on it next; ONE combined commit after the query leg + worktree gate.
+- 21:10 **Lead error, recorded:** the wave3-final verification job (javac + 12 test JVMs, then a 1M load) was
+  launched while the 100M query leg ran — q3's tries (22.2 s cold / 20.9 s hot, route=projection-aggregate) are
+  polluted by memory pressure (MemAvailable fell to 11.8 GB). Rule reasserted: NOTHING runs beside a timing leg.
+  Plan: let leg v1 finish (its DUMPS are still valid for the correctness compare), then a clean full re-run for
+  timings; the wave3f verification + 1M measurement + combined gate follow the clean leg. The wave3f job itself
+  failed at exit 1 — cause below.
+- 21:12 Wave3f exit-1 root cause: my class-count guard (`> 50`) aborted a HEALTHY overlay compile (44 classes is
+  right for the 14 files; no javac errors) — only a ~30 s javac overlapped q3, no test JVM and no 1M load ran.
+  Post-leg sequence pinned: (1) leg v1 completes → dump compare vs `…-0058/results-vec` (file reads only);
+  (2) clean full timing re-run, nothing else running; (3) wave3f overlay + pins + 1M measure; (4) combined worktree
+  gate; (5) plumbing commit (`wave3-commit-msg.txt` ready); (6) rebuild #2 from the worktree; (7) its query leg.
+- 21:14 **q3 regression is REAL and B6 is the prime suspect:** this morning 1.859 cold / 0.112 hot; now 22.165 /
+  20.864 with hot ≈ cold — the "nothing retained" signature. At 8 GB the residency share = min(max/8, headroom/4)
+  ≈ 1 GB and UserID's fill (~0.7–0.9 GB decoded) + the KEYS lane sits at that line ⇒ the fill declines and every
+  try serves windowed. This is precisely B6's caveat (d); leg v1 now doubles as the 100M A/B of the tightening.
+  Post-leg: single-query runs of the slow set with `-Dsirix.projection.residency.headroom=false` to confirm; then
+  the fix (likely: admit a single fill that fits the STATIC budget even when the share is lower, or raise the
+  share when few consumers are active — decide on the diag numbers), then the clean full timing leg.
+- 21:12 Leg v1 was KILLED externally at q4 (task stopped; JVM gone, log static). Revised: confirm the B6 cause with two single-q3 runs (default + `-Dsirix.projection.residency.headroom=false`), fix the share rule, then ONE clean full leg.
+- 21:15 **Second external kill:** the q3 A/B task was stopped ~90 s in (as was leg v1) — 100M query runs PAUSED
+  pending the user's signal. Partial diag from the default run: `windowed payloads: defId=0 rowGroups=97654
+  projected=66133MB windowLeaves=128 residentCap=20` — the windowed handle projects the whole 25-column set
+  (64.6 GB), so the q3 regression analysis needs the full projDiag log, not the share arithmetic alone. Non-timing
+  work resumed: wave3f verification + 1M measure and the combined worktree gate now run (nothing else active).
+- 21:22 **Wave-3 FINAL measured at 1M (`storage1m-wave3f`, the snapshot that is in the gate): file 1,174.8 MB,
+  KeyValueLeafPage 479.0 MB; number region 0.36 B/record written (raw 88 → 47.6 MB — the fold), zone map 0.38 (the
+  only copy), string 1.52, region table 2.95 B/record, body 3.13. CUMULATIVE vs this morning: file 1,854.3 →
+  1,174.8 MB (−36.6 %), leaf 1,093.3 → 479.0 MB (−56.2 %).** B5-c acceptance: number ≤ 0.6 MET (0.36); regions
+  ≤ 2 misses at 2.95 — the remainder is the string region (1.52, value bytes now, P2's global dictionaries) and
+  the name-key region (0.51). Verification suites green (23-class sweep); two silent runs re-checked below.
+- 21:16 Silent-run mystery closed: DerivedElisionResourceRoundTripTest 6/6 (it was simply missing from that batch's compile), GoldenFormatTest 14/14 + GoldenCompositePageTest 2/2 (the RunFour class lives under `agents/*/out`, not `agents/b2` root). **Every verification class is green on the exact wave-3 snapshot now in the gate.** Remaining before the commit: the combined worktree gate (targeted + full core + full query) only.
+- 21:17 Wave-3 gate: targeted core rc=1 on the KNOWN order-dependent flake (`ProjectionIndexParentKeyNotificationTest#recordReadFailureIsNotReclassifiedAsAnAbsentNode`, same as at wave 2 — passes 3/3 alone and in the whole projection package); the gate proceeds to the full suites, which decide; will re-verify the flake alone on this snapshot after the gate.
+- 21:23 User confirms they stopped nothing → the harness killed the two query tasks (both plain background wrappers; the setsid-detached load survived). Rule: every long run is now launched DETACHED with a polling waiter. 100M queries resume after the wave-3 commit, on rebuild #2's DB (one q3 residency A/B first, then the full leg).
+- 21:30 **WAVE-3 GATE GREEN at 9ce5fd760 + snapshot: targeted core rc=1 (known flake only, re-verified passing
+  alone ×2 on this snapshot), targeted query rc=0, FULL core rc=0 (6m 51s), FULL query rc=0 (3m 1s). Committing the
+  29-file wave-3 snapshot via plumbing; rebuild #2 next (rebuild #1's 90.4 GB DB deleted for disk room — number
+  recorded, reproducible at `eb5a307b7`).**

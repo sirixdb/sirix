@@ -2,6 +2,9 @@ package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.page.pax.StringRegionEncoderTestAccess;
@@ -310,5 +313,63 @@ final class StringRegionIntegrationTest {
 
   private static byte[] bytes(final String value) {
     return value.getBytes(StandardCharsets.UTF_8);
+  }
+
+  @Test
+  @DisplayName("a page whose column is all distinct takes the plain lane and round-trips its records")
+  void plainLaneColumnSurvivesASerializationRoundTrip() {
+    final ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
+    final KeyValueLeafPage page = createPage(0);
+    KeyValueLeafPage deserialized = null;
+    try {
+      final int urlNameKey = 11;
+      final int browserNameKey = 12;
+      final String[] browsers = {"Firefox", "Chrome", "Safari"};
+      final int rows = 12;
+      for (int row = 0; row < rows; row++) {
+        writeObjectNamedString(page, row, urlNameKey, "https://example.org/item-" + row + "?ref=catalogue");
+        writeObjectNamedString(page, rows + row, browserNameKey, browsers[row % browsers.length]);
+      }
+
+      final StringRegion.Header built = page.getStringRegionHeader();
+      assertNotNull(built);
+      final int urlTag = StringRegion.lookupTag(built, urlNameKey);
+      final int browserTag = StringRegion.lookupTag(built, browserNameKey);
+      assertTrue(urlTag >= 0 && browserTag >= 0);
+      assertTrue(built.tagPlainLane[urlTag], "twelve distinct URLs must write no dict ids");
+      assertTrue(!built.tagPlainLane[browserTag], "three browsers under twelve records keep their dictionary");
+
+      // The record path is what value elision has to reproduce: the values leave the heap into the
+      // region on write and are reinjected on read, so an equal slot means the plain lane survived
+      // serialization, deserialization and reinjection.
+      final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
+      final BytesIn<?> source = sink.bytesForRead();
+      source.readByte(); // pageKind id
+      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source,
+          SerializationType.DATA);
+      for (int row = 0; row < 2 * rows; row++) {
+        final int slot = (int) (row & (Constants.NDP_NODE_COUNT - 1));
+        assertArrayEquals(page.getSlotAsByteArray(slot), deserialized.getSlotAsByteArray(slot),
+            "record " + row + " must come back byte for byte");
+      }
+
+      final StringRegion.Header readBack = deserialized.getStringRegionHeader();
+      assertNotNull(readBack, "the region must survive the round trip");
+      final int readUrlTag = StringRegion.lookupTag(readBack, urlNameKey);
+      assertTrue(readUrlTag >= 0);
+      assertTrue(readBack.tagPlainLane[readUrlTag], "and still be on the plain lane");
+      assertEquals(rows, readBack.tagStringDictSize[readUrlTag]);
+      for (int row = 0; row < rows; row++) {
+        final int id = StringRegion.decodeDictIdAt(deserialized.getStringRegionPayload(), readBack,
+            readBack.tagStart[readUrlTag] + row);
+        assertEquals(row, id, "on the plain lane a value's rank IS its id");
+      }
+    } finally {
+      page.close();
+      if (deserialized != null) {
+        deserialized.close();
+      }
+    }
   }
 }

@@ -68,8 +68,22 @@ import java.lang.foreign.ValueLayout;
  * per-column index (one entry every 16 slots) can be bolted on top without changing the wire
  * format.
  *
- * <p>The format byte is exactly one of the flags, never a combination; the remaining bits are
- * reserved for future formats.
+ * <h2>Lane encoding</h2>
+ * The two general formats spend their per-slot bits in a fixed-width lane — one bit per slot for
+ * {@code FLAG_HAS_BITMAP}, two for {@code FLAG_NODEKEY_PREDICTED}. On a page of records that lane is a
+ * handful of long runs: one code repeated for a whole record's fields, then a different one at the
+ * boundary. {@code FLAG_LANE_RUN_LENGTH} says the lane is stored as those runs instead —
+ * {@code varint runCount}, then {@code (code, varint runLength)} per run — and the encoder emits it
+ * only when it comes out smaller.
+ *
+ * <p>Worth doing even though the body codec already compresses the lane: measured on a 1,024-slot
+ * page of 106-field records, the parentKey column's 128-byte bitmap is 27 bytes after LZ77 and 12
+ * bytes as runs then LZ77; the sibling columns' 256-byte code lanes go 23 and 20 down to 12. What
+ * LZ77 cannot do is turn a 105-bit run into a length, because it matches bytes and the run's byte
+ * boundary shifts.
+ *
+ * <p>The low bits of the format byte are exactly one of the format flags, never a combination; bit 5
+ * is the lane's encoding, which is orthogonal to which predictors the format uses.
  */
 public final class StructuralKeyColumnCodec {
 
@@ -78,6 +92,27 @@ public final class StructuralKeyColumnCodec {
   public static final int FLAG_SEQUENTIAL_PLUS1 = 0x04;
   public static final int FLAG_HAS_BITMAP = 0x08;
   public static final int FLAG_NODEKEY_PREDICTED = 0x10;
+
+  /**
+   * Modifier on either general format: the per-slot lane is stored as runs rather than fixed-width
+   * bits. Set only when the runs come out smaller than the bits they replace.
+   */
+  public static final int FLAG_LANE_RUN_LENGTH = 0x20;
+
+  /** The format bits of a tag, with the lane-encoding modifier masked off. */
+  private static final int FORMAT_MASK = 0x1F;
+
+  /**
+   * Whether a column may store its lane as runs.
+   *
+   * <p>
+   * Kill switch: {@code -Dsirix.structuralColumn.runLengthLane=false} keeps every lane fixed-width, so
+   * a column encodes exactly as it did before this form existed. Readers accept both regardless —
+   * the tag says which — so a resource can hold columns of each. Not final, so a byte-identity test
+   * can flip it after class load.
+   */
+  public static boolean RUN_LENGTH_LANE_ENABLED =
+      !"false".equals(System.getProperty("sirix.structuralColumn.runLengthLane"));
 
   /** Maximum supported slots per column; fits in an unsigned 16-bit length field. */
   public static final int MAX_SLOTS = 0xFFFF;
@@ -234,21 +269,48 @@ public final class StructuralKeyColumnCodec {
       return 11;
     }
 
-    // General: bitmap + override-varint stream.
+    // General: a one-bit-per-slot lane plus an override-varint stream.
     final int bitmapBytes = (n + 7) >>> 3;
 
-    // Dry-run to size override stream.
+    // Dry-run to size the override stream, and in the same pass the run-length form of the lane: a
+    // run closes whenever the bit flips, and each costs its code byte plus a length varint.
     int overrideBytes = 0;
+    int runLaneBytes = varintSize(0);
+    int runCount = 0;
+    int runLength = 0;
+    int previousBit = -1;
     long predictor = NULL;
     for (int i = 0; i < n; i++) {
       final long v = values[i];
-      if (v != predictor) {
+      final int bit;
+      if (v == predictor) {
+        bit = 1;
+      } else {
+        bit = 0;
         overrideBytes += zigzagVarintSize(v - predictor);
       }
+      if (bit != previousBit) {
+        if (previousBit >= 0) {
+          runLaneBytes += 1 + varintSize(runLength);
+          runCount++;
+        }
+        previousBit = bit;
+        runLength = 0;
+      }
+      runLength++;
       predictor = v;
     }
+    if (previousBit >= 0) {
+      runLaneBytes += 1 + varintSize(runLength);
+      runCount++;
+    }
+    runLaneBytes += varintSize(runCount) - varintSize(0);
+    final boolean bitmapRuns = RUN_LENGTH_LANE_ENABLED && runLaneBytes < bitmapBytes;
+    final int bitmapLaneBytes = bitmapRuns
+        ? runLaneBytes
+        : bitmapBytes;
 
-    final int totalBytes = 1 + 2 + bitmapBytes + overrideBytes;
+    final int totalBytes = 1 + 2 + bitmapLaneBytes + overrideBytes;
 
     // The node-key-predicted format costs one more bit per slot and saves an override on every
     // slot that is NULL or sits at nodeKey + stride, so which one wins is a property of the
@@ -265,19 +327,48 @@ public final class StructuralKeyColumnCodec {
       return totalBytes;
     }
 
-    target[offset] = FLAG_HAS_BITMAP;
+    target[offset] = (byte) (bitmapRuns
+        ? (FLAG_HAS_BITMAP | FLAG_LANE_RUN_LENGTH)
+        : FLAG_HAS_BITMAP);
     writeUnsignedShort(target, offset + 1, n);
-    // zero bitmap
-    for (int i = 0; i < bitmapBytes; i++) {
-      target[offset + 3 + i] = 0;
+    int writePos;
+    if (bitmapRuns) {
+      writePos = writeVarint(target, offset + 3, runCount);
+      int previous = -1;
+      int length = 0;
+      predictor = NULL;
+      for (int i = 0; i < n; i++) {
+        final long v = values[i];
+        final int bit = v == predictor
+            ? 1
+            : 0;
+        if (bit != previous) {
+          if (previous >= 0) {
+            target[writePos++] = (byte) previous;
+            writePos = writeVarint(target, writePos, length);
+          }
+          previous = bit;
+          length = 0;
+        }
+        length++;
+        predictor = v;
+      }
+      target[writePos++] = (byte) previous;
+      writePos = writeVarint(target, writePos, length);
+    } else {
+      // zero bitmap
+      for (int i = 0; i < bitmapBytes; i++) {
+        target[offset + 3 + i] = 0;
+      }
+      writePos = offset + 3 + bitmapBytes;
     }
-
-    int writePos = offset + 3 + bitmapBytes;
     predictor = NULL;
     for (int i = 0; i < n; i++) {
       final long v = values[i];
       if (v == predictor) {
-        target[offset + 3 + (i >>> 3)] |= (byte) (1 << (i & 7));
+        if (!bitmapRuns) {
+          target[offset + 3 + (i >>> 3)] |= (byte) (1 << (i & 7));
+        }
       } else {
         writePos = writeZigzagVarintToBytes(target, writePos, v - predictor);
       }
@@ -330,7 +421,10 @@ public final class StructuralKeyColumnCodec {
     return stride;
   }
 
-  /** Encoded size of the node-key-predicted format for the given stride. */
+  /**
+   * Encoded size of the node-key-predicted format for the given stride, with the lane in whichever
+   * encoding comes out smaller.
+   */
   private static int sizeNodeKeyPredicted(final long[] values, final int n, final long[] nodeKeys,
       final long stride) {
     int overrideBytes = 0;
@@ -342,7 +436,58 @@ public final class StructuralKeyColumnCodec {
       }
       previous = v;
     }
-    return 3 + zigzagVarintSize(stride) + codeBytes(n) + overrideBytes;
+    return 3 + zigzagVarintSize(stride) + predictedLaneBytes(values, n, nodeKeys, stride) + overrideBytes;
+  }
+
+  /**
+   * Bytes the node-key-predicted lane takes, fixed-width or as runs, whichever is smaller. A page of
+   * records repeats one code for a whole record's fields, so the run form is usually a fraction of
+   * the two bits per slot the fixed one spends.
+   */
+  private static int predictedLaneBytes(final long[] values, final int n, final long[] nodeKeys,
+      final long stride) {
+    if (!RUN_LENGTH_LANE_ENABLED) {
+      return codeBytes(n);
+    }
+    int runLaneBytes = 0;
+    int runCount = 0;
+    int runLength = 0;
+    int previousCode = -1;
+    long previous = NULL;
+    for (int i = 0; i < n; i++) {
+      final int code = predictedCodeAt(values, nodeKeys, stride, i, previous);
+      if (code != previousCode) {
+        if (previousCode >= 0) {
+          runLaneBytes += 1 + varintSize(runLength);
+          runCount++;
+        }
+        previousCode = code;
+        runLength = 0;
+      }
+      runLength++;
+      previous = values[i];
+    }
+    if (previousCode >= 0) {
+      runLaneBytes += 1 + varintSize(runLength);
+      runCount++;
+    }
+    runLaneBytes += varintSize(runCount);
+    return Math.min(codeBytes(n), runLaneBytes);
+  }
+
+  /** The predictor code slot {@code i} takes, given the previous slot's decoded value. */
+  private static int predictedCodeAt(final long[] values, final long[] nodeKeys, final long stride,
+      final int i, final long previous) {
+    final long v = values[i];
+    if (v == NULL) {
+      return CODE_NULL;
+    }
+    if (v == nodeKeys[i] + stride) {
+      return CODE_STRIDE;
+    }
+    return v == previous
+        ? CODE_PREVIOUS
+        : CODE_EXPLICIT;
   }
 
   /**
@@ -356,31 +501,64 @@ public final class StructuralKeyColumnCodec {
     if (target == null) {
       return totalBytes;
     }
-    target[offset] = FLAG_NODEKEY_PREDICTED;
+    final boolean runs = predictedLaneBytes(values, n, nodeKeys, stride) < codeBytes(n);
+    target[offset] = (byte) (runs
+        ? (FLAG_NODEKEY_PREDICTED | FLAG_LANE_RUN_LENGTH)
+        : FLAG_NODEKEY_PREDICTED);
     writeUnsignedShort(target, offset + 1, n);
     int writePos = writeZigzagVarintToBytes(target, offset + 3, stride);
     final int codesStart = writePos;
-    final int codeArrayBytes = codeBytes(n);
-    for (int i = 0; i < codeArrayBytes; i++) {
-      target[codesStart + i] = 0;
+    final int codeArrayBytes = runs
+        ? 0
+        : codeBytes(n);
+    if (runs) {
+      int runCount = 0;
+      int previousCode = -1;
+      long walk = NULL;
+      for (int i = 0; i < n; i++) {
+        final int code = predictedCodeAt(values, nodeKeys, stride, i, walk);
+        if (code != previousCode) {
+          runCount++;
+          previousCode = code;
+        }
+        walk = values[i];
+      }
+      writePos = writeVarint(target, writePos, runCount);
+      previousCode = -1;
+      int runLength = 0;
+      walk = NULL;
+      for (int i = 0; i < n; i++) {
+        final int code = predictedCodeAt(values, nodeKeys, stride, i, walk);
+        if (code != previousCode) {
+          if (previousCode >= 0) {
+            target[writePos++] = (byte) previousCode;
+            writePos = writeVarint(target, writePos, runLength);
+          }
+          previousCode = code;
+          runLength = 0;
+        }
+        runLength++;
+        walk = values[i];
+      }
+      target[writePos++] = (byte) previousCode;
+      writePos = writeVarint(target, writePos, runLength);
+    } else {
+      for (int i = 0; i < codeArrayBytes; i++) {
+        target[codesStart + i] = 0;
+      }
+      writePos = codesStart + codeArrayBytes;
     }
-    writePos = codesStart + codeArrayBytes;
 
     long previous = NULL;
     for (int i = 0; i < n; i++) {
       final long v = values[i];
-      final int code;
-      if (v == NULL) {
-        code = CODE_NULL;
-      } else if (v == nodeKeys[i] + stride) {
-        code = CODE_STRIDE;
-      } else if (v == previous) {
-        code = CODE_PREVIOUS;
-      } else {
-        code = CODE_EXPLICIT;
+      final int code = predictedCodeAt(values, nodeKeys, stride, i, previous);
+      if (code == CODE_EXPLICIT) {
         writePos = writeZigzagVarintToBytes(target, writePos, v - nodeKeys[i]);
       }
-      target[codesStart + (i >>> 2)] |= (byte) (code << ((i & 3) << 1));
+      if (!runs) {
+        target[codesStart + (i >>> 2)] |= (byte) (code << ((i & 3) << 1));
+      }
       previous = v;
     }
     return totalBytes;
@@ -389,6 +567,62 @@ public final class StructuralKeyColumnCodec {
   /** Bytes taken by the 2-bits-per-slot code array of a node-key-predicted column. */
   private static int codeBytes(final int n) {
     return (n + 3) >>> 2;
+  }
+
+  /** Bytes an unsigned varint takes. */
+  private static int varintSize(final int value) {
+    int size = 1;
+    int remaining = value >>> 7;
+    while (remaining != 0) {
+      size++;
+      remaining >>>= 7;
+    }
+    return size;
+  }
+
+  /** Write an unsigned varint and report the position after it. */
+  private static int writeVarint(final byte[] target, final int offset, final int value) {
+    int pos = offset;
+    int remaining = value;
+    while ((remaining & ~0x7F) != 0) {
+      target[pos++] = (byte) ((remaining & 0x7F) | 0x80);
+      remaining >>>= 7;
+    }
+    target[pos++] = (byte) remaining;
+    return pos;
+  }
+
+  /** Read an unsigned varint. */
+  private static int readVarint(final byte[] src, final int offset) {
+    int value = 0;
+    int shift = 0;
+    int pos = offset;
+    while (true) {
+      final byte b = src[pos++];
+      value |= (b & 0x7F) << shift;
+      if ((b & 0x80) == 0) {
+        return value;
+      }
+      shift += 7;
+    }
+  }
+
+  /**
+   * Offset one past a run-length lane, i.e. where its override stream begins.
+   *
+   * <p>
+   * A fixed-width lane's length is a function of the slot count, a run lane's is not — so it is walked
+   * once, over at most a few dozen runs, rather than spending bytes on a length prefix.
+   */
+  private static int runLaneEnd(final byte[] src, final int laneStart) {
+    int pos = laneStart;
+    int runs = readVarint(src, pos);
+    pos += varintSize(runs);
+    while (runs-- > 0) {
+      pos++; // the run's code
+      pos += varintSize(readVarint(src, pos));
+    }
+    return pos;
   }
 
   /**
@@ -425,12 +659,37 @@ public final class StructuralKeyColumnCodec {
     if (tag == FLAG_SEQUENTIAL_PLUS1) {
       return readLong(src, columnOffset + 3) + slotIndex;
     }
-    if (tag == FLAG_HAS_BITMAP) {
-      final int bitmapBytes = (n + 7) >>> 3;
-      int readPos = columnOffset + 3 + bitmapBytes;
+    final boolean runLane = (tag & FLAG_LANE_RUN_LENGTH) != 0;
+    if ((tag & FORMAT_MASK) == FLAG_HAS_BITMAP) {
+      final int laneStart = columnOffset + 3;
+      int readPos = runLane
+          ? runLaneEnd(src, laneStart)
+          : laneStart + ((n + 7) >>> 3);
+      int runPos = laneStart;
+      int runsLeft = 0;
+      int runCode = 0;
+      int runRemaining = 0;
+      if (runLane) {
+        runsLeft = readVarint(src, runPos);
+        runPos += varintSize(runsLeft);
+      }
       long predictor = NULL;
       for (int i = 0; i <= slotIndex; i++) {
-        final int bit = (src[columnOffset + 3 + (i >>> 3)] >>> (i & 7)) & 1;
+        final int bit;
+        if (runLane) {
+          if (runRemaining == 0) {
+            if (runsLeft-- <= 0) {
+              throw new IllegalStateException("run-length lane ended at slot " + i + " of " + n);
+            }
+            runCode = src[runPos++] & 0xFF;
+            runRemaining = readVarint(src, runPos);
+            runPos += varintSize(runRemaining);
+          }
+          runRemaining--;
+          bit = runCode;
+        } else {
+          bit = (src[laneStart + (i >>> 3)] >>> (i & 7)) & 1;
+        }
         final long value;
         if (bit == 1) {
           value = predictor;
@@ -445,14 +704,38 @@ public final class StructuralKeyColumnCodec {
         predictor = value;
       }
     }
-    if (tag == FLAG_NODEKEY_PREDICTED) {
+    if ((tag & FORMAT_MASK) == FLAG_NODEKEY_PREDICTED) {
       requireNodeKeys(nodeKeys, n);
       final long stride = readZigzagVarintFromBytes(src, columnOffset + 3);
       final int codesStart = columnOffset + 3 + zigzagVarintSize(stride);
-      int readPos = codesStart + codeBytes(n);
+      int readPos = runLane
+          ? runLaneEnd(src, codesStart)
+          : codesStart + codeBytes(n);
+      int runPos = codesStart;
+      int runsLeft = 0;
+      int runCode = 0;
+      int runRemaining = 0;
+      if (runLane) {
+        runsLeft = readVarint(src, runPos);
+        runPos += varintSize(runsLeft);
+      }
       long previous = NULL;
       for (int i = 0; i <= slotIndex; i++) {
-        final int code = (src[codesStart + (i >>> 2)] >>> ((i & 3) << 1)) & 3;
+        final int code;
+        if (runLane) {
+          if (runRemaining == 0) {
+            if (runsLeft-- <= 0) {
+              throw new IllegalStateException("run-length lane ended at slot " + i + " of " + n);
+            }
+            runCode = src[runPos++] & 0xFF;
+            runRemaining = readVarint(src, runPos);
+            runPos += varintSize(runRemaining);
+          }
+          runRemaining--;
+          code = runCode;
+        } else {
+          code = (src[codesStart + (i >>> 2)] >>> ((i & 3) << 1)) & 3;
+        }
         final long value;
         if (code == CODE_NULL) {
           value = NULL;
@@ -529,12 +812,38 @@ public final class StructuralKeyColumnCodec {
           out[i] = base + i;
         }
       }
-      case FLAG_HAS_BITMAP -> {
+      case FLAG_HAS_BITMAP, FLAG_HAS_BITMAP | FLAG_LANE_RUN_LENGTH -> {
         final int bitmapStart = columnOffset + 3;
-        int readPos = bitmapStart + ((n + 7) >>> 3);
+        final boolean runLane = (tag & FLAG_LANE_RUN_LENGTH) != 0;
+        int readPos = runLane
+            ? runLaneEnd(src, bitmapStart)
+            : bitmapStart + ((n + 7) >>> 3);
+        int runPos = bitmapStart;
+        int runsLeft = 0;
+        int runCode = 0;
+        int runRemaining = 0;
+        if (runLane) {
+          runsLeft = readVarint(src, runPos);
+          runPos += varintSize(runsLeft);
+        }
         long predictor = NULL;
         for (int i = 0; i < n; i++) {
-          if (((src[bitmapStart + (i >>> 3)] >>> (i & 7)) & 1) == 0) {
+          final int bit;
+          if (runLane) {
+            if (runRemaining == 0) {
+              if (runsLeft-- <= 0) {
+                throw new IllegalStateException("run-length lane ended at slot " + i + " of " + n);
+              }
+              runCode = src[runPos++] & 0xFF;
+              runRemaining = readVarint(src, runPos);
+              runPos += varintSize(runRemaining);
+            }
+            runRemaining--;
+            bit = runCode;
+          } else {
+            bit = (src[bitmapStart + (i >>> 3)] >>> (i & 7)) & 1;
+          }
+          if (bit == 0) {
             // Inlined zig-zag varint read: the shared helper would need a second
             // pass over the same bytes to report how far it advanced.
             long zz = 0;
@@ -550,14 +859,39 @@ public final class StructuralKeyColumnCodec {
           out[i] = predictor;
         }
       }
-      case FLAG_NODEKEY_PREDICTED -> {
+      case FLAG_NODEKEY_PREDICTED, FLAG_NODEKEY_PREDICTED | FLAG_LANE_RUN_LENGTH -> {
         requireNodeKeys(nodeKeys, n);
+        final boolean runLane = (tag & FLAG_LANE_RUN_LENGTH) != 0;
         final long stride = readZigzagVarintFromBytes(src, columnOffset + 3);
         final int codesStart = columnOffset + 3 + zigzagVarintSize(stride);
-        int readPos = codesStart + codeBytes(n);
+        int readPos = runLane
+            ? runLaneEnd(src, codesStart)
+            : codesStart + codeBytes(n);
+        int runPos = codesStart;
+        int runsLeft = 0;
+        int runCode = 0;
+        int runRemaining = 0;
+        if (runLane) {
+          runsLeft = readVarint(src, runPos);
+          runPos += varintSize(runsLeft);
+        }
         long previous = NULL;
         for (int i = 0; i < n; i++) {
-          final int code = (src[codesStart + (i >>> 2)] >>> ((i & 3) << 1)) & 3;
+          final int code;
+          if (runLane) {
+            if (runRemaining == 0) {
+              if (runsLeft-- <= 0) {
+                throw new IllegalStateException("run-length lane ended at slot " + i + " of " + n);
+              }
+              runCode = src[runPos++] & 0xFF;
+              runRemaining = readVarint(src, runPos);
+              runPos += varintSize(runRemaining);
+            }
+            runRemaining--;
+            code = runCode;
+          } else {
+            code = (src[codesStart + (i >>> 2)] >>> ((i & 3) << 1)) & 3;
+          }
           if (code == CODE_NULL) {
             previous = NULL;
           } else if (code == CODE_STRIDE) {

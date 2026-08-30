@@ -9,8 +9,12 @@ package io.sirix.node;
 import io.sirix.settings.Fixed;
 import org.junit.jupiter.api.Test;
 
+import io.sirix.page.SirixLZ77Codec;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -487,12 +491,157 @@ final class StructuralKeyColumnCodecTest {
 
   private static long[] repeat(final long value, final int n) {
     final long[] arr = new long[n];
-    java.util.Arrays.fill(arr, value);
+    Arrays.fill(arr, value);
     return arr;
   }
 
   @Test
   void repeatHelperSanity() {
     assertArrayEquals(new long[] { 7L, 7L, 7L }, repeat(7L, 3));
+  }
+
+  // ────────────────────────────────────────────────────── run-length lane
+
+  /** Slots on the record-shaped fixture the lane exists for. */
+  private static final int LANE_SLOTS = 1_024;
+
+  /** Fields per record, so the lane is runs of one code broken at each record boundary. */
+  private static final int LANE_FIELDS = 106;
+
+  @Test
+  void runLengthLaneRoundTripsEveryColumnShape() {
+    final long base = 1_000_000L;
+    final long[] nodeKeys = ascendingNodeKeys(LANE_SLOTS, base);
+    for (final String shape : new String[] {"parent", "rightSibling", "leftSibling"}) {
+      final long[] values = recordShapedColumn(shape, base, nodeKeys);
+      final boolean before = StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED;
+      try {
+        StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = true;
+        final byte[] runs = encode(values, nodeKeys);
+        StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = false;
+        final byte[] fixed = encode(values, nodeKeys);
+
+        assertTrue((runs[0] & StructuralKeyColumnCodec.FLAG_LANE_RUN_LENGTH) != 0,
+            shape + ": a column of long runs must take the run-length lane");
+        assertEquals(0, fixed[0] & StructuralKeyColumnCodec.FLAG_LANE_RUN_LENGTH,
+            shape + ": and must not when the switch is off");
+        assertTrue(runs.length < fixed.length,
+            shape + ": the run lane must be the smaller of the two — " + runs.length + " vs " + fixed.length);
+
+        // Both forms decode to the same column, in bulk and slot by slot — a reader takes whichever
+        // the tag says, so a resource may hold either.
+        final long[] fromRuns = new long[LANE_SLOTS];
+        final long[] fromFixed = new long[LANE_SLOTS];
+        assertEquals(LANE_SLOTS, StructuralKeyColumnCodec.decodeAll(runs, 0, fromRuns, nodeKeys));
+        assertEquals(LANE_SLOTS, StructuralKeyColumnCodec.decodeAll(fixed, 0, fromFixed, nodeKeys));
+        assertArrayEquals(values, fromRuns, shape + ": the run lane must decode to the original column");
+        assertArrayEquals(values, fromFixed, shape + ": and so must the fixed one");
+        for (final int slot : new int[] {0, 1, LANE_FIELDS - 1, LANE_FIELDS, LANE_SLOTS / 2, LANE_SLOTS - 1}) {
+          assertEquals(values[slot], StructuralKeyColumnCodec.decodeSlot(runs, 0, slot, nodeKeys),
+              shape + ": random access into the run lane at slot " + slot);
+        }
+      } finally {
+        StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = before;
+      }
+    }
+  }
+
+  @Test
+  void runLengthLaneSurvivesTheBodyCodec() {
+    // The lane is compressed again as part of the page body, so shrinking it raw proves nothing on its
+    // own — LZ77 already turns a bit lane into a few bytes. What it cannot do is turn a 105-bit run
+    // into a length, because it matches BYTES and the run's byte boundary shifts. That is the gap this
+    // lane exists for, and this is the assertion that it is real.
+    final long base = 1_000_000L;
+    final long[] nodeKeys = ascendingNodeKeys(LANE_SLOTS, base);
+    final boolean before = StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED;
+    try {
+      for (final String shape : new String[] {"parent", "rightSibling", "leftSibling"}) {
+        final long[] values = recordShapedColumn(shape, base, nodeKeys);
+        StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = true;
+        final int withRuns = lz77Size(encode(values, nodeKeys));
+        StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = false;
+        final int withFixed = lz77Size(encode(values, nodeKeys));
+        assertTrue(withRuns < withFixed, shape
+            + ": the run lane must still be smaller AFTER the body codec — " + withRuns + " vs " + withFixed);
+      }
+    } finally {
+      StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = before;
+    }
+  }
+
+  @Test
+  void aLaneThatAlternatesKeepsTheFixedWidthForm() {
+    // What the lane encodes is the CODE per slot, not the value — so a column of purely random values
+    // is one long run of "explicit" and takes the run form quite correctly. The shape that must NOT is
+    // one whose code ALTERNATES: pairs of equal values make the bitmap read 0,1,0,1,..., and paying a
+    // code byte plus a length varint for every single slot has to lose to one bit each.
+    final long base = 500_000L;
+    final int slots = 256;
+    final long[] nodeKeys = ascendingNodeKeys(slots, base);
+    final long[] values = new long[slots];
+    for (int i = 0; i < slots; i++) {
+      values[i] = base + (i >>> 1) * 7L;
+    }
+    final byte[] encoded = encode(values, nodeKeys);
+    assertEquals(0, encoded[0] & StructuralKeyColumnCodec.FLAG_LANE_RUN_LENGTH,
+        "an alternating lane must keep the fixed-width form");
+    final long[] back = new long[slots];
+    StructuralKeyColumnCodec.decodeAll(encoded, 0, back, nodeKeys);
+    assertArrayEquals(values, back);
+  }
+
+  @Test
+  void aRandomColumnStillTakesTheRunFormBecauseItsCodesAreUniform() {
+    // Stated as its own case because it is counter-intuitive and worth pinning: every value differing
+    // from its predecessor is ONE run of the same code, which the run form encodes in four bytes where
+    // the bit lane spends one per slot.
+    final Random random = new Random(20260830L);
+    final long base = 500_000L;
+    final long[] nodeKeys = ascendingNodeKeys(256, base);
+    final long[] values = new long[256];
+    for (int i = 0; i < values.length; i++) {
+      values[i] = base + random.nextInt(1 << 20);
+    }
+    final byte[] encoded = encode(values, nodeKeys);
+    assertTrue((encoded[0] & StructuralKeyColumnCodec.FLAG_LANE_RUN_LENGTH) != 0,
+        "a uniform code lane takes the run form however irregular the values are");
+    final long[] back = new long[values.length];
+    StructuralKeyColumnCodec.decodeAll(encoded, 0, back, nodeKeys);
+    assertArrayEquals(values, back);
+  }
+
+  /** parentKey repeats per record; the sibling columns step with the node key and break at boundaries. */
+  private static long[] recordShapedColumn(final String shape, final long base, final long[] nodeKeys) {
+    final long[] values = new long[LANE_SLOTS];
+    for (int i = 0; i < LANE_SLOTS; i++) {
+      final int within = i % LANE_FIELDS;
+      values[i] = switch (shape) {
+        case "parent" -> within == 0
+            ? base - 1
+            : base + (i - within);
+        case "rightSibling" -> within == LANE_FIELDS - 1
+            ? NULL
+            : nodeKeys[i] + 1;
+        default -> within == 0
+            ? NULL
+            : nodeKeys[i] - 1;
+      };
+    }
+    return values;
+  }
+
+  private static byte[] encode(final long[] values, final long[] nodeKeys) {
+    final byte[] buffer = new byte[StructuralKeyColumnCodec.maxEncodedSize(values.length)];
+    final int length = StructuralKeyColumnCodec.encodeByteArray(buffer, 0, values, values.length, nodeKeys);
+    return Arrays.copyOf(buffer, length);
+  }
+
+  /** What the page body's dominant codec makes of these bytes on their own. */
+  private static int lz77Size(final byte[] bytes) {
+    final MemorySegment segment = Arena.ofAuto().allocate(bytes.length);
+    MemorySegment.copy(bytes, 0, segment, ValueLayout.JAVA_BYTE, 0L, bytes.length);
+    final byte[] out = new byte[SirixLZ77Codec.maxEncodedSize(bytes.length)];
+    return SirixLZ77Codec.encode(segment, 0L, bytes.length, out, 0);
   }
 }

@@ -168,6 +168,11 @@ final class ChunkedPageHarness {
     int templateCount;
     /** {@code -1} when the body is degenerate and carries no structural-flags byte. */
     int structuralFlags = -1;
+    /**
+     * The second structural-flags byte, or {@code 0} when the first one does not announce it. Written
+     * only for the levers that did not fit the first byte, so a page using none of them has none.
+     */
+    int extendedStructuralFlags;
     long fsstDictId;
     int bodyTotalLen;
     int metaRawLen;
@@ -206,6 +211,12 @@ final class ChunkedPageHarness {
     layout.templateCount = in.readByte() & 0xFF;
     if (layout.templateCount > 0) {
       layout.structuralFlags = in.readByte() & 0xFF;
+      // Bit 7 announces a second flags byte. Spelled out rather than imported: this parse is a second
+      // implementation of the reader's walk on purpose, and sharing the constant would let the two
+      // drift together.
+      if ((layout.structuralFlags & 0x80) != 0) {
+        layout.extendedStructuralFlags = in.readByte() & 0xFF;
+      }
     }
     in.readInt(); // templatePoolBytes
     layout.fsstDictId = Utils.getVarLong(in);

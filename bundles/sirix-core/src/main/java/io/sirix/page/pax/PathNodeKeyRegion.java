@@ -162,6 +162,20 @@ public final class PathNodeKeyRegion {
   private static final int FLAG_LANE_DELTA_RLE = 0x04;
 
   /**
+   * Flag bit: dictionary entries are stored as the zig-zag delta from the previous entry rather than
+   * as the offset from {@code dictMin}.
+   *
+   * <p>
+   * Chosen on a tie, and that is the point. A page's distinct pathNodeKeys are usually a run of
+   * consecutive path ids, so the offset form is a byte RAMP — every byte distinct, nothing for the
+   * body codec to match — while the delta form is the same byte repeated. Measured on a 106-key
+   * dictionary the two are 106 bytes either way and 110 against 8 after LZ77. A delta lane is never
+   * LESS compressible than the absolute lane it came from (a repeated key spacing becomes a repeated
+   * byte; an irregular one is equally irregular either way), so preferring it on a tie is free.
+   */
+  private static final int FLAG_DICT_DELTA = 0x08;
+
+  /**
    * Re-encode a legacy payload into the compact form: a frame-of-reference dictionary and, when it
    * pays, a run-length-encoded dict-id lane.
    *
@@ -203,6 +217,8 @@ public final class PathNodeKeyRegion {
 
     long minKey = Long.MAX_VALUE;
     long maxKey = Long.MIN_VALUE;
+    long maxZigZagDelta = 0;
+    long previousKey = 0;
     for (int i = 0; i < numUnique; i++) {
       final long key = getInt(legacy, 1 + i * 4);
       if (key < minKey) {
@@ -211,20 +227,28 @@ public final class PathNodeKeyRegion {
       if (key > maxKey) {
         maxKey = key;
       }
+      if (i > 0) {
+        final long delta = key - previousKey;
+        final long zigZag = (delta << 1) ^ (delta >> 63);
+        if (zigZag > maxZigZagDelta) {
+          maxZigZagDelta = zigZag;
+        }
+      }
+      previousKey = key;
     }
-    final long span = maxKey - minKey;
-    final int widthCode;
-    final int dictWidth;
-    if (span < 0x100L) {
-      widthCode = 0;
-      dictWidth = 1;
-    } else if (span < 0x10000L) {
-      widthCode = 1;
-      dictWidth = 2;
-    } else {
-      widthCode = 2;
-      dictWidth = 4;
-    }
+    // The first entry is stored against dictMin either way, so both forms have to hold that offset.
+    final long absoluteSpan = maxKey - minKey;
+    final long deltaSpan = Math.max(maxZigZagDelta, getInt(legacy, 1) - minKey);
+    final boolean dictDelta = fixedWidthFor(deltaSpan) <= fixedWidthFor(absoluteSpan);
+    final long span = dictDelta
+        ? deltaSpan
+        : absoluteSpan;
+    final int dictWidth = fixedWidthFor(span);
+    final int widthCode = dictWidth == 1
+        ? 0
+        : dictWidth == 2
+            ? 1
+            : 2;
 
     // Measure the run-length form of the dict-id lane before committing to it.
     final int runBytes = deltaRunBytes(legacy, dictIdsOff, slotCount);
@@ -240,14 +264,27 @@ public final class PathNodeKeyRegion {
     out[0] = (byte) COMPACT_MARKER;
     out[1] = (byte) (widthCode | (rle
         ? FLAG_LANE_DELTA_RLE
-        : 0));
+        : 0) | (dictDelta
+            ? FLAG_DICT_DELTA
+            : 0));
     out[2] = (byte) numUnique;
     putInt(out, 3, (int) minKey);
     int off = 7;
+    long previousStored = 0;
     for (int i = 0; i < numUnique; i++) {
-      final long delta = getInt(legacy, 1 + i * 4) - minKey;
+      final long key = getInt(legacy, 1 + i * 4);
+      final long stored;
+      if (!dictDelta) {
+        stored = key - minKey;
+      } else if (i == 0) {
+        stored = key - minKey;
+      } else {
+        final long delta = key - previousStored;
+        stored = (delta << 1) ^ (delta >> 63);
+      }
+      previousStored = key;
       for (int b = 0; b < dictWidth; b++) {
-        out[off++] = (byte) (delta >>> (b * 8));
+        out[off++] = (byte) (stored >>> (b * 8));
       }
     }
     putShort(out, off, slotCount);
@@ -263,6 +300,16 @@ public final class PathNodeKeyRegion {
     return off == size
         ? size
         : -1;
+  }
+
+  /** The smallest fixed width, in bytes, that holds an unsigned value of {@code span}. */
+  private static int fixedWidthFor(final long span) {
+    if (span < 0x100L) {
+      return 1;
+    }
+    return span < 0x10000L
+        ? 2
+        : 4;
   }
 
   /**
@@ -306,15 +353,24 @@ public final class PathNodeKeyRegion {
     final int flags = payload[1] & 0xFF;
     final int numUnique = payload[2] & 0xFF;
     final int dictWidth = 1 << (flags & WIDTH_CODE_MASK);
+    final boolean dictDelta = (flags & FLAG_DICT_DELTA) != 0;
     final int minKey = getInt(payload, 3);
     out[0] = (byte) numUnique;
     int in = 7;
+    int previousKey = 0;
     for (int i = 0; i < numUnique; i++) {
-      int delta = 0;
+      long stored = 0;
       for (int b = 0; b < dictWidth; b++) {
-        delta |= (payload[in++] & 0xFF) << (b * 8);
+        stored |= (long) (payload[in++] & 0xFF) << (b * 8);
       }
-      putInt(out, 1 + i * 4, minKey + delta);
+      final int key;
+      if (!dictDelta || i == 0) {
+        key = minKey + (int) stored;
+      } else {
+        key = previousKey + (int) ((stored >>> 1) ^ -(stored & 1));
+      }
+      previousKey = key;
+      putInt(out, 1 + i * 4, key);
     }
     final int slotCount = getShortU(payload, in);
     in += 2;

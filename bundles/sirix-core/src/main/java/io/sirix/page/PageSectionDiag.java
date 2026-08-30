@@ -75,6 +75,148 @@ public final class PageSectionDiag {
   private static final LongAdder RIGHT_SIB_KEY_COLUMN_CANDIDATE_PAGES = new LongAdder();
   private static final LongAdder RIGHT_SIB_KEY_COLUMN_RAW_BYTES = new LongAdder();
   private static final LongAdder RIGHT_SIB_KEY_COLUMN_ENCODED_BYTES = new LongAdder();
+  private static final LongAdder LEFT_SIB_KEY_COLUMN_PAGES = new LongAdder();
+  private static final LongAdder LEFT_SIB_KEY_COLUMN_BYTES_SAVED = new LongAdder();
+  private static final LongAdder LEFT_SIB_KEY_COLUMN_CANDIDATE_PAGES = new LongAdder();
+  private static final LongAdder LEFT_SIB_KEY_COLUMN_RAW_BYTES = new LongAdder();
+  private static final LongAdder LEFT_SIB_KEY_COLUMN_ENCODED_BYTES = new LongAdder();
+  private static final LongAdder REVISION_ELISION_PAGES = new LongAdder();
+  private static final LongAdder REVISION_ELISION_BYTES_SAVED = new LongAdder();
+  private static final LongAdder REVISION_ELISION_META_BYTES = new LongAdder();
+
+  // ─────────────────────────────────── post-codec attribution (U5, diag-gated)
+
+  /**
+   * Section ids for the post-codec attribution. The body is staged as one contiguous buffer and
+   * compressed as one blob, so what any single section costs on disk is not observable from the wire —
+   * only the total is. These lanes are that total taken apart: each staged section compressed ON ITS
+   * OWN with the codec the page elected, which is an upper bound for its share (the whole body is
+   * always at least as compressible as its parts, because the codec sees cross-section repetition
+   * too). The gap between the sum and the real body is that cross-section gain, and it is reported.
+   */
+  public static final int SECTION_COMPACT_DIR = 0;
+
+  /** Post-codec section: the template pool plus the per-slot template ids. */
+  public static final int SECTION_TEMPLATES = 1;
+
+  /** Post-codec section: the zero-hash bitmap. */
+  public static final int SECTION_ZERO_HASH_BITMAP = 2;
+
+  /** Post-codec section: the parentKey column. */
+  public static final int SECTION_PARENT_KEY_COLUMN = 3;
+
+  /** Post-codec section: the right-sibling column. */
+  public static final int SECTION_RIGHT_SIB_COLUMN = 4;
+
+  /** Post-codec section: the left-sibling column. */
+  public static final int SECTION_LEFT_SIB_COLUMN = 5;
+
+  /** Post-codec section: the pathNodeKey column. */
+  public static final int SECTION_PATH_NODE_KEY_COLUMN = 6;
+
+  /** Post-codec section: the value-elision section. */
+  public static final int SECTION_VALUE_ELISION = 7;
+
+  /** Post-codec section: the name-key-elision section. */
+  public static final int SECTION_NAME_KEY_ELISION = 8;
+
+  /** Post-codec section: the record heap, whole. */
+  public static final int SECTION_HEAP = 9;
+
+  /** Post-codec section: the heap bytes of fused {@code OBJECT_NAMED_*} records alone. */
+  public static final int SECTION_HEAP_FUSED = 10;
+
+  /** Post-codec section: the heap bytes of structural {@code OBJECT} / {@code ARRAY} records alone. */
+  public static final int SECTION_HEAP_STRUCTURAL = 11;
+
+  /** Post-codec section: the heap bytes of every other record kind. */
+  public static final int SECTION_HEAP_OTHER = 12;
+
+  /** Number of post-codec section lanes. */
+  public static final int SECTION_COUNT = 13;
+
+  private static final String[] SECTION_NAMES = {"compactDir", "templates+slotIds", "zeroHashBitmap",
+      "parentKeyColumn", "rightSibColumn", "leftSibColumn", "pathNodeKeyColumn", "valueElision", "nameKeyElision",
+      "heap", "heap:fused", "heap:structural", "heap:other"};
+
+  private static final LongAdder[] SECTION_RAW_BYTES = newAdders(SECTION_COUNT);
+  private static final LongAdder[] SECTION_ENCODED_BYTES = newAdders(SECTION_COUNT);
+  private static final LongAdder POST_CODEC_PAGES = new LongAdder();
+  private static final LongAdder POST_CODEC_SECTION_SUM = new LongAdder();
+  private static final LongAdder POST_CODEC_ACTUAL_BODY = new LongAdder();
+  private static final LongAdder COMPACT_DIR_ENTRIES = new LongAdder();
+  private static final LongAdder COMPACT_DIR_PREDICTABLE_ENTRIES = new LongAdder();
+
+  /**
+   * Record one staged section's raw and standalone-compressed sizes.
+   *
+   * @param section one of the {@code SECTION_*} ids
+   * @param rawBytes the section's staged length
+   * @param encodedBytes what the page's elected codec makes of those bytes on their own
+   */
+  public static void recordPostCodecSection(final int section, final long rawBytes, final long encodedBytes) {
+    SECTION_RAW_BYTES[section].add(rawBytes);
+    SECTION_ENCODED_BYTES[section].add(encodedBytes);
+  }
+
+  /**
+   * Record one page's post-codec attribution total beside what the body actually took on the wire.
+   *
+   * @param sectionEncodedSum sum of the sections compressed on their own
+   * @param actualBodyBytes what the whole body compressed to, as written
+   */
+  public static void recordPostCodecBody(final long sectionEncodedSum, final long actualBodyBytes) {
+    POST_CODEC_PAGES.increment();
+    POST_CODEC_SECTION_SUM.add(sectionEncodedSum);
+    POST_CODEC_ACTUAL_BODY.add(actualBodyBytes);
+  }
+
+  /**
+   * Record how much of the compact directory a reader could have predicted.
+   *
+   * @param entries directory entries on the page
+   * @param predictable those whose kind AND length repeat the previous entry of the same template —
+   *        the fraction T1-b would be able to drop
+   */
+  public static void recordCompactDirPredictability(final long entries, final long predictable) {
+    COMPACT_DIR_ENTRIES.add(entries);
+    COMPACT_DIR_PREDICTABLE_ENTRIES.add(predictable);
+  }
+
+  /** Raw staged bytes attributed to {@code section}, for the counter witness. */
+  static long postCodecSectionRawBytes(final int section) {
+    return SECTION_RAW_BYTES[section].sum();
+  }
+
+  /** Standalone-compressed bytes attributed to {@code section}, for the counter witness. */
+  static long postCodecSectionEncodedBytes(final int section) {
+    return SECTION_ENCODED_BYTES[section].sum();
+  }
+
+  /** Pages the post-codec attribution ran on. */
+  static long postCodecPages() {
+    return POST_CODEC_PAGES.sum();
+  }
+
+  /** Sum over pages of the sections compressed on their own. */
+  static long postCodecSectionSum() {
+    return POST_CODEC_SECTION_SUM.sum();
+  }
+
+  /** Sum over pages of what the bodies actually took on the wire. */
+  static long postCodecActualBody() {
+    return POST_CODEC_ACTUAL_BODY.sum();
+  }
+
+  /** Compact-directory entries seen by the predictability counter. */
+  static long compactDirEntries() {
+    return COMPACT_DIR_ENTRIES.sum();
+  }
+
+  /** Of those, the ones a reader could have predicted from the template. */
+  static long compactDirPredictableEntries() {
+    return COMPACT_DIR_PREDICTABLE_ENTRIES.sum();
+  }
 
   /**
    * Region-table bytes per region kind, indexed by {@link io.sirix.page.pax.RegionTable}'s kind
@@ -517,6 +659,58 @@ public final class PageSectionDiag {
     RIGHT_SIB_KEY_COLUMN_ENCODED_BYTES.add(encodedColumnBytes);
   }
 
+  /**
+   * Record activation of the left-sibling-key column extractor on a single page along with the number
+   * of pre-compression bytes it displaced from the heap body.
+   */
+  public static void recordLeftSibKeyColumn(final long bytesSaved) {
+    LEFT_SIB_KEY_COLUMN_PAGES.increment();
+    LEFT_SIB_KEY_COLUMN_BYTES_SAVED.add(bytesSaved);
+  }
+
+  /**
+   * Record a left-sibling-key column candidate (a page with at least one slot whose kind has a
+   * left-sibling-key field) regardless of whether the column ultimately paid off.
+   */
+  public static void recordLeftSibKeyColumnCandidate(final long rawStrippedBytes, final long encodedColumnBytes) {
+    LEFT_SIB_KEY_COLUMN_CANDIDATE_PAGES.increment();
+    LEFT_SIB_KEY_COLUMN_RAW_BYTES.add(rawStrippedBytes);
+    LEFT_SIB_KEY_COLUMN_ENCODED_BYTES.add(encodedColumnBytes);
+  }
+
+  /**
+   * Record revision elision on a single page: the bytes its records' revision varints no longer take,
+   * and what the bitmap that names them costs.
+   *
+   * @param bytesSaved pre-compression heap bytes the elision removed
+   * @param metadataBytes bytes the section naming the elided slots takes
+   */
+  public static void recordRevisionElision(final long bytesSaved, final long metadataBytes) {
+    REVISION_ELISION_PAGES.increment();
+    REVISION_ELISION_BYTES_SAVED.add(bytesSaved);
+    REVISION_ELISION_META_BYTES.add(metadataBytes);
+  }
+
+  /** Bytes the revision-elision sections staged, for the counter witness. */
+  static long stagedRevisionElisionMetaBytes() {
+    return REVISION_ELISION_META_BYTES.sum();
+  }
+
+  /** Heap bytes revision elision removed, for the counter witness. */
+  static long revisionElisionBytesSaved() {
+    return REVISION_ELISION_BYTES_SAVED.sum();
+  }
+
+  /** Heap bytes the left-sibling column removed, for the counter witness. */
+  static long leftSibKeyColumnBytesSaved() {
+    return LEFT_SIB_KEY_COLUMN_BYTES_SAVED.sum();
+  }
+
+  /** Heap bytes the right-sibling column removed, for the counter witness. */
+  static long rightSibKeyColumnBytesSaved() {
+    return RIGHT_SIB_KEY_COLUMN_BYTES_SAVED.sum();
+  }
+
   /** Record that ZeroRunByteCodec (codec=0) was chosen for this page. */
   public static void recordCodecZeroRun(final long encodedBytes) {
     CODEC_ZERORUN_PAGES.increment();
@@ -632,6 +826,72 @@ public final class PageSectionDiag {
         rsCandidates == 0
             ? 0
             : (double) rsEncoded / rsCandidates);
+    final long lsPages = LEFT_SIB_KEY_COLUMN_PAGES.sum();
+    final long lsBytes = LEFT_SIB_KEY_COLUMN_BYTES_SAVED.sum();
+    System.out.printf("[PageSectionDiag] encoders: leftSibKeyColumn pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n",
+        lsPages, pct(lsPages, pages), lsBytes, lsBytes / (1024.0 * 1024.0));
+    final long lsCandidates = LEFT_SIB_KEY_COLUMN_CANDIDATE_PAGES.sum();
+    final long lsRaw = LEFT_SIB_KEY_COLUMN_RAW_BYTES.sum();
+    final long lsEncoded = LEFT_SIB_KEY_COLUMN_ENCODED_BYTES.sum();
+    System.out.printf(
+        "[PageSectionDiag] leftSibKeyColumn candidates=%,d rawBytes=%,d (%.1f MB)"
+            + "  encodedBytes=%,d (%.1f MB)  avgRaw/page=%.1f  avgEncoded/page=%.1f%n",
+        lsCandidates, lsRaw, lsRaw / (1024.0 * 1024.0), lsEncoded, lsEncoded / (1024.0 * 1024.0), lsCandidates == 0
+            ? 0
+            : (double) lsRaw / lsCandidates,
+        lsCandidates == 0
+            ? 0
+            : (double) lsEncoded / lsCandidates);
+    final long revPages = REVISION_ELISION_PAGES.sum();
+    final long revBytes = REVISION_ELISION_BYTES_SAVED.sum();
+    final long revMeta = REVISION_ELISION_META_BYTES.sum();
+    System.out.printf(
+        "[PageSectionDiag] encoders: revisionElision pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)"
+            + "  metadata=%,d (%.2f B/record)%n",
+        revPages, pct(revPages, pages), revBytes, revBytes / (1024.0 * 1024.0), revMeta, RECORDS.sum() == 0
+            ? 0.0
+            : (double) revMeta / RECORDS.sum());
+    final long postCodecPages = POST_CODEC_PAGES.sum();
+    if (postCodecPages > 0) {
+      final long recordsSeen = RECORDS.sum();
+      final long sectionSum = POST_CODEC_SECTION_SUM.sum();
+      final long actualBody = POST_CODEC_ACTUAL_BODY.sum();
+      System.out.printf(
+          "[PageSectionDiag] post-codec attribution over %,d pages — each staged section compressed ON ITS OWN with"
+              + " the page's elected codec, so these are upper bounds; the whole body beats their sum by the"
+              + " cross-section redundancy the codec also sees%n",
+          postCodecPages);
+      for (int section = 0; section < SECTION_COUNT; section++) {
+        final long raw = SECTION_RAW_BYTES[section].sum();
+        final long encoded = SECTION_ENCODED_BYTES[section].sum();
+        if (raw == 0 && encoded == 0) {
+          continue;
+        }
+        System.out.printf(
+            "[PageSectionDiag]   %-18s raw=%,d (%.2f B/record)  alone=%,d (%.2f B/record)  ratio=%.3f%s%n",
+            SECTION_NAMES[section], raw, perRecord(raw, recordsSeen), encoded, perRecord(encoded, recordsSeen),
+            raw == 0
+                ? 0.0
+                : (double) encoded / raw, section >= SECTION_HEAP_FUSED
+                    ? "  (part of heap)"
+                    : "");
+      }
+      System.out.printf(
+          "[PageSectionDiag]   sections alone sum=%,d (%.2f B/record)  actual body=%,d (%.2f B/record)"
+              + "  cross-section gain=%,d (%.1f%%)%n",
+          sectionSum, perRecord(sectionSum, recordsSeen), actualBody, perRecord(actualBody, recordsSeen),
+          sectionSum - actualBody, sectionSum == 0
+              ? 0.0
+              : 100.0 * (sectionSum - actualBody) / sectionSum);
+    }
+    final long dirEntries = COMPACT_DIR_ENTRIES.sum();
+    if (dirEntries > 0) {
+      final long predictable = COMPACT_DIR_PREDICTABLE_ENTRIES.sum();
+      System.out.printf(
+          "[PageSectionDiag] compact directory: %,d entries, %,d (%.1f%%) repeat the kind AND length of the previous"
+              + " entry of the same template — what a template-implied directory could drop (T1-b)%n",
+          dirEntries, predictable, pct(predictable, dirEntries));
+    }
     final long veP = VALUE_ELISION_PAGES.sum();
     final long veB = VALUE_ELISION_BYTES_SAVED.sum();
     final long nkP = NAME_KEY_ELISION_PAGES.sum();

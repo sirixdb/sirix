@@ -145,15 +145,21 @@ public final class StringDictSketch {
     for (int tag = 0; tag < header.parentDictSize; tag++) {
       final int dictStart = header.tagStringDictOffset[tag];
       final int n = header.tagStringDictSize[tag];
-      final long bytesStart = (long) dictStart + (long) n * Integer.BYTES;
-      if (dictStart < 0 || n < 0 || bytesStart > stringPayloadLength) {
+      // The length table's field width is the tag's, not a constant: a page framed for records
+      // stores most lengths in one byte. The header carries both the width and where the entries'
+      // bytes begin, so nothing here has to know which framing produced them.
+      final int lengthWidth = header.tagLengthWidth[tag];
+      final long bytesStart = header.tagStringBytesOffset[tag];
+      if (dictStart < 0 || n < 0 || lengthWidth <= 0 || bytesStart > stringPayloadLength
+          || (long) dictStart + (long) n * lengthWidth > stringPayloadLength) {
         return null;
       }
       int off = (int) bytesStart;
       for (int i = 0; i < n; i++) {
         // The sign carries the FSST flag; the magnitude is the STORED length either way, and the
         // stored bytes are exactly what a probe reproduces (see the class contract).
-        final int lengthField = getIntFromArray(stringPayload, dictStart + i * Integer.BYTES);
+        final int lengthField = StringRegion.readLengthFieldFromArray(stringPayload, dictStart + i * lengthWidth,
+            lengthWidth);
         if (lengthField == Integer.MIN_VALUE) {
           return null;
         }

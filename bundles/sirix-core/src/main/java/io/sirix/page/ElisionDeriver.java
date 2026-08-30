@@ -73,7 +73,25 @@ final class ElisionDeriver {
   /** A region-index exception list follows. */
   static final int VE_FLAG_INDEX_EXCEPTIONS = 0x04;
 
-  /** An original-heap-width exception list follows. */
+  /**
+   * An original-heap-width exception list follows.
+   *
+   * <p>
+   * <b>Empty on every page this writer can produce, and that is a property rather than an accident.</b>
+   * Once the type byte and the region value are settled, the width is a pure function of them: one
+   * type byte plus {@code DeltaVarIntCodec}'s deterministic signed varint for a number, one flag byte
+   * plus a length varint plus the dictionary entry for a string, one byte for a boolean. For a
+   * deviation to exist the record heap would have to disagree with the region about the value it
+   * holds — which is corruption, not a shape, and the injection pass already refuses it: it recomputes
+   * the width as it writes and throws on a mismatch rather than laying bytes down at the recorded one.
+   *
+   * <p>
+   * The list is implemented, sized and parsed all the same. It costs nothing while empty, it keeps the
+   * three derived fields symmetric, and the day a heap encoder stops being canonical — a padded
+   * payload, a second varint flavour — the format already has the room. What it is NOT is a witnessed
+   * path: there is no fixture in the suite that populates it, because fabricating one would mean
+   * reaching past the encoder through a seam and pinning a page no writer can emit.
+   */
   static final int VE_FLAG_WIDTH_EXCEPTIONS = 0x08;
 
   /** A name-key width exception list follows. */
@@ -242,7 +260,16 @@ final class ElisionDeriver {
     stringPayload = nonEmpty(regions.payload(RegionTable.KIND_STRING));
     booleanPayload = nonEmpty(regions.payload(RegionTable.KIND_BOOLEAN));
     if (numberPayload != null) {
-      numberHeader.parseInto(numberPayload);
+      // The per-tag directory may live in the zone map rather than in the value region; a page is
+      // read whole here, so both are in the table whenever the writer published both. Without the
+      // directory the region is unreadable and every slot has to take an index exception, which is
+      // what numberReady staying false does.
+      final MemorySegment numberDirectory = nonEmpty(regions.payload(RegionTable.KIND_NUMBER_ZONEMAP));
+      if (numberDirectory == null && NumberRegion.needsExternalDirectory(numberPayload)) {
+        numberPayload = null;
+        return;
+      }
+      numberHeader.parseInto(numberPayload, numberDirectory);
       numberReady = true;
       numberRank = clearedRanks(numberRank, numberHeader.dictSize);
       if (NumberRegion.isDelta(numberHeader.encodingKind)) {

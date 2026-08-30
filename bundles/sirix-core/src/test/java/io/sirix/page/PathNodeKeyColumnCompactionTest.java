@@ -20,6 +20,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 import java.util.Random;
 
@@ -177,6 +179,54 @@ final class PathNodeKeyColumnCompactionTest {
     final byte[] expanded = new byte[legacyLength];
     PathNodeKeyRegion.expand(compact(compactBuffer, compactLength), compactLength, expanded);
     assertArrayEquals(legacy, expanded, "and still expand back exactly");
+  }
+
+  @Test
+  @DisplayName("a dictionary of consecutive path ids is stored as deltas, and then it compresses")
+  void aConsecutiveDictionaryIsStoredAsDeltas() {
+    // A page's distinct pathNodeKeys are usually a run of consecutive path ids. Stored as offsets from
+    // the minimum that is a byte RAMP — every byte distinct, nothing for the body codec to match — so
+    // the dictionary was the one part of the compact column that came out BIGGER after LZ77 (106 bytes
+    // in, 110 out). Stored as deltas it is the same byte repeated.
+    final int keys = 106;
+    final int[] pathNodeKeys = new int[keys];
+    final int[] slots = new int[keys];
+    for (int i = 0; i < keys; i++) {
+      pathNodeKeys[i] = 900 + i;
+      slots[i] = i;
+    }
+    final byte[] scratch = new byte[1 + 255 * 4 + 2 + 128 + 1_024 + 64];
+    final int legacyLength =
+        PathNodeKeyRegion.encode(pathNodeKeys, slots, keys, scratch, new int[256], new byte[1_200], new long[16]);
+    final byte[] legacy = Arrays.copyOf(scratch, legacyLength);
+    final byte[] compactBuffer = new byte[legacyLength];
+    final int compactLength = PathNodeKeyRegion.compact(legacy, legacyLength, compactBuffer);
+    assertTrue(compactLength > 0, "the compact form must be reachable");
+
+    // The dictionary slice sits behind a three-byte header and the four-byte minimum.
+    final int numUnique = compactBuffer[2] & 0xFF;
+    final int dictWidth = 1 << (compactBuffer[1] & 0x03);
+    final int dictBytes = numUnique * dictWidth;
+    assertEquals(keys, numUnique, "every key on this fixture is distinct");
+    final int dictCompressed = lz77Size(compactBuffer, 7, dictBytes);
+    assertTrue(dictCompressed * 8 < dictBytes, "a delta dictionary must compress at least eightfold — "
+        + dictCompressed + " of " + dictBytes + " bytes; the offset form came out LARGER than its input");
+
+    // And it still expands to exactly the keys it was built from.
+    final byte[] expanded = new byte[legacyLength];
+    PathNodeKeyRegion.expand(Arrays.copyOf(compactBuffer, compactLength), compactLength, expanded);
+    assertArrayEquals(legacy, expanded, "the delta dictionary must rebuild the random-access layout exactly");
+    for (int i = 0; i < keys; i++) {
+      assertEquals(pathNodeKeys[i], PathNodeKeyRegion.pathNodeKeyForSlot(expanded, slots[i]), "slot " + slots[i]);
+    }
+  }
+
+  /** What the page body's dominant codec makes of a slice of these bytes on their own. */
+  private static int lz77Size(final byte[] bytes, final int offset, final int length) {
+    final MemorySegment segment = Arena.ofAuto().allocate(length);
+    MemorySegment.copy(bytes, offset, segment, ValueLayout.JAVA_BYTE, 0L, length);
+    final byte[] out = new byte[SirixLZ77Codec.maxEncodedSize(length)];
+    return SirixLZ77Codec.encode(segment, 0L, length, out, 0);
   }
 
   @Test

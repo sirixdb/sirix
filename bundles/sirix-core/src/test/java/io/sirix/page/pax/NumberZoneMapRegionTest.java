@@ -6,6 +6,7 @@ package io.sirix.page.pax;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.page.SirixLZ77Codec;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -35,6 +36,16 @@ import jdk.incubator.vector.VectorOperators;
 @DisplayName("NumberZoneMapRegion")
 final class NumberZoneMapRegionTest {
 
+  /**
+   * The zone map's wire form follows the number region's: with the per-tag election on it is the
+   * varint V2 form, off it is the fixed-width V1 form. The cases below that pin V1 byte counts or
+   * its compression envelope set the switch, and must not leak it into the next case.
+   */
+  @AfterEach
+  void clearEncoderOverrides() {
+    NumberRegion.clearPerTagWidthOverride();
+  }
+
 
   private static NumberRegion.Header numberHeader(final long[] values, final int tagCount) {
     final int[] tags = new int[values.length];
@@ -56,8 +67,14 @@ final class NumberZoneMapRegionTest {
       final NumberRegion.Header source = numberHeader(values, tagCount);
       final byte[] encoded = NumberZoneMapRegion.encode(source);
       assertNotNull(encoded, "a zone-mapped number region must produce a zone map");
-      assertEquals(NumberZoneMapRegion.encodedSize(source.dictSize), encoded.length,
-          "encodedSize must match what encode actually writes");
+      // encodedSize is the FIXED form's exact size and the varint form's bound: the varint form is
+      // elected only when it is strictly smaller, which is what keeps one buffer sufficient for both.
+      assertTrue(encoded.length <= NumberZoneMapRegion.encodedSize(source.dictSize),
+          "the elected form must fit the fixed form's buffer");
+      assertEquals(NumberZoneMapRegion.VERSION_V2, encoded[0],
+          "these bounds are small enough that the varint form must win");
+      assertTrue(encoded.length < NumberZoneMapRegion.encodedSize(source.dictSize),
+          "the varint form must be strictly smaller here, else it would not have been elected");
 
       final NumberZoneMapRegion.Header z = new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(encoded));
       assertNotNull(z);
@@ -194,6 +211,7 @@ final class NumberZoneMapRegionTest {
   @Test
   @DisplayName("encodeInto retains the exact V1 little-endian wire layout")
   void encodeIntoMatchesFixedWireFixture() {
+    NumberRegion.setPerTagWidthEnabled(false);
     final NumberRegion.Header source = new NumberRegion.Header();
     source.tagKind = NumberRegion.TAG_KIND_PATH_NODE;
     source.valueMin = 0x0102030405060708L;
@@ -268,6 +286,10 @@ final class NumberZoneMapRegionTest {
   @Test
   @DisplayName("a wide zone map compresses independently and preserves every bound")
   void wideMapCompressesIndependently() {
+    // Pinned to the fixed-width form: its 24 bytes per tag are what makes a wide map large and
+    // repetitive enough to elect LZ77. The varint form of the same map is a third of the size and
+    // stays raw — cheaper still, and covered by NumberRegionPerTagForTest.
+    NumberRegion.setPerTagWidthEnabled(false);
     final int dictSize = 73;
     final NumberRegion.Header source = repetitiveHeader(dictSize);
     final byte[] zoneMap = NumberZoneMapRegion.encode(source);
@@ -296,6 +318,9 @@ final class NumberZoneMapRegionTest {
   @Test
   @DisplayName("wide-zone-map compression starts at the 512-byte accelerator threshold")
   void wideMapCompressionThresholdIsExact() {
+    // The subject is RegionTable's 512-byte accelerator threshold, measured on the fixed-width
+    // form whose size per tag is exact.
+    NumberRegion.setPerTagWidthEnabled(false);
     final byte[] belowThreshold = NumberZoneMapRegion.encode(repetitiveHeader(20));
     final byte[] atOrAboveThreshold = NumberZoneMapRegion.encode(repetitiveHeader(21));
     assertNotNull(belowThreshold);
@@ -349,25 +374,39 @@ final class NumberZoneMapRegionTest {
   }
 
   @Test
-  @DisplayName("a reader that skips the zone map still reads every other region correctly")
-  void skippingTheZoneMapLeavesTheRestIntact() {
+  @DisplayName("asking for the number column also brings its directory; asking for neither skips both")
+  void theNumberColumnAndItsDirectoryAreReadTogether() {
     final NumberRegion.Header source = numberHeader(bigValues(), 4);
     final byte[] numbers = NumberRegion.encode(bigValues(), tagsFor(bigValues().length, 4), bigValues().length);
     try (RegionTable table = new RegionTable()) {
       table.set(RegionTable.KIND_NUMBER, numbers);
       table.set(RegionTable.KIND_NUMBER_ZONEMAP, NumberZoneMapRegion.encode(source));
+      table.set(RegionTable.KIND_STRING, new byte[] {1, 2, 3, 4});
 
       final BytesOut<MemorySegment> out = Bytes.elasticHeapByteBuffer();
       table.write(out, true);
 
-      // Ask for only the number column — the zone map is stepped over by its length prefix. This is
-      // the same path a reader that predates the region takes, so it stands in for one.
+      // The summary carries the number column's per-tag directory, so a request for the values is a
+      // request for both — enforced by the reader rather than by every caller remembering. A caller
+      // that forgot would not get a wrong answer, it would silently lose columnar serving.
       try (RegionTable back = RegionTable.read(out.bytesForRead(), RegionTable.maskOf(RegionTable.KIND_NUMBER))) {
-        assertNull(back.payload(RegionTable.KIND_NUMBER_ZONEMAP), "not requested, must be absent");
-        final NumberRegion.Header h = new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER));
+        assertNotNull(back.payload(RegionTable.KIND_NUMBER_ZONEMAP), "the directory comes with its column");
+        final NumberRegion.Header h = new NumberRegion.Header().parseInto(back.payload(RegionTable.KIND_NUMBER),
+            back.payload(RegionTable.KIND_NUMBER_ZONEMAP));
         assertNotNull(h);
-        assertEquals(source.count, h.count, "skipping the zone map must not disturb the number region");
+        assertEquals(source.count, h.count);
         assertEquals(source.dictSize, h.dictSize);
+      }
+
+      // A reader that wants neither still steps over both by their length prefixes — the path a
+      // reader predating either region takes, which is what this stands in for.
+      final BytesOut<MemorySegment> again = Bytes.elasticHeapByteBuffer();
+      table.write(again, true);
+      try (RegionTable back = RegionTable.read(again.bytesForRead(), RegionTable.maskOf(RegionTable.KIND_STRING))) {
+        assertNull(back.payload(RegionTable.KIND_NUMBER_ZONEMAP), "not requested, must be absent");
+        assertNull(back.payload(RegionTable.KIND_NUMBER), "not requested, must be absent");
+        assertArrayEquals(new byte[] {1, 2, 3, 4}, PaxTestSegments.bytes(back.payload(RegionTable.KIND_STRING)),
+            "stepping over both must not disturb what follows them");
       }
     }
   }
@@ -375,6 +414,9 @@ final class NumberZoneMapRegionTest {
   @Test
   @DisplayName("the zone map can be read without materializing the number column")
   void readsWithoutMaterializingTheColumn() {
+    // Pinned to the fixed-width form so the map is large enough to be LZ77-framed: the property
+    // under test is that even a COMPRESSED summary is read without materializing the column.
+    NumberRegion.setPerTagWidthEnabled(false);
     final int tagCount = 73;
     final long[] values = wideValues(tagCount);
     final NumberRegion.Header source = numberHeader(values, tagCount);
