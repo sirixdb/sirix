@@ -899,8 +899,31 @@ public final class ProjectionColumnStore {
   /** Kill switch: {@code false} restores the static budget with retention for the store's lifetime. */
   public static final String RESIDENCY_HEADROOM_PROPERTY = "sirix.projection.residency.headroom";
 
+  /**
+   * Whether the headroom share may LOWER what a store retains (R1). Opt-IN, and measured that way.
+   *
+   * <p>
+   * R1 shipped on by default and was reverted to opt-in on the evidence of the 100M leg it was built
+   * for. With it on, the same share gates three consumers at once — this budget, the group table and
+   * the grouped-distinct ceiling — and a pessimistic sample at a query boundary releases what the
+   * query just filled, so the next try re-reads it. Measured at 100M on the 69.6 GB rebuild, same
+   * database and code, only this flag moving: q3 (projection-aggregate) 23.4 s cold / 21.1 s hot with
+   * it on against 2.4 / 0.09 with it off — hot == cold being the signature of retaining nothing — and
+   * q4 ({@code COUNT(DISTINCT UserID)}) never finished, thrashing at 12.6 cores and 16.9 GB RSS with a
+   * 763-second concurrent mark cycle, against 1.50 / 1.46 with it off.
+   * </p>
+   *
+   * <p>
+   * The mechanism, its scope, its pins and its witnesses all stay: a store that genuinely must bound
+   * what it keeps across queries turns it on with
+   * {@code -Dsirix.projection.residency.headroom=true}. What it may not do is decide, from one
+   * process-wide sample, that a query should throw away the column it is about to read again — and
+   * the per-consumer accounting that would make it safe (one accumulator over every claimant of the
+   * share, not N independent tests against the whole of it) does not exist yet.
+   * </p>
+   */
   private static volatile boolean residencyHeadroom =
-      !"false".equalsIgnoreCase(System.getProperty(RESIDENCY_HEADROOM_PROPERTY, "true"));
+      Boolean.parseBoolean(System.getProperty(RESIDENCY_HEADROOM_PROPERTY, "false"));
 
   /**
    * Test seam for the kill switch.

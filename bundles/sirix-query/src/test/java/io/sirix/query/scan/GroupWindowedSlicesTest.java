@@ -269,6 +269,19 @@ final class GroupWindowedSlicesTest {
 
   @Test
   void theHeadroomShareGatesRetentionAndTheQueryExitReleasesIt() throws Exception {
+    // R1 is OPT-IN since the 100M leg measured what it costs when it decides against a query that is
+    // about to re-read the column it just filled (see ProjectionColumnStore's flag). The lever still
+    // has to work when a deployment asks for it, so this witness turns it on explicitly and restores
+    // the process default afterwards.
+    final boolean previousResidency = ProjectionColumnStore.setResidencyHeadroomForTesting(true);
+    try {
+      theHeadroomShareGatesRetentionAndTheQueryExitReleasesItWithResidencyOn();
+    } finally {
+      ProjectionColumnStore.setResidencyHeadroomForTesting(previousResidency);
+    }
+  }
+
+  private void theHeadroomShareGatesRetentionAndTheQueryExitReleasesItWithResidencyOn() throws Exception {
     // R1. The static fill budget is untouched here and is orders of magnitude above this fixture:
     // the ONLY thing deciding residency is the shared heap-headroom share, and the only thing
     // returning bytes is the query scope's exit.

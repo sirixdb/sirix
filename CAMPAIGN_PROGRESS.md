@@ -2566,3 +2566,16 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
 - 22:30 **q3 regression CONFIRMED on the fresh 69.6 GB DB with nothing else running: 23.4 s cold / 21.1 s hot vs
   1.859 / 0.112 this morning (route unchanged: projection-aggregate). hot ≈ cold = the "retains nothing" signature.**
   The leg continues (4/43); the A/B with `-Dsirix.projection.residency.headroom=false` runs the moment it ends.
+- 22:47 **q3/q4 REGRESSION ATTRIBUTED TO B6 AND FIXED (lever made opt-in).** The 43-query leg on rebuild #2 stalled
+  after q3: the JVM sat at 12.6 cores / 16.9 GB RSS with a **763-second concurrent mark cycle** and emitted no row
+  for 19 min (q4 = `COUNT(DISTINCT UserID)`); SIGTERMed per protocol. A/B on the same DB and code, only
+  `sirix.projection.residency.headroom` moving (38 s total): **q3 23.421 / 21.149 → 2.371 / 0.093; q4 never
+  finished → 1.497 / 1.462** (this morning: 1.859 / 0.112 and 1.563 / 1.421). Mechanism: one process-wide share
+  (`min(maxHeap/8, headroom/4)`) gates the residency budget, the group table AND the grouped-distinct ceiling, and
+  the scope's exit releases what the query just filled, so each try re-reads it (hot == cold); the P2 storage
+  reviewer had independently flagged the same structural flaw ("N sites each testing their own allocation against
+  the whole share"). **Fix: `residencyHeadroom` default true → false (opt-in via
+  `-Dsirix.projection.residency.headroom=true`), mechanism/scope/pins/tests all kept; the witness
+  `GroupWindowedSlicesTest#theHeadroomShareGatesRetentionAndTheQueryExitReleasesIt` now enables it explicitly.**
+  Rig: ResidencyRelease 5/5, HeapHeadroomBudget 5/5, GroupWindowedSlices 28/28, GroupHashRangePass 2/2,
+  GroupPassOOMRestart 1/1, StrictServing 2/2. Full leg relaunched.
