@@ -2307,3 +2307,7 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   is on the listener path); left as a known flake. Re-based `AdoptedOverflowCarrierStagingTest` 6/6 on the rig; the
   json/xml `DensePageDirectCreationFallbackTest` need Mockito's inline agent (rig cannot load it) → verified under
   Gradle in the worktree with the fixed files copied in (result below).
+- 19:24 **Wave-2 gates COMPLETE at `194e52299`: full core suite rc=0 (7m 12s, no failures), full query suite rc=0,
+  targeted gates green (re-based fixtures verified under Gradle in the worktree).** Wave 3 in flight: B3-a
+  (`ElisionDeriver` + PageKind elision sections) and B6 (`ProjectionResidencyScope`, store/catalog/spill headroom
+  sharing); B5-c queued behind B3-a.

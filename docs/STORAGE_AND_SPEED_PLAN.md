@@ -224,7 +224,13 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   `-Dsirix.projection.orderLabels.synthesized=false` proven byte-identical against a HEAD-compiled encoder; fixture
   KEYS 13.909 → 0.945 B/row (label lane 13.002 → 0.038). **1M acceptance met: KEYS 12.78 → 0.94 B/row, projection
   115.5 → 103.6 B/row (`measure1m.sh wave1`).**
-- **B1 — `TIMESTAMP` / `DATE`.** Files: `ProjectionIndexBuilder.java` (`mapTypeToColumnKind`), `ProjectionIndexRowGroupPage.java`,
+- **B1 — DONE 18:52 (impl-b1), committed `32b7c2a37`:** kinds 6/7 in the long lane, `isOrderedLongKind` for the
+  ordering kernels, exact literal→bound rule (prefix `eq` is constant-false — the brief's range rule was wrong),
+  substring windows as idiv/mod, min/max from zone maps, kill switch `-Dsirix.projection.temporalKinds=false`.
+  **1M acceptance met: EventTime 2.16 B/row, EventDate 0.03 B/row; file 1,854.3 → 1,770.4 MB with B5-d + the
+  codec fix.** Wave-2 gates: full query suite green; full core green after re-basing three overflow fixtures on the
+  cap constant (`194e52299`); one pre-existing order-dependent Mockito flake noted.
+- **B1 — `TIMESTAMP` / `DATE` (original brief).** Files: `ProjectionIndexBuilder.java` (`mapTypeToColumnKind`), `ProjectionIndexRowGroupPage.java`,
   `ProjectionIndexColumnSegmentCodec.java`, `SirixVectorizedExecutor.java` (emission formatter, literal→bound rule,
   substring arithmetic, the ISO-minute arm), harness `ClickBenchProjection.projectionType` declares the types.
   Witness: exact round trip on every value (mutation: a formatter that drops seconds); the sorted-scan, group and

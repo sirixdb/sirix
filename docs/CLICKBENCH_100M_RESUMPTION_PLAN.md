@@ -557,3 +557,12 @@ naming the properties, `ADOPTED_CARRIERS_OVERSIZED`; R3 `KVL_PAGES_PINNED_AFTER_
 promote site, `kvlDeferredPages` in the HFT line; R4 materialize before `prepareLeafOfTree`; R6
 `carriersKnownResolved` overload of `serializeDisposableSnapshotKeyValuePage`; R9 `getSnapshotDiskOffset`
 javadoc, cap comment rewritten. Not applied: R7 (measure first), R8 (see §5.4), R10 (follow-up).
+
+## Status 2026-08-30 19:20 — wave 2 committed, rebuild #1 pending wave 3
+- Committed on `codex/clickbench-port-rebased-20260827`: `1c43bcbbe` (wave 1: section diagnostics, synthesized order
+  labels), `3647d58e1` (B5-d cap 1,023 + per-tag string-region completeness + body codec election fix),
+  `32b7c2a37` (B1 declared timestamp/date kinds), `194e52299` (fixtures re-based on the cap).
+- 1M: file 1,854.3 → 1,770.4 MB (−4.5 %); leaf class 1,093.3 → 1,070.4 MB; projection 103.5 B/row.
+- Rebuild #1 at 100M happens after B3-a (derived elision metadata — the largest measured trie lever) and B5-c; it
+  needs the old 124 GB campaign DB (`clickbench-100m-campaign-20260830-0058/db`) deleted first (15 GB free now) and
+  the harness's declared `date`/`timestamp` types — every old DB is invalid for the new cap/region/kind layouts.
