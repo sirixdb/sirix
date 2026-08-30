@@ -2689,3 +2689,16 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   `GlobalValueDictionaryReadViewMissPathTest#missPathDoesNotAllocatePerProbe` — a per-probe ALLOCATION assertion,
   which passes 2/2 alone and did not fail in tonight's two earlier full-core runs; it is order/JIT-sensitive and the
   valve does not touch that path. Recorded as a second known flake beside the Mockito one.
+- 01:40 **OverflowPage payload compression built, gated (full core rc=0) and committed; taken to 100M for the
+  decision.** At 1M: OverflowPage class 664.4 → 412.8 MB (ratio 0.621), whole file 1,169.6 → 918.0 MB (**−21.5 %**),
+  byte-reproducible over three loads, all 43 query dumps byte-identical across 249,526 overflow pages. Costs at 1M:
+  ingest +10.1 % (min-of-3), cold query sum **+20 %** (reproducible in two sessions), hot unresolvable (the OFF
+  baseline itself moved 7.77 → 9.49 s between sessions on identical code and data). **Why 1M is the worst case and
+  100M is the real test:** at 1M the entire 1.17 GB database sits in page cache, so the measurement charges all of
+  the decompression CPU and credits NONE of the I/O saving; at 100M it is 69.6 GB against ~10 GB of free cache,
+  which is exactly the regime where reading 21.5 % fewer bytes pays. Format: the discriminator went into the page
+  envelope's existing reserved FLAGS byte, so an OLD database still reads under the new code and a NEW one fails
+  loudly on an older build rather than misparsing. Caveat recorded honestly: switch-off byte-identity is argued
+  from the code path plus a byte-reproducible file size, NOT proven against a control binary (PageKind also carries
+  another agent's uncommitted work). Bonus finding: `SirixLZ77Codec.decode` silently takes the JAVA decoder when
+  the output segment is heap-backed — 3.0 vs 16.9 GB/s, a 5.6× trap that applies anywhere in the tree.

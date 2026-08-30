@@ -5375,44 +5375,62 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
-
-      switch (binaryVersion) {
-        case V0 -> {
-          final int length = source.readInt();
-          // Corruption guard bounded by what the source actually holds, NOT by a fixed ceiling: an
-          // overflow page legitimately carries an arbitrarily large node record, so any absolute cap
-          // would reject valid committed data. A garbled length, by contrast, cannot be covered by
-          // the remaining bytes — so this catches it before the allocation without ever rejecting an
-          // intact page.
-          final long remaining = source.remaining();
-          if (length < 0 || length > remaining) {
-            throw new IllegalStateException(
-                "Corrupt OverflowPage length " + length + " (only " + remaining + " bytes remain in the source)");
-          }
-          final byte[] data = new byte[length];
-          source.read(data);
-
-          // Store as byte array to avoid memory leaks from Arena.global()
-          return new OverflowPage(data);
-        }
-        default -> throw new IllegalStateException();
+      final byte flags = readVersionAndFlagsAllowing(source, FLAG_OVERFLOW_PAYLOAD_COMPRESSED);
+      final int length = source.readInt();
+      if (length < 0) {
+        throw new IllegalStateException("Corrupt OverflowPage length " + length);
       }
+      if ((flags & FLAG_OVERFLOW_PAYLOAD_COMPRESSED) != 0) {
+        return deserializeCompressedOverflowPayload(source, length);
+      }
+      // Corruption guard bounded by what the source actually holds, NOT by a fixed ceiling: an
+      // overflow page legitimately carries an arbitrarily large node record, so any absolute cap
+      // would reject valid committed data. A garbled length, by contrast, cannot be covered by
+      // the remaining bytes — so this catches it before the allocation without ever rejecting an
+      // intact page.
+      final long remaining = source.remaining();
+      if (length > remaining) {
+        throw new IllegalStateException(
+            "Corrupt OverflowPage length " + length + " (only " + remaining + " bytes remain in the source)");
+      }
+      final byte[] data = new byte[length];
+      source.read(data);
+
+      // Store as byte array to avoid memory leaks from Arena.global()
+      return new OverflowPage(data);
     }
 
     @Override
     public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
         SerializationType type) {
       OverflowPage overflowPage = (OverflowPage) page;
-      sink.writeByte(OVERFLOWPAGE.id);
-      writeVersionAndFlags(sink);
+      final int dataLength = overflowPage.dataLength();
 
-      // A staged projection page is a bounded view into the writer's fixed native reservoir. Write
-      // that view directly: materialising it as byte[] here would recreate the promoted-garbage
-      // slope the native staging path exists to remove. Ordinary overflow records remain heap
-      // backed and take the unchanged byte[] branch inside writeDataTo().
-      sink.writeInt(overflowPage.dataLength());
-      overflowPage.writeDataTo(sink);
+      // Elect a codec BEFORE anything is written: the envelope flag has to say which layout follows,
+      // and whether compression pays is only known once it has been tried.
+      final OverflowPayloadCodecResult elected = OVERFLOW_ENCODE_RESULT.get();
+      final boolean compressed = OVERFLOW_PAYLOAD_COMPRESSION_ENABLED && dataLength >= OVERFLOW_COMPRESSION_MIN_BYTES
+          && electOverflowPayloadCodec(overflowPage.payloadSegmentForSerializer(),
+              overflowPage.payloadOffsetForSerializer(), dataLength, elected);
+
+      sink.writeByte(OVERFLOWPAGE.id);
+      if (!compressed) {
+        // Byte-for-byte the layout this page has always had, flags included, so the kill switch and
+        // every pre-existing resource stay readable and comparable.
+        writeVersionAndFlags(sink);
+        // A staged projection page is a bounded view into the writer's fixed native reservoir. Write
+        // that view directly: materialising it as byte[] here would recreate the promoted-garbage
+        // slope the native staging path exists to remove. Ordinary overflow records remain heap
+        // backed and take the unchanged byte[] branch inside writeDataTo().
+        sink.writeInt(dataLength);
+        overflowPage.writeDataTo(sink);
+        return;
+      }
+      writeVersionAndFlags(sink, FLAG_OVERFLOW_PAYLOAD_COMPRESSED);
+      sink.writeInt(dataLength);
+      sink.writeInt(elected.storedLength);
+      sink.writeByte((byte) elected.codec);
+      sink.write(elected.stored, 0, elected.storedLength);
     }
   },
 
@@ -7882,6 +7900,201 @@ public enum PageKind {
         PageSectionDiag.recordCodecZeroRun(v0Len);
       }
     }
+  }
+
+  /**
+   * Envelope flag: this {@link OverflowPage}'s payload is codec-compressed.
+   *
+   * <p>
+   * Chosen over a bare added field so that the OFF state is byte-for-byte the layout this page kind
+   * has always had: a resource written before this change carries flags {@code 0} and still reads,
+   * and {@code -Dsirix.page.overflow.compress=false} reproduces today's bytes exactly. A resource
+   * written WITH the flag cannot be read by an older build — {@code readVersionAndFlags} refuses an
+   * unknown flag bit loudly rather than misparsing, which is the trade this bit exists to make.
+   * </p>
+   */
+  static final byte FLAG_OVERFLOW_PAYLOAD_COMPRESSED = 0x01;
+
+  /**
+   * Whether an {@link OverflowPage} payload is offered to the codec bake-off on write.
+   *
+   * <p>
+   * Overflow payloads were the last raw bytes in the file: leaf bodies compress internally, PAX
+   * regions compress internally, and the resource's default byte handler is {@code none}, so this
+   * class — the projection's column segments, the value-dictionary value blocks and every record
+   * above {@link io.sirix.settings.Constants#MAX_RECORD_SIZE} — reached the disk verbatim. Measured
+   * at 100M it is 17.45 GB, a quarter of the database.
+   * </p>
+   */
+  private static final boolean OVERFLOW_PAYLOAD_COMPRESSION_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.page.overflow.compress", "true"));
+
+  /**
+   * Below this the three encode passes cost more than the bytes they could save, and the 5-byte
+   * compressed framing can only make the page bigger.
+   */
+  private static final int OVERFLOW_COMPRESSION_MIN_BYTES = 64;
+
+  /** Per-thread election result, so a page-sized decision allocates nothing. */
+  private static final class OverflowPayloadCodecResult {
+    private byte[] stored;
+    private int storedLength;
+    private int codec;
+  }
+
+  private static final ThreadLocal<OverflowPayloadCodecResult> OVERFLOW_ENCODE_RESULT =
+      ThreadLocal.withInitial(OverflowPayloadCodecResult::new);
+
+  /** Per-thread staging for a compressed payload being read back. */
+  private static final ThreadLocal<byte[]> OVERFLOW_DECODE_SCRATCH = ThreadLocal.withInitial(() -> new byte[1 << 16]);
+
+  /**
+   * Per-thread NATIVE landing area for an LZ77 frame being read back.
+   *
+   * <p>
+   * {@link SirixLZ77Codec#decode} dispatches to the C decoder only when its output is native-backed
+   * with tail slack; a heap output silently takes the Java decoder, measured here at 3.0 GB/s against
+   * 16.9 GB/s native on a 32 KB frame — 5.6&times;. An {@link OverflowPage} must own a heap array (its
+   * constructor's contract, so nothing retains a reservoir view), so the frame is decoded natively and
+   * then copied out. The copy runs at memcpy speed and is bought back many times over.
+   * </p>
+   *
+   * <p>
+   * {@link Arena#ofAuto()} rather than a confined or shared arena: the segment is reachable only from
+   * this thread-local, so it is freed when the thread and the local die, with no close() to get wrong
+   * on a serialization thread that outlives any one page.
+   * </p>
+   */
+  private static final ThreadLocal<MemorySegment> OVERFLOW_DECODE_NATIVE =
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1 << 16));
+
+  /** Below this the native detour's extra copy costs more than the faster decoder saves. */
+  private static final int OVERFLOW_NATIVE_DECODE_MIN_BYTES = 1 << 10;
+
+  /**
+   * Exhaustive pick-smallest over the same three codecs the leaf body uses, plus STORED.
+   *
+   * <p>
+   * Deliberately NOT the sticky election of {@link #emitSmallestBody}: that election is per
+   * serialization thread and shared across page kinds, and it has already been measured to poison
+   * record pages once a different kind probes on the same thread. An overflow page is large — the
+   * whole class exists for payloads above 1 KB — so the encode cost is amortised over many KB and
+   * an exhaustive comparison is affordable where it would not be for a small page.
+   * </p>
+   *
+   * <p>
+   * STORED is what makes this safe on incompressible input: an FSST-compressed string region or a
+   * bit-packed id lane can come back LARGER from every codec, and a storage lever that can enlarge a
+   * page has no business shipping. Nothing is written unless it is strictly smaller than the raw
+   * payload.
+   * </p>
+   *
+   * @return {@code true} when a codec beat STORED, with {@code result} populated
+   */
+  private static boolean electOverflowPayloadCodec(final MemorySegment payload, final long payloadOffset,
+      final int totalBytes, final OverflowPayloadCodecResult result) {
+    final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
+    final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
+    final int maxV3 = SirixLZ77Codec.maxEncodedSize(totalBytes);
+
+    byte[] rle = V1_HEAP_RLE_SCRATCH.get();
+    final int maxRleSize = Math.max(maxV0, Math.max(maxV2, maxV3));
+    if (rle.length < maxRleSize) {
+      rle = new byte[maxRleSize];
+      V1_HEAP_RLE_SCRATCH.set(rle);
+    }
+    byte[] v2Buf = V1_HEAP_V2_SCRATCH.get();
+    if (v2Buf.length < maxV2) {
+      v2Buf = new byte[Math.max(maxV2, v2Buf.length * 2)];
+      V1_HEAP_V2_SCRATCH.set(v2Buf);
+    }
+    byte[] v3Buf = V1_HEAP_V3_SCRATCH.get();
+    if (v3Buf.length < maxV3) {
+      v3Buf = new byte[Math.max(maxV3, v3Buf.length * 2)];
+      V1_HEAP_V3_SCRATCH.set(v3Buf);
+    }
+
+    final int v0Len = ZeroRunByteCodec.encode(payload, payloadOffset, totalBytes, rle, 0);
+    final int v2Len = BYTE_RUN_CODEC_ENABLED
+        ? ByteRunCodec.encode(payload, payloadOffset, totalBytes, v2Buf, 0)
+        : Integer.MAX_VALUE;
+    final int v3Len = LZ77_CODEC_ENABLED
+        ? SirixLZ77Codec.encode(payload, payloadOffset, totalBytes, v3Buf, 0)
+        : Integer.MAX_VALUE;
+
+    final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
+    // The 5 bytes of compressed framing (stored length + codec byte) cost more than the 1 byte the
+    // stored form pays, so a codec must beat the raw payload by more than the difference to be worth
+    // electing. Tie order mirrors emitSmallestBody: LZ77 > ByteRun > ZeroRun.
+    if (bestLen >= totalBytes - (Integer.BYTES + 1)) {
+      return false;
+    }
+    if (bestLen == v3Len) {
+      result.stored = v3Buf;
+      result.codec = 3;
+    } else if (bestLen == v2Len) {
+      result.stored = v2Buf;
+      result.codec = 2;
+    } else {
+      result.stored = rle;
+      result.codec = 0;
+    }
+    result.storedLength = bestLen;
+    return true;
+  }
+
+  /**
+   * Reads a compressed {@link OverflowPage} payload back. {@code decodedLength} is the length the
+   * writer recorded; the decoder must reproduce exactly that many bytes or the record is corrupt.
+   */
+  private static Page deserializeCompressedOverflowPayload(final BytesIn<?> source, final int decodedLength) {
+    final int storedLength = source.readInt();
+    final byte codec = source.readByte();
+    final long remaining = source.remaining();
+    if (storedLength < 0 || storedLength > remaining) {
+      throw new IllegalStateException("Corrupt compressed OverflowPage payload length " + storedLength + " (only "
+          + remaining + " bytes remain in the source)");
+    }
+    // The LZ77 decoder's native fast path reads past the frame, so its input buffer carries the tail
+    // slack the codec documents; the RLE decoders ignore it.
+    final int required = storedLength + SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK;
+    byte[] in = OVERFLOW_DECODE_SCRATCH.get();
+    if (in.length < required) {
+      in = new byte[Math.max(required, in.length * 2)];
+      OVERFLOW_DECODE_SCRATCH.set(in);
+    }
+    source.read(in, 0, storedLength);
+
+    final byte[] data = new byte[decodedLength];
+    final int produced;
+    if (codec == 3 && decodedLength >= OVERFLOW_NATIVE_DECODE_MIN_BYTES && SirixLZ77NativeDecoder.isAvailable()) {
+      MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
+      // The native decoder writes past the frame, so the landing area carries the same tail slack the
+      // codec documents; sized exactly it would fall back to the Java decoder it exists to avoid.
+      final long needed = (long) decodedLength + SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK;
+      if (landing.byteSize() < needed) {
+        landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
+        OVERFLOW_DECODE_NATIVE.set(landing);
+      }
+      produced = SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+      if (produced == decodedLength) {
+        MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, data, 0, decodedLength);
+      }
+    } else {
+      final MemorySegment out = MemorySegment.ofArray(data);
+      produced = switch (codec) {
+        case 0 -> ZeroRunByteCodec.decode(in, 0, storedLength, out, 0L);
+        case 2 -> ByteRunCodec.decode(in, 0, storedLength, out, 0L);
+        case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, out, 0L);
+        default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
+      };
+    }
+    if (produced != decodedLength) {
+      throw new IllegalStateException(
+          "Corrupt OverflowPage payload: codec " + codec + " produced " + produced + " bytes, expected "
+              + decodedLength);
+    }
+    return new OverflowPage(data);
   }
 
   /**
