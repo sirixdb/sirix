@@ -2702,3 +2702,15 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   from the code path plus a byte-reproducible file size, NOT proven against a control binary (PageKind also carries
   another agent's uncommitted work). Bonus finding: `SirixLZ77Codec.decode` silently takes the JAVA decoder when
   the output segment is heap-backed — 3.0 vs 16.9 GB/s, a 5.6× trap that applies anywhere in the tree.
+- 01:37 **Ingestion D4 accepted (commit queued behind the 100M pipeline): `NameInternTable` keys the (char[],
+  offset, length) slice, lock-free and SHARED per import, so a repeat field-name occurrence allocates nothing and
+  the canonical instance is global (58,800 mints = 105 names × 560 chunk scanners → 105).** Exact counter, same
+  denominator both arms (105,000,000 occurrences, 1,172,000,000 chars): **5,792,000,000 B → 0 B**; systemic
+  cross-check from `-Xlog:gc*` on the same runs: eden reclaimed 13.54 → 8.06 GB (**−40.5 % of ALL heap
+  allocation**), young GCs 8 → 5, total pause unchanged (180.0 → 186.6 ms) — the predicted shape, since the win is
+  rate not pause. Identity witnessed with `assertSame` (equality would pass for the removed behaviour): a different
+  backing array, three slices carved from one buffer, an 8-thread race proving one instance per name survives; 7/7,
+  plus `BulkAssemblyEquivalenceOracleTest` 19/19 unchanged and a byte-identical StorageProfile. Wall clock INSIDE
+  the noise and explicitly not claimed (both A/B campaigns contaminated in opposite directions, min-of-6 differing
+  0.9 s against a ±16 % floor). The bounded fallback (fresh String past 8 probes) is safe only because the PCR and
+  name memos are value-equality maps — checked before it was written.
