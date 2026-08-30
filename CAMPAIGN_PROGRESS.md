@@ -2647,3 +2647,31 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   selection missed: the new per-write diagnostic dereferenced `getIndexType()` without a null guard and the core
   test task enables the diag by default, failing 8 `FileChannelWriterEmptyPipelineTest` cases; a page whose type is
   unknown is now simply not attributed.
+- 01:05 **P2 SEGMENT 0 GATE: FAILS, measured on disk — and it found something bigger.** Real dictionaries built
+  through the product writer (control: both switches off reproduces the product build byte-for-byte). URL @1M
+  D=275,493: today's shape 54.4 B/row → rank+no-forward-index 132.6 B/entry → +front-coded 69.7 → +in-record LZ77
+  **47.7 B/entry = 13.1 B/row (ratio 0.372)**; @10M D=2.62M the acceptance shape is 38.25 B/entry (0.331). 100M
+  projection 24–31 B/row against the ≤ 17.3 acceptance ⇒ **FAIL by 1.4–1.8×, robust to the extrapolation.** Two
+  design errors, both now measured: (a) §4.1 multiplied D by the OCCURRENCE-weighted mean length; the
+  DISTINCT-weighted mean is 2.03× larger for URL (184.01 vs 90.45 B), so the raw distinct value region at 100M is
+  **7.750 GB, not 4.68** and the dedup factor is 3.34×, not 5.5× (the HLL cardinalities were right to 0.1–1.1 %);
+  (b) §3.3's "the blocks go through the body codec bake-off" is FALSE — a 256-value block is ~33 KB, far over the
+  1,023 B inline cap, so `OVERFLOWPAGE.serializePage` writes it VERBATIM (written/raw 1.001). Dropping the forward
+  index is worth much more than designed (64.7 B/entry at D=275K, 173 at D=2.62M, because every bounded append
+  writes fresh forward radix nodes under COW). P2 track STOPPED before segment 1.
+- 01:06 **The general lever that gate uncovered: `sirix.compression` defaults to `none`, so OverflowPage payloads
+  reach disk RAW — 17.45 GB = 25 % of the 69.6 GB database** (leaf bodies and PAX regions compress internally; that
+  class does not, and it holds the projection's column segments, the dictionary blocks and every overlong record).
+  Measured compressibility of exactly those bytes: 0.33–0.47. impl-p2s1 redirected to implement the body codec
+  bake-off for OverflowPage payloads (codec byte, kill switch, rebuilt DBs), with BOTH a storage and a query-latency
+  measurement at 1M before anything else — every projection segment read would now decompress, and the standing
+  rule is that query speed must not slow down.
+- 01:06 **Ingestion D3 (allocation profile of a 1M load): 15.28 GB of heap allocated, 9 young GCs, 236.7 ms total
+  pause (0.6 % of the load), 0 full GCs — pause is not the bottleneck, allocation RATE is (0.38–0.52 GB/s, 16 KB
+  per row).** Top sites: (1) `BulkJsonScanner.intern` **5.39 GB = 35.3 %** — one `new String(char[],0,len)` per
+  object-key OCCURRENCE (105 M occurrences, 1.17 G chars) of which only 58,800 are kept, and the intern table is
+  per chunk scanner (105 names × 560 scanners); (2) the global value-dictionary radix ~4.8 GB = 33 % (per-node
+  child `long[]` copied on every insertion — high risk, collides with P2, deferred to its own brief); (3) the flush
+  lane's per-epoch buffers ~1.0 GB, of which 0.40 GB is a fresh `elasticOffHeapByteBuffer` per epoch with exactly
+  one append owner. D4 approved: fix (1) with an open-addressing char-slice table preserving the canonical INSTANCE
+  contract, plus (3)'s one-liner; skip (2).
