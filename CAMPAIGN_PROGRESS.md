@@ -2528,3 +2528,7 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   alone ×2 on this snapshot), targeted query rc=0, FULL core rc=0 (6m 51s), FULL query rc=0 (3m 1s). Committing the
   29-file wave-3 snapshot via plumbing; rebuild #2 next (rebuild #1's 90.4 GB DB deleted for disk room — number
   recorded, reproducible at `eb5a307b7`).**
+- 21:31 **WAVE 3 COMMITTED as `c0d2e8ee5`** (31 files: B3-a d2–d4 + B5-c d1–d4 + both pins + docs; flake re-verified
+  passing alone ×2 on this snapshot). **Rebuild #2 LAUNCHED detached at 21:29** from the worktree at `c0d2e8ee5`
+  into `clickbench-100m-campaign-20260830-2129` (rebuild #1's 85 GB DB deleted; 137 GB free); waiter polling.
+  Expected ≈ 66–70 GB. P2 (B7) design agent spawns next; query legs resume on the new DB, launched DETACHED.
