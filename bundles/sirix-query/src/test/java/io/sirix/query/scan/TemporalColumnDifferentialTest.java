@@ -176,10 +176,10 @@ final class TemporalColumnDifferentialTest {
     assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := $h.t group by $k let $c := count($h) "
         + "order by $k ascending return {\"k\": $k, \"c\": $c}, 1, 12)",
         SirixVectorizedExecutor::groupAggServedCount);
-    // The ISO substring windows, all arithmetic on the epoch. A TRANSFORMED key has no in-kernel
-    // order plan (that is the route's pre-existing contract, not a temporal one), so these run
-    // uncapped and the wrapper applies the order-by — which is exactly the shape the interpreter
-    // hands its own sort, and what the differential compares.
+    // The ISO substring windows, all arithmetic on the epoch. Uncapped, so the arm emits every
+    // group; a LEADING window now carries an in-kernel order plan and the wrapper TRUSTS that order,
+    // while a field window still emits first-appearance order for the wrapper to sort. Either way
+    // the differential compares the whole sequence against the interpreter's.
     assertDifferentialServed("for $h in " + DOC + " where $h.d ge '2024-06-01' and $h.d lt '2024-06-04' "
         + "let $k := substring($h.t, 1, 16) group by $k let $c := count($h) order by $k ascending "
         + "return {\"k\": $k, \"c\": $c}", SirixVectorizedExecutor::groupAggServedCount);
@@ -198,6 +198,59 @@ final class TemporalColumnDifferentialTest {
     assertDifferentialServed("for $h in " + DOC + " let $k := xs:integer(substring($h.t, 15, 2)) group by $k "
         + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}",
         SirixVectorizedExecutor::groupAggServedCount);
+  }
+
+  @Test
+  @DisplayName("a monotonic key transform orders in kernel; a modulus, a shift and a cast keep declining")
+  void monotonicKeyTransformOrdersInKernel() throws Exception {
+    // (a)/(b) A LEADING ISO window is pure truncation of the epoch, so the group key orders as the
+    // epoch does and the arm heap-selects the first `start + length - 1` groups instead of
+    // materialising all of them. The subsequence carries an OFFSET, so the served sequence has to
+    // agree with the interpreter's beyond the first emitted group as well.
+    for (final int window : new int[] {16, 13, 10}) {
+      assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, " + window + ") "
+          + "group by $k let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 21, 10)",
+          SirixVectorizedExecutor::groupAggServedCount);
+      assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, " + window + ") "
+          + "group by $k let $c := count($h) order by $k descending return {\"k\": $k, \"c\": $c}, 21, 10)",
+          SirixVectorizedExecutor::groupAggServedCount);
+    }
+    // The key as a TIE-BREAKER behind an aggregate spec: the day window makes many groups share a
+    // count, and every one of those ties is resolved by the key — in kernel, on the transformed
+    // long, against the interpreter's comparison of the rendered text.
+    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
+        + "let $c := count($h) order by $c descending, $k ascending return {\"k\": $k, \"c\": $c}, 11, 12)",
+        SirixVectorizedExecutor::groupAggServedCount);
+    // The rule is about the ARITHMETIC, not about timestamps: a bare `idiv` over a numeric column is
+    // the same monotonic truncation and orders in kernel on the integer it emits.
+    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := $h.v idiv 100 group by $k "
+        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 6, 8)",
+        SirixVectorizedExecutor::groupAggServedCount);
+    // (e) An order spec over an AGGREGATE was servable under a transformed key before and still is —
+    // the key gate must not have narrowed anything.
+    assertDifferentialServed("subsequence(for $h in " + DOC + " let $k := substring($h.t, 1, 10) group by $k "
+        + "let $c := count($h) order by $c descending, $k descending return {\"k\": $k, \"c\": $c}, 1, 9)",
+        SirixVectorizedExecutor::groupAggServedCount);
+
+    // (c)/(d) The shapes the gate refuses. Each is CAPPED: uncapped, a transformed key without a
+    // plan still serves through the deferred-order arm, so only a cap makes the refusal observable.
+    // The answers stay right because the interpreter produces them — which is why the decline is
+    // asserted on the counters and not on the answer.
+    // A two-digit FIELD window is `(epoch idiv 60) mod 60`: a modulus, so the transform is not
+    // monotonic in the value it is derived from.
+    assertDifferentialDeclined("subsequence(for $h in " + DOC + " let $k := substring($h.t, 15, 2) group by $k "
+        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 21, 10)");
+    assertDifferentialDeclined("subsequence(for $h in " + DOC + " let $k := substring($h.t, 12, 2) group by $k "
+        + "let $c := count($h) order by $k descending return {\"k\": $k, \"c\": $c}, 3, 6)");
+    // The CAST variant of a field window carries the same modulus.
+    assertDifferentialDeclined("subsequence(for $h in " + DOC + " let $k := xs:integer(substring($h.t, 15, 2)) "
+        + "group by $k let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 5, 10)");
+    // A SHIFTED key is a transform with no div/mod at all — outside the arithmetic the gate reasons
+    // about, so it keeps declining. (A shift COMPOSED with a division has no witness here: the
+    // detection stage never emits one, and the arm's own idiv gate refuses the pair before the order
+    // plan is reached — so the gate's offset clause is a second lock on a door already shut.)
+    assertDifferentialDeclined("subsequence(for $h in " + DOC + " let $k := $h.v + 5 group by $k "
+        + "let $c := count($h) order by $k ascending return {\"k\": $k, \"c\": $c}, 4, 7)");
   }
 
   @Test
@@ -324,6 +377,23 @@ final class TemporalColumnDifferentialTest {
     final long before = counter.getAsLong();
     assertEquals(generic, run(query, true), "served answer diverges for: " + query);
     assertTrue(counter.getAsLong() > before, "not served by the projection route: " + query);
+  }
+
+  /**
+   * The answer still agrees, and the group-aggregate route REFUSED it: a gate counted a decline and
+   * no group-aggregate serve happened. Asserting the answer alone would prove nothing here — the
+   * interpreter produces it either way, which is exactly what makes an accidentally admitted shape
+   * invisible without the counters.
+   */
+  private void assertDifferentialDeclined(final String query) throws Exception {
+    final String generic = run(query, false);
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final long declinedBefore = SirixVectorizedExecutor.groupAggregateDeclinedCount();
+    assertEquals(generic, run(query, true), "answer diverges for the declining shape: " + query);
+    assertEquals(servedBefore, SirixVectorizedExecutor.groupAggServedCount(),
+        "the group-aggregate route must not serve: " + query);
+    assertTrue(SirixVectorizedExecutor.groupAggregateDeclinedCount() > declinedBefore,
+        "the group-aggregate route must count a decline: " + query);
   }
 
   String run(final String query, final boolean vectorized) throws Exception {

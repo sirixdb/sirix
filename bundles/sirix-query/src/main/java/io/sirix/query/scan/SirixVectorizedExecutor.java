@@ -13145,6 +13145,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           : cdBlock >= 0 || anyKeyTransform || tree != null
               ? Long.MAX_VALUE
               : limit;
+      // A MONOTONIC key transform orders exactly as the value it is derived from, so an order spec
+      // naming the KEY is derivable for it: `(v idiv D) mod M` is monotonic non-decreasing in v iff
+      // M == 0 and D >= 0, because integer division truncates TOWARD ZERO — v1 <= v2 implies
+      // v1 idiv D <= v2 idiv D for every D > 0, and D == 0 is the identity. A MODULUS wraps, so
+      // `substring(t, 15, 2)` — the minute of the HOUR — is not a monotonic function of the epoch
+      // and keeps declining, as do the transforms that are not this arithmetic at all: a SHIFT
+      // (whose overflow re-enters at the bottom of the long range), a conditional or stringified key
+      // (the else/substitution branch puts a STRING in the same lane) and a regex key.
+      //
+      // The gate is deliberately a statement about the TRANSFORM, not a case analysis of the display
+      // kinds: a two-digit field window would in fact render in an order matching its own value, but
+      // admitting it would make correctness rest on every display's rendering staying order-true
+      // rather than on one property of the arithmetic. It costs nothing — an uncapped one of those
+      // still serves through the deferred-order arm.
+      //
+      // WHY ORDERING ON THE NUMBER ANSWERS AN `order by` OVER THE TEXT: the winner is emitted
+      // through the key's display byte, and every window that reaches here is a LEADING one, whose
+      // rendering is fixed-width and zero-padded (dddd-dd-ddTdd:dd) — so codepoint order and epoch
+      // order coincide. The one place they could part company is below the epoch, where truncation
+      // toward zero and the text's truncation disagree, and the rewrite has already required the
+      // column to be non-negative.
+      final boolean monotonicTransformedKey = anyKeyTransform && keyCount == 1 && numericSingleKey
+          && !globalSingleKey && keyRegex == null && (keyOffsetsEff == null || keyOffsetsEff[0] == 0L)
+          && (keySubstrEff == null || keySubstrEff[0] == 0) && (keySubstLit == null || keySubstLit[0] == null)
+          && keyDivModEff != null && keyDivModEff[0] >= 0L && keyDivModEff[1] == 0L;
       GroupOrderPlan resolvedPlan = selLimit < 1
           ? null
           : orderIndexes == null
@@ -13156,10 +13181,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               // a value was first interned and call it alphabetical. Declining the spec leaves
               // `order by <key>` to the wrapper's sort over the emitted STRINGS, which is right.
               : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount,
-                  (numericSingleKey && !globalSingleKey && !anyKeyTransform) || packedStringKey, funcs, aggFields,
-                  distinctFields, cdBlock);
+                  (numericSingleKey && !globalSingleKey && !anyKeyTransform) || packedStringKey
+                      || monotonicTransformedKey,
+                  funcs, aggFields, distinctFields, cdBlock);
       // DEFERRED ordering: the composite arm cannot order on a key COMPONENT (only Brackit's
-      // comparator knows string order, and a transformed key is never the plan's ORD_KEY), so an
+      // comparator knows string order, and a transformed key becomes the plan's ORD_KEY only under
+      // the monotonicity gate above), so an
       // uncapped `order by <key>` emits every group in FIRST-APPEARANCE order and the wrapper's
       // stable sort applies the order-by — the same contract the single-string-key legacy arm has
       // always had, and the same input order the interpreter hands its sort. Never with a LIMIT:
@@ -13446,7 +13473,28 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, columnFetcher())
               : null;
           final int slotWidth = 2 + 4 * aggColsFlat.length;
+          // ORD_KEY on THIS arm: the key lane is a source reference, so the order value comes from
+          // the group's EXACT identity, which for a monotonic transformed key (the only shape whose
+          // plan can carry an ORD_KEY here — a composite key's component never resolves one) is a
+          // single lane holding the transformed value itself. Lane 0 of the identity is the presence
+          // mask, so the component's value is the lane after it. Demand that layout rather than
+          // assume it: the kinds here come from the leaf payload, not from the handle the plan gate
+          // read.
+          final boolean orderOnKeyLane = orderPlan.ordersOnKey();
+          if (orderOnKeyLane && (keyCount != 1
+              || CompositeGroupIdentity.lanesFor(identityKinds, keySubstrEff, 0) != 1
+              || !ProjectionIndexRowGroupPage.isOrderedLongKind(identityKinds[0]))) {
+            return declineGroupAgg("key-ordered group without a single exact identity lane");
+          }
+          // Lane distances from a group's accumulator base: aux, then the identity's presence mask,
+          // then component 0's value. -1 = no ORD_KEY spec, and the key lane stands in as before.
+          final int keyPresenceLane = orderOnKeyLane
+              ? slotWidth + 1
+              : -1;
           final long groupBudget = GroupTableSpill.groupBudget();
+          // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
+          // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
+          final long[] zeroGroupWithoutIdentity = new long[1];
           final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
           // HASH-RANGE PASSES: one pass keeps every group; past the per-pass group budget the pass
           // aborts and the scan restarts with P passes, each keeping the groups of partitions
@@ -13628,7 +13676,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (candidates == 0) {
               return;
             }
-            final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
+            final GroupTopKSelector sel =
+                new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates), orderOnKeyLane);
             // One sequential walk over the interleaved stripes: a live bucket's key is its first
             // lane, its accumulator the next slotWidth, its aux the one after that.
             final int tblStride = into.stride();
@@ -13646,11 +13695,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   if (having != null && !havingPasses(tbl, base, having)) {
                     continue;
                   }
-                  sel.offer(tbl, base, true, tbl[base + slotWidth], null);
+                  // A key component the presence mask calls MISSING is the empty sequence, which the
+                  // plan places by EMPTY_LEAST — the same rule the interpreter's comparator uses.
+                  sel.offer(tbl, base, keyPresenceLane < 0 || (tbl[base + keyPresenceLane] & 1L) == 0L,
+                      tbl[base + slotWidth], null, keyPresenceLane < 0
+                          ? 0L
+                          : tbl[base + keyPresenceLane + 1]);
                 }
               }
             }
             if (into.hasZeroKey()) {
+              if (orderOnKeyLane) {
+                zeroGroupWithoutIdentity[0] = 1L;
+                return;
+              }
               if (orderPlan.hasCastAvg()) {
                 orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
               }
@@ -13662,6 +13720,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           });
           if (compositeDistinctCollision[0] != 0) {
             return declineGroupAgg("composite group probe-hash collision with a per-group count(distinct)");
+          }
+          if (zeroGroupWithoutIdentity[0] != 0L) {
+            return declineGroupAgg("key-ordered group table carries a zero group without identity lanes");
           }
           } // hash-range passes
           int winnerCount = 0;
@@ -13675,15 +13736,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             GROUP_AGG_SERVED.increment();
             return new ServedGroups(new ItemSequence(), true);
           }
-          final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+          final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k, orderOnKeyLane);
           for (final GroupTopKSelector sel : partSelectors) {
             if (sel == null) {
               continue;
             }
             for (int i = 0; i < sel.size(); i++) {
               final int base = sel.baseAt(i);
+              // The copy drops the identity lanes the per-partition selector ordered on, so the
+              // order value travels explicitly — the accumulator alone no longer carries it.
               final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
-              finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+              finalSel.offer(acc, 0, sel.hasKeyAt(i), sel.keyLongAt(i), null, sel.ordKeyAt(i));
             }
           }
           finalSel.sortInPlace();
@@ -17478,6 +17541,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     /**
+     * Whether any spec orders on the group KEY. The arms whose selector key lane already IS the key
+     * need not ask; the composite arm does, because its key lane carries a source reference and a
+     * monotonic transformed key's order value has to travel beside it.
+     */
+    boolean ordersOnKey() {
+      for (final int kind : kinds) {
+        if (kind == ORD_KEY) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /**
      * Full ordering over two group accumulator blocks addressed as {@code (array, base)} — a standalone
      * {@code long[]} at base 0, or an inline block of a
      * {@link io.sirix.index.projection.NumericGroupAggTable}. Negative = {@code a} emits first. Never
@@ -17637,9 +17714,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private final Object[] keyObjs;
     private final long[] keyLongs;
     private final boolean[] hasKeys;
+    /**
+     * The {@link GroupOrderPlan#ORD_KEY} value, when it is NOT what the key lane holds — allocated
+     * only for the composite arm's monotonic transformed key, whose key lane carries the winner's
+     * source reference instead. {@code null} everywhere else, and then the key lane IS the order
+     * value, exactly as before.
+     */
+    private final long[] ordKeys;
     private int size;
 
     GroupTopKSelector(final GroupOrderPlan plan, final int capacity) {
+      this(plan, capacity, false);
+    }
+
+    /**
+     * @param separateOrderKey carry a per-entry order value beside the key lane; see {@link #ordKeys}
+     */
+    GroupTopKSelector(final GroupOrderPlan plan, final int capacity, final boolean separateOrderKey) {
       this.plan = plan;
       this.capacity = capacity;
       this.accs = new long[capacity][];
@@ -17647,9 +17738,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       this.keyObjs = new Object[capacity];
       this.keyLongs = new long[capacity];
       this.hasKeys = new boolean[capacity];
+      this.ordKeys = separateOrderKey
+          ? new long[capacity]
+          : null;
     }
 
     void offer(final long[] acc, final int base, final boolean hasKey, final long keyLong, final Object keyObj) {
+      offer(acc, base, hasKey, keyLong, keyObj, keyLong);
+    }
+
+    /**
+     * @param keyLong the entry's key lane — the group key, or the source reference the composite arm
+     *        materializes its winner from
+     * @param ordKey what an {@link GroupOrderPlan#ORD_KEY} spec compares; equal to {@code keyLong}
+     *        unless this selector was built with a separate order-key lane
+     */
+    void offer(final long[] acc, final int base, final boolean hasKey, final long keyLong, final Object keyObj,
+        final long ordKey) {
       if (size < capacity) {
         final int at = size++;
         accs[at] = acc;
@@ -17657,16 +17762,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         keyObjs[at] = keyObj;
         keyLongs[at] = keyLong;
         hasKeys[at] = hasKey;
+        if (ordKeys != null) {
+          ordKeys[at] = ordKey;
+        }
         siftUp(at);
         return;
       }
       // Full: only a candidate ordering BEFORE the current worst can be in the first K.
-      if (plan.compare(acc, base, hasKey, keyLong, accs[0], bases[0], hasKeys[0], keyLongs[0]) < 0) {
+      if (plan.compare(acc, base, hasKey, ordKey, accs[0], bases[0], hasKeys[0], ordKeyAt(0)) < 0) {
         accs[0] = acc;
         bases[0] = base;
         keyObjs[0] = keyObj;
         keyLongs[0] = keyLong;
         hasKeys[0] = hasKey;
+        if (ordKeys != null) {
+          ordKeys[0] = ordKey;
+        }
         siftDown(0, size);
       }
     }
@@ -17699,13 +17810,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return keyLongs[i];
     }
 
+    /** What an {@link GroupOrderPlan#ORD_KEY} spec compares for slot {@code i}. */
+    long ordKeyAt(final int i) {
+      return ordKeys == null
+          ? keyLongs[i]
+          : ordKeys[i];
+    }
+
     Object keyObjAt(final int i) {
       return keyObjs[i];
     }
 
     /** Negative when slot {@code i} orders after slot {@code j} — the heap keeps the LAST first. */
     private int heapCmp(final int i, final int j) {
-      return plan.compare(accs[j], bases[j], hasKeys[j], keyLongs[j], accs[i], bases[i], hasKeys[i], keyLongs[i]);
+      return plan.compare(accs[j], bases[j], hasKeys[j], ordKeyAt(j), accs[i], bases[i], hasKeys[i], ordKeyAt(i));
     }
 
     private void siftUp(int at) {
@@ -17751,6 +17869,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long kl = keyLongs[i];
       keyLongs[i] = keyLongs[j];
       keyLongs[j] = kl;
+      if (ordKeys != null) {
+        final long ok = ordKeys[i];
+        ordKeys[i] = ordKeys[j];
+        ordKeys[j] = ok;
+      }
       final boolean hk = hasKeys[i];
       hasKeys[i] = hasKeys[j];
       hasKeys[j] = hk;

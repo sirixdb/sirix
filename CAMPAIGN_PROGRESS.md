@@ -2593,3 +2593,19 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   produced tonight's regression. **Staging reordered to 0 → 1 → 5** (segment 5 delivers −16.7 of −24.1 GB).
   M1 reconciled: the plan of record says ≤ 50 GB; the ledger's ≤ 45 was superseded draft 3. New §16 requested: the
   L1 alternative to segment 5, with the deciding measurement (distinct values per 10 / 1,240 / 10,000-row window).
+- 23:33 **NEW GOAL (user, ~05:00 Berlin): storage toward the leaderboard's MIDDLE, the whole INGESTION path HFT-grade,
+  and query speed must not slow down.** Leaderboard size distribution fetched from the ClickBench repo (132 systems,
+  c6a.4xlarge): median 15.3 GB, q1 14.8, q3 31.9 — so "middle" ≈ 15 GB, i.e. −55 GB from tonight's 69.6, while P2 as
+  designed lands at 45.5 GB (rank ~103). Structural reason named: every fat value is stored TWICE (trie string region
+  19.3 GB + projection dictionaries 17.4 GB). Tonight's order: (1) q42 fix, (2) the four hot regressions, (3) P2
+  segments 0+1, (4) ingestion HFT.
+- 23:34 **q42 FIXED (impl-q42) and gated: full :sirix-query:test rc=0 (5m 1s).** `GroupOrderPlan` now admits an
+  in-kernel order plan for a MONOTONIC transformed key (divisor > 0, modulus == 0, single numeric key, no
+  regex/cond/shift), because `epoch idiv D` is monotone non-decreasing and every admitted window renders fixed-width
+  zero-padded — so text order and epoch order coincide; the composite flat arm carries the transformed value in a
+  separate order lane (its key lane holds a source ref, which is why ordering read document order before).
+  `GroupTopKSelector` gains an optional parallel `ordKeys` lane (null elsewhere ⇒ zero allocation on every other
+  arm). Witnesses: TemporalColumnDifferentialTest 10/10 incl. ASC/DESC × windows 16/13/10 with an OFFSET, a plain
+  `v idiv 100` key (the rule is not temporal-specific), and counter-asserted DECLINES for the two-digit windows, the
+  integer cast and a shifted key; three mutations each caught. Rig: top-k 47/47, typed group-by 129/129, windowed
+  slices 28/28, catalog serving 45/45, strict 2/2.
