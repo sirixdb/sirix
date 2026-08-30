@@ -189,16 +189,21 @@ fail-fast lookups, never ordinals.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
-  inline length (0..512; zero is legal only for the raw-slot kind), and 6 low bits encode the
+  inline length (0..1023 — the field's full reach, which is also `MAX_RECORD_SIZE`; zero is legal
+  only for the raw-slot kind), and 6 low bits encode the
   persisted slotted kind (`0` raw sentinel or a supported flyweight kind). Unsupported/retired
-  kind ids and lengths above 512 are corruption. The directory is followed by a
+  kind ids are corruption, and no length is representable above the cap. The directory is followed by a
   smallest-of-three body codec (`ZeroRunByteCodec` 0 / `ByteRunCodec` 2 / `SirixLZ77Codec` 3 —
   an LZ4-block-format clone, little-endian) over either the offset-table-template dedup layout
   (≤255 templates/page, 1-byte slot ids, hash/value/nameKey elision bitmaps, predictor-coded
   parentKey column, pathNodeKey dictionary) or the inline fallback; then PAX regions
   (`RegionTable`, one slot per stable kind id: 0 Number = frame-of-reference + bit-packing +
   per-tag zone maps, 1 String, 2 Struct, 3 DeweyID, 4 ObjectKeyNameKey, 5 Boolean, 6 Hash,
-  7 StructPointers, 8 StringDictSketch = Bloom filter over the string dictionary,
+  7 StructPointers, 8 StringDictSketch = Bloom filter over the string dictionary (omitted on a
+  page whose string region suppressed a tag, since the filter's negative is exact and page-wide),
+  1 String's completeness is PER TAG: a tag holding a value too large to stay inline leaves the
+  region entirely and is named in the header's suppressed-tag list, which is present only when
+  `parentDictSize` carries its sign bit,
   9 NumberZoneMap = the number column's per-tag min/max hoisted out so a range predicate can
   prune the page without decompressing it, 10 RecordOrdinal = the slot → record linkage a
   predicate spanning two fields needs, 11 Double = the double-typed column the long-only number

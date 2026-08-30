@@ -102,7 +102,7 @@ final class SlottedPageEncodingSerializationTest {
   }
 
   @Test
-  @DisplayName("a 512-byte inline fallback record survives the compact-directory sign bit")
+  @DisplayName("a cap-sized inline fallback record survives the compact-directory sign bit")
   void maximumInlineRecordRoundTrips() {
     final ResourceConfiguration config = newConfig();
     final KeyValueLeafPage orig = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,

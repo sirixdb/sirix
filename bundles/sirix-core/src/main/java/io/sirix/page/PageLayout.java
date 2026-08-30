@@ -176,11 +176,29 @@ public final class PageLayout {
   /** Number of low bits occupied by the persisted node-kind id. */
   private static final int COMPACT_DIR_KIND_BITS = 6;
 
+  /** Bits left for the record length in a two-byte compact directory entry. */
+  private static final int COMPACT_DIR_DATA_BITS = Short.SIZE - COMPACT_DIR_KIND_BITS;
+
   /** Largest node-kind id representable by the compact wire directory. */
   public static final int MAX_COMPACT_DIR_NODE_KIND_ID = (1 << COMPACT_DIR_KIND_BITS) - 1;
 
-  /** Largest inline record length accepted by this wire format. */
-  public static final int MAX_COMPACT_DIR_DATA_LENGTH = 512;
+  /**
+   * Largest inline record length this wire format can express — the width of the entry's length
+   * field, derived rather than restated, so widening the entry moves the ceiling in one place.
+   */
+  public static final int MAX_COMPACT_DIR_DATA_LENGTH = (1 << COMPACT_DIR_DATA_BITS) - 1;
+
+  static {
+    // The inline-record cap and the directory's reach are two names for one number. Letting them
+    // drift silently truncates a committed page's directory entry, so the disagreement is fatal at
+    // class load: a stale separately-compiled Constants is exactly the case a compile-time-only
+    // check would miss.
+    if (PageConstants.MAX_RECORD_SIZE > MAX_COMPACT_DIR_DATA_LENGTH) {
+      throw new IllegalStateException("MAX_RECORD_SIZE=" + PageConstants.MAX_RECORD_SIZE
+          + " exceeds the compact directory's " + COMPACT_DIR_DATA_BITS + "-bit length field (max "
+          + MAX_COMPACT_DIR_DATA_LENGTH + ")");
+    }
+  }
 
   /** Low-bit mask for the persisted node-kind id. */
   private static final int COMPACT_DIR_KIND_MASK = MAX_COMPACT_DIR_NODE_KIND_ID;

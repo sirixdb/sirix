@@ -43,11 +43,17 @@ import java.util.Arrays;
  *                                        //   (sized to max local dict size)
  *
  *   int           parentDictSize         // number of distinct parent OBJECT_KEY
- *                                        //   nameKeys ("dept", "city", ...)
+ *                                        //   nameKeys ("dept", "city", ...) whose values ARE
+ *                                        //   in this region; negative when a suppressed-tag
+ *                                        //   list follows (see below), low 31 bits are the size
  *   int[ps]       parentDict             // parent nameKeys, ordered by tag id
  *   int[ps]       tagStart               // first value-index for each tag
  *   int[ps]       tagCount               // number of values under each tag
  *   int[ps]       tagStringDictSize      // local string-dictionary size per tag
+ *
+ *   // Only when parentDictSize carried its sign bit:
+ *   int           suppressedTagCount     // tags present on the page but NOT in this region
+ *   int[sc]       suppressedTags         // their tag values, in first-seen order
  *
  *   // Per-tag local string dictionary (concatenated):
  *   //   For each tag in order:
@@ -120,6 +126,35 @@ public final class StringRegion {
    */
   public static final int TAG_ORPHAN_ELEMENTS = Integer.MIN_VALUE;
 
+  /**
+   * Tags the page holds values for that this region deliberately does not carry.
+   *
+   * <p>
+   * A fused string whose value outgrew the inline record cap becomes an overflow descriptor: the
+   * field is on the page, its bytes are not. A column that held the tag's OTHER values would make
+   * every count and every exact negative under that tag a lie — {@code tagCount} is read everywhere
+   * as the complete number of that tag's values on the page — so the tag's values stay in the record
+   * heap and the tag is named here instead. Its ABSENCE from {@link Header#parentDict} is what every
+   * existing reader already handles (it declines and walks the records); the list turns that decline
+   * from an accident into a statement, and lets a reader tell "no such field here" from "the field
+   * is here, ask the records".
+   *
+   * <p>
+   * Costs nothing when empty: the list is written only when {@link Header#parentDictSize} carries
+   * its sign bit, so a page with no oversized string encodes byte-for-byte as before.
+   *
+   * @return whether {@code tag}'s values are on the page but out of this region
+   */
+  public static boolean isTagSuppressed(final Header h, final int tag) {
+    final int n = h.suppressedTagCount;
+    for (int i = 0; i < n; i++) {
+      if (h.suppressedTags[i] == tag) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private StringRegion() {}
 
   // ───────────────────────────────────────────────────────────── header
@@ -136,6 +171,13 @@ public final class StringRegion {
     public int[] tagStart; // length >= parentDictSize
     public int[] tagCount; // length >= parentDictSize
     public int[] tagStringDictSize; // length >= parentDictSize
+    /**
+     * Tags whose values this page holds but this region does not carry; see
+     * {@link #isTagSuppressed(Header, int)}. Zero on every page without an oversized string.
+     */
+    public int suppressedTagCount;
+    /** Length >= {@link #suppressedTagCount}; only that prefix is current. */
+    public int[] suppressedTags;
     /** For each tag: offset (within payload) of the per-tag length table. */
     public int[] tagStringDictOffset;
     /** valueDictIds byte-region offset within the payload. */
@@ -150,8 +192,12 @@ public final class StringRegion {
       count = getInt(payload, pos);
       pos += 4;
       valueBitWidth = payload.get(ValueLayout.JAVA_BYTE, pos++);
-      parentDictSize = getInt(payload, pos);
+      // The sign bit says a suppressed-tag list follows the four per-tag arrays. A region without
+      // one writes a plain positive size and is byte-identical to the pre-suppression encoding.
+      final int taggedParentDictSize = getInt(payload, pos);
       pos += 4;
+      parentDictSize = taggedParentDictSize & Integer.MAX_VALUE;
+      final boolean withSuppressedTags = taggedParentDictSize < 0;
       if (parentDict == null || parentDict.length < parentDictSize)
         parentDict = new int[Math.max(4, parentDictSize)];
       if (tagStart == null || tagStart.length < parentDictSize)
@@ -177,6 +223,19 @@ public final class StringRegion {
       for (int i = 0; i < parentDictSize; i++) {
         tagStringDictSize[i] = getInt(payload, pos);
         pos += 4;
+      }
+      if (withSuppressedTags) {
+        suppressedTagCount = getInt(payload, pos);
+        pos += 4;
+        if (suppressedTags == null || suppressedTags.length < suppressedTagCount) {
+          suppressedTags = new int[Math.max(4, suppressedTagCount)];
+        }
+        for (int i = 0; i < suppressedTagCount; i++) {
+          suppressedTags[i] = getInt(payload, pos);
+          pos += 4;
+        }
+      } else {
+        suppressedTagCount = 0;
       }
       // Per-tag local dicts: lengths[...] + bytes[...]
       for (int t = 0; t < parentDictSize; t++) {
@@ -600,6 +659,15 @@ public final class StringRegion {
     private boolean[][] tagCompressed = new boolean[4][];
     private int[] tagDictSize = new int[4];
     /**
+     * Parallel to {@link #tagDictSize}: the tag is named on the page but its values do not enter the
+     * region. Set by {@link #suppressTag(int)}; see {@link #isTagSuppressed(Header, int)}.
+     */
+    private boolean[] tagSuppressed = new boolean[4];
+    /** Number of set entries in {@link #tagSuppressed} — the common page keeps this at zero. */
+    private int suppressedTagCount;
+    /** Reusable retained-tag index buffer for {@link #encodeInto}; never escapes the encoder. */
+    private int[] retainedTags = new int[4];
+    /**
      * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset; only
      * the logical length returns to zero. Entries in the alternative name/path encoder may temporarily
      * borrow an exact range from this store.
@@ -639,11 +707,31 @@ public final class StringRegion {
           }
         }
         tagDictSize[t] = 0;
+        tagSuppressed[t] = false;
       }
+      suppressedTagCount = 0;
       tagIndex.clear();
       tagIndex.defaultReturnValue(-1);
       tagOrder.clear();
       ownedValueStore.requestReset();
+    }
+
+    /**
+     * Declare that {@code parentNameKey}'s values live on the page but must not enter this region.
+     *
+     * <p>
+     * Idempotent, and independent of ordering: values already added under the tag are dropped at
+     * encode time, and values added afterwards are dropped too. The tag itself is remembered and
+     * written to the suppressed-tag list, so a reader can tell it from a tag the page never held.
+     * Adding no value at all is a legal use — an oversized string is the tag's only occurrence on
+     * many pages.
+     */
+    public void suppressTag(final int parentNameKey) {
+      final int tag = getOrCreateTag(parentNameKey);
+      if (!tagSuppressed[tag]) {
+        tagSuppressed[tag] = true;
+        suppressedTagCount++;
+      }
     }
 
     public void addValue(final int parentNameKey, final byte[] value) {
@@ -816,7 +904,16 @@ public final class StringRegion {
         tagCompressed[tag] = new boolean[8];
       }
       tagDictSize[tag] = 0;
+      tagSuppressed[tag] = false;
       return tag;
+    }
+
+    /** Grow-only scratch for the retained-tag mapping; contents are rewritten on every call. */
+    private int[] retainedTagScratch(final int tags) {
+      if (retainedTags.length < tags) {
+        retainedTags = new int[Math.max(tags, retainedTags.length << 1)];
+      }
+      return retainedTags;
     }
 
     private void ensureDictionarySlot(final int tag, final int dictionarySize) {
@@ -857,6 +954,7 @@ public final class StringRegion {
       tagLengths = Arrays.copyOf(tagLengths, grown);
       tagCompressed = Arrays.copyOf(tagCompressed, grown);
       tagDictSize = Arrays.copyOf(tagDictSize, grown);
+      tagSuppressed = Arrays.copyOf(tagSuppressed, grown);
     }
 
     /**
@@ -887,6 +985,8 @@ public final class StringRegion {
      */
     public byte[] finish(final byte tagKind, final boolean elementsStaged) {
       final int length = encodeInto(tagKind, elementsStaged);
+      // Length zero is a legal outcome (no values, or every value's tag suppressed) and yields an
+      // EMPTY array, not null: a caller installing a region must treat it as "no region".
       return Arrays.copyOf(output, length);
     }
 
@@ -900,29 +1000,51 @@ public final class StringRegion {
      *
      * @param tagKind semantic interpretation of the tag dictionary
      * @param elementsStaged whether array-element staging ran for this page
-     * @return exact logical length of the encoded payload, or zero when no values were added
+     * @return exact logical length of the encoded payload, or zero when no value survives — nothing
+     *         was added, or every added value's tag is suppressed
      */
     public int encodeInto(final byte tagKind, final boolean elementsStaged) {
       encodedLength = 0;
       if (tagKind != TAG_KIND_NAME && tagKind != TAG_KIND_PATH_NODE) {
         throw new IllegalArgumentException("tagKind=" + tagKind);
       }
-      final int ps = tagOrder.size();
-      if (ps == 0) {
+      final int tagsSeen = tagOrder.size();
+      if (tagsSeen == 0) {
         return 0;
       }
+      // Suppressed tags leave the value area entirely and are named in their own list, so every
+      // loop below walks the RETAINED tags. Materialised once instead of branching in each loop:
+      // a page carries a few dozen tags at most, and the common page (nothing suppressed) gets the
+      // identity mapping and therefore the exact byte sequence it had before suppression existed.
+      final int[] retained = retainedTagScratch(tagsSeen);
+      int ps = 0;
       int count = 0;
       int maxLocalDict = 0;
-      for (int t = 0; t < ps; t++) {
+      for (int t = 0; t < tagsSeen; t++) {
+        if (tagSuppressed[t]) {
+          continue;
+        }
+        retained[ps++] = t;
         count += tagDictIds[t].size();
         if (tagDictSize[t] > maxLocalDict)
           maxLocalDict = tagDictSize[t];
       }
+      if (count == 0) {
+        // Every value on the page belongs to a suppressed tag. A header naming only absences would
+        // cost bytes on every read and tell no reader anything it does not already conclude from an
+        // absent region, so the page keeps its strings in the heap and publishes nothing.
+        return 0;
+      }
       final int bitWidth = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxLocalDict - 1)));
       // +1 byte for tagKind prefix.
-      final long headerSize = 1L + 1L + Integer.BYTES + 1L + Integer.BYTES + (long) ps * Integer.BYTES * 4L;
+      final long suppressedSize = suppressedTagCount == 0
+          ? 0L
+          : (long) Integer.BYTES + (long) suppressedTagCount * Integer.BYTES;
+      final long headerSize =
+          1L + 1L + Integer.BYTES + 1L + Integer.BYTES + (long) ps * Integer.BYTES * 4L + suppressedSize;
       long dictBytesSize = 0L;
-      for (int t = 0; t < ps; t++) {
+      for (int r = 0; r < ps; r++) {
+        final int t = retained[r];
         final int sz = tagDictSize[t];
         dictBytesSize += (long) sz * Integer.BYTES;
         for (int i = 0; i < sz; i++)
@@ -939,27 +1061,42 @@ public final class StringRegion {
       putInt(output, pos, count);
       pos += 4;
       output[pos++] = (byte) bitWidth;
-      putInt(output, pos, ps);
+      // The sign bit announces the suppressed-tag list; without one the field is the plain size it
+      // has always been.
+      putInt(output, pos, suppressedTagCount == 0
+          ? ps
+          : ps | Integer.MIN_VALUE);
       pos += 4;
-      for (int t = 0; t < ps; t++) {
-        putInt(output, pos, tagOrder.getInt(t));
+      for (int r = 0; r < ps; r++) {
+        putInt(output, pos, tagOrder.getInt(retained[r]));
         pos += 4;
       }
       int running = 0;
-      for (int t = 0; t < ps; t++) {
+      for (int r = 0; r < ps; r++) {
         putInt(output, pos, running);
         pos += 4;
-        running += tagDictIds[t].size();
+        running += tagDictIds[retained[r]].size();
       }
-      for (int t = 0; t < ps; t++) {
-        putInt(output, pos, tagDictIds[t].size());
+      for (int r = 0; r < ps; r++) {
+        putInt(output, pos, tagDictIds[retained[r]].size());
         pos += 4;
       }
-      for (int t = 0; t < ps; t++) {
-        putInt(output, pos, tagDictSize[t]);
+      for (int r = 0; r < ps; r++) {
+        putInt(output, pos, tagDictSize[retained[r]]);
         pos += 4;
       }
-      for (int t = 0; t < ps; t++) {
+      if (suppressedTagCount != 0) {
+        putInt(output, pos, suppressedTagCount);
+        pos += 4;
+        for (int t = 0; t < tagsSeen; t++) {
+          if (tagSuppressed[t]) {
+            putInt(output, pos, tagOrder.getInt(t));
+            pos += 4;
+          }
+        }
+      }
+      for (int r = 0; r < ps; r++) {
+        final int t = retained[r];
         final int sz = tagDictSize[t];
         for (int i = 0; i < sz; i++) {
           // Sign bit carries the per-entry FSST flag; consumers read Math.abs for the length.
@@ -980,8 +1117,8 @@ public final class StringRegion {
       // bitPackAppend ORs lanes into the destination. A reusable buffer can retain high bits from
       // the preceding page, so restore the zero-initialized-array invariant over the exact body.
       Arrays.fill(output, valueDictIdsBase, totalLength, (byte) 0);
-      for (int t = 0; t < ps; t++) {
-        final IntArrayList ids = tagDictIds[t];
+      for (int r = 0; r < ps; r++) {
+        final IntArrayList ids = tagDictIds[retained[r]];
         final int sz = ids.size();
         final int[] idsArr = ids.elements();
         for (int i = 0; i < sz; i++) {

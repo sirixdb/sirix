@@ -3312,6 +3312,37 @@ public enum PageKind {
           winnerLen = v0Len;
           winnerBuf = zeroRunBuf;
         }
+      } else if (!CODEC_BAKEOFF_STICKY_ONLY) {
+        // Same rule as the monolith body between probes: zero-run and LZ77 always compete, byte-run
+        // only while it holds the election. The scratches are per codec, so all three may be live.
+        final byte[] zeroRunBuf = zeroRunScratch(rawLen);
+        final int v0Len = ZeroRunByteCodec.encode(src, srcOff, rawLen, zeroRunBuf, 0);
+        final byte[] byteRunBuf = elected == 2 && BYTE_RUN_CODEC_ENABLED
+            ? byteRunScratch(rawLen)
+            : null;
+        final int v2Len = byteRunBuf != null
+            ? ByteRunCodec.encode(src, srcOff, rawLen, byteRunBuf, 0)
+            : Integer.MAX_VALUE;
+        final byte[] lz77Buf = LZ77_CODEC_ENABLED
+            ? lz77Scratch(rawLen)
+            : null;
+        final int v3Len = lz77Buf != null
+            ? SirixLZ77Codec.encode(src, srcOff, rawLen, lz77Buf, 0)
+            : Integer.MAX_VALUE;
+        final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
+        if (bestLen == v3Len) {
+          winnerCodec = 3;
+          winnerLen = v3Len;
+          winnerBuf = lz77Buf;
+        } else if (bestLen == v2Len) {
+          winnerCodec = 2;
+          winnerLen = v2Len;
+          winnerBuf = byteRunBuf;
+        } else {
+          winnerCodec = 0;
+          winnerLen = v0Len;
+          winnerBuf = zeroRunBuf;
+        }
       } else if (elected == 3) {
         winnerBuf = lz77Scratch(rawLen);
         winnerLen = SirixLZ77Codec.encode(src, srcOff, rawLen, winnerBuf, 0);
@@ -3591,10 +3622,16 @@ public enum PageKind {
       // StringRegion copies only dictionary misses before the next slot overwrites it.
       byte[] stringValueScratch = null;
       int stringCount = 0;
-      // A fused overflow descriptor exposes field metadata but not a value. Publishing a string
-      // column or dictionary sketch from only the remaining inline strings would make exact
-      // negative probes lie, so one descriptor suppresses the value region for the whole page.
+      // A fused overflow descriptor exposes field metadata but not a value. Publishing a TAG from
+      // only its remaining inline strings would make every tagCount under it — and every exact
+      // negative probe — lie, so the descriptor's tag leaves the region
+      // ({@link StringRegion.Encoder#suppressTag}) and its slots keep their values inline. Under the
+      // kill switch the whole page's region goes instead, which is what this flag then tracks.
       boolean stringRegionComplete = true;
+      // Whether any tag left the region. Gates the dictionary sketch: the sketch proves absence for
+      // the PAGE, and a suppressed tag's values ARE on the page while being absent from the
+      // dictionary the sketch is built from.
+      boolean anyStringTagSuppressed = false;
       // Diagnostic-only tallies for the section report: how many overflow descriptors this page
       // holds (one is enough to suppress the region) and the stored bytes of the strings that then
       // stay inline in the record heap. Two stack locals whose only consumer is the diagnostic below,
@@ -3773,8 +3810,35 @@ public enum PageKind {
               stringCount++;
               stringStagedBytes += valueLength;
             } else if (page.isFusedObjectNamedStringOverflowDescriptor(slot)) {
-              stringRegionComplete = false;
               stringOverflowDescriptorCount++;
+              if (STRING_REGION_PER_TAG_COMPLETENESS) {
+                final int fusedNameKey = okNameKeys[okCount - 1];
+                // The descriptor's own path key decides the path-tagged candidate exactly as a
+                // value's does: a suppression this page could not express in the path key space
+                // would leave a path-tagged region claiming a completeness it does not have.
+                int fusedPathNodeKeyInt = -1;
+                if (stringAllPathNodeKeysValid) {
+                  final long fusedNodeKey = pageKeyBase + slot;
+                  final long pnk = page.getObjectKeyPathNodeKeyFromSlot(slot, fusedNodeKey);
+                  if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                    fusedPathNodeKeyInt = (int) pnk;
+                  } else {
+                    stringAllPathNodeKeysValid = false;
+                  }
+                }
+                if (stringEncName == null) {
+                  stringEncName = STRING_REGION_ENCODER.get();
+                  stringEncName.reset();
+                  stringEncPath = resetStringRegionPathCandidate(withPathSummary);
+                }
+                stringEncName.suppressTag(fusedNameKey);
+                if (stringEncPath != null && stringAllPathNodeKeysValid) {
+                  stringEncPath.suppressTag(fusedPathNodeKeyInt);
+                }
+                anyStringTagSuppressed = true;
+              } else {
+                stringRegionComplete = false;
+              }
             }
           } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID) {
             final boolean value = page.getFusedObjectNamedBooleanValueFromSlot(slot);
@@ -4004,13 +4068,7 @@ public enum PageKind {
             stringStagedBytes += elementValue.length;
           }
         }
-        if (PAGE_SECTION_DIAG) {
-          // U2: one fused-string overflow descriptor drops the WHOLE page's string region — no
-          // dictionary, no sketch, no string elision — so every other string on the page stays inline
-          // in the heap. Recorded at the decision itself, with the descriptor count that caused it.
-          PageSectionDiag.recordStringRegionOutcome(!stringRegionComplete, stringOverflowDescriptorCount, stringCount,
-              stringStagedBytes);
-        }
+        boolean stringRegionWritten = false;
         if (stringRegionComplete && stringCount > 0) {
           final boolean pathTagged = stringAllPathNodeKeysValid && stringEncPath != null;
           final StringRegion.Encoder stringEncoder = pathTagged
@@ -4023,12 +4081,17 @@ public enum PageKind {
           if (stringPayloadLength > 0) {
             final byte[] stringPayload = stringEncoder.output();
             table.set(RegionTable.KIND_STRING, stringPayload, stringPayloadLength);
+            stringRegionWritten = true;
             // Membership sketch over the dictionary. Written next to the column it summarises so a
             // string equality can rule the page out for a few hundred bytes instead of decompressing
             // the dictionary — see StringDictSketch. Entries are hashed as STORED, so FSST-encoded
             // pages get a sketch too and the probe side encodes its literal to match. Returns null
             // only when the page has no dictionary entries.
-            {
+            //
+            // NOT written when a tag was suppressed. A sketch negative is read as EXACT and for the
+            // whole PAGE, not per tag, so a suppressed tag's strings — present on the page, absent
+            // from this dictionary — would let the page rule itself out of a literal it holds.
+            if (!anyStringTagSuppressed) {
               final StringRegion.Header sketchHeader = WRITER_STRING_HEADER_SCRATCH.get();
               sketchHeader.parseInto(table.payload(RegionTable.KIND_STRING));
               final byte[] sketch =
@@ -4049,6 +4112,11 @@ public enum PageKind {
               for (int e = 0; e < stringCount; e++) {
                 final int tagId = StringRegion.lookupTag(header, winningTags[e]);
                 if (tagId < 0) {
+                  if (StringRegion.isTagSuppressed(header, winningTags[e])) {
+                    // Deliberately absent: the slot keeps its value in the record heap, its region
+                    // index stays -1, and the value-elision pre-scan therefore skips it.
+                    continue;
+                  }
                   throw new SirixIOException("region index assignment: STRING tag " + winningTags[e]
                       + " missing from the payload just encoded");
                 }
@@ -4058,6 +4126,15 @@ public enum PageKind {
               }
             }
           }
+        }
+        if (PAGE_SECTION_DIAG) {
+          // U2: how a page's string region ended up. Recorded AFTER the publish decision, because
+          // with per-tag completeness a page holding overflow descriptors normally still writes its
+          // region — the counter has to name the outcome, not the input. It counts a suppression only
+          // when the page ended up with no region AND a descriptor is why: then every staged value
+          // stayed inline in the record heap, which is exactly what the bytes below measure.
+          PageSectionDiag.recordStringRegionOutcome(!stringRegionWritten && stringOverflowDescriptorCount > 0,
+              stringOverflowDescriptorCount, stringCount, stringStagedBytes);
         }
         if (boolCount > 0) {
           final byte boolTagKind = booleanAllPathNodeKeysValid
@@ -6485,6 +6562,30 @@ public enum PageKind {
    */
   private static final boolean VALUE_ELISION_ENABLED = !Boolean.getBoolean("sirix.valueElision.regionLookup.disable");
 
+  /**
+   * Whether string-region completeness is decided PER TAG rather than for the whole page.
+   *
+   * <p>
+   * A fused string past the inline record cap becomes an overflow descriptor. Deciding completeness
+   * for the page meant one oversized Title evicted every other field's strings from the column: no
+   * dictionary, no sketch, no value elision, every string back inline in the record heap. Measured on
+   * a 1M-row ClickBench load, 11.8 % of document leaves lost their string region that way and 3.75 M
+   * values (53.7 MB) stayed in the heap because of it. Per tag, only the oversized field's own tag
+   * leaves the region — see {@link StringRegion#isTagSuppressed}.
+   *
+   * <p>
+   * Not final, and not derived at class-init only: a test proving the byte-identity of the old
+   * behaviour has to flip it after this class is loaded, the same contract
+   * {@code KeyValueLeafPage.ARRAY_ELEMENT_STRINGS_IN_REGION} documents. Read once per page in the
+   * region build, never per slot.
+   *
+   * <p>
+   * Kill switch: {@code -Dsirix.page.stringRegion.perTagCompleteness=false} restores the
+   * all-or-nothing rule byte for byte.
+   */
+  public static boolean STRING_REGION_PER_TAG_COMPLETENESS =
+      !"false".equals(System.getProperty("sirix.page.stringRegion.perTagCompleteness"));
+
   // ============================================================
   // Lever 4: NAME-KEY elision (writer + reader, fused OBJECT_NAMED_*)
   // ============================================================
@@ -6595,7 +6696,9 @@ public enum PageKind {
   /**
    * Probe cadence of the sticky-winner codec election ({@code -Dsirix.codecBakeoff.probeInterval},
    * default 16): every Nth page per serialization thread runs the full bake-off and re-elects the
-   * winner; the pages in between encode with the elected codec only. {@code 1} probes every page —
+   * winner; the pages in between compare zero-run and LZ77 and add byte-run only while it holds the
+   * election (or, under {@link #CODEC_BAKEOFF_STICKY_ONLY}, encode with the elected codec only).
+   * {@code 1} probes every page —
    * the exhaustive pick-smallest behavior, required for byte-identical golden files (see
    * {@link #emitSmallestBody}).
    */
@@ -6613,6 +6716,34 @@ public enum PageKind {
    * byte (0 = {@link ZeroRunByteCodec}, 2 = {@link ByteRunCodec}, 3 = {@link SirixLZ77Codec}).
    */
   private static final ThreadLocal<int[]> STICKY_CODEC = ThreadLocal.withInitial(() -> new int[3]);
+
+  /**
+   * Whether the pages between probes encode with the elected codec ALONE ({@code true}) instead of
+   * always comparing zero-run and LZ77 ({@code false}, the default).
+   *
+   * <p>
+   * Measured on a 1M-row ClickBench load (2026-08-30): the elected codec alone wrote the leaf class at
+   * 1,093.3 MB, a bake-off on every page at 1,037.7 MB (−5.1 %), for +1 s on a 30 s load. Always
+   * comparing the two codecs that decide page size recovers that at a fraction of the cost: zero-run
+   * is near memcpy speed and LZ77 already runs on every page that elected it.
+   *
+   * <p>
+   * Kill switch: {@code -Dsirix.codecBakeoff.stickyOnly=true}. Not final: the witness flips it after
+   * this class is loaded, the same contract {@link #STRING_REGION_PER_TAG_COMPLETENESS} documents.
+   * Read once per page body, never per slot.
+   */
+  static boolean CODEC_BAKEOFF_STICKY_ONLY = Boolean.getBoolean("sirix.codecBakeoff.stickyOnly");
+
+  /**
+   * Test seam: make {@code codec} the current thread's elected body codec with the warm-up spent and
+   * the probe cadence reset, so the next page body is a between-probes page under that election.
+   */
+  static void electBodyCodecForTesting(final int codec) {
+    final int[] sticky = STICKY_CODEC.get();
+    sticky[0] = codec;
+    sticky[1] = STICKY_WARMUP_PAGES;
+    sticky[2] = 0;
+  }
 
   /**
    * Reset the current thread's sticky-codec election so its next {@link #STICKY_WARMUP_PAGES} page
@@ -6830,13 +6961,15 @@ public enum PageKind {
    * writers (template-dedup and inline) share this tail.
    *
    * <p>
-   * <b>Sticky-winner election.</b> Encoding every page with all three codecs costs roughly 3&times;
-   * the winner's encode time, while the winning codec is extremely stable within a workload (a record
-   * heap keeps its byte-redundancy profile across millions of consecutive pages). So only
-   * <i>probe</i> pages — the first {@link #STICKY_WARMUP_PAGES} pages of a serialization thread, then
-   * every {@link #STICKY_PROBE_INTERVAL}-th page — run the full bake-off and (re-)elect the winner;
-   * the pages in between encode with the elected codec alone. The emitted codec byte keeps the format
-   * self-describing, so readers never see the difference.
+   * <b>Sticky-winner election.</b> Only <i>probe</i> pages — the first {@link #STICKY_WARMUP_PAGES}
+   * pages of a serialization thread, then every {@link #STICKY_PROBE_INTERVAL}-th page — run all
+   * three codecs and (re-)elect the winner. The pages in between still encode zero-run and LZ77 and
+   * write the smaller of the two; the election only decides whether byte-run is encoded as well. The
+   * elected codec ALONE ({@link #CODEC_BAKEOFF_STICKY_ONLY}) rested on the winner being stable
+   * within a workload, and it is not: index pages (NAME, PATH_SUMMARY) share the serialization
+   * threads with record pages, their probes elect zero-run, and the record pages that follow were
+   * written up to 3&times; their LZ77 size — 5.1 % of leaf bytes on a 1M-row ClickBench load. The
+   * emitted codec byte keeps the format self-describing, so readers never see the difference.
    *
    * <p>
    * <b>Determinism caveat.</b> With {@code probeInterval > 1} the codec picked for a page depends on
@@ -6859,12 +6992,19 @@ public enum PageKind {
       sticky[1]++;
     }
     final boolean probe = STICKY_PROBE_INTERVAL <= 1 || warmup || sticky[2] >= STICKY_PROBE_INTERVAL - 1;
-    if (!probe) {
+    if (probe) {
+      sticky[2] = 0;
+    } else {
       sticky[2]++;
-      emitWithCodec(sticky[0], sink, staging, totalBytes);
-      return;
+      if (CODEC_BAKEOFF_STICKY_ONLY) {
+        emitWithCodec(sticky[0], sink, staging, totalBytes);
+        return;
+      }
     }
-    sticky[2] = 0;
+    // Between probes the election decides only whether byte-run is worth encoding: zero-run runs at
+    // memcpy speed and LZ77 is what nearly every record page elects anyway, so those two are always
+    // encoded and compared. See CODEC_BAKEOFF_STICKY_ONLY for what a stale election used to cost.
+    final boolean tryByteRun = BYTE_RUN_CODEC_ENABLED && (probe || sticky[0] == 2);
 
     final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
     final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
@@ -6892,7 +7032,7 @@ public enum PageKind {
     }
 
     final int v0Len = ZeroRunByteCodec.encode(staging, 0L, totalBytes, rle, 0);
-    final int v2Len = BYTE_RUN_CODEC_ENABLED
+    final int v2Len = tryByteRun
         ? ByteRunCodec.encode(staging, 0L, totalBytes, v2Buf, 0)
         : Integer.MAX_VALUE;
     final int v3Len = LZ77_CODEC_ENABLED
@@ -6902,12 +7042,16 @@ public enum PageKind {
     final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
     // Tie order mirrors the emission branches below (LZ77 > ByteRun > ZeroRun), so a
     // probe page emits exactly what the exhaustive pick would have. Disabled codecs
-    // report Integer.MAX_VALUE and can never be elected.
-    sticky[0] = bestLen == v3Len
-        ? 3
-        : bestLen == v2Len
-            ? 2
-            : 0;
+    // report Integer.MAX_VALUE and can never be elected. Only a probe (re-)elects: a
+    // page in between compared what it encoded and wrote the smallest, which is all the
+    // election is for.
+    if (probe) {
+      sticky[0] = bestLen == v3Len
+          ? 3
+          : bestLen == v2Len
+              ? 2
+              : 0;
+    }
     if (bestLen == v3Len) {
       sink.writeInt(v3Len);
       sink.writeByte((byte) 3); // codec: 3 = SirixLZ77Codec

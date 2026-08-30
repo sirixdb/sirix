@@ -6597,8 +6597,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       // lose the ability to rule itself out of a string equality — correct answers, but every such
       // page paying a dictionary decode forever after. The header is read from the installed
       // segment; the entries are hashed from the array, which is what the sketch builder takes.
-      table.set(RegionTable.KIND_STRING_DICT_SKETCH,
-          StringDictSketch.encodeFromStringRegion(encoded, new StringRegion.Header().parseInto(installed)));
+      //
+      // A suppressed tag forfeits the sketch, exactly as it does on the writer: a sketch negative is
+      // exact and PAGE-wide, and the suppressed tag's strings are on the page but not in this
+      // dictionary.
+      final StringRegion.Header installedHeader = new StringRegion.Header().parseInto(installed);
+      if (installedHeader.suppressedTagCount == 0) {
+        table.set(RegionTable.KIND_STRING_DICT_SKETCH,
+            StringDictSketch.encodeFromStringRegion(encoded, installedHeader));
+      }
       regionDeriveAttempted |= STRING_DERIVE_MASK;
       return installed;
     }
@@ -6727,10 +6734,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
         if (kindId == FUSED_OBJECT_NAMED_STRING_KIND_ID) {
           if (isFusedObjectNamedStringOverflowDescriptor(slot)) {
-            // The field metadata is complete, but its value is deliberately out of line. A
-            // partial value column (and especially its exact-negative dictionary sketch) is never
-            // safe, so memoize this page as not derivable instead of retrying on every scan.
-            return null;
+            // The field metadata is complete, but its value is deliberately out of line. A partial
+            // TAG is never safe — every reader takes tagCount as the complete count of that tag's
+            // values on the page — so the tag leaves the region and its slots keep their values in
+            // the heap. Every other field on the page still gets its column. Under the kill switch
+            // the page is memoized as not derivable, exactly as before.
+            if (!PageKind.STRING_REGION_PER_TAG_COMPLETENESS) {
+              return null;
+            }
+            nameEnc.suppressTag(getFusedObjectNamedNameKeyFromSlot(slot));
+            if (pathEnc != null && allPathNodeKeysValid) {
+              final int suppressedPathNodeKey = pathNodeKeyIntForSlot(slot, pageKeyBase);
+              allPathNodeKeysValid = suppressedPathNodeKey >= 0;
+              if (allPathNodeKeysValid) {
+                pathEnc.suppressTag(suppressedPathNodeKey);
+              }
+            }
+            continue;
           }
           value = readFusedObjectNamedStringBytes(slot);
           if (value == null) {
@@ -6774,9 +6794,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (count == 0) {
       return null;
     }
-    return allPathNodeKeysValid && pathEnc != null
+    final byte[] encoded = allPathNodeKeysValid && pathEnc != null
         ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE, elementsUsable)
         : nameEnc.finish(StringRegion.TAG_KIND_NAME, elementsUsable);
+    // Every value on the page belonged to a suppressed tag: the encoder produced no payload, which
+    // is a page with no derivable region rather than a zero-length one.
+    return encoded.length == 0
+        ? null
+        : encoded;
   }
 
   /**

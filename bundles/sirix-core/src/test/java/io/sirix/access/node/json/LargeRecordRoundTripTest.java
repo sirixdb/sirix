@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Regression tests for issue #1076: values whose serialized size exceeds
- * {@code PageConstants.MAX_RECORD_SIZE} (512 encoded-record bytes) must round-trip through commit —
+ * {@code PageConstants.MAX_RECORD_SIZE} (the compact directory's 1,023-byte ceiling) must round-trip through commit —
  * originally they were silently lost (the in-memory OverflowPage was never written); after the
  * overflow write path landed, values beyond the 256 KiB slot cap still failed in
  * {@code growSlottedPage} instead of diverting to an OverflowPage.

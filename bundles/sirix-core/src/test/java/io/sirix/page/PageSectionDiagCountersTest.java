@@ -135,47 +135,92 @@ final class PageSectionDiagCountersTest {
     assertRegionTableAccounting(before, after, 1);
   }
 
+  /**
+   * Re-recorded for per-tag string-region completeness.
+   *
+   * <p>
+   * This page used to lose its string region outright, and this counter is what measured that. It
+   * now keeps it: only the oversized field's tag leaves, so the counter reads zero suppressions and
+   * one written region. The old reading is still reachable and still asserted — see
+   * {@link #theKillSwitchRestoresTheWholePageSuppression()} — which is what makes this pair the
+   * before/after the plan's T1-d lever is judged on.
+   */
   @Test
-  @DisplayName("an oversized fused string suppresses the string region and the counter says so")
-  void overflowDescriptorSuppressesTheStringRegion() {
+  @DisplayName("an oversized fused string no longer suppresses the whole page's string region")
+  void overflowDescriptorNoLongerSuppressesTheStringRegion() {
     final Snapshot before = Snapshot.take();
+    final KeyValueLeafPage page = buildOverflowDescriptorFixture();
+    final Snapshot after = Snapshot.take();
+    page.close();
 
+    assertEquals(1, after.regionBuildPages - before.regionBuildPages, "one page reached the string-region decision");
+    assertEquals(0, after.stringRegionSuppressedPages - before.stringRegionSuppressedPages,
+        "the descriptor costs its own tag, not the page's region");
+    assertEquals(1, after.regionWrittenCount[RegionTable.KIND_STRING] - before.regionWrittenCount[RegionTable.KIND_STRING],
+        "and the region is written, with every other field's strings in it");
+    assertEquals(0, after.stringRegionSuppressedValues - before.stringRegionSuppressedValues,
+        "no value is stranded by a suppression that did not happen");
+    assertEquals(1, after.overflowHistogram[1] - before.overflowHistogram[1],
+        "one descriptor on the page still lands in the '1' bucket");
+    assertHistogramSumsToRegionBuildPages(after);
+
+    // The four complete fields' payloads left the heap for the region; only the descriptor slot's
+    // own payload — a reference, which no column can hold — stays inline.
+    assertEquals(1, after.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
+        - before.inlineValueSlotsForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID),
+        "exactly the overflow descriptor keeps its payload inline");
+  }
+
+  @Test
+  @DisplayName("the kill switch restores the whole-page suppression the counter used to report")
+  void theKillSwitchRestoresTheWholePageSuppression() {
+    final boolean before_ = PageKind.STRING_REGION_PER_TAG_COMPLETENESS;
+    PageKind.STRING_REGION_PER_TAG_COMPLETENESS = false;
+    try {
+      final Snapshot before = Snapshot.take();
+      final KeyValueLeafPage page = buildOverflowDescriptorFixture();
+      final Snapshot after = Snapshot.take();
+      page.close();
+
+      assertEquals(1, after.regionBuildPages - before.regionBuildPages, "one page reached the string-region decision");
+      assertEquals(1, after.stringRegionSuppressedPages - before.stringRegionSuppressedPages,
+          "with the old rule the descriptor suppressed this page's string region");
+      assertEquals(4, after.stringRegionSuppressedValues - before.stringRegionSuppressedValues,
+          "the four inline strings are the ones stranded by the suppression");
+      assertTrue(after.stringRegionSuppressedBytes - before.stringRegionSuppressedBytes > 0,
+          "their stored bytes stay in the record heap and must be counted");
+
+      // Nothing was elided out of those strings, because there is no region to put them back from.
+      assertTrue(after.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
+          - before.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) > 0,
+          "a page that lost its string region keeps every string's payload inline in the heap");
+    } finally {
+      PageKind.STRING_REGION_PER_TAG_COMPLETENESS = before_;
+    }
+  }
+
+  /**
+   * Four ordinary string fields plus one value past the fused record cap. The oversized value does
+   * not fit the heap, so it is parked as a record snapshot and only becomes an inline overflow
+   * descriptor + same-key {@link OverflowPage} during serialization — which is why the fixture can
+   * only be checked afterwards. The returned page is still open; the caller closes it.
+   */
+  private KeyValueLeafPage buildOverflowDescriptorFixture() {
     final ResourceConfiguration config = newConfig();
     final KeyValueLeafPage page = newPage(config, 0);
-    // Four ordinary strings that WOULD have formed a string region...
     for (int i = 0; i < 4; i++) {
-      writeString(page, i, 200 + i, "inline-" + i);
+      // Wide enough that value elision clears its own wire cost; a fixture that misses that bar by
+      // a byte would make the elision assertions a coin flip.
+      writeString(page, i, 200 + i, "inline-" + i + "-" + "p".repeat(40));
     }
-    // ...and one value past the fused record cap. It does not fit the heap, so it is parked as a
-    // record snapshot and only becomes an inline overflow descriptor + same-key OverflowPage during
-    // serialization. One descriptor suppresses the string region for the WHOLE page — that is the
-    // byte cost the plan's T1-d lever removes, and this counter is how it is measured before and
-    // after.
     writeString(page, 4, 204, "x".repeat(PageConstants.MAX_RECORD_SIZE + 4_096));
 
     serialize(config, page);
-    final Snapshot after = Snapshot.take();
     assertTrue(page.isFusedObjectNamedStringOverflowDescriptor(4),
         "the fixture must actually produce an overflow descriptor, otherwise it witnesses nothing");
     assertEquals(0, page.getSideSlotCount(),
         "the descriptor must land in the heap; a side slot would refuse the region build outright");
-    page.close();
-
-    assertEquals(1, after.regionBuildPages - before.regionBuildPages, "one page reached the string-region decision");
-    assertEquals(1, after.stringRegionSuppressedPages - before.stringRegionSuppressedPages,
-        "the descriptor suppressed this page's string region");
-    assertEquals(4, after.stringRegionSuppressedValues - before.stringRegionSuppressedValues,
-        "the four inline strings are the ones stranded by the suppression");
-    assertTrue(after.stringRegionSuppressedBytes - before.stringRegionSuppressedBytes > 0,
-        "their stored bytes stay in the record heap and must be counted");
-    assertEquals(1, after.overflowHistogram[1] - before.overflowHistogram[1],
-        "one descriptor on the page lands in the '1' bucket");
-    assertHistogramSumsToRegionBuildPages(after);
-
-    // Nothing was elided out of those strings, because there is no region to put them back from.
-    assertTrue(after.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID)
-        - before.inlineValueBytesForKind(KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) > 0,
-        "a page that lost its string region keeps every string's payload inline in the heap");
+    return page;
   }
 
   @Test

@@ -244,7 +244,10 @@ class PageLayoutFuzzTest {
   @Test
   void compactDirEntryWriterRejectsOutOfRangeLengthAndKind() {
     assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(-1, 0));
-    assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(513, 0));
+    // Re-recorded with the fused-record cap raise (512 -> 1,023): the first rejected length is the
+    // one past the cap, whatever the cap is, so this stays a real boundary instead of a stale 513.
+    assertThrows(IllegalArgumentException.class,
+        () -> PageLayout.packCompactDirEntry(PageConstants.MAX_RECORD_SIZE + 1, 0));
     assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(Integer.MAX_VALUE, 0));
     assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, -1));
     assertThrows(IllegalArgumentException.class, () -> PageLayout.packCompactDirEntry(1, 64));
@@ -269,11 +272,29 @@ class PageLayoutFuzzTest {
     };
   }
 
+  /**
+   * Re-recorded with the fused-record cap raise (512 -> 1,023).
+   *
+   * <p>
+   * The cap and the compact directory's length field are now one number: the entry is two bytes with
+   * a 10-bit length, and the cap saturates it. That equality is the assertion — mutate either
+   * constant and it fails — and it is also what makes the rejection loop below empty: with the cap at
+   * the ceiling there is no length a corrupt word can express that the reader must refuse. The loop
+   * stays because lowering the cap re-creates exactly that gap, and it must stay guarded.
+   */
   @Test
-  void compactDirEntryReaderRejectsEveryUnrepresentableInlineLength() {
+  void theInlineCapSaturatesTheCompactDirectoryLengthField() {
+    assertEquals(PageLayout.MAX_COMPACT_DIR_DATA_LENGTH, PageConstants.MAX_RECORD_SIZE,
+        "the inline record cap and the compact directory's length field must be the same number");
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment wire = arena.allocate(PageLayout.COMPACT_DIR_ENTRY_SIZE);
-      for (int dataLength = 513; dataLength < 1 << 10; dataLength++) {
+      // Positive witness that the raise reached the wire: the largest representable record round
+      // trips through both readers with its length intact.
+      PageLayout.writeCompactDirEntry(wire, 0, PageConstants.MAX_RECORD_SIZE, 0);
+      assertEquals(PageConstants.MAX_RECORD_SIZE,
+          PageLayout.unpackDataLength(PageLayout.readCompactDirEntry(wire, 0)),
+          "the cap itself must survive a compact-directory round trip");
+      for (int dataLength = PageConstants.MAX_RECORD_SIZE + 1; dataLength < 1 << 10; dataLength++) {
         final int corruptWord = dataLength << 6;
         wire.set(ValueLayout.JAVA_BYTE, 0, (byte) (corruptWord >>> 8));
         wire.set(ValueLayout.JAVA_BYTE, 1, (byte) corruptWord);

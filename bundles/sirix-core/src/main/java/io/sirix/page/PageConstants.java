@@ -12,7 +12,8 @@ public final class PageConstants {
    * Largest encoded record allocation retained inline in a slotted document page.
    *
    * <p>
-   * This is the shared 512-byte policy from {@link Constants}; keeping one source of truth prevents
+   * An alias of {@link Constants#MAX_RECORD_SIZE}, which is itself the compact directory's 10-bit
+   * length ceiling; keeping one source of truth prevents
    * generic and direct/fused record writers from choosing different storage shapes. Inline Dewey-ID
    * bytes and their trailer count toward this ceiling. For an overflow record, only the encoded
    * record body moves to the {@link OverflowPage}; its Dewey ID remains in page metadata.

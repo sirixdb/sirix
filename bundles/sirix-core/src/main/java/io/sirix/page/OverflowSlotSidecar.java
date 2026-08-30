@@ -25,6 +25,10 @@ import java.util.Arrays;
  */
 final class OverflowSlotSidecar implements AutoCloseable {
 
+  /**
+   * Largest side-slot image. An alias of the inline-record cap — a side slot holds the same record
+   * shape the heap would have held — so the two can never disagree.
+   */
   static final int MAX_IMAGE_BYTES = PageConstants.MAX_RECORD_SIZE;
 
   private static final int SLOT_COUNT = Constants.NDP_NODE_COUNT;

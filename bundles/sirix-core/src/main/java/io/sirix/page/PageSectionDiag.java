@@ -813,6 +813,16 @@ public final class PageSectionDiag {
     return RECORDS.sum();
   }
 
+  /** Page bodies emitted with the wire codec {@code codec}: 0 zero-run, 2 byte-run, 3 LZ77. */
+  static long codecPages(final int codec) {
+    return switch (codec) {
+      case 0 -> CODEC_ZERORUN_PAGES.sum();
+      case 2 -> CODEC_BYTERUN_PAGES.sum();
+      case 3 -> CODEC_LZ77_PAGES.sum();
+      default -> throw new IllegalArgumentException("codec=" + codec);
+    };
+  }
+
   /** Pages counted by {@link #record}. */
   static long pagesCounted() {
     return PAGE_COUNT.sum();
