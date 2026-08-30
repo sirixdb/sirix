@@ -2532,3 +2532,14 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   passing alone ×2 on this snapshot). **Rebuild #2 LAUNCHED detached at 21:29** from the worktree at `c0d2e8ee5`
   into `clickbench-100m-campaign-20260830-2129` (rebuild #1's 85 GB DB deleted; 137 GB free); waiter polling.
   Expected ≈ 66–70 GB. P2 (B7) design agent spawns next; query legs resume on the new DB, launched DETACHED.
+- 21:34 **Cannot set `effort: max` for the P2 agent from here:** the project's `.claude/agents`, `commands`, `hooks`, `skills`, `settings.json` are ZERO-BYTE READ-ONLY FILES (a deliberate lockdown, dated Mar 11 / Aug 30 — not created by this session), so no agent definition can be placed there, and `~/.claude/agents` does not exist and is on the sandbox write-deny list. Definition prepared at `scratchpad/agents/p2-design.agent.md` (model opus, effort max) for the user to install; B7 continues meanwhile and its design gets two independent reviews.
+- 22:05 **Ingestion HFT assessment (user question, no code changed):** data plane IS HFT-grade (off-heap slotted
+  pages, arena size classes, zero per-record allocation on the staging path, per-thread grow-on-demand scratch,
+  fastutil/primitive collections, SIMD per-tag decode; today's new code holds the line). Pipeline is NOT: (1)
+  116,275 leaf serializations for 105,464 writes — ~10 % discarded, and the 12,752 inline-path pages are NAME/
+  PATH_SUMMARY leaves serialized ~6× per write (≈ 260 MB of encode+LZ77 at 1M, ≈ 26 GB at 100M); (2) parallel
+  ingest plateaus ~2× (flush serialize-bound, writers park on their own permit); (3) the body-codec decision was
+  sampled per thread, not measured per page (fixed today, ~3 % write CPU). Measured throughput: 35.5K rows/s =
+  3.77M field-records/s at RSS ≤ 5 GB while building the path summary + projection index. Open gap: no allocation/
+  GC profile OF A LOAD in this session. → future brief "ingestion HFT" (stop discarding serializations first; the
+  counter gap IS the metric).
