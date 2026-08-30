@@ -2359,3 +2359,4 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   FULL core 10,904 tests / 8 failed — exactly the three cap-fixture classes fixed in `194e52299` (the worktree was
   still detached at `32b7c2a37`; B6's files cannot reach page fixtures); re-checked on a worktree at `a67e2a3f6` +
   B6's files. **B6 committed.**
+- 19:49 Rig7 built from `5e5f281c0` (core 1,476 / query 444 / tests 1,535, via git archive so B3-a's in-progress edits are excluded). **B5-c launched (impl-b5c)** on rig7 + B3-a's classes: per-tag FOR + zone map folded into the FOR header, then string-region framing (varint lengths, per-tag plain lane), then the page-schema overhead measurement; PageKind edits confined to buildRegionTable with exact-string replacements while B3-a finishes item 6 in the body sections.
