@@ -2609,3 +2609,12 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   `v idiv 100` key (the rule is not temporal-specific), and counter-asserted DECLINES for the two-digit windows, the
   integer cast and a shifted key; three mutations each caught. Rig: top-k 47/47, typed group-by 129/129, windowed
   slices 28/28, catalog serving 45/45, strict 2/2.
+- 00:03 **NO QUERY REGRESSION SURVIVES ISOLATED MEASUREMENT.** q8 alone: hot 0.953 s (tonight's levers on) / 0.992
+  (all four wave-3 levers off) / 0.956 (this morning) — identical; q33 alone 36.7/30.9 and q34 31.6/30.2 are FASTER
+  than this morning (37.6/33.7, 34.2/32.9). The leg's apparent q8/q33/q34/q35 regressions were artifacts of a
+  sequential run under memory pressure plus my own stale pre-fix q42 JVM (34 min, 12.7 GB RSS) contending. **q42
+  fixed: 0.413 / 0.194 vs 0.331 / 0.178 this morning.** Standing result for the night: storage −47 %, 42/42 dumps
+  byte-identical, like-for-like speed 1.45× cold / 1.46× hot, no per-query hot regression.
+- 00:04 L1 screen launched (nice-10, one core): distinct values per window of 10 / 1,234 / 10,000 consecutive rows
+  for URL, Referer, Title, SearchPhrase over the full 100M corpus, with a per-decile breakdown because the corpus is
+  clustered. It decides P2 segment 5 (trie names global ids) vs L1 (bigger leaves make per-leaf dictionaries work).
