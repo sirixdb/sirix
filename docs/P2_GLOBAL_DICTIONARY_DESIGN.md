@@ -19,7 +19,8 @@ before anything else, because two of the changes moved conclusions rather than w
   this value" is a binary search over the reverse index. Dropping it over the ordered prefix is what makes the
   acceptance reachable, and §4.1 prices the world where reviewers refuse (it misses at every ratio).
 - **Segment 5 moved ahead of the serving work.** It delivers −16.7 of the −23.9 GB. Order is now 0 → 1 → 5, then
-  2–4.
+  2–4, and **§16's screen has since confirmed segment 5 against its L1 alternative** — a bigger leaf recovers
+  ≈ 4.7–8.1 GB where naming global ids recovers ≈ 15 GB.
 
 The rest, in one paragraph. Promotion to `COLUMN_KIND_STRING_GLOBAL` declines at 100 M not because the memory is
 needed but because the planner has **no cardinality estimate** and defends against `distinct == rows`
@@ -500,7 +501,9 @@ so the width is the resource-wide id magnitude, not leaf locality: 25 + 25 + 24 
 > long ones — so 4.68 GB is probably an **under**-estimate. *Experiment, cheap and exact enough:* take a 1-in-64
 > hash-prefix sample of values (287 K for URL — fits trivially in memory), dedupe it exactly, and take the mean
 > length of the distinct sample; it is an unbiased estimator of the distinct-weighted mean. S1 also reports the
-> figure exactly, for free, on its first real run. **Not run yet: the 43-query leg owns the machine.**
+> figure exactly, for free, on its first real run — so segment 1 reports it as a by-product and segment 0's gate
+> measures written bytes directly, which is the figure that actually matters. **Still open; it refines §4.1's
+> value-region estimate but cannot change the acceptance, which segment 0 measures rather than derives.**
 
 **Directory** [D, §3.3.2]: reverse buckets and block headers ≈ 0.17 B/entry → 53.77 M × 0.17 = 9 MB ≈ **0.1 B/row**.
 The forward hash index is **not built over the ordered prefix**, so it contributes 0 for a freshly rank-passed
@@ -1181,7 +1184,7 @@ against a `git show HEAD:`-compiled build, and lands with its witnesses.
 |---|---|---|---|---|
 | **0** | **The dictionary-bytes gate** (no product code). Builds a real dictionary from a 5 M-value sample in three forms — intern order, rank order, rank order front-coded — and reports **written bytes for every persisted record**: value blocks, value buckets, the reverse radix, and (for the intern-order control) the forward hash index and its radix. Blocks hold 256 values, so front-coding runs are 256 long (§3.3.1). | **written dictionary bytes ÷ rows ≤ 17.3 B/row** for the front-coded, forward-index-free form (§4.1's break-even at ratio 0.37). **Above it, segment 1 does not start.** A *value-block ratio* is explicitly NOT the acceptance — measuring that is what hid the directory in draft 1. | n/a (no product code runs) | n/a |
 | **1** | **The rank pass, offline, one column** — `orderedPrefixCount`, front-coded value blocks, no forward index over the ordered prefix, S1–S4, the election, the disk preflight. | At 1 M: the four fat columns' post-codec bytes match §4.1 ±10 %; W1–W6, W10, W12, W14, W15, W17 green. | **The load path is byte-identical and its wall time unchanged** (the pass is offline, so this is a proof of non-interference, not a measurement of the pass). **The pass's own cost is reported, not bounded** — it is a one-off reorganisation. **W18's maintenance-intern ratio is recorded and must be ≤ 5×**; above that, §3.3.2's widening decision is taken before segment 5. | `-Dsirix.projection.globalDict.rank=false`, `…globalDict.frontCoding=false` |
-| **5** | **The trie lane** — registry, encoding kind 3, flag byte 2, the resolver. **−16.7 of the −23.9 GB, so it precedes the serving segments.** §16's screen decides whether it is built at all. | 100 M leaf class falls by ≥ 12 GB; reconstruction round trip byte-identical with the lane on and off; W11 green. | **The binding clause for this segment.** Point lookup by record key, full-resource reconstruction, and the row-path queries: **no regression beyond noise** — the plan's "point/row-path queries never slower" rule. Measured *before* the encoder is written, on a 1 M resource whose dictionary segment 1 already built. A resolver hop that costs measurable point-read latency kills the segment, whatever it saves. | `-Dsirix.page.stringRegion.globalIdLane=false` |
+| **5** | **The trie lane** — registry, encoding kind 3, flag byte 2, the resolver. **−16.7 of the −23.9 GB, so it precedes the serving segments.** §16's screen is DONE and confirmed it: L1 recovers ≈ 4.7–8.1 GB against segment 5's ≈ 15 GB. | 100 M leaf class falls by ≥ 12 GB; reconstruction round trip byte-identical with the lane on and off; W11 green. | **The binding clause for this segment.** Point lookup by record key, full-resource reconstruction, and the row-path queries: **no regression beyond noise** — the plan's "point/row-path queries never slower" rule. Measured *before* the encoder is written, on a 1 M resource whose dictionary segment 1 already built. A resolver hop that costs measurable point-read latency kills the segment, whatever it saves. | `-Dsirix.page.stringRegion.globalIdLane=false` |
 | **2** | **The integer arms.** §6.2 B1–B8: `globalIdsAreOrdered`; `sortColumnsOrderable` **together with** `EXEC:16409` and `EXEC:16442`; best-first + zone prune; `compareKeyAt`; `keyIsNumeric`; the id-range translation of ordering predicates. (No dense-arm claim — see B5.) | Differentials under `STRICT_SERVING` for q25/q26/q13/q14/q16/q17/q33/q34; W3, W7 green; 43 dumps byte-identical. | q25/q26 improve; **no query regresses.** The risk to watch is B3: best-first changes leaf *visitation order*, so a query whose zone maps prune badly could read more leaves than document order did. That is the specific regression this clause exists to catch. | `-Dsirix.projection.globalDict.orderedArms=false` |
 | **3** | **The three missing arms.** A1 and A2 (each with `columnSparseClean`, the empty-sequence contract and the `ID_UNKNOWN` decline) + A3 **scoped to stores under `ROW_MAT_MAX_ROWS`** + the `globalDistinctBitmaps` sizing tidy-up. | q5 served from the id bitset; A1/A2 differentials green under `STRICT_SERVING`; W7, W13 green. | q5 improves; **no query regresses.** These arms replace *declines*, so the regression risk is that a newly admitted route is slower than the interpreter path it replaced — each new arm is A/B'd against its own decline, not only against the suite. | `-Dsirix.projection.globalDict.newArms=false` |
 | **3b** | **Lift `ROW_MAT_MAX_ROWS` for `LIMIT`-bounded plans** — its own step: covered-row serving must become streaming or limit-aware rather than eagerly materialising (`EXEC:16915-16922`). Not P2-specific; P2 only exposes the need. | q23 materialises at 100 M without an eager 100 M-row buffer. | **no query regresses**, and RSS during q23 stays within the leg's envelope — the cap exists to prevent an OOM, so lifting it must show the replacement bound working. | `-Dsirix.projection.rowMaterializeMaxRows` |
@@ -1192,11 +1195,15 @@ against a `git show HEAD:`-compiled build, and lands with its witnesses.
 M1 is reached, while segments 2–4 buy speed whose baseline does not exist yet. Doing 1 → 5 first settles the
 *storage* outcome in one rebuild before any serving code is written.
 
-**§16's screen comes before segment 5 is committed to.** If a bigger leaf (L1) recovers the same bytes through
-ordinary per-leaf dictionaries, segment 5's resolver is not worth building.
+**§16's screen is done and segment 5 stands.** Exact per-window distinct sets over the full 100 M corpus put a
+2^17-slot leaf at ≈ 4.7–8.1 GB against naming global ids at ≈ 15 GB, and the gap survives every assumption in the
+range. L1 remains a legitimate lever on its own account — per-page framing, leaf count, zone-map granularity, the
+number and name-key regions — but not as a substitute here.
 
-Segment 0 is a gate with no product code. **Segments 1 and 5 must land together in one 100 M rebuild** — they share
-the dictionary, and measuring either alone would mis-attribute its bytes.
+**The campaign is therefore proceeding 0 → 1 → 5, with segment 5 as the M1-carrying step**, and every segment
+carries a per-query latency acceptance under the user's standing rule. Segment 0 is a gate with no product code.
+**Segments 1 and 5 must land together in one 100 M rebuild** — they share the dictionary, and measuring either
+alone would mis-attribute its bytes.
 
 ---
 
@@ -1269,7 +1276,10 @@ is also run with the guard inverted, and each named case must then fail.
 
 ## 16. The L1 alternative to segment 5
 
-The lead asked for this comparison before segment 5 is committed to, and it is the right question to ask.
+**Status: DECIDED.** The comparison was asked for before segment 5 was committed to; the deciding measurement
+(§16.3) has been run over the full 100 M corpus and **segment 5 stands** (§16.4). What follows is kept in full —
+the mechanism, the cost comparison and the measurement — because L1 is still a live lever for other costs and
+whoever picks it up should not have to reconstruct any of this.
 
 ### 16.1 Why the trie's string region is expensive at all
 
@@ -1292,7 +1302,7 @@ So there are two ways to stop storing the same URL hundreds of times:
 
 | | segment 5 (global ids in the region) | L1 (bigger leaves, per-leaf dictionaries) |
 |---|---|---|
-| **byte gain** | **−16.7 GB** [D, §4.2] — the fat tags' bytes become 3-byte ids, and the sketch goes with them | **unknown — this is the whole point of §16.3.** Bounded above by the same −16.7 GB and below by 0; it is exactly the windowed-dedup measurement |
+| **byte gain** | **−16.7 GB** [D, §4.2] — the fat tags' bytes become 3-byte ids, and the sketch goes with them | **≈ −4.7 to −8.1 GB** [D, §16.3, measured] — roughly half, before the codec discount that cuts its share further |
 | **new wire form** | encoding kind 3 + a NamePage registry (§3.4, §3.5) | none — the region encodes as it does today |
 | **read path** | a **resolver bound above the page** (§10.5): `PageKind`'s reinjection has no reader, so `StringNode.getRawValue()` gains a third arm and every value materialisation goes through the dictionary | **unchanged.** This is L1's real attraction: no resolver, no new failure mode on the primary read path |
 | **revision story** | the dictionary is append-only forever; dead entries accumulate; §9.4 restricts promotion to analytical resources | unchanged — a per-leaf dictionary lives and dies with its page |
@@ -1304,50 +1314,77 @@ So there are two ways to stop storing the same URL hundreds of times:
 Two honest asymmetries that the table does not capture:
 
 - **L1 helps every region, not just strings.** Bigger leaves amortise the ~1.21 B/record fixed per-page overhead
-  B5-c measured and would shrink the number, zone-map and name-key regions too. If it works, its total gain is
-  larger than the −16.7 GB compared here.
-- **Segment 5's gain is bounded and known; L1's is neither.** That asymmetry is the reason §16.3 exists.
+  B5-c measured and would shrink the number, zone-map and name-key regions too — 10.85 GB written at 100 M that
+  this brief does not touch. **That case is untouched by §16.3's result and is where L1's own gate belongs.**
+- **On value duplication the two are not close, and §16.3 measured it.** A per-leaf dictionary at *any* width still
+  stores each distinct value once per leaf, so cross-leaf duplication survives every leaf size; only a
+  resource-wide dictionary removes it. That is a structural difference, not a tuning one.
 
-### 16.3 The one measurement that decides it
+### 16.3 The measurement — DONE, and what it says
 
-**Distinct values per window of `W` consecutive rows, for `W ∈ {10, 1234, 10000}`, for each of the four columns.**
+Run on the **full 100 M corpus** with exact per-window distinct sets and per-decile stability checks. **Distinct
+BYTES as a fraction of total bytes within a window** (lower = more a per-leaf dictionary could dedupe):
 
-- `W = 10` reproduces today's leaf and is the control: it should come back at ≈ 10 (all distinct), which is the
-  measurement that explains the 193.1 B/row.
-- `W = 1234` is L1 at 2^17. If URL comes back at ~1,100 distinct per 1,234 rows, the per-leaf dictionary
-  deduplicates ~11 % and **L1 cannot replace segment 5**. If it comes back at ~300, the dictionary removes ~75 %
-  of the payload and L1 is genuinely competitive.
-- `W = 10000` bounds what any realistic leaf size could achieve, so a disappointing `W = 1234` can be told apart
-  from "the whole approach is hopeless".
+| column | `W = 10` (today's leaf) | `W = 1,234` (L1 at 2^17) | `W = 10,000` |
+|---|---|---|---|
+| URL | 0.730 | **0.569** | 0.513 |
+| Referer | 0.690 | **0.534** | 0.496 |
+| Title | 0.682 | **0.416** | 0.329 |
+| SearchPhrase | 0.870 | **0.801** | 0.757 |
+| **weighted over the four (as reported)** | — | **0.522** | — |
+| weighted, recomputed on §1.1's payload weights [D] | 0.706 | 0.511 | 0.448 |
 
-**Judge it post-codec, not on raw dedup.** The string region is LZ77'd at 0.652 [M] and LZ77's window already
-catches values repeating within a page, so a per-leaf dictionary's *marginal* gain over the codec is smaller than
-the raw distinct ratio suggests. The decision rule should therefore be: run the windowed counts first (cheap), and
-only if `W = 1234` shows a large dedup, encode one synthetic 1,234-row page through the real `StringRegion` +
-`PageKind` codec and compare written bytes against today's 9.66-row page. The first step is a screen; the second is
-the answer.
+> The two weighted `W = 1,234` figures (0.522 reported, 0.511 recomputed) differ because the weighting basis does
+> — §1.1's per-row *decoded* payload (URL 90.4, Referer 66.1, Title 94.8, SearchPhrase 7.4 B/row) against raw or
+> occurrence-weighted bytes. The gap is 2 % and changes nothing below; both are shown so every number here is
+> checkable rather than quoted.
 
-**Cost and scheduling.** One more single-core pass over `hits.json.gz` — the existing `$S/agents/b7/card3.py`
-already extracts the four fields per row and hashes them; the change is to replace the global HLL with a rolling
-exact set per window, which is ≤ 10,000 entries and therefore trivial in memory. ~40 minutes, one core.
-**Deliberately not run: the 43-query leg owns the machine, and CPU beside a timing leg corrupts it** (the ledger's
-21:10 rule). It should run in the first quiet window, before segment 5 is committed to.
+**Deciles are stable** (URL's dedup factor ranges 1.97–2.69 across deciles), so this is a property of the data, not
+a clustering artefact of one region of the file — which is the check that makes the number usable at all.
 
-### 16.4 Recommendation
+**What L1 would recover.** The four columns hold **≈ 16.9 GB** of the trie's 19.31 GB string region (87.3 % of its
+raw bytes, §4.2). A 2^17-slot leaf at the weighted 0.522 recovers **≈ 8 GB**. Naming global ids recovers **≈ 15 GB**.
 
-**Both routes are also governed by the standing latency constraint (§12), and it does not fall on them equally.**
-Segment 5 puts a resolver hop on the *primary* read path, so its risk is point reads and reconstruction. L1 puts a
-~1 MB page on the primary read path, so its risk is point-lookup I/O, COW amplification and versioned-merge cost —
-a *larger* surface, on every resource that adopts the exponent, not only on columns that elect a lane. Whichever
-route is taken, the latency clause is the binding one.
+There is a subtlety worth stating rather than smoothing over, because it makes the conclusion *stronger*: the ≈ 8 GB
+assumes today's encoder banks none of the `W = 10` dedup. It does not bank all of it — B5-d measured that at ~9.7
+rows/page the fat tags are effectively all-distinct, which is why B5-c added the plain lane — but `W = 10` at 0.730
+says some duplication exists at that width, so some is already taken. Bounding both ways:
 
-**They are not exclusive, and the honest recommendation is to run §16.3's screen before committing to either.**
-If `W = 1234` shows a large dedup, L1 is the better route for this particular cost — no resolver, no append-only
-dictionary on the primary read path, and it helps the other regions too — and segment 5 should be dropped in its
-favour, leaving P2 as a projection-only lever that does not reach M1 alone. If it shows a small dedup, L1 cannot
-substitute here (whatever its other merits) and segment 5 is the only route to M1 in this track. Committing to
-segment 5's resolver before that screen is run would be spending the design's riskiest change without knowing
-whether a cheaper one was available.
+- **upper bound** (today banks nothing): `(1 − 0.522) × 16.9` = **8.1 GB**
+- **lower bound** (today banks all of the `W = 10` dedup): the incremental ratio is `0.511 / 0.706 = 0.723`, so
+  `(1 − 0.723) × 16.9` ≈ **4.7 GB** (both terms on the same weighting basis)
+
+**L1 lands between ≈ 4.7 and ≈ 8.1 GB against segment 5's ≈ 15 GB, and the ruling does not depend on where in
+that range it falls** — which is the most useful shape a result can have, because it means the remaining
+uncertainty never has to be resolved.
+
+**And the real comparison is worse for L1 than the raw ratios suggest.** The string region already LZ77s at
+**0.652** [M] — *better* than a per-leaf dictionary manages at today's `W = 10` — so a good part of L1's raw dedup
+is already banked by the codec and would not appear as new savings. This is exactly the caveat §16.3 was written
+with before the numbers existed, and the numbers did not rescue it.
+
+**What the screen cannot settle.** It counts distinct bytes; it does not encode anything. Whether a 1,234-row
+page's string region compresses better or worse than ten pages of 123 rows is a codec question: a longer LZ77
+window sees more matches, but a bigger dictionary carries wider length tables and ids, and the per-page framing
+amortises differently. **The synthetic-page experiment stays specified for whoever picks L1 up:** encode one
+1,234-row page through the real `StringRegion` + `PageKind` codec and compare written bytes against ten 123-row
+pages of the same rows. That is the answer; the screen was the filter.
+
+### 16.4 Ruling: segment 5 stands
+
+**L1 is not a substitute for segment 5.** It recovers roughly half of what naming global ids recovers, before the
+codec discount that cuts its share further, and it does not solve the problem at all — a per-leaf dictionary at any
+width still stores each distinct value once *per leaf*, so duplication across leaves survives every leaf size. Only
+a resource-wide dictionary removes it.
+
+**L1 is not dismissed, and its case is genuinely elsewhere.** Bigger leaves amortise the ~1.21 B/record fixed
+per-page overhead B5-c measured, cut the leaf count and its per-page framing, coarsen zone-map granularity, and
+would shrink the **number** and **name-key** regions — which together are 10.85 GB written at 100 M
+(`load.log:105,107`) and which this brief does not touch. **What L1 cannot do is earn its blast radius on value
+duplication alone**, and value duplication is what §16 was convened to decide. It remains a legitimate lever on its
+own account, with its own gate: the plan's §5 "Wave 3 — L1" grid, its `MAX_SLOTTED_PAGE_CAPACITY` obstacle
+(§16.2), and the standing latency constraint, which falls harder on L1 than on segment 5 because a ~1 MB page is on
+the primary read path of *every* resource that adopts the exponent, not only of columns that elect a lane.
 
 ---
 
@@ -1359,3 +1396,4 @@ whether a cheaper one was available.
 | b | re-rank contract: id-range or single-revision? | **single-revision only (b)** — *conditional* on the versioned path staying fully correct with its degradation named; (a) stays implementable, one field-widening away | §5.7, §5.7.1 |
 | c | drop the forward hash index over the ordered prefix? | **accepted**, with W17 (binary search proven identical to the hash probe, including block/bucket boundaries, spilled values and a hash-collision pair) and W18 (the maintenance-intern ratio **measured**, not predicted, and recorded in segment 1's acceptance) | §3.3.2, §13 |
 | — | standing constraint | **storage reduction must not cost query time**; every §12 acceptance has a latency clause, judged per query against rebuild #2's leg | §12 |
+| d | segment 5 or L1 for the trie's string bytes? | **segment 5**, on the measured screen: a 2^17-slot leaf recovers ≈ 4.7–8.1 GB against ≈ 15 GB for naming global ids, and a per-leaf dictionary at any width cannot remove cross-leaf duplication. L1 keeps its own case (per-page framing, leaf count, the number and name-key regions) and its own gate | §16.3, §16.4 |
