@@ -207,9 +207,10 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   read), `page/pax/RegionTable.java`; the schema sub-trie in a NamePage-keyed store. Witness: parity of every
   region-only scan and zone-map prune; mutation: one width for all tags. Acceptance: regions ≤ 2 B/record at 1M;
   with the schema, fixed overhead ≤ 0.5 B/record.
-- **B3-a — deliverable 1 MEASURED 19:38: leaf 1,070.4 → 721.7 MB at 1M (−32.6 %), file −19.9 %; value-elision
-  metadata 3.76 → 0.13 B/record, name-key 0.93 → 0; item 6 (pathNodeKey column ≈ 1.4 B/record) in progress, then
-  deliverable 2 (structure columns).** Launched 18:48 (impl-b3a), deliverable 1 = DERIVED elision metadata (elided-slot bitmap, per-tag
+- **B3-a — deliverable 1 COMPLETE, measured 19:58 at 1M: leaf 1,070.4 → 680.2 MB (−36.5 %), file 1,770.4 →
+  1,376.1 MB (−22.3 %; −25.8 % vs the wave-1 baseline); staged elision metadata 6.43 → 0.71 B/record (value 0.13,
+  name-key 0, pathNodeKey column 0.27 via `PathNodeKeyRegion`'s compact form); latent pathNodeKey sentinel defect
+  fixed on the way. Deliverable 2 (structure columns + revision elision) in progress.** Launched 18:48 (impl-b3a), deliverable 1 = DERIVED elision metadata (elided-slot bitmap, per-tag
   running rank instead of a region index, canonical widths/types with exception lists, name-key width derived;
   kill switch `-Dsirix.page.body.derivedElision=false` proven against HEAD bytes; acceptance staged elision
   metadata ≤ 0.6 B/record and leaf class ≤ 950 MB at 1M), deliverable 2 = structure as columns + revision elision.

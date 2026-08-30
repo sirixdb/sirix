@@ -99,16 +99,19 @@ final class StringRegionPerTagCompletenessTest {
 
   private Arena arena;
   private boolean perTagCompletenessBefore;
+  private boolean derivedElisionBefore;
 
   @BeforeEach
   void setUp() {
     arena = Arena.ofConfined();
     perTagCompletenessBefore = PageKind.STRING_REGION_PER_TAG_COMPLETENESS;
+    derivedElisionBefore = PageKind.DERIVED_ELISION_SECTIONS;
   }
 
   @AfterEach
   void tearDown() {
     PageKind.STRING_REGION_PER_TAG_COMPLETENESS = perTagCompletenessBefore;
+    PageKind.DERIVED_ELISION_SECTIONS = derivedElisionBefore;
     if (arena != null) {
       arena.close();
     }
@@ -361,6 +364,9 @@ final class StringRegionPerTagCompletenessTest {
   @DisplayName("the kill switch reproduces the pre-change bytes exactly")
   void killSwitchIsByteIdenticalToHead() {
     PageKind.STRING_REGION_PER_TAG_COMPLETENESS = false;
+    // The pin is of HEAD's bytes, so every lever landed since then has to be off for it to mean what
+    // its name says — the derived elision sections included.
+    PageKind.DERIVED_ELISION_SECTIONS = false;
     final ResourceConfiguration config = newConfig();
     final KeyValueLeafPage page = newPage(config);
     try {

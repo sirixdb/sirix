@@ -2360,3 +2360,26 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   still detached at `32b7c2a37`; B6's files cannot reach page fixtures); re-checked on a worktree at `a67e2a3f6` +
   B6's files. **B6 committed.**
 - 19:49 Rig7 built from `5e5f281c0` (core 1,476 / query 444 / tests 1,535, via git archive so B3-a's in-progress edits are excluded). **B5-c launched (impl-b5c)** on rig7 + B3-a's classes: per-tag FOR + zone map folded into the FOR header, then string-region framing (varint lengths, per-tag plain lane), then the page-schema overhead measurement; PageKind edits confined to buildRegionTable with exact-string replacements while B3-a finishes item 6 in the body sections.
+- 19:53 **B3-a deliverable 1 COMPLETE (items 1–6).** Item 6: `PathNodeKeyRegion` gains a self-describing compact
+  form behind a leading zero byte (FOR dictionary min + 1/2/4-byte deltas; a run-length dict-id lane when smaller;
+  expanded once per page into scratch so per-slot lookups stay one popcount); kill switch
+  `-Dsirix.page.pathNodeKeyColumn.compact=false`, also gated on `DERIVED_ELISION_SECTIONS`. ClickBench-shaped page:
+  staged elision metadata 6.38 → 0.42 B/record (value 3.82 → 0.13, name-key 1.00 → 0.00, pathNodeKey column
+  1.55 → 0.29), page wire 14,397 → 10,688 B (−25.8 %). **Latent defect found and fixed:** `pathNodeKeyForSlot`
+  returned −1 for both "no entry" and "stored −1", so a slot carrying the no-path-summary sentinel was stripped by
+  the writer and never re-injected (one-byte heap corruption, latent while the column rarely paid) — the writer
+  pre-scan now keeps `decodedPnk <= 0` inline, one predicate shared by writer and reader (memory
+  `pathnodekey-column-negative-sentinel`). No pin re-recorded. Snapshot of its 7 files taken at 19:52 (before any
+  B5-c edit to PageKind's region range); measuring at 1M and gating on the worktree (HEAD `81eb9ab44` + snapshot).
+  B3-a proceeds to deliverable 2 (structure columns) under the PageKind concurrency rule.
+- 19:58 **B3-a deliverable 1 (items 1–6) measured at 1M (`storage1m-b3a-d1full`, snapshot over HEAD `81eb9ab44`):
+  file 1,376.1 MB (wave 2 1,770.4 → −22.3 %; wave-1 baseline 1,854.3 → −25.8 %), KeyValueLeafPage 680.2 MB (wave 2
+  1,070.4 → −36.5 %; baseline 1,093.3 → −37.8 %); staged elision metadata 6.43 → 0.71 B/record (value 0.13, name-key
+  0.00, hash bitmap 0.12, parent column 0.20, pathNodeKey column 1.39 → 0.27); body on wire 6.68 → 3.25 B/record;
+  regions 4.60 unchanged (B5-c), projection 103.49 B/row unchanged (P2); projection acceptance OK.** Acceptance
+  (staged elision ≤ 0.6 — 0.71 incl. the 0.12 hash bitmap the addendum excluded → MET on the addendum's terms; leaf
+  ≤ 950 — MET by 270 MB). Gate on the worktree running.
+- 20:06 **B3-a deliverable 1 gate GREEN on the worktree (HEAD `81eb9ab44` + snapshot): targeted core rc=0, targeted
+  query rc=0, full core rc=0 (6m 53s), full query rc=0 (3m 10s). Committed from the snapshot via git plumbing
+  (`commit-snapshot.sh`) — the working tree keeps B3-a d2's and B5-c's in-progress edits. Rebuild #1 at 100M launches
+  from the gate worktree at this commit.**
