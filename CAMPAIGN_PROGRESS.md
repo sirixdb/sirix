@@ -2579,3 +2579,17 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   `GroupWindowedSlicesTest#theHeadroomShareGatesRetentionAndTheQueryExitReleasesIt` now enables it explicitly.**
   Rig: ResidencyRelease 5/5, HeapHeadroomBudget 5/5, GroupWindowedSlices 28/28, GroupHashRangePass 2/2,
   GroupPassOOMRestart 1/1, StrictServing 2/2. Full leg relaunched.
+- 22:52 **Both P2 design reviews accepted; one consolidated revision sent to B7.** Storage lens (12 findings): the
+  dictionary DIRECTORY was priced at zero — the persisted forward index costs 12 B/entry (hash bucket `long hash` +
+  `int id`) plus radix nodes and block offsets, so the honest figure is ~30.0 B/row against the ≤ 30 acceptance,
+  met exactly; `tagMeta` bit 3 has no version carrier and would misparse every pre-P2 page (fix: a new encoding kind
+  3, which is what kind 2 itself was); `flushStreamingDictionaryGeneration` re-imports the D-sized probe front the
+  brief exists to remove; the ≈ 1.0 GB peak omits the write transaction's intent log; value blocks hold ≤ 256 values
+  not ~700 (segment 6's filter is ~15× the claim); re-rank contradicts append-only; the UTF-16 substitution is exact
+  only for valid UTF-8. Serving lens (10): the verdict cache is not revision-scoped (a stale verdict can DROP rows);
+  the `DenseGlobalGroupAggTable` unlock claim is false (it already serves global keys — `orderPlan != null` is the
+  gate); A3 cannot serve q23 at 100M (`ROW_MAT_MAX_ROWS` caps TOTAL store rows); B2 names the wrong gate; and the
+  residency double-spend — N sites each pricing against the whole share — which is the same structural flaw that
+  produced tonight's regression. **Staging reordered to 0 → 1 → 5** (segment 5 delivers −16.7 of −24.1 GB).
+  M1 reconciled: the plan of record says ≤ 50 GB; the ledger's ≤ 45 was superseded draft 3. New §16 requested: the
+  L1 alternative to segment 5, with the deciding measurement (distinct values per 10 / 1,240 / 10,000-row window).
