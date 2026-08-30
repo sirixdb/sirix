@@ -1646,7 +1646,7 @@ public enum PageKind {
             regionTable != null && regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) != null;
         writeEncodedBody(sink, slottedPage, populatedCount, slotKindIds, slotFieldCounts, slotHeapOffs, slotDataLens,
             slotBits, slotRegionAbsIdx, keyValueLeafPage.areDeweyIDsStored(), chunkedBody,
-            keyValueLeafPage.getFsstSymbolTableId(), nameKeyRegionPresent);
+            keyValueLeafPage.getFsstSymbolTableId(), nameKeyRegionPresent, keyValueLeafPage.getIndexType().getID());
       } catch (final RuntimeException | Error failure) {
         // A normal table is not page-owned until the install below. If body encoding fails first,
         // return every pooled region frame immediately; the disposable variant is owned by its
@@ -1710,6 +1710,7 @@ public enum PageKind {
       if (sectionDiag) {
         PageSectionDiag.record(afterHeaderBitmap - diagStart, afterEncodedBody - afterHeaderBitmap,
             afterRegionTable - afterEncodedBody, afterOverlong - afterRegionTable, afterFsst - afterOverlong);
+        PageSectionDiag.recordRecords(populatedCount);
       }
 
       // Compress the serialized data — but NOT when the page still carries unresolved overflow
@@ -2007,11 +2008,15 @@ public enum PageKind {
      * @param fsstDictId the page's FSST dictionary id, hoisted into a chunked body's prefix
      * @param nameKeyRegionPresent whether the page's region table actually carries the name-key region;
      *        name-key elision may only strip what that region can put back
+     * @param indexTypeId {@link io.sirix.index.IndexType#getID()} of the page's index type. Read only
+     *        by the section diagnostic, which splits the value-elision activation rate by index type —
+     *        the activation rate alone cannot tell "this page holds nothing elidable" from "elision
+     *        did not pay here", and the two lead to different levers.
      */
     private static void writeEncodedBody(final BytesOut<?> sink, final MemorySegment slottedPage,
         final int populatedCount, final int[] slotKindIds, final byte[] slotFieldCounts, final int[] slotHeapOffs,
         final int[] slotDataLens, final short[] slotBits, final int[] slotRegionAbsIdx, final boolean deweyIdsStored,
-        final boolean chunkedBody, final long fsstDictId, final boolean nameKeyRegionPresent) {
+        final boolean chunkedBody, final long fsstDictId, final boolean nameKeyRegionPresent, final byte indexTypeId) {
       final boolean finerDiag = PAGE_SECTION_DIAG;
       final long diagS0 = finerDiag
           ? sink.writePosition()
@@ -2053,6 +2058,12 @@ public enum PageKind {
           final short[] slotValueOffs = SLOT_VALUE_OFF_SCRATCH.get();
           final short[] slotValueWidths = SLOT_VALUE_WIDTH_SCRATCH.get();
           final long[] slotValueLongs = SLOT_VALUE_LONG_SCRATCH.get();
+          // Diagnostic-only mirror of the payload width, written for EVERY fused-primitive slot; the
+          // production array above holds a width only for the slots elision actually covers. Null
+          // unless the section diagnostic is on, so the disabled path acquires no ThreadLocal.
+          final short[] slotDiagValueWidths = finerDiag
+              ? SLOT_DIAG_VALUE_WIDTH_SCRATCH.get()
+              : null;
           // Lever 4: the region is the authority for whether name-key elision is safe. It has
           // already seen every primitive AND structural fused name and refuses the page if its
           // 255-entry dictionary cannot represent them. Do not rebuild that dictionary from the
@@ -2243,6 +2254,11 @@ public enum PageKind {
                   : slotDataLens[i];
               final int dataBytes = recordOnlyLen - 1 - fc;
               final int valueWidth = dataBytes - valueOff;
+              if (slotDiagValueWidths != null) {
+                slotDiagValueWidths[i] = valueWidth > 0 && valueWidth <= Short.MAX_VALUE
+                    ? (short) valueWidth
+                    : 0;
+              }
               if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
                 fusedNumberSlotCount++;
                 if (valueWidth > 0 && valueWidth <= 11) {
@@ -2479,6 +2495,10 @@ public enum PageKind {
               // is inconsistent. Fall back to inline to avoid corrupting disk bytes.
               writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
                   fsstDictId);
+              if (finerDiag) {
+                PageSectionDiag.recordInlineBodyPage(indexTypeId, PageSectionDiag.INLINE_REASON_SHORT_RECORD);
+                PageSectionDiag.recordEncodedBody(0L, 0L, sink.writePosition() - diagS0);
+              }
               return;
             }
             if (hashElisionActive && ((zeroHashBitmap[i >>> 3] >>> (i & 7)) & 1) == 1) {
@@ -2566,6 +2586,17 @@ public enum PageKind {
               + stagedParentKeyColBytes + stagedPathNodeKeyColBytes + stagedValueElisionBytes
               + stagedNameKeyElisionBytes;
           final int totalStagingBytes = structuralBytes + onDiskHeapSize;
+          if (finerDiag) {
+            // The staged sizes are exactly what the writer is about to emit, so the diagnostic reports
+            // the metadata each lever COSTS beside the bytes it saves. The heap fold runs over the
+            // same per-slot arrays the sizing loop just filled, so it needs no second walk of the page.
+            recordHeapCompositionDiag(populatedCount, slotKindIds, slotOnDiskLens, slotDiagValueWidths,
+                slotValueElided, valueElisionActive);
+            PageSectionDiag.recordStagedElisionMetadata(stagedValueElisionBytes, stagedNameKeyElisionBytes,
+                stagedHashBitmapBytes, stagedParentKeyColBytes, stagedPathNodeKeyColBytes);
+            PageSectionDiag.recordEncodedBodyOutcome(indexTypeId, valueElisionActive,
+                fusedNumberSlotCount + fusedStringSlotCount + fusedBooleanSlotCount > 0);
+          }
           final MemorySegment staging = v1StagingScratch(totalStagingBytes);
           final BodySections sections = BODY_SECTIONS.get();
           sections.begin(staging);
@@ -2613,7 +2644,8 @@ public enum PageKind {
             if (finerDiag) {
               final long diagS3 = sink.writePosition();
               PageSectionDiag.recordEncodedBody(compactDirBytes, br.templatesByteLength + populatedCount,
-                  diagS3 - diagS0 - 9 /* populatedCount + heapSize + templateCount headers */);
+                  diagS3 - diagS0 - 9 /* populatedCount + heapSize + templateCount headers */,
+                  sections.metaLength() + sections.heapLength());
             }
             return;
           }
@@ -2651,7 +2683,7 @@ public enum PageKind {
             final long diagS3 = sink.writePosition();
             PageSectionDiag.recordEncodedBody(compactDirBytes, // compactDir PRE-compression
                 br.templatesByteLength + populatedCount, // templatePool+slotIds PRE-compression
-                diagS3 - diagS0 - 9 /* populatedCount + heapSize + templateCount headers */);
+                diagS3 - diagS0 - 9 /* populatedCount + heapSize + templateCount headers */, totalStagingBytes);
           }
           return;
         }
@@ -2662,7 +2694,64 @@ public enum PageKind {
       if (finerDiag) {
         final long diagS3 = sink.writePosition();
         PageSectionDiag.recordEncodedBody(0L, 0L, diagS3 - diagS0);
+        PageSectionDiag.recordInlineBodyPage(indexTypeId, populatedCount == 0
+            ? PageSectionDiag.INLINE_REASON_EMPTY_PAGE
+            : PageSectionDiag.INLINE_REASON_TEMPLATE_DEDUP_ABORTED);
       }
+    }
+
+    /**
+     * DIAGNOSTIC ONLY ({@code -Dsirix.pageSectionDiag=true}): fold one page's staged heap into
+     * per-node-kind slots, then emit one {@link PageSectionDiag} call per kind present.
+     *
+     * <p>
+     * The plan's first trie lever needs to know which record kinds spend the body's bytes and how many
+     * payload bytes stay inline because value elision did not reach the slot — a page that lost its
+     * string region to an overflow descriptor keeps every fused string's bytes in the heap, and that
+     * is invisible in a per-page total. Folding per kind first keeps a 1,024-slot page at one
+     * {@link java.util.concurrent.atomic.LongAdder} touch per kind rather than one per slot.
+     *
+     * <p>
+     * Zero allocation: the fold rides a thread-local {@code long[]} and is cleared as it is emitted,
+     * so it is left zeroed for the next page without a full-array wipe.
+     */
+    private static void recordHeapCompositionDiag(final int populatedCount, final int[] slotKindIds,
+        final int[] slotOnDiskLens, final short[] slotDiagValueWidths, final byte[] slotValueElided,
+        final boolean valueElisionActive) {
+      final long[] fold = DIAG_HEAP_BY_KIND_SCRATCH.get();
+      for (int i = 0; i < populatedCount; i++) {
+        final int base = (slotKindIds[i] & 0xFF) << 2;
+        fold[base]++;
+        fold[base + 1] += slotOnDiskLens[i];
+        // Only the fused primitives carry a payload elision can reach, and only for them is the
+        // diagnostic width array written on this page — reading it for any other kind would report a
+        // width left behind by an earlier page.
+        if (VALUE_ELISION_ENABLED && isValueElisionCandidateKindId(slotKindIds[i])) {
+          final int width = slotDiagValueWidths[i] & 0xFFFF;
+          if (width > 0 && !(valueElisionActive && slotValueElided[i] != 0)) {
+            fold[base + 2] += width;
+            fold[base + 3]++;
+          }
+        }
+      }
+      for (int i = 0; i < populatedCount; i++) {
+        final int kindId = slotKindIds[i] & 0xFF;
+        final int base = kindId << 2;
+        if (fold[base] != 0) {
+          PageSectionDiag.recordHeapKind(kindId, fold[base], fold[base + 1], fold[base + 2], fold[base + 3]);
+          fold[base] = 0;
+          fold[base + 1] = 0;
+          fold[base + 2] = 0;
+          fold[base + 3] = 0;
+        }
+      }
+    }
+
+    /** The three fused primitive kinds whose payload the value-elision pre-scan measures. */
+    private static boolean isValueElisionCandidateKindId(final int kindId) {
+      return kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID
+          || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID
+          || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID;
     }
 
     /**
@@ -3506,6 +3595,12 @@ public enum PageKind {
       // column or dictionary sketch from only the remaining inline strings would make exact
       // negative probes lie, so one descriptor suppresses the value region for the whole page.
       boolean stringRegionComplete = true;
+      // Diagnostic-only tallies for the section report: how many overflow descriptors this page
+      // holds (one is enough to suppress the region) and the stored bytes of the strings that then
+      // stay inline in the record heap. Two stack locals whose only consumer is the diagnostic below,
+      // so the disabled build drops both the reads and the accumulation with the dead branch.
+      int stringOverflowDescriptorCount = 0;
+      long stringStagedBytes = 0L;
       // Array-element strings are STAGED, not added as they are met: they are published only if
       // EVERY element on the page resolved its enclosing array, because a tag holding most of a
       // path's values is worse than no tag — every reader treats tagCount as the complete count of
@@ -3676,8 +3771,10 @@ public enum PageKind {
               stringNameTags[stringCount] = fusedNameKey;
               stringPathTags[stringCount] = fusedPathNodeKeyInt;
               stringCount++;
+              stringStagedBytes += valueLength;
             } else if (page.isFusedObjectNamedStringOverflowDescriptor(slot)) {
               stringRegionComplete = false;
+              stringOverflowDescriptorCount++;
             }
           } else if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID) {
             final boolean value = page.getFusedObjectNamedBooleanValueFromSlot(slot);
@@ -3904,7 +4001,15 @@ public enum PageKind {
             stringNameTags[stringCount] = elemNameTags[e];
             stringPathTags[stringCount] = elemPathTags[e];
             stringCount++;
+            stringStagedBytes += elementValue.length;
           }
+        }
+        if (PAGE_SECTION_DIAG) {
+          // U2: one fused-string overflow descriptor drops the WHOLE page's string region — no
+          // dictionary, no sketch, no string elision — so every other string on the page stays inline
+          // in the heap. Recorded at the decision itself, with the descriptor count that caused it.
+          PageSectionDiag.recordStringRegionOutcome(!stringRegionComplete, stringOverflowDescriptorCount, stringCount,
+              stringStagedBytes);
         }
         if (stringRegionComplete && stringCount > 0) {
           final boolean pathTagged = stringAllPathNodeKeysValid && stringEncPath != null;
@@ -6209,6 +6314,25 @@ public enum PageKind {
       ThreadLocal.withInitial(() -> new short[PageLayout.SLOT_COUNT]);
 
   /**
+   * DIAGNOSTIC ONLY, acquired only when {@code -Dsirix.pageSectionDiag=true}: the payload width of
+   * every fused-primitive slot, whether or not the slot turned out to be elidable.
+   * {@link #SLOT_VALUE_WIDTH_SCRATCH} holds a width only for slots the writer marked elidable, so it
+   * cannot answer the question the plan asks — how many payload bytes stay INLINE in the heap because
+   * elision did not cover the slot. Kept apart from the production scratch so no diagnostic can ever
+   * change what the writer strips.
+   */
+  private static final ThreadLocal<short[]> SLOT_DIAG_VALUE_WIDTH_SCRATCH =
+      ThreadLocal.withInitial(() -> new short[PageLayout.SLOT_COUNT]);
+
+  /**
+   * DIAGNOSTIC ONLY: per-node-kind fold of one page's staged heap, so the per-kind counters cost one
+   * {@link PageSectionDiag} call per kind present instead of one per slot. Four lanes per kind —
+   * slots, staged bytes, inline payload bytes, inline payload slots.
+   */
+  private static final ThreadLocal<long[]> DIAG_HEAP_BY_KIND_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[4 * 256]);
+
+  /**
    * Per-thread per-elided-slot type byte ({@code NUMBER_TYPE_INTEGER == 2} or
    * {@code NUMBER_TYPE_LONG == 3}). Packed in slot-ascending order, length = number of elided slots
    * on the page. Stored on disk so the reader can re-encode the original heap bytes byte-for-byte
@@ -6918,6 +7042,17 @@ public enum PageKind {
    * Emits a cumulative breakdown on JVM shutdown. Pure diagnostic; off by default.
    */
   private static final boolean PAGE_SECTION_DIAG = Boolean.getBoolean("sirix.pageSectionDiag");
+
+  /**
+   * Test seam: whether the section diagnostic is active in this JVM. The gate is a static final read
+   * at class initialisation so the branch folds away when it is off, which also means a suite
+   * asserting on the counters cannot turn it on for itself — it has to ASSERT it is on and let the
+   * build provide it, because with the gate off every counter reads zero and a zero from a disabled
+   * instrument is indistinguishable from a zero from a healthy one.
+   */
+  static boolean sectionDiagEnabled() {
+    return PAGE_SECTION_DIAG;
+  }
 
   /**
    * Marks a page's FSST section as holding a dictionary reference; {@code 0} means the page has none.

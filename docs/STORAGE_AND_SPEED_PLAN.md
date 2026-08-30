@@ -1,124 +1,245 @@
 # Storage size and query speed — one plan (ClickBench 100M, projection-index track)
 
-Status: **DRAFT 2 — 2026-08-30 14:10.** Draft 1's premise ("numeric projection columns cost 8 B/row on disk")
-was a misreading of a heap-residency projection; the on-disk measurement below replaces it. Two measurements
-are still pending (▢). Scope per the user's direction: the query path stays on the projection index in this
-branch; the base-store/PAX-per-path direction is parked (but see §2 — it decides whether M2 is reachable).
-Layout changes are made in place (V0, rebuild) — no format-version machinery.
+Status: **DRAFT 6.1 — 2026-08-30 16:35 — plan of record after both independent reviews and round 1's addendum** (round 1: 16 findings,
+round 2: 20 findings; every load-bearing anchor re-verified in the code) and the B0 measurement. User decisions:
+projection indexes are the path; the node store stays at 1,024 nodes per leaf; everything general (§0); query
+compilation later (C1). Outcome required: storage drops considerably AND queries are served with very low latency.
 
-## 1. Where the bytes are (measured)
+## 0. Generality contract (every lever, every brief)
+Every mechanism is triggered by **data, statistics or resource configuration — never a column name, field list,
+query id or benchmark**. Benchmark-specific = harness only (`io.sirix.query.bench.*`: which columns a resource
+projects and their declared types, loaders, oracles, dump compares). Main code never mentions ClickBench; witnesses
+run on synthetic fixtures. Reviewers check it per brief.
 
-**100M:** `sirix.data` = 131.9 GB = **1,319 B/row** (trie + projection + global-dictionary pages + carriers, one file).
+## 1. Baseline (measured; B0-consistent)
+**100M `sirix.data` = 131.9 GB = 1,319 B/row.** Projection (`ProjDiskDump` over KEYS/BODY/DICT/BLOOM): 178.5 B/row at
+100M; the full-accounting `ProjectionDiskDump` (B0r) at 1M gives **115.5 B/row** = column segments 101.1 (DICT_HASHES
+4.3 B/row over the per-leaf string columns, blooms 1.2) + keys 12.8 + descriptors 1.3 + framing 0.3 — i.e. the omitted
+kinds add ~6 B/row at 1M, more at 100M where the fat columns are per-leaf. Working figures: **projection ≈ 195–205 B/row
+≈ 20 GB at 100M; the node trie ≈ 1,110 B/row ≈ 111 GB (84 %)**.
 
-**1M (`storage1m`, `hits-1m.json.gz`, 977 row groups):**
+Projection at 100M (B/row): URL 36.4 + hashes, Referer 27.3, Title 26.6, EventTime 24.7 (ISO strings, per-leaf
+dictionaries), KEYS segment 13.7 (= **Dewey order labels**: `int32` offsets 4 B/row + arithmetic labels 8–10 B/row;
+the record keys inside it are already delta-FOR at ~1 B/row), 64-bit hashes 8.0 each (entropy floor), UserID 7.2,
+SearchPhrase 5.4, all other numerics ≤ 4.
 
-| component | bytes/row | how measured | notes |
+Trie leaf at 1M (B0 run, per record **on the wire, scaled to the written file: 10.3 B**; a row is 106 records — the
+object plus 105 fields; a page holds ~9.7 rows, ~71 numeric and ~34 string tags):
+
+| section | B/record on wire | what is inside (raw) |
+|---|---|---|
+| encoded body | **6.8** | staged 22.5 raw → 0.39× by the codec bake-off: directory 1.4, templates + slot ids 0.8, **heap 15.2** = per fused record kind + template id (both repeated — the directory and slot ids already carry them), value-elision metadata 4–5 (gap/type/width/region-index varints), name-key elision width 1, pathNodeKey dictionary id 1, right/left sibling deltas 2, prevRev + lastModRev 2, framing — **plus every string inline on the ~50 % of pages that hold one overflow record**, because an overflow descriptor sets `stringRegionComplete = false` and the string region is then not written at all (no string elision, no sketch, no SIMD string scan) |
+| region table (LZ77) | **3.2** | raw ~11: NUMBER region written as **plain 8-byte longs on every page** — bit-packing needs a page-wide spread < 2^56 and the 64-bit hash columns always exceed it — plus per-tag min/max inside it AND a second copy in the zone-map region (22 B + 24 B/tag); string region 16 B/tag + per-tag dictionaries over ~10 rows; name-key region 128-B bitmap + 4 B/name; record ordinals |
+| header + bitmap, overlong, sidecar | 0.3 | 160-B fixed header/bitmap, carriers' framing |
+
+Fused record anatomy as the writer emits it (round-1 addendum, `NodeFieldLayout`, `NodeKind` ~918–955, `PageKind`
+`stageEncodedHeap` ~2692): in memory `kindId + 9-byte offset table + data`; on disk `kindId + templateId + data` with
+these strips — parentKey → parent-key column, pathNodeKey → column, nameKey → name-key region (all-or-nothing per
+page), hash → zero-hash bitmap, payload → region (per slot, when the saving beats the wire cost). **Never stripped:**
+rightSibling δ, leftSibling δ, prevRev, lastModRev — four 1-byte varints in a bulk-loaded revision. So the minimum
+heap record is 6 B pre-codec (kind, template, four varints) + a 2-byte directory entry + 1 B slot-template id outside
+the heap, with kind and template each stored twice. The cheapest first cut, in order: drop the duplicated kind and
+template bytes, elide the two revision varints when equal to the page revision, then the STRUCT_POINTERS columns for
+the siblings.
+
+**Per-page fixed overhead at ~10 rows/page is ~3–4 B/record on its own** (tag headers, two zone-map copies, string tag
+headers, name-key bitmap, page header, template pool) — the whole M1 budget before any value byte. The cost model
+for every T1 estimate is therefore *fixed per page ÷ 10 rows + per value*, not per-value alone.
+
+References (`data_size`, c6a.4xlarge, all 105 columns): Umbra 83 B/row, CedarDB 85, ClickHouse 153, DuckDB 205.
+
+## 2. Targets
+| milestone | 100M | trie B/record | how |
 |---|---|---|---|
-| node trie (`KeyValueLeafPage`) | **~1,089** | writer profile (105,702 leaf writes ≈ 2 % rewrites) | ~105 field records per row at **~10.4 B each**; hashes NONE, DeweyIDs off, versioning FULL, regions LZ77 inside the page |
-| projection segments, on disk | **109.6** | `ProjDiskDump` (descriptor segment lengths: body + dict + bloom + keys) | numerics FOR bit-packed: `IsRefresh` 0.16, `IsLink` 0.09, `CounterID` 0.03, `RegionID` 2.0, `ResolutionWidth` 1.4, `UserID` 6.9; the three 64-bit hashes 8.03 each (incompressible); `Title` 21.9 and `Referer` 24.7 (per-leaf FSST dictionaries + blooms); `SearchPhrase` 2.2; `URL` 2.1 and `EventTime` 2.1 as **global** codes (their dictionaries live in `GlobalValueDictionary` pages, not in this number; at 100M the promotion budget declines them and they cost ~20-25 B/row each as per-leaf dictionaries); **keys chain 12.8 B/row** |
-| everything else in the 1.86 GB file | ~660 (written) | writer profile `OverflowPage` 740 minus the live 110 | superseded row-group versions from the incremental build, global-dictionary pages, carriers for the ~7 % of fused records over the 512-byte cap |
+| today | 131.9 GB | 10.3 | |
+| **M1** | **≤ 50 GB** (expected 45–50) | ~3.7 | T1 d → c → a → b, P3, P-ET, then P2 |
+| **M2** | ≤ 30 GB | ≤ 2.2 | T1-c's **cross-page page schema** (per-tag directories and template pools content-hashed and stored once per resource, referenced by a varint id per page) removes most of the fixed per-page overhead — the in-track M2 lever; dictionary-coded fat strings in fused records remain the alternative for the string payload |
 
-So at 100M the projection is on the order of 150–250 B/row and **the node trie is ~85 % of the file.**
-Reference (`data_size`, c6a.4xlarge, all 105 columns): **Umbra 83 B/row**, CedarDB 85, ClickHouse 153, DuckDB 205.
-
-▢ Pending: the inside-page split of a trie leaf (`-Dsirix.pageSectionDiag=true`: header/bitmap, compact
-directory + template pool, heap, regions per kind, overlong entries, sidecar) and `ProjDiskDump` on the 100M DB.
-
-## 2. Targets — and the one decision they hinge on
-
-| milestone | 100M size | B/row | trie must be | reachable in the projection-index track? |
-|---|---|---|---|---|
-| M1 "below half" | ≤ 55 GB | ≤ 550 | ≤ 400 B/row (≤ 3.8 B per field record) | yes — T1 (a)(b)(c) + P3 |
-| M2 DuckDB-class | ≤ 25 GB | ≤ 250 | ≤ ~120 B/row (≈ 1.1 B per field) | **not as a node store**: a field record needs a slot, a name key and structure; ~1 B/field is a bit-packed per-path column, i.e. the parked direction (columnar value regions per path inside the leaf) |
-| stretch | ≤ 15 GB | ≤ 150 | — | only with per-path regions + global dictionaries |
-
-Decision for the user, later: M1 is the projection-index track; M2 needs the trie's *values* stored per
-path (the leaf becomes a column block for its 1,024 records, with the record structure as a compact
-template) — the same idea that was parked this morning, now with a number attached to it.
-
-Speed targets ride on the same changes. Σ cold at 8 GB: 3,803 s pre-lever → 1,327 s this morning (964 s
-without q19's interpreter time); the final leg is running now (q19 in context 0.08 s). P2 is expected to take
-the remaining slow tier (q5 45 s, q20 23 s, q23–q26 58–117 s, q33/q34 ~24 s) down by an order of magnitude;
-the target Σ cold is ≤ 250 s.
+Speed: Σ cold at 8 GB is **807 s** (3,803 s pre-lever; 43/43 on their routes). Target **Σ cold ≤ 150 s, no query above
+15 s.** Mechanism per query in §4; P2 is the lever most of the string-bound queries hinge on, and T1/P3 speed *no*
+group-by (the projection routes never read the trie; KEYS is read only by sorted emission and the row path).
 
 ## 3. Levers
 
-### T1 — Trie leaf compaction (the storage lever: 1,089 → ≤ 400 B/row)
-Per field record today ≈ 10.4 B on disk. Where it goes is exactly what the pending section split answers;
-the candidates, in the order they will most likely matter:
-- **(a) Directory and templates.** The compact directory carries (kind, field count, heap offset, length)
-  per slot; with every record of a ClickBench leaf built from the same handful of templates, the
-  per-slot entry should collapse to a template id + a varint length (or nothing, when lengths are
-  template-implied). Target: ≤ 1 B per slot.
-- **(b) Values once, bit-packed.** Value elision (heap value dropped when its region holds it) exists —
-  confirm it covers every kind ClickBench uses and every page (a leaf with a mixed template must not fall
-  back to inline values). Then pack the NUMBER region with per-page FOR (min + width, like the projection
-  body) instead of LZ77 over raw longs, and FSST the STRING region (the page already carries a symbol table
-  id). Target: ≤ 2 B per numeric field, ≤ 0.5 B per flag.
-- **(c) Structure.** Parent-key and right-sibling-key columns exist (`recordParentKeyColumn`); the
-  remaining per-record structure (kind, name key) belongs in the template. Target: ≤ 0.5 B per record.
-- **(d) The 512-byte fused cap.** ~7 % of records overflow into carriers (an extra page each, ~1–2 KB of
-  framing); raise the cap (the directory needs offsets that fit) so they stay inline.
-Witnesses: golden-byte pins of the page layout, the record read/write differentials, the region-only read
-tests, then the 1M storage profile (leaf ≤ 400 B/row) and the 1M leg (row-path queries unchanged).
-Risk: medium-high — the leaf serializer/deserializer are the most complex code in the store; each
-sub-step ships with its own pin.
+### T1 — Trie leaf compaction, in the order the reviews established
+- **(d) FIRST — the fused cap and string-region completeness.** Raise `MAX_RECORD_SIZE` 512 → 1,023 (the 10-bit
+  directory length already allows it; `Constants`, `PageLayout.MAX_COMPACT_DIR_DATA_LENGTH`, `OverflowSlotSidecar`),
+  and decouple region completeness from overflow descriptors with a per-tag completeness flag (the pattern the
+  orphan handling already uses) so one long Title never evicts the other 33 columns' strings. Witness: a diagnostic
+  counter "pages without a string region because of overflow" and string-elision bytes before/after; the
+  region-only read tests on pages with carriers. Expected: string elision on ~100 % of pages instead of 76 %;
+  the inline string bytes leave the heap.
+- **(c) Per-tag FOR in the number region with the zone map folded into the header.** Values are already grouped by
+  tag; give each tag (base, width, bit offset) — base is the min, max = base + (2^width − 1) or an explicit delta —
+  and derive/drop the duplicate `NumberZoneMapRegion`. The SIMD kernels and `decodeValueAt` assume one width today
+  (moderate, not trivial). **Cross-page page schema:** tag lists per region kind and the template pool are
+  content-hashed and stored once per resource (a NamePage sub-trie, like the value dictionary), each page referencing
+  its schema by a varint id — general for any record-shaped JSON, no page-size change; this is what removes the
+  ~3–4 B/record fixed overhead and reaches M2.
+- **(a) Structure as columns.** The documented `KIND_STRUCT_POINTERS` region (parentKey, left/right sibling,
+  firstChild; only parentKey implemented today) via the existing `StructuralKeyColumnCodec` (2 bits/slot: null /
+  key + stride / repeat / explicit; RLE for dense runs, FOR for the rest) plus elision of the revision fields on a
+  page whose records share the page revision (constant columns). Derive the value-elision metadata (gap, type,
+  width, region index are functions of what the page holds) and bit-pack the pathNodeKey / name-key dictionary
+  ids. No dense-bitmap/exception special case, no path-summary derivation. Measure the heap composition first
+  (B0 counters: non-elided value bytes by kind, inline-path pages, elision-metadata bytes).
+- **(b) LAST, if the corrected diagnostic says the directory matters post-codec:** drop the per-record kind and
+  template id (both already in the directory/slot ids); template-implied lengths; > 255 templates falls to the
+  inline path with no elisions — count those pages.
+Witnesses: golden-byte pins (`GoldenFormatTest`, `GoldenCompositePageTest`, sticky-codec reset rule), record
+read/write differentials, region-only read tests, the section diagnostic at 1M, the 1M leg. Kill switch per lever.
+Expected on the wire: body 6.8 → ~1.0–1.5 (d, a, b), regions 3.2 → ~2.0 (c), fixed overhead → ~0.5 (schema).
 
-### P2 — Fat string columns: disk-resident, order-preserving global dictionaries (the speed lever; −30…50 B/row)
-Today a global dictionary must be resident to be promoted, so at 100M `URL`/`Title`/`Referer`/`SearchPhrase`
-fall back to per-leaf dictionaries that "barely dedupe" (codec javadoc) — 20–25 B/row each at 1M, more at
-100M. Design: one dictionary per column built by the bulk load (sort the distinct values → **codes are
-rank order**), entries stored as FSST-compressed blocks (e.g. 4 K entries) with an offset index; scans read
-only the codes (bit-packed per leaf, ~2–4 B/row), never the entries; entries are decoded per winner or
-streamed once for a predicate. Incremental appends take codes above the bulk range (not order-preserving);
-sorts and extrema fall back to entry comparison only across that boundary.
-What it buys: q23–q26 become numeric top-k over codes (no per-leaf dictionary decode, the whole sorted-scan
-tier), q5 = a code bitmap, q20/q21/q28 evaluate `LIKE`/regex once over the dictionary then test codes,
-q21/q22 `MIN(URL)` = min code, q35 groups by code, q13/q14/q16/q17 hash codes instead of dictionary entries.
-Builds on `GlobalValueDictionary` (promotion, `ReadView`, `valueDictionaryHeaderKey`, the `STRING_GLOBAL`
-kind and its kernels). New: disk residency of entries, the promotion budget no longer a gate, the sorted
-build, the mixed-range fallback. Witnesses: the `GlobalValueDictionaryServing*` differentials extended to
-every route the per-leaf kind serves today; dump byte-identity at 100M. Risk: high (an external sort of
-~10⁸ strings per fat column inside the 2× rider budget; every `STRING_GLOBAL` route parity). Two review
-rounds first, like P1/P2 this morning.
+### P3 — Synthesized order labels (−12 B/row)
+The KEYS segment's order-label lane: store (base label, stride, exception list) and derive offsets; readers are
+codec-local (`decodeKeysView`, `KeysView.compareOrderLabelAt/copyOrderLabelAt`; consumers `ProjectionIndexFences`,
+`ProjectionPersistedRecordLookup`). Acceptance ≤ 1.5 B/row. Record keys stay as they are (already delta-FOR).
 
-### P3 — Row-group framing: keys chain 12.8 → ~1 B/row, compact zone maps/fingerprints (−12 B/row)
-Record keys are dense and strided by ~106 per row; delta-FOR per leaf is ~1 B/row. Cheap, codec-local.
+### P-ET — Declared `TIMESTAMP` / `DATE` column types (−22 B/row; q23/q24 numeric sort; q6, q36–q42 numeric dates)
+No detection exists in core (the loader's ISO check is bench-side and only tests `isString`). A declared type per
+column with one canonical shape (19-char `dddd-dd-ddTdd:dd:dd`; 10-char dates) validated per value at build — a
+non-conforming value is a build error, like a string in a long column — with an epoch numeric lane, an exact
+formatter on emission (round trip witnessed), a literal→bound rule for partial string literals (prefix compares map
+exactly or the numeric arm declines), and the substring shapes (`substring(…,15,2)`, `substring(…,1,16)`) as
+arithmetic on the long. A DATE variant is required or q6/q36–q42 miss the lever.
 
-### R1 — Residency management (speed and stability, no bytes)
-The retained-fill ledger sits within bytes of the 2 GB budget after q0–q6 and never shrinks: 594 Full GCs in
-this morning's leg and the q14/q17 cold-try variance are this knife-edge. Add LRU eviction of retained
-fills when a residency decision needs headroom; drive every budget from `HeapHeadroom` (done today for the
-pass budgets and the distinct ceiling).
+### P2 — Global dictionaries for fat string columns (the speed lever; −110…120 B/row gross incl. DICT_HASHES)
+The read side is already disk-resident (raw 256-entry value blocks behind a 3-byte radix; `ReadView` has a fixed
+footprint). **The gate is the build:** the writer and probe front hold every distinct value in heap (twice on the
+streaming load; budget 4 × rows × (avg + 52) ≥ 20 GB at 100M against a 2 GiB cap), post-pass builds are capped at
+16,384 distinct per generation, ids are minted during ingestion into immutable FOR-packed leaves, entries compare in
+UTF-16 order, and the header has no bulk/append boundary. Design (build-first, post-load): spilled distinct set →
+rank pass in UTF-16 order → codes = rank → remap every leaf's id lane for the column (`convertStringDictColumnToGlobal`
+is the leaf primitive) and drop its DICT / BLOOM / DICT_HASHES segments; reuse the existing raw block store (FSST'd
+4 K blocks would break the zero-copy `sliceSlot`/`compareIds`/`stringOpVerdict` paths); add the boundary field;
+appends take codes above it. **Executor scope, all today declining or comparing entries for `STRING_GLOBAL`:**
+ungrouped COUNT(DISTINCT) (admit kind 5 in the numeric distinct arm — q5's bitmap is a new route, cheap), ungrouped
+MIN/MAX, sorted scans comparing entries per heap comparison with best-first disabled and `sortColumnsOrderable` false,
+`keyIsNumeric` refusing in-kernel ORDER BY on a global group key, zone-map skipping exempted for verdict predicates,
+and `stringOpVerdict` sweeping every id single-threaded per query (q20/q23's `LIKE` is bounded by that sweep: make it
+parallel and cached per query, or evaluate `contains` only on candidate rows of best-first-visited leaves — decide in
+the design). Fallbacks if P2 slips: per-leaf STRING zone maps for best-first string sort keys; count-distinct over
+`DICT_HASHES` sized by the path-statistics HLL; varint lengths + hashes only where the leaf dictionary dedupes < 2×
+(10–15 B/row); per-leaf 3-gram blooms for `LIKE '%x%'`.
 
-### P4 — Row-group size 1,024 → 4,096/8,192 (measure at 1M/10M after T1/P2)
-Per-leaf dictionaries dedupe better, fewer descriptors and segments, larger I/O units; coarser zone
-pruning and larger decode windows per worker. A measurement, not a commitment.
+### R1 — Residency: headroom-gated retention, release at query end, no LRU
+`retainedFillBytes` only grows (no decrement anywhere), the budget is a static maxMemory/4 that never consults
+`HeapHeadroom`, the store is JVM-static across sessions, and fills are handed to running workers as arrays — an
+LRU evicting under a running query would be a use-after-free. Σ hot ≈ Σ cold at 100M/8 GB, so retention buys little
+there and causes the Full GCs and every state-dependent decline seen today. Rule: retain at publish time only when the
+fill fits within a fraction of `HeapHeadroom`, otherwise serve windowed (already every route's fallback); release at
+query end through a per-query pin count. The pass budget's `maxMemory/8` cap binds before the headroom share — move
+both together.
 
-### T2 — Per-section page compression as a fallback (body blob and region table independently)
-`sirix.compression=lz4` exists but is whole-page; the region-only read needs the body skippable by its
-length prefix, so compression stays per section. Low priority once T1(b) packs the regions.
+### P4 by measurement · T2 dropped (per-region LZ77 and the body bake-off already exist; only LZ4-HC/zstd for the body blob remains a question) · C1 later (fallback-path cliff removal for arbitrary JSONiq; per-query fusion; ClassFile-generated plans first, Truffle as the general form)
 
-Dropped from draft 1: "P1 numeric bit-packing" — already implemented and effective on disk.
+## 4. Expected per-query effect, with the mechanism
+| tier | today | after | mechanism |
+|---|---|---|---|
+| q23/q24 | 105 / 60 s | 1–3 s | P-ET numeric sort key + (P2) codes; `LIKE` verdict parallel/cached or candidate-only |
+| q25/q26 (`ORDER BY SearchPhrase`) | 38 / 56 s | 1–3 s (P2) or 10–20 s (string zone maps) | P2 / fallback |
+| q5 | 47 s | < 1 s (P2 new distinct route) or ~10 s (hash fold) | P2 / fallback |
+| q20 | 23 s | 1–2 s (P2 with a parallel verdict) | P2 / 3-gram blooms |
+| q18 / q32 | 109 / 88 s | 30–50 s | R1 headroom (cap + share) → fewer passes |
+| q13/q14/q16/q17/q33/q34 | 22–38 s | 5–15 s | P2 codes as group keys, R1 |
+| q6, q36–q42 | 0.5–5 s | sub-second | P-ET DATE |
+| point/row-path queries | — | unchanged or faster | T1 (smaller pages), never slower |
 
-## 4. Order of work and gates
-1. **Measure (today):** ▢ section split at 1M, ▢ `ProjDiskDump` at 100M; distinct cardinalities of the four
-   fat columns at 100M — known from the dumps: **SearchPhrase 6,019,103 distinct of 99,997,497 rows (6 %)**,
-   UserID 17,630,976; ▢ URL / Title / Referer via count-distinct queries. At 6 % distinct a global
-   SearchPhrase dictionary is ~6 M entries (tens of MB FSST'd) against 2.2 B/row of per-leaf cost today —
-   P2's storage gain is in URL/Title/Referer (20–25 B/row each per-leaf), its speed gain in every fat column.
-2. **T1(a)(d) then T1(b)(c)** — each with a layout pin, the record and region-only differentials, the 1M
-   profile and leg; then one 100M rebuild (load 46 min) + the full leg: 43 dumps byte-identical, `sirix.data`,
-   Σ cold. This is the M1 step.
-3. **P3** alongside T1 (codec-local). **R1** alongside (query side only, no rebuild).
-4. **P2** — design, two review rounds, build, serve, gates. This is the speed step.
-5. **P4 / T2** by measurement. **M2** only after the per-path-regions decision.
-Every step is general (no benchmark-only mechanism), witnessed with a mutation, rebuilt in place.
+## 5. Order of work — two 100M rebuilds
+1. **B0 residual counters** (non-elided value bytes by kind, pages without a string region because of overflow,
+   inline-path pages, elision-metadata bytes) + **full-accounting `ProjDiskDump`** in the bench package.
+2. **B5-d** (cap + completeness) → **B5-c** (per-tag FOR + folded zone map, then the page schema) → **B3-a** →
+   **B4-b** (only if the diagnostic says so); **B2** (order labels) and **B1** (`TIMESTAMP`/`DATE`) beside them on
+   disjoint files; every step gated at 1M (pins, differentials, section diagnostic), template dedupe and the carrier
+   share checked at 10M.
+3. **Rebuild #1 at 100M** (load ~46 min + leg ~40 min, `-DbuildPathStatistics` on for the fat-column cardinalities)
+   → **M1** measured: `sirix.data`, 43 dumps byte-identical to `results-vec-8g-prelever1`, Σ cold, `# served`.
+4. **B6 (R1)** — query side, no rebuild, before #2's leg so the leg measures it.
+5. **B7 (P2)** design (build-first) → two reviews → post-load build over #1's DB → **rebuild #2's leg** → the string
+   tier gone; then the page schema's M2 measurement.
 
-## 5. Risks and what would change the plan
-- If the section split shows the heap (values) dominating rather than the directory, T1(b) moves first.
-- P2's sorted build must not break the 2× rider budget on load; an external sort per fat column is the
-  design cost. Order-preserving codes hold only for the bulk range — every sort/extremum path needs the
-  mixed-range witness.
-- The 100M trie number (▢) may differ from 1M (templates dedupe differently at scale); the targets are
-  restated after the 100M measurement.
+### Wave 3 — L1: schema-derived leaf size, measured (user's open question, decided by numbers, after T1 d+c)
+Make the leaf slot exponent a resource-creation option (`Constants.NDP_NODE_COUNT` → `ResourceConfiguration`;
+15 files; arena size classes extended; default 2^10 unchanged) **derived from the data, not declared per benchmark:**
+the resource carries a target *records per leaf* (like rows per page/block elsewhere; explicit override allowed); the
+bulk importer samples its first chunk (or reads the path summary it builds) for the average nodes per record and sets
+`slotExponent = ceil(log2(target × avgNodesPerRecord))` before the first page is written (a 106-node row → 2^17 for
+1,024 rows per leaf; a 12-node document → 2^14; a flat scalar array → 2^10). Streaming-insert resources without a bulk
+load keep 2^10; a resource marked transactional keeps 2^10 regardless of shape (point reads, history, COW cost). Then
+measure the grid records-per-leaf target ∈ {8 (today), 64, 256, 1,024} × {ClickBench 1M/10M, JSONBench Bluesky 1M/10M
+— the nested, real-world-shaped counterpart}: `sirix.data`, column-scan
+latency through the projection vs through per-tag region groups (with a region directory + range reads), point
+lookup by key, update cost and history-read cost under SLIDING_SNAPSHOT (and FULL for contrast). Decision rules:
+analytical resources drop the projection only if region-group scans land within ~1.5× of the projection at the
+chosen slot count; the document-data default moves only if JSONBench shows the gain too. Representativeness gate for
+every storage lever: report its byte gain on BOTH corpora.
+
+## 6. Briefs (self-contained; one active writer; the lead reviews and runs the gates)
+Common: explicit imports, HFT-style code, no format-version machinery (layouts change in place; golden pins
+re-recorded with the sticky-codec reset rule), a `-Dsirix.<lever>.disable` kill switch (the cheapest mutation
+witness), the mutation that must fail, the acceptance number at 1M, the test classes to extend, file ownership.
+- **B0r — DONE 17:30** (impl-b0r): `PageSectionDiag` counters for U1–U4 (staged elision metadata by kind, staged heap
+  by record kind with inline payload bytes, body path encoded/inline with reasons, value elision by index type,
+  string region suppressed-by-overflow + stranded bytes, overflow-descriptor histogram, region bytes as written vs
+  raw), `io.sirix.query.bench.projection.ProjectionDiskDump` (all segment kinds + descriptors + framing; 1M:
+  115.49 B/row), `PageSectionDiagCountersTest` 4/4; one `build.gradle` line enables the gate for the core test task
+  (assert-and-provide, like `sirix.hot.mergeDiag`).
+- **B5-d — cap + completeness.** Files: `settings/Constants.java`, `page/PageLayout.java`, `page/OverflowSlotSidecar.java`,
+  `page/PageKind.java` (`stringRegionComplete`), `page/pax/StringRegion.java` (per-tag completeness). Witness: the
+  counter above drops to 0 on a bulk fixture with long strings; region-only reads on pages with carriers; mutation:
+  a page with an overflow record must not lose its other strings' elision. Acceptance at 1M: string-elision pages
+  ≈ 100 %, carriers < 1 %.
+- **B5-c — per-tag FOR + folded zone map; page schema.** Files: `page/pax/NumberRegion.java`, `NumberRegionCompact`,
+  `NumberRegionSimd`, `BitUnpackSimd`, `NumberZoneMapRegion.java` (derive or drop), `PageKind.java` (region build /
+  read), `page/pax/RegionTable.java`; the schema sub-trie in a NamePage-keyed store. Witness: parity of every
+  region-only scan and zone-map prune; mutation: one width for all tags. Acceptance: regions ≤ 2 B/record at 1M;
+  with the schema, fixed overhead ≤ 0.5 B/record.
+- **B3-a — structure as columns + derived elision metadata + revision elision.** Files: `page/PageKind.java`
+  (`writeEncodedBody`, `BodySections.appendValueElision` / `appendNameKeyElision` and readers, the reinject site,
+  flag bits, activation guards), `node/StructuralKeyColumnCodec.java` (+ its test), `page/pax/RecordOrdinalRegion.java`
+  / the STRUCT_POINTERS region, `node/NodeKind.java`. Fixtures the mutation "assume predicted" must fail on: a deleted
+  middle field, a moved subtree, a nested object crossing a page boundary, `{}`, an array of scalars, a
+  `SLIDING_SNAPSHOT` fragment with 3 modified slots. Acceptance: heap ≤ 1.5 B/record on the wire at 1M.
+- **B4-b — directory residue** (only if B0r says so). Files: `page/PageLayout.java`, `page/PageKind.java`.
+- **B2 — DONE 17:45** (impl-b2): the order-label lane's leading `int32` is a sign-discriminated marker (legacy ≥ 0
+  byte-identical; −1 synthesized = anchors + packed tail deltas under a general byte-level rule; −2 front-coded);
+  mode by encoded size per leaf; `decodeKeysView` allocation-free; kill switch
+  `-Dsirix.projection.orderLabels.synthesized=false` proven byte-identical against a HEAD-compiled encoder; fixture
+  KEYS 13.909 → 0.945 B/row (label lane 13.002 → 0.038). **1M acceptance met: KEYS 12.78 → 0.94 B/row, projection
+  115.5 → 103.6 B/row (`measure1m.sh wave1`).**
+- **B1 — `TIMESTAMP` / `DATE`.** Files: `ProjectionIndexBuilder.java` (`mapTypeToColumnKind`), `ProjectionIndexRowGroupPage.java`,
+  `ProjectionIndexColumnSegmentCodec.java`, `SirixVectorizedExecutor.java` (emission formatter, literal→bound rule,
+  substring arithmetic, the ISO-minute arm), harness `ClickBenchProjection.projectionType` declares the types.
+  Witness: exact round trip on every value (mutation: a formatter that drops seconds); the sorted-scan, group and
+  min/max differentials on timestamp and date columns; a non-canonical value fails the build. Acceptance: EventTime
+  ≤ 3 B/row, EventDate ≤ 0.2 B/row at 1M.
+- **B6 — R1.** Files: `ProjectionColumnStore.java` (publish-time headroom gate, per-query pin count, release),
+  `ProjectionIndexCatalog.java`, `GroupTableSpill.java` / `HeapHeadroom.java` (cap and share together). Witness: a
+  fill over the headroom fraction serves windowed and retains nothing; released bytes return at query end; the pass
+  count on a q18-shaped fixture drops when headroom is raised. No rebuild.
+- **B7 — P2.** Design document first, build-first (spilled distinct set, UTF-16 rank pass, leaf id remap, boundary
+  field, raw block reuse, the executor site list above, the verdict strategy), two reviews, then build. Acceptance:
+  the four fat columns ≤ 30 B/row total at 100M; q5/q20/q23–q26 within §4.
+
+## 7. Risks and open points
+- T1-c's page schema is the lever that reaches M2; if it slips, M1 (~45–50 GB) stands and M2 needs the
+  dictionary-coded-strings decision.
+- P2 is the outcome's critical lever for speed; the build-side design is the risk; fallbacks are scheduled.
+- The fat-column count-distinct route materializes Strings (`count(distinct-values(URL))` at 100M OOMed an 8 GB
+  heap in a probe): P2's new distinct route fixes it; until then the route must decline on a headroom check.
+- Cardinalities of URL/Title/Referer come from rebuild #1's path statistics.
+- Answered by B0r's counters (1M, 17:53): **U1** the wire body = elision metadata (5.83 B/record raw: value 3.23,
+  pathNodeKey column 1.39, name-key 0.90, hash bitmap 0.11, parent column 0.19) + four structural varints + kind/template
+  + inline strings (3.0 B per string slot on the pages without a string region), compressed together at 0.394;
+  **U2** overflow descriptors are per page: 11.8 % of document pages hold ≥ 1 (3.5 % one, 5.9 % two–three, 2.4 % four+)
+  and lose the string region — 3.75 M stranded values, 53.7 MB; **U3** value elision is active on 88.1 % of DOCUMENT
+  pages, refused on 11.9 % (the overflow pages); the 15,887 inline-path pages are NAME/PATH_SUMMARY index pages;
+  **U4** regions as written 4.18 B/record: number 1.45 (LZ77 0.212 of raw), string 1.45 (0.604), zone map 0.61,
+  name-key 0.51, sketch 0.08, ordinal 0.07. Still open: U5 (cardinalities → rebuild #1 path statistics), U6 (q23 tie
+  behaviour at 100M).
+
+## 8. Parked (user decisions on record)
+Configurable slots per leaf (a per-resource counterpart of picking a larger page class; costs: COW amplification,
+point-lookup I/O, arena size classes, `NDP_NODE_COUNT` in 15 files) — 1,024 stays for point-query / history /
+reconstruction resources; scheduling L1 after T1 with a measured gate is open. One record per JSON object — a
+data-model change, not planned. Dictionary-coded fat strings inside fused records — the alternative M2 route.

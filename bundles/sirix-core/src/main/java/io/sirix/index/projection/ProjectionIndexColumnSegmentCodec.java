@@ -52,7 +52,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <pre>
  *   KEYS:  long firstRecordKey; long lastRecordKey;
  *          [rowCount &gt; 0] byte mode; long base; byte width; packed keys;
- *          byte orderExceptionKind; [kind=DENSE] long[ceil(rowCount/64)] bits
+ *          byte orderExceptionKind; [kind=DENSE] long[ceil(rowCount/64)] bits;
+ *          order-label lane, one of the three interchangeable forms in
+ *          {@link ProjectionIndexRowGroupCodec#encodeOrderLabels} (legacy offsets, synthesized runs,
+ *          front-coded), discriminated by the sign of its leading int32
  *   BODY:  byte colFlags;                       // provenance TRUTH (5.1-7)
  *          [rowCount &gt; 0] long min; long max;   // zone-map truth
  *          presence marker byte [+ words];
@@ -1731,23 +1734,13 @@ public final class ProjectionIndexColumnSegmentCodec {
         ? ((rowCount + 63) >>> 6) * Long.BYTES
         : 0;
     in.skip(orderBitsBytes);
-    final int orderLabelLength = in.readInt();
-    if (orderLabelLength < 0 || orderLabelLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
-      throw new IllegalStateException("invalid projection Dewey order-label byte length " + orderLabelLength);
-    }
-    final int[] orderLabelOffsets = new int[rowCount + 1];
-    for (int row = 0; row <= rowCount; row++) {
-      orderLabelOffsets[row] = in.readInt();
-    }
-    final int orderLabelsOffset = in.position();
-    in.skip(orderLabelLength);
+    final ProjectionIndexRowGroupCodec.OrderLabelLane orderLabels =
+        ProjectionIndexRowGroupCodec.decodeOrderLabelLane(in, rowCount);
     if (in.position() != segment.length) {
       throw new IllegalStateException("projection KEYS order metadata has an invalid length");
     }
     validateKeysView(rowCount, firstRecordKey, lastRecordKey, recordKeys, segment, orderBitsOffset, dense);
-    validateOrderLabelView(rowCount, segment, orderLabelsOffset, orderLabelOffsets, orderLabelLength);
-    return new KeysView(firstRecordKey, lastRecordKey, recordKeys, segment, orderBitsOffset, dense, orderLabelsOffset,
-        orderLabelOffsets, orderLabelLength);
+    return new KeysView(firstRecordKey, lastRecordKey, recordKeys, segment, orderBitsOffset, dense, orderLabels);
   }
 
   /** Decode KEYS together with a materialised bitmap for membership/order rewrites only. */
@@ -1764,30 +1757,10 @@ public final class ProjectionIndexColumnSegmentCodec {
             ProjectionIndexRowGroupCodec.getLongLE(view.segment(), view.orderBitsOffset() + word * Long.BYTES);
       }
     }
-    final byte[] orderLabels = Arrays.copyOfRange(view.segment(), view.orderLabelsOffset(),
-        view.orderLabelsOffset() + view.orderLabelLength());
+    final int[] orderLabelOffsets = new int[view.recordKeys().length + 1];
+    view.orderLabels().copyOffsetsInto(orderLabelOffsets);
     return new KeysSlice(view.firstRecordKey(), view.lastRecordKey(), view.recordKeys(), orderExceptionBits,
-        orderLabels, view.orderLabelOffsets());
-  }
-
-  private static void validateOrderLabelView(final int rowCount, final byte[] segment, final int bytesOffset,
-      final int[] offsets, final int byteLength) {
-    if (bytesOffset < 0 || byteLength < 0 || byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES
-        || bytesOffset + byteLength > segment.length || offsets.length != rowCount + 1 || offsets[0] != 0
-        || offsets[rowCount] != byteLength) {
-      throw new IllegalStateException("invalid projection Dewey order-label lane");
-    }
-    for (int row = 0; row < rowCount; row++) {
-      final int start = offsets[row];
-      final int end = offsets[row + 1];
-      if (start < 0 || end <= start || end > byteLength) {
-        throw new IllegalStateException("invalid projection Dewey order-label offset at row " + row);
-      }
-      if (row > 0 && ProjectionIndexRowGroupPage.compareOrderLabels(segment, bytesOffset + offsets[row - 1],
-          bytesOffset + start, segment, bytesOffset + start, bytesOffset + end) >= 0) {
-        throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
-      }
-    }
+        view.orderLabels().materializeLabelBytes(), orderLabelOffsets);
   }
 
   private static void validateKeysView(final int rowCount, final long firstRecordKey, final long lastRecordKey,
@@ -1850,7 +1823,7 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   record KeysView(long firstRecordKey, long lastRecordKey, long[] recordKeys, byte[] segment, int orderBitsOffset,
-      boolean dense, int orderLabelsOffset, int[] orderLabelOffsets, int orderLabelLength) {
+      boolean dense, ProjectionIndexRowGroupCodec.OrderLabelLane orderLabels) {
     boolean orderExceptionAt(final int row) {
       if (row < 0 || row >= recordKeys.length) {
         throw new IndexOutOfBoundsException("projection row out of range: " + row);
@@ -1863,16 +1836,14 @@ public final class ProjectionIndexColumnSegmentCodec {
       if (row < 0 || row >= recordKeys.length || label == null) {
         throw new IndexOutOfBoundsException("projection row out of range: " + row);
       }
-      return ProjectionIndexRowGroupPage.compareOrderLabels(segment, orderLabelsOffset + orderLabelOffsets[row],
-          orderLabelsOffset + orderLabelOffsets[row + 1], label, 0, label.length);
+      return orderLabels.compareAt(row, label);
     }
 
     byte[] copyOrderLabelAt(final int row) {
       if (row < 0 || row >= recordKeys.length) {
         throw new IndexOutOfBoundsException("projection row out of range: " + row);
       }
-      return Arrays.copyOfRange(segment, orderLabelsOffset + orderLabelOffsets[row],
-          orderLabelsOffset + orderLabelOffsets[row + 1]);
+      return orderLabels.copyAt(row);
     }
   }
 

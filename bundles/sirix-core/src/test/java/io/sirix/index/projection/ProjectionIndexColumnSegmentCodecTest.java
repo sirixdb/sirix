@@ -3,9 +3,12 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SirixDeweyID;
 import io.sirix.page.OverflowPage;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -16,6 +19,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
+import java.util.function.IntPredicate;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -355,10 +360,15 @@ final class ProjectionIndexColumnSegmentCodecTest {
     for (final byte[] seg : encoded.segments()) {
       total += seg.length;
     }
-    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
-    assertTrue((total - orderLabelLaneBytes) * 4 < raw.length - orderLabelLaneBytes,
-        "expected >4x compaction on bench-shaped column data excluding exact Dewey labels, got "
-            + (raw.length - orderLabelLaneBytes) + " -> " + (total - orderLabelLaneBytes));
+    // Re-recorded for P3 (synthesized order labels): the encoded lane is no longer a copy of the raw
+    // one, so a single shared constant can no longer correct both sides. Exclude the whole key/order
+    // region from each — the assertion still pins COLUMN compaction, which is what it was for.
+    final byte[] keysSegment = segmentOf(encoded, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+    final int rawKeyRegionBytes = page.getRowCount() * Long.BYTES + 1 + Integer.BYTES
+        + (page.getRowCount() + 1) * Integer.BYTES + page.orderLabelLength();
+    assertTrue((total - keysSegment.length) * 4 < raw.length - rawKeyRegionBytes,
+        "expected >4x compaction on bench-shaped column data excluding the key/order region, got "
+            + (raw.length - rawKeyRegionBytes) + " -> " + (total - keysSegment.length));
   }
 
   @Test
@@ -1505,5 +1515,406 @@ final class ProjectionIndexColumnSegmentCodecTest {
     // codepoint-vs-byte confusion anywhere in the decode shows up as a wrong value here.
     final String[] values = {"", "\u00e4\u00f6\u00fc", "\uD83D\uDE00 emoji", null, "plain", "", "\uD83D\uDE00"};
     assertFlatDictReproduces(values, true);
+  }
+
+  // ==================== P3: synthesized order labels ====================
+
+  /**
+   * The lane default this JVM started with, so a witness that forces the kill switch cannot leak its
+   * setting into the next test (and so a suite run WITH the property set still restores the truth).
+   */
+  private static final boolean DEFAULT_SYNTHESIZED_ORDER_LABELS = ProjectionIndexRowGroupCodec.synthesizedOrderLabels;
+
+  @AfterEach
+  void restoreTheOrderLabelLaneDefault() {
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = DEFAULT_SYNTHESIZED_ORDER_LABELS;
+  }
+
+  /**
+   * The in-order bulk-append label shape: a fixed container prefix and a record division advancing by
+   * {@link SirixDeweyID#DEFAULT_SIBLING_DISTANCE}. Crosses the encoder's 1-byte/2-byte division tier
+   * boundary at row 6, which is exactly the natural exception the run mode has to carry.
+   */
+  private static byte[] inOrderAppendLabel(final int row) {
+    return new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row}).toBytes();
+  }
+
+  /** A one-column leaf whose row {@code r} carries {@code labels.apply(r)} as its Dewey order label. */
+  private static ProjectionIndexRowGroupPage labelledLeaf(final int rows, final IntFunction<byte[]> labels) {
+    return labelledLeaf(rows, labels, row -> false);
+  }
+
+  /** {@link #labelledLeaf(int, IntFunction)} plus a per-row sparse document-order exception flag. */
+  private static ProjectionIndexRowGroupPage labelledLeaf(final int rows, final IntFunction<byte[]> labels,
+      final IntPredicate orderExceptions) {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final Random rng = new Random(11);
+    long key = 1_000_000L;
+    for (int row = 0; row < rows; row++) {
+      key += 100 + rng.nextInt(13);
+      assertTrue(page.appendExtractedUtf8Row(key, new long[] {row * 7L}, new boolean[1], new byte[1][], new int[1],
+          new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1],
+          orderExceptions.test(row), labels.apply(row)), "row " + row + " refused");
+    }
+    return page;
+  }
+
+  private static byte[] keysSegmentOf(final ProjectionIndexRowGroupPage page) {
+    return segmentOf(ProjectionIndexColumnSegmentCodec.encode(page.serialize()),
+        ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+  }
+
+  private static ProjectionIndexColumnSegmentCodec.KeysView keysViewOf(
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
+    return ProjectionIndexColumnSegmentCodec.decodeKeysView(encoded.descriptor(),
+        segmentOf(encoded, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()));
+  }
+
+  /**
+   * Encodes {@code page} with the compacted lane forced OFF and ON and proves the two are
+   * indistinguishable to every consumer: byte-identical raw assembly, identical
+   * {@code copyOrderLabelAt} for every row, identical {@code compareOrderLabelAt} sign against the
+   * row's own label and against a longer/shorter probe, and an identical materialised
+   * {@code KeysSlice}. Returns the wire marker the compacted encoder chose.
+   */
+  private static int assertOrderLabelLaneParity(final ProjectionIndexRowGroupPage page) {
+    final byte[] raw = page.serialize();
+    final int rowCount = page.getRowCount();
+    final int keysId = ProjectionIndexColumnSegmentCodec.keysColumnSegmentId();
+
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup legacy = ProjectionIndexColumnSegmentCodec.encode(raw);
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup compact = ProjectionIndexColumnSegmentCodec.encode(raw);
+
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(legacy.descriptor(), coldResolverOf(legacy)),
+        "legacy lane must assemble the raw form byte-identically");
+    assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(compact.descriptor(), coldResolverOf(compact)),
+        "compacted lane must assemble the raw form byte-identically");
+
+    final ProjectionIndexColumnSegmentCodec.KeysView legacyView = keysViewOf(legacy);
+    final ProjectionIndexColumnSegmentCodec.KeysView compactView = keysViewOf(compact);
+    assertArrayEquals(legacyView.recordKeys(), compactView.recordKeys());
+    for (int row = 0; row < rowCount; row++) {
+      final byte[] expected = page.copyOrderLabelAt(row);
+      assertArrayEquals(expected, legacyView.copyOrderLabelAt(row), "legacy label at row " + row);
+      assertArrayEquals(expected, compactView.copyOrderLabelAt(row), "compacted label at row " + row);
+      assertEquals(0, compactView.compareOrderLabelAt(row, expected), "self compare at row " + row);
+      // A longer probe sharing the whole label and a shorter prefix of it exercise both tails of
+      // compareOrderLabels — the length tie-break and the byte-difference exit.
+      final byte[] longer = Arrays.copyOf(expected, expected.length + 1);
+      final byte[] shorter = Arrays.copyOf(expected, expected.length - 1);
+      assertEquals(Integer.signum(legacyView.compareOrderLabelAt(row, longer)),
+          Integer.signum(compactView.compareOrderLabelAt(row, longer)), "compare vs longer at row " + row);
+      assertEquals(Integer.signum(legacyView.compareOrderLabelAt(row, shorter)),
+          Integer.signum(compactView.compareOrderLabelAt(row, shorter)), "compare vs shorter at row " + row);
+      if (row + 1 < rowCount) {
+        assertTrue(compactView.compareOrderLabelAt(row, page.copyOrderLabelAt(row + 1)) < 0,
+            "row " + row + " must order before its successor");
+      }
+      if (row > 0) {
+        assertTrue(compactView.compareOrderLabelAt(row, page.copyOrderLabelAt(row - 1)) > 0,
+            "row " + row + " must order after its predecessor");
+      }
+    }
+
+    final ProjectionIndexColumnSegmentCodec.KeysSlice legacySlice =
+        ProjectionIndexColumnSegmentCodec.decodeKeysAndOrderSlice(legacy.descriptor(), segmentOf(legacy, keysId));
+    final ProjectionIndexColumnSegmentCodec.KeysSlice compactSlice =
+        ProjectionIndexColumnSegmentCodec.decodeKeysAndOrderSlice(compact.descriptor(), segmentOf(compact, keysId));
+    assertArrayEquals(legacySlice.orderLabelBytes(), compactSlice.orderLabelBytes(), "materialised label bytes");
+    assertArrayEquals(legacySlice.orderLabelOffsets(), compactSlice.orderLabelOffsets(), "materialised label offsets");
+    return compactView.orderLabels().marker();
+  }
+
+  @Test
+  void inOrderAppendLabelsCollapseToASynthesizedRun() {
+    final ProjectionIndexRowGroupPage page =
+        labelledLeaf(1024, ProjectionIndexColumnSegmentCodecTest::inOrderAppendLabel);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED, assertOrderLabelLaneParity(page));
+
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final int before = keysSegmentOf(page).length;
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    final int after = keysSegmentOf(page).length;
+    // Acceptance (STORAGE_AND_SPEED_PLAN P3): KEYS <= 1.5 B/row on an in-order bulk-loaded leaf. The
+    // residue is the delta-FOR record-key stream; the order-label lane itself is ~40 bytes for the
+    // whole leaf.
+    assertTrue(2 * after <= 3 * page.getRowCount(),
+        "KEYS must fall to <= 1.5 B/row, got " + after / (double) page.getRowCount() + " (was "
+            + before / (double) page.getRowCount() + ")");
+    assertTrue(after * 10 < before, "expected an order-of-magnitude smaller KEYS, got " + before + " -> " + after);
+  }
+
+  @Test
+  void runsWithExceptionsInTheMiddleAndAtBothEndsRoundTrip() {
+    // A deeper label at a row breaks the run's "same length, same prefix" shape: it becomes an
+    // anchor and the rows after it restart the arithmetic.
+    final IntFunction<byte[]> middle = row -> row == 250
+        ? new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row, 3}).toBytes()
+        : inOrderAppendLabel(row);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED,
+        assertOrderLabelLaneParity(labelledLeaf(512, middle)));
+
+    final IntFunction<byte[]> ends = row -> row == 1 || row == 511
+        ? new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row, 3}).toBytes()
+        : inOrderAppendLabel(row);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED,
+        assertOrderLabelLaneParity(labelledLeaf(512, ends)));
+
+    // Non-uniform strides still ride the run: the delta stream simply stops packing to zero bits.
+    final IntFunction<byte[]> varyingStride =
+        row -> new SirixDeweyID(new int[] {1, 3, 5, 7, 9, 11, 13, 15, 33 + 16 * row + 2 * (row % 3)}).toBytes();
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED,
+        assertOrderLabelLaneParity(labelledLeaf(512, varyingStride)));
+  }
+
+  @Test
+  void aDenseOrderExceptionBitmapSitsBesideASynthesizedRun() {
+    // The exception bitmap is written immediately before the label lane, so a wrong skip length in
+    // either direction shows up here and nowhere else.
+    final ProjectionIndexRowGroupPage page =
+        labelledLeaf(512, ProjectionIndexColumnSegmentCodecTest::inOrderAppendLabel, row -> row == 3 || row == 300);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED, assertOrderLabelLaneParity(page));
+    final ProjectionIndexColumnSegmentCodec.KeysView view =
+        keysViewOf(ProjectionIndexColumnSegmentCodec.encode(page.serialize()));
+    assertTrue(view.dense());
+    for (int row = 0; row < 512; row++) {
+      assertEquals(row == 3 || row == 300, view.orderExceptionAt(row), "order-exception bit at row " + row);
+    }
+  }
+
+  @Test
+  void nonRunLabelSequencesFallBackToFrontCodingAndStillRoundTrip() {
+    // Alternating label DEPTH: every row differs from its predecessor in length, so no tail width
+    // makes a run. Front coding still pays, because consecutive labels share their leading division.
+    final IntFunction<byte[]> alternatingDepth = row -> row % 2 == 0
+        ? new SirixDeweyID(new int[] {1, 3 + 2 * row}).toBytes()
+        : new SirixDeweyID(new int[] {1, 3 + 2 * (row - 1), 3 + 2 * (row % 7)}).toBytes();
+    final ProjectionIndexRowGroupPage page = labelledLeaf(512, alternatingDepth);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_FRONT_CODED, assertOrderLabelLaneParity(page));
+
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final int before = keysSegmentOf(page).length;
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    assertTrue(keysSegmentOf(page).length < before, "front coding must beat the legacy lane when it is chosen");
+  }
+
+  @Test
+  void singleRowAndEmptyLeavesKeepTheLegacyOrderLabelLane() {
+    final ProjectionIndexRowGroupPage single =
+        labelledLeaf(1, ProjectionIndexColumnSegmentCodecTest::inOrderAppendLabel);
+    assertTrue(assertOrderLabelLaneParity(single) >= 0, "a one-row leaf must stay on the legacy lane");
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final byte[] legacySingle = keysSegmentOf(single);
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    assertArrayEquals(legacySingle, keysSegmentOf(single), "a one-row leaf must not change on the wire");
+
+    final ProjectionIndexRowGroupPage empty =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(assertOrderLabelLaneParity(empty) >= 0, "an empty leaf must stay on the legacy lane");
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final byte[] legacyEmpty = keysSegmentOf(empty);
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    assertArrayEquals(legacyEmpty, keysSegmentOf(empty), "an empty leaf must not change on the wire");
+  }
+
+  /**
+   * The KEYS segment of {@link #killSwitchFixture()} as the PRE-P3 encoder wrote it. Re-recorded only
+   * when the legacy lane itself is meant to change; the kill switch exists so this stays reachable.
+   */
+  private static final String GOLDEN_LEGACY_KEYS_SEGMENT =
+      "50495853000007000000000000001600000000000000000700000000000000"
+          + "03fd0000080000000000000002000000040000000600000008000000100410061008100a";
+
+  /** Four in-order rows with hand-chosen keys — small enough to pin as hex, real labels. */
+  private static ProjectionIndexRowGroupPage killSwitchFixture() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final long[] keys = {7L, 12L, 19L, 22L};
+    for (int row = 0; row < keys.length; row++) {
+      assertTrue(page.appendExtractedUtf8Row(keys[row], new long[] {row}, new boolean[1], new byte[1][], new int[1],
+          new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false,
+          new SirixDeweyID(new int[] {1, 15, 3 + 2 * row}).toBytes()));
+    }
+    return page;
+  }
+
+  @Test
+  void killSwitchReproducesTheLegacyOrderLabelBytesExactly() {
+    final ProjectionIndexRowGroupPage page = killSwitchFixture();
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = false;
+    final byte[] off = keysSegmentOf(page);
+    assertEquals(GOLDEN_LEGACY_KEYS_SEGMENT, hexOf(off),
+        "-Dsirix.projection.orderLabels.synthesized=false must reproduce the pre-P3 KEYS bytes");
+    ProjectionIndexRowGroupCodec.synthesizedOrderLabels = true;
+    final byte[] on = keysSegmentOf(page);
+    assertNotEquals(hexOf(off), hexOf(on), "the compacted lane must actually change the wire form here");
+    assertTrue(on.length < off.length, "the compacted lane must be smaller here");
+    // Four rows cannot amortise the run header's fixed ~20 bytes, so the size race picks front
+    // coding here — which is the point: the choice is made by measured size, not by shape guessing.
+    assertTrue(assertOrderLabelLaneParity(page) < 0, "the compacted encoder must leave the legacy lane");
+  }
+
+  private static String hexOf(final byte[] bytes) {
+    final StringBuilder out = new StringBuilder(bytes.length * 2);
+    for (final byte b : bytes) {
+      out.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+    }
+    return out.toString();
+  }
+
+  /** Emits a synthesized order-label lane exactly as the encoder does, so a witness can bend one field. */
+  private static byte[] synthesizedLane(final int tailLen, final int deltaWidth, final long deltaBase,
+      final int[] anchorRows, final byte[][] anchorLabels, final long[] deltas) {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    ProjectionIndexRowGroupCodec.putIntLE(out, ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED);
+    out.write(tailLen);
+    out.write(deltaWidth);
+    ProjectionIndexRowGroupCodec.putLongLE(out, deltaBase);
+    ProjectionIndexRowGroupCodec.putIntLE(out, anchorRows.length);
+    int maxAnchorRow = 0;
+    int maxAnchorLength = 0;
+    for (int anchor = 0; anchor < anchorRows.length; anchor++) {
+      maxAnchorRow = Math.max(maxAnchorRow, anchorRows[anchor]);
+      maxAnchorLength = Math.max(maxAnchorLength, anchorLabels[anchor].length);
+    }
+    final int anchorRowWidth = anchorRows.length == 1
+        ? 0
+        : ProjectionIndexRowGroupCodec.widthOf(maxAnchorRow);
+    out.write(anchorRowWidth);
+    final ProjectionIndexRowGroupCodec.BitWriter rows = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (int anchor = 1; anchor < anchorRows.length; anchor++) {
+      rows.write(anchorRows[anchor], anchorRowWidth);
+    }
+    rows.flush();
+    final int anchorLenWidth = ProjectionIndexRowGroupCodec.widthOf(maxAnchorLength);
+    out.write(anchorLenWidth);
+    final ProjectionIndexRowGroupCodec.BitWriter lengths = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final byte[] label : anchorLabels) {
+      lengths.write(label.length, anchorLenWidth);
+    }
+    lengths.flush();
+    for (final byte[] label : anchorLabels) {
+      out.write(label, 0, label.length);
+    }
+    final ProjectionIndexRowGroupCodec.BitWriter deltaWriter = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final long delta : deltas) {
+      deltaWriter.write(delta - deltaBase, deltaWidth);
+    }
+    deltaWriter.flush();
+    return out.toByteArray();
+  }
+
+  private static ProjectionIndexRowGroupCodec.OrderLabelLane decodeLane(final byte[] lane, final int rowCount) {
+    return ProjectionIndexRowGroupCodec.decodeOrderLabelLane(new ProjectionIndexRowGroupCodec.Cursor(lane, 0),
+        rowCount);
+  }
+
+  private static void assertLaneRejects(final byte[] lane, final int rowCount, final String why) {
+    assertThrows(IllegalStateException.class, () -> decodeLane(lane, rowCount), why);
+  }
+
+  @Test
+  void aSynthesizedLaneIsValidatedFieldByField() {
+    // Positive control: rows 0..3 = 10 04, 10 06, 10 08, 10 0a.
+    final byte[] valid = synthesizedLane(1, 0, 2L, new int[] {0}, new byte[][] {{0x10, 0x04}}, new long[0]);
+    final ProjectionIndexRowGroupCodec.OrderLabelLane lane = decodeLane(valid, 4);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_SYNTHESIZED, lane.marker());
+    assertEquals(8, lane.totalBytes());
+    assertArrayEquals(new byte[] {0x10, 0x04}, lane.copyAt(0));
+    assertArrayEquals(new byte[] {0x10, 0x0a}, lane.copyAt(3));
+    assertArrayEquals(new byte[] {0x10, 0x04, 0x10, 0x06, 0x10, 0x08, 0x10, 0x0a}, lane.materializeLabelBytes());
+    final int[] offsets = new int[5];
+    lane.copyOffsetsInto(offsets);
+    assertArrayEquals(new int[] {0, 2, 4, 6, 8}, offsets);
+
+    // Each mutation removes exactly one invariant the decoder is required to enforce.
+    assertLaneRejects(withByte(valid, 4, 0), 4, "tailLen 0 must be refused");
+    assertLaneRejects(withByte(valid, 4, 8), 4, "tailLen 8 must be refused");
+    assertLaneRejects(withInt(valid, 14, 0), 4, "anchorCount 0 must be refused");
+    assertLaneRejects(withInt(valid, 14, 5), 4, "anchorCount past rowCount must be refused");
+    assertLaneRejects(withLong(valid, 6, 0L), 4, "a zero stride is not strictly increasing");
+    assertLaneRejects(withLong(valid, 6, 1L << 20), 4, "a stride wider than the tail field must be refused");
+    assertLaneRejects(withInt(valid, 0, -3), 4, "an unknown lane marker must be refused");
+    assertLaneRejects(synthesizedLane(1, 0, 200L, new int[] {0}, new byte[][] {{0x10, 0x04}}, new long[0]), 4,
+        "a run that walks out of its tail field must be refused");
+    assertLaneRejects(
+        synthesizedLane(1, 0, 2L, new int[] {0, 2}, new byte[][] {{0x10, 0x04}, {0x10, 0x04}}, new long[0]), 4,
+        "an anchor that does not exceed its predecessor must be refused");
+    assertLaneRejects(synthesizedLane(1, 8, 1L, new int[] {0}, new byte[][] {{0x10, 0x04}}, new long[] {1L, 250L, 1L}),
+        4, "deltas that walk out of the tail field must be refused");
+  }
+
+  @Test
+  void aFrontCodedLaneIsValidatedFieldByField() {
+    // rows: "ab", "ac", "ad" -> prefixes 0,1,1; suffixes 2,1,1.
+    final byte[] valid = frontCodedLane(6, new int[] {0, 1, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'});
+    final ProjectionIndexRowGroupCodec.OrderLabelLane lane = decodeLane(valid, 3);
+    assertEquals(ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_FRONT_CODED, lane.marker());
+    assertArrayEquals("abacad".getBytes(StandardCharsets.US_ASCII), lane.materializeLabelBytes());
+    assertArrayEquals(new byte[] {'a', 'd'}, lane.copyAt(2));
+
+    assertLaneRejects(frontCodedLane(6, new int[] {1, 1, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "row 0 cannot share a prefix with anything");
+    assertLaneRejects(frontCodedLane(6, new int[] {0, 3, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "a prefix longer than the previous label must be refused");
+    assertLaneRejects(frontCodedLane(5, new int[] {0, 1, 1}, new int[] {2, 0, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "an empty suffix would repeat the previous label");
+    assertLaneRejects(frontCodedLane(9, new int[] {0, 1, 1}, new int[] {2, 1, 1}, new byte[] {'a', 'b', 'c', 'd'}), 3,
+        "a declared byte length that does not match the rebuilt labels must be refused");
+  }
+
+  private static byte[] frontCodedLane(final int byteLength, final int[] prefixLengths, final int[] suffixLengths,
+      final byte[] suffixes) {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    ProjectionIndexRowGroupCodec.putIntLE(out, ProjectionIndexRowGroupCodec.ORDER_LABEL_MARKER_FRONT_CODED);
+    ProjectionIndexRowGroupCodec.putIntLE(out, byteLength);
+    int maxPrefix = 0;
+    int minSuffix = Integer.MAX_VALUE;
+    int maxSuffix = 0;
+    for (final int prefix : prefixLengths) {
+      maxPrefix = Math.max(maxPrefix, prefix);
+    }
+    for (final int suffix : suffixLengths) {
+      minSuffix = Math.min(minSuffix, suffix);
+      maxSuffix = Math.max(maxSuffix, suffix);
+    }
+    final int prefixWidth = ProjectionIndexRowGroupCodec.widthOf(maxPrefix);
+    final int suffixWidth = ProjectionIndexRowGroupCodec.rangeWidth(minSuffix, maxSuffix);
+    out.write(prefixWidth);
+    out.write(suffixWidth);
+    ProjectionIndexRowGroupCodec.putIntLE(out, minSuffix);
+    final ProjectionIndexRowGroupCodec.BitWriter prefixWriter = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final int prefix : prefixLengths) {
+      prefixWriter.write(prefix, prefixWidth);
+    }
+    prefixWriter.flush();
+    final ProjectionIndexRowGroupCodec.BitWriter suffixWriter = new ProjectionIndexRowGroupCodec.BitWriter(out);
+    for (final int suffix : suffixLengths) {
+      suffixWriter.write(suffix - minSuffix, suffixWidth);
+    }
+    suffixWriter.flush();
+    out.write(suffixes, 0, suffixes.length);
+    return out.toByteArray();
+  }
+
+  private static byte[] withByte(final byte[] source, final int offset, final int value) {
+    final byte[] copy = source.clone();
+    copy[offset] = (byte) value;
+    return copy;
+  }
+
+  private static byte[] withInt(final byte[] source, final int offset, final int value) {
+    final byte[] copy = source.clone();
+    ProjectionIndexRowGroupCodec.putIntLEAt(copy, offset, value);
+    return copy;
+  }
+
+  private static byte[] withLong(final byte[] source, final int offset, final long value) {
+    final byte[] copy = source.clone();
+    ProjectionIndexRowGroupCodec.putLongLEAt(copy, offset, value);
+    return copy;
   }
 }

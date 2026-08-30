@@ -5,6 +5,7 @@ import io.sirix.node.BytesOut;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.io.SharedArenas;
+import io.sirix.page.PageSectionDiag;
 import io.sirix.page.SirixLZ77Codec;
 
 import java.lang.foreign.Arena;
@@ -893,6 +894,16 @@ public final class RegionTable implements AutoCloseable {
     return kind == KIND_NUMBER_ZONEMAP || kind == KIND_RECORD_ORDINAL || kind == KIND_DOUBLE;
   }
 
+  /**
+   * When {@code -Dsirix.pageSectionDiag=true} is set, {@link #write} reports what each region kind
+   * costs AS WRITTEN — after per-region LZ77 and with its framing — beside the raw payload size
+   * {@link PageSectionDiag#recordRegion} already records. A raw-byte split cannot say whether a
+   * region's bulk survives compression; only the pair can. Static final, so the disabled path folds
+   * the branch away entirely. Read here rather than through {@code PageSectionDiag} so a disabled
+   * build never initialises that class (and never registers its shutdown hook) on this account.
+   */
+  private static final boolean SECTION_DIAG = Boolean.getBoolean("sirix.pageSectionDiag");
+
   public void write(final BytesOut<?> sink, final boolean compress) {
     // A deferred region lives in deferredWire, not payloads, and the loop below reads only
     // payloads — so serializing such a table would drop those regions with no error at all, and
@@ -907,11 +918,15 @@ public final class RegionTable implements AutoCloseable {
     if (liveCount == 0) {
       return;
     }
+    final boolean sectionDiag = SECTION_DIAG;
     for (final byte kind : WRITE_ORDER) {
       final MemorySegment p = payloads[kind];
       if (p == null) {
         continue;
       }
+      final long regionStart = sectionDiag
+          ? sink.writePosition()
+          : 0L;
       final int len = (int) p.byteSize();
       sink.writeByte(kind);
       if (compress && len >= MIN_COMPRESS_BYTES && mayCompress(kind, len)) {
@@ -930,6 +945,9 @@ public final class RegionTable implements AutoCloseable {
           sink.writeInt(len);
           sink.writeInt(encodedLen);
           sink.write(out, 0, encodedLen);
+          if (sectionDiag) {
+            PageSectionDiag.recordRegionWritten(kind, sink.writePosition() - regionStart, true);
+          }
           continue;
         }
       }
@@ -945,6 +963,9 @@ public final class RegionTable implements AutoCloseable {
         }
         MemorySegment.copy(p, ValueLayout.JAVA_BYTE, 0L, out, 0, len);
         sink.write(out, 0, len);
+      }
+      if (sectionDiag) {
+        PageSectionDiag.recordRegionWritten(kind, sink.writePosition() - regionStart, false);
       }
     }
   }

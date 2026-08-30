@@ -251,6 +251,62 @@ final class ProjectionIndexRowGroupCodec {
     return keys;
   }
 
+  /**
+   * Leading {@code int32} of the order-label lane when the labels are stored as an arithmetic RUN
+   * rather than one length-prefixed blob per row. The legacy form's leading {@code int32} is a byte
+   * length in {@code [0, MAX_ORDER_LABEL_BYTES]} and every reader has always rejected a negative one,
+   * so a negative marker is a free, additive discriminator — no format-version machinery, and a
+   * reader that predates a future mode fails attributably instead of misparsing offsets.
+   */
+  static final int ORDER_LABEL_MARKER_SYNTHESIZED = -1;
+
+  /** Marker for the front-coded fallback; see {@link #ORDER_LABEL_MARKER_SYNTHESIZED}. */
+  static final int ORDER_LABEL_MARKER_FRONT_CODED = -2;
+
+  /**
+   * Largest trailing field the synthesized mode derives arithmetically. Capped at 7 so a tail value
+   * is always {@code < 2^56}: the delta arithmetic, the FOR width and every bound check then stay in
+   * signed {@code long} range with no unsigned compare, and {@link #clampPackWidth} never escalates
+   * the delta stream to the raw 64-bit path.
+   */
+  private static final int MAX_SYNTHESIZED_TAIL_BYTES = 7;
+
+  /**
+   * Kill switch for the synthesized/front-coded order-label lane (P3):
+   * {@code -Dsirix.projection.orderLabels.synthesized=false} restores the legacy
+   * {@code length + int32 offsets + bytes} form BYTE-IDENTICALLY. Decoding accepts every mode
+   * unconditionally — a kill switch must never make already-written data unreadable.
+   *
+   * <p>
+   * Package-private and mutable for the same reason {@code verifyDirectAssembly} is: the witness has
+   * to encode one fixture both ways inside one JVM. The system property remains the production
+   * switch.
+   */
+  static volatile boolean synthesizedOrderLabels =
+      !"false".equals(System.getProperty("sirix.projection.orderLabels.synthesized"));
+
+  /**
+   * Order-label lane writer. Three interchangeable wire forms, chosen per leaf by ENCODED SIZE:
+   *
+   * <pre>
+   *   LEGACY        int32 byteLength; int32 offsets[rowCount+1]; byte labels[byteLength]
+   *   SYNTHESIZED   int32 -1; byte tailLen; byte deltaWidth; int64 deltaBase;
+   *                 int32 anchorCount; byte anchorRowWidth;  packed anchorRows[anchorCount-1];
+   *                 byte anchorLenWidth; packed anchorLens[anchorCount];
+   *                 byte anchorLabels[sum anchorLens]; packed deltas[rowCount-anchorCount]
+   *   FRONT_CODED   int32 -2; int32 byteLength; byte prefixWidth; byte suffixWidth; int32 suffixMin;
+   *                 packed prefixLens[rowCount]; packed suffixLens[rowCount]; byte suffixes[...]
+   * </pre>
+   *
+   * <p>
+   * SYNTHESIZED is the in-order-append shape: a record's Dewey label is its predecessor's with the
+   * last division advanced, and the tiered division encoding turns that into "same byte length, same
+   * leading bytes, trailing {@code tailLen}-byte big-endian field advanced by a delta". Rows that
+   * break the shape (a division crossing a tier boundary, a carried division, a prepend) become
+   * ANCHORS carrying their bytes verbatim; every other row is derived, and the per-row {@code int32}
+   * offset lane disappears entirely because a run's lengths are constant. With a constant stride the
+   * delta stream packs to zero bits and a 1,024-row leaf costs one label plus ~20 bytes.
+   */
   static void encodeOrderLabels(final ByteArrayOutputStream out, final ProjectionIndexRowGroupPage page) {
     final int rowCount = page.getRowCount();
     final byte[] bytes = page.orderLabelBytes();
@@ -262,6 +318,33 @@ final class ProjectionIndexRowGroupCodec {
       return;
     }
     ProjectionIndexRowGroupPage.validateOrderLabels(rowCount, bytes, offsets, length);
+    if (synthesizedOrderLabels && rowCount > 0) {
+      final int legacyBytes = Integer.BYTES + (rowCount + 1) * Integer.BYTES + length;
+      int bestTailLen = 0;
+      int bestBytes = legacyBytes;
+      int candidates = synthesizedTailCandidates(bytes, offsets, rowCount);
+      while (candidates != 0) {
+        final int tailLen = Integer.numberOfTrailingZeros(candidates);
+        candidates &= candidates - 1;
+        final int candidate = synthesizedOrderLabelBytes(bytes, offsets, rowCount, tailLen);
+        if (candidate < bestBytes) {
+          bestBytes = candidate;
+          bestTailLen = tailLen;
+        }
+      }
+      final int frontCodedBytes = frontCodedOrderLabelBytes(bytes, offsets, rowCount);
+      // Smaller wins; ties go to the simpler reader — legacy over both (bestBytes starts at its
+      // size and only a STRICTLY smaller candidate displaces it), and the run over front coding,
+      // whose random access has to rebuild a label from its predecessor.
+      if (bestTailLen != 0 && bestBytes <= frontCodedBytes) {
+        encodeSynthesizedOrderLabels(out, bytes, offsets, rowCount, bestTailLen);
+        return;
+      }
+      if (frontCodedBytes < legacyBytes) {
+        encodeFrontCodedOrderLabels(out, bytes, offsets, rowCount, length);
+        return;
+      }
+    }
     putIntLE(out, length);
     for (int row = 0; row <= rowCount; row++) {
       putIntLE(out, offsets[row]);
@@ -269,21 +352,776 @@ final class ProjectionIndexRowGroupCodec {
     out.write(bytes, 0, length);
   }
 
+  /**
+   * The tail widths worth costing, as a bit set over {@code 1..MAX_SYNTHESIZED_TAIL_BYTES}.
+   *
+   * <p>
+   * A width {@code k} admits exactly the rows whose differing suffix is at most {@code k} bytes, so
+   * the admitted set — and with it the encoded size, since a wider tail spans only bytes that are
+   * equal and therefore leaves every delta unchanged — only moves at a width some row actually
+   * needs. Costing those widths alone is exact, and on real label runs it is one or two probes
+   * instead of seven.
+   */
+  private static int synthesizedTailCandidates(final byte[] bytes, final int[] offsets, final int rowCount) {
+    int candidates = 0;
+    for (int row = 1; row < rowCount; row++) {
+      final int start = offsets[row];
+      final int length = offsets[row + 1] - start;
+      if (length != start - offsets[row - 1]) {
+        continue;
+      }
+      final int needed = length - sharedPrefixLength(bytes, offsets, row);
+      if (needed >= 1 && needed <= MAX_SYNTHESIZED_TAIL_BYTES) {
+        candidates |= 1 << needed;
+      }
+    }
+    return candidates;
+  }
+
+  /**
+   * Whether row {@code row} is derivable from row {@code row - 1} at this tail width: same byte
+   * length, at least {@code tailLen} bytes long, and identical outside the trailing field. The one
+   * predicate both the sizing pass and the emitting pass consult, so a plan can never disagree with
+   * what is written.
+   */
+  private static boolean isSynthesizedRunRow(final byte[] bytes, final int[] offsets, final int row,
+      final int tailLen) {
+    final int previousStart = offsets[row - 1];
+    final int start = offsets[row];
+    final int length = offsets[row + 1] - start;
+    return length == start - previousStart && length >= tailLen
+        && equalPrefix(bytes, previousStart, start, length - tailLen);
+  }
+
+  /** {@code count} bytes from {@code leftOff} equal to {@code count} bytes from {@code rightOff}. */
+  private static boolean equalPrefix(final byte[] bytes, final int leftOff, final int rightOff, final int count) {
+    return Arrays.equals(bytes, leftOff, leftOff + count, bytes, rightOff, rightOff + count);
+  }
+
+  /** Big-endian unsigned value of the {@code count} bytes at {@code off}; {@code count <= 7}. */
+  private static long tailValue(final byte[] bytes, final int off, final int count) {
+    long value = 0L;
+    for (int index = 0; index < count; index++) {
+      value = (value << 8) | (bytes[off + index] & 0xFFL);
+    }
+    return value;
+  }
+
+  /** Exact size {@link #encodeSynthesizedOrderLabels} would emit at this tail width. */
+  private static int synthesizedOrderLabelBytes(final byte[] bytes, final int[] offsets, final int rowCount,
+      final int tailLen) {
+    int anchorCount = 1;
+    int anchorByteTotal = offsets[1] - offsets[0];
+    int maxAnchorRow = 0;
+    int maxAnchorLength = anchorByteTotal;
+    long minDelta = Long.MAX_VALUE;
+    long maxDelta = Long.MIN_VALUE;
+    for (int row = 1; row < rowCount; row++) {
+      final int start = offsets[row];
+      final int end = offsets[row + 1];
+      if (isSynthesizedRunRow(bytes, offsets, row, tailLen)) {
+        final long delta =
+            tailValue(bytes, end - tailLen, tailLen) - tailValue(bytes, start - tailLen, tailLen);
+        if (delta < minDelta) {
+          minDelta = delta;
+        }
+        if (delta > maxDelta) {
+          maxDelta = delta;
+        }
+      } else {
+        final int length = end - start;
+        anchorCount++;
+        anchorByteTotal += length;
+        maxAnchorRow = row;
+        if (length > maxAnchorLength) {
+          maxAnchorLength = length;
+        }
+      }
+    }
+    final int deltaCount = rowCount - anchorCount;
+    final int deltaWidth = deltaCount == 0
+        ? 0
+        : rangeWidth(minDelta, maxDelta);
+    final int anchorRowWidth = anchorCount == 1
+        ? 0
+        : widthOf(maxAnchorRow);
+    final int anchorLenWidth = widthOf(maxAnchorLength);
+    return Integer.BYTES + 1 + 1 + Long.BYTES + Integer.BYTES + 1
+        + (((anchorCount - 1) * anchorRowWidth + 7) >>> 3) + 1 + ((anchorCount * anchorLenWidth + 7) >>> 3)
+        + anchorByteTotal + ((deltaCount * deltaWidth + 7) >>> 3);
+  }
+
+  /**
+   * Writer for {@link #ORDER_LABEL_MARKER_SYNTHESIZED}; mirrors {@link #synthesizedOrderLabelBytes}.
+   *
+   * <p>
+   * The run/anchor classification is evaluated ONCE into {@code runBits} and then read four times —
+   * the four output streams have to agree on it exactly, and re-deciding per stream would both cost
+   * four prefix compares per row and open the door to them disagreeing.
+   */
+  private static void encodeSynthesizedOrderLabels(final ByteArrayOutputStream out, final byte[] bytes,
+      final int[] offsets, final int rowCount, final int tailLen) {
+    final long[] runBits = new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
+    int anchorCount = 1;
+    int maxAnchorRow = 0;
+    int maxAnchorLength = offsets[1] - offsets[0];
+    long minDelta = Long.MAX_VALUE;
+    long maxDelta = Long.MIN_VALUE;
+    for (int row = 1; row < rowCount; row++) {
+      final int start = offsets[row];
+      final int end = offsets[row + 1];
+      if (isSynthesizedRunRow(bytes, offsets, row, tailLen)) {
+        runBits[row >>> 6] |= 1L << (row & 63);
+        final long delta =
+            tailValue(bytes, end - tailLen, tailLen) - tailValue(bytes, start - tailLen, tailLen);
+        if (delta < minDelta) {
+          minDelta = delta;
+        }
+        if (delta > maxDelta) {
+          maxDelta = delta;
+        }
+      } else {
+        anchorCount++;
+        maxAnchorRow = row;
+        final int length = end - start;
+        if (length > maxAnchorLength) {
+          maxAnchorLength = length;
+        }
+      }
+    }
+    final int deltaCount = rowCount - anchorCount;
+    final int deltaWidth = deltaCount == 0
+        ? 0
+        : rangeWidth(minDelta, maxDelta);
+    final long deltaBase = deltaCount == 0
+        ? 0L
+        : minDelta;
+    final int anchorRowWidth = anchorCount == 1
+        ? 0
+        : widthOf(maxAnchorRow);
+    final int anchorLenWidth = widthOf(maxAnchorLength);
+
+    putIntLE(out, ORDER_LABEL_MARKER_SYNTHESIZED);
+    out.write(tailLen);
+    out.write(deltaWidth);
+    putLongLE(out, deltaBase);
+    putIntLE(out, anchorCount);
+
+    out.write(anchorRowWidth);
+    final BitWriter anchorRowWriter = new BitWriter(out);
+    for (int row = 1; row < rowCount; row++) {
+      if (!isRunRow(runBits, row)) {
+        anchorRowWriter.write(row, anchorRowWidth);
+      }
+    }
+    anchorRowWriter.flush();
+
+    out.write(anchorLenWidth);
+    final BitWriter anchorLenWriter = new BitWriter(out);
+    anchorLenWriter.write(offsets[1] - offsets[0], anchorLenWidth);
+    for (int row = 1; row < rowCount; row++) {
+      if (!isRunRow(runBits, row)) {
+        anchorLenWriter.write(offsets[row + 1] - offsets[row], anchorLenWidth);
+      }
+    }
+    anchorLenWriter.flush();
+
+    out.write(bytes, offsets[0], offsets[1] - offsets[0]);
+    for (int row = 1; row < rowCount; row++) {
+      if (!isRunRow(runBits, row)) {
+        out.write(bytes, offsets[row], offsets[row + 1] - offsets[row]);
+      }
+    }
+
+    final BitWriter deltaWriter = new BitWriter(out);
+    for (int row = 1; row < rowCount; row++) {
+      if (isRunRow(runBits, row)) {
+        final long delta = tailValue(bytes, offsets[row + 1] - tailLen, tailLen)
+            - tailValue(bytes, offsets[row] - tailLen, tailLen);
+        deltaWriter.write(delta - deltaBase, deltaWidth);
+      }
+    }
+    deltaWriter.flush();
+  }
+
+  private static boolean isRunRow(final long[] runBits, final int row) {
+    return (runBits[row >>> 6] & (1L << (row & 63))) != 0L;
+  }
+
+  /** Bytes row {@code row} shares with row {@code row - 1}; {@code row >= 1}. */
+  private static int sharedPrefixLength(final byte[] bytes, final int[] offsets, final int row) {
+    final int previousStart = offsets[row - 1];
+    final int start = offsets[row];
+    final int limit = Math.min(start - previousStart, offsets[row + 1] - start);
+    int shared = 0;
+    while (shared < limit && bytes[previousStart + shared] == bytes[start + shared]) {
+      shared++;
+    }
+    return shared;
+  }
+
+  /** Exact size {@link #encodeFrontCodedOrderLabels} would emit. */
+  private static int frontCodedOrderLabelBytes(final byte[] bytes, final int[] offsets, final int rowCount) {
+    int maxPrefix = 0;
+    int minSuffix = Integer.MAX_VALUE;
+    int maxSuffix = 0;
+    int suffixTotal = 0;
+    for (int row = 0; row < rowCount; row++) {
+      final int prefix = row == 0
+          ? 0
+          : sharedPrefixLength(bytes, offsets, row);
+      final int suffix = offsets[row + 1] - offsets[row] - prefix;
+      if (prefix > maxPrefix) {
+        maxPrefix = prefix;
+      }
+      if (suffix < minSuffix) {
+        minSuffix = suffix;
+      }
+      if (suffix > maxSuffix) {
+        maxSuffix = suffix;
+      }
+      suffixTotal += suffix;
+    }
+    final int prefixWidth = widthOf(maxPrefix);
+    final int suffixWidth = rangeWidth(minSuffix, maxSuffix);
+    return Integer.BYTES + Integer.BYTES + 1 + 1 + Integer.BYTES + ((rowCount * prefixWidth + 7) >>> 3)
+        + ((rowCount * suffixWidth + 7) >>> 3) + suffixTotal;
+  }
+
+  /** Writer for {@link #ORDER_LABEL_MARKER_FRONT_CODED}; mirrors {@link #frontCodedOrderLabelBytes}. */
+  private static void encodeFrontCodedOrderLabels(final ByteArrayOutputStream out, final byte[] bytes,
+      final int[] offsets, final int rowCount, final int length) {
+    int maxPrefix = 0;
+    int minSuffix = Integer.MAX_VALUE;
+    int maxSuffix = 0;
+    for (int row = 0; row < rowCount; row++) {
+      final int prefix = row == 0
+          ? 0
+          : sharedPrefixLength(bytes, offsets, row);
+      final int suffix = offsets[row + 1] - offsets[row] - prefix;
+      if (prefix > maxPrefix) {
+        maxPrefix = prefix;
+      }
+      if (suffix < minSuffix) {
+        minSuffix = suffix;
+      }
+      if (suffix > maxSuffix) {
+        maxSuffix = suffix;
+      }
+    }
+    final int prefixWidth = widthOf(maxPrefix);
+    final int suffixWidth = rangeWidth(minSuffix, maxSuffix);
+
+    putIntLE(out, ORDER_LABEL_MARKER_FRONT_CODED);
+    putIntLE(out, length);
+    out.write(prefixWidth);
+    out.write(suffixWidth);
+    putIntLE(out, minSuffix);
+
+    final BitWriter prefixWriter = new BitWriter(out);
+    for (int row = 0; row < rowCount; row++) {
+      prefixWriter.write(row == 0
+          ? 0
+          : sharedPrefixLength(bytes, offsets, row), prefixWidth);
+    }
+    prefixWriter.flush();
+
+    final BitWriter suffixWriter = new BitWriter(out);
+    for (int row = 0; row < rowCount; row++) {
+      final int prefix = row == 0
+          ? 0
+          : sharedPrefixLength(bytes, offsets, row);
+      suffixWriter.write((long) (offsets[row + 1] - offsets[row] - prefix) - minSuffix, suffixWidth);
+    }
+    suffixWriter.flush();
+
+    for (int row = 0; row < rowCount; row++) {
+      final int prefix = row == 0
+          ? 0
+          : sharedPrefixLength(bytes, offsets, row);
+      out.write(bytes, offsets[row] + prefix, offsets[row + 1] - offsets[row] - prefix);
+    }
+  }
+
   static OrderLabels decodeOrderLabels(final Cursor in, final int rowCount) {
-    final int length = in.readInt();
-    if (length < 0 || length > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
-      throw new IllegalStateException("invalid projection Dewey order-label byte length " + length);
-    }
+    final OrderLabelLane lane = decodeOrderLabelLane(in, rowCount);
+    final byte[] bytes = lane.materializeLabelBytes();
     final int[] offsets = new int[ProjectionIndexRowGroupPage.MAX_ROWS + 1];
-    for (int row = 0; row <= rowCount; row++) {
-      offsets[row] = in.readInt();
-    }
-    final byte[] bytes = in.readBytes(length);
-    ProjectionIndexRowGroupPage.validateOrderLabels(rowCount, bytes, offsets, length);
+    lane.copyOffsetsInto(offsets);
+    ProjectionIndexRowGroupPage.validateOrderLabels(rowCount, bytes, offsets, lane.totalBytes());
     return new OrderLabels(bytes, offsets);
   }
 
   record OrderLabels(byte[] bytes, int[] offsets) {
+  }
+
+  /**
+   * Decode the order-label lane in place, leaving {@code in} positioned immediately after it. Every
+   * mode is validated here — offsets/lengths in range, labels strictly increasing — so corruption is
+   * caught once, at fill time, for both the hydrate path and {@code decodeKeysView}.
+   */
+  static OrderLabelLane decodeOrderLabelLane(final Cursor in, final int rowCount) {
+    if (rowCount < 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS) {
+      throw new IllegalStateException("invalid projection order-label row count " + rowCount);
+    }
+    final int marker = in.readInt();
+    if (marker >= 0) {
+      return decodeFlatOrderLabelLane(in, rowCount, marker);
+    }
+    return switch (marker) {
+      case ORDER_LABEL_MARKER_SYNTHESIZED -> decodeSynthesizedOrderLabelLane(in, rowCount);
+      case ORDER_LABEL_MARKER_FRONT_CODED -> decodeFrontCodedOrderLabelLane(in, rowCount);
+      default -> throw new IllegalStateException(
+          "Reserved projection order-label encoding escape " + marker + " — written by a newer version");
+    };
+  }
+
+  private static OrderLabelLane decodeFlatOrderLabelLane(final Cursor in, final int rowCount, final int byteLength) {
+    if (byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+      throw new IllegalStateException("invalid projection Dewey order-label byte length " + byteLength);
+    }
+    final int[] offsets = new int[rowCount + 1];
+    for (int row = 0; row <= rowCount; row++) {
+      offsets[row] = in.readInt();
+    }
+    final byte[] source = in.buffer();
+    final int bytesOffset = in.position();
+    in.skip(byteLength);
+    return newValidatedFlatLane(byteLength, source, bytesOffset, offsets, byteLength, rowCount);
+  }
+
+  private static OrderLabelLane newValidatedFlatLane(final int marker, final byte[] source, final int bytesOffset,
+      final int[] offsets, final int byteLength, final int rowCount) {
+    if (bytesOffset < 0 || byteLength < 0 || byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES
+        || bytesOffset + byteLength > source.length || offsets.length != rowCount + 1 || offsets[0] != 0
+        || offsets[rowCount] != byteLength) {
+      throw new IllegalStateException("invalid projection Dewey order-label lane");
+    }
+    for (int row = 0; row < rowCount; row++) {
+      final int start = offsets[row];
+      final int end = offsets[row + 1];
+      if (start < 0 || end <= start || end > byteLength) {
+        throw new IllegalStateException("invalid projection Dewey order-label offset at row " + row);
+      }
+      if (row > 0 && ProjectionIndexRowGroupPage.compareOrderLabels(source, bytesOffset + offsets[row - 1],
+          bytesOffset + start, source, bytesOffset + start, bytesOffset + end) >= 0) {
+        throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
+      }
+    }
+    return new FlatOrderLabels(marker, source, bytesOffset, offsets, byteLength);
+  }
+
+  private static OrderLabelLane decodeSynthesizedOrderLabelLane(final Cursor in, final int rowCount) {
+    final int tailLen = in.readByte() & 0xFF;
+    final int deltaWidth = in.readByte() & 0xFF;
+    final long deltaBase = in.readLong();
+    final int anchorCount = in.readInt();
+    if (rowCount == 0 || tailLen < 1 || tailLen > MAX_SYNTHESIZED_TAIL_BYTES || deltaWidth > 56 || anchorCount < 1
+        || anchorCount > rowCount) {
+      throw new IllegalStateException("invalid synthesized projection order-label header");
+    }
+    final int deltaCount = rowCount - anchorCount;
+    if (deltaCount > 0 && (deltaBase < 1L || deltaBase >= 1L << (tailLen << 3))) {
+      throw new IllegalStateException("synthesized projection order-label stride leaves the tail field");
+    }
+
+    final int anchorRowWidth = in.readByte() & 0xFF;
+    if (anchorRowWidth > widthOf(ProjectionIndexRowGroupPage.MAX_ROWS)) {
+      throw new IllegalStateException("invalid synthesized projection order-label anchor-row width " + anchorRowWidth);
+    }
+    final int[] anchorRows = new int[anchorCount];
+    if (anchorCount > 1) {
+      final int[] packedRows = new int[anchorCount - 1];
+      unpackIntsInto(in, anchorCount - 1, anchorRowWidth, packedRows);
+      System.arraycopy(packedRows, 0, anchorRows, 1, anchorCount - 1);
+    }
+    int previousAnchorRow = 0;
+    for (int anchor = 1; anchor < anchorCount; anchor++) {
+      if (anchorRows[anchor] <= previousAnchorRow || anchorRows[anchor] >= rowCount) {
+        throw new IllegalStateException("invalid synthesized projection order-label anchor row " + anchorRows[anchor]);
+      }
+      previousAnchorRow = anchorRows[anchor];
+    }
+
+    final int anchorLenWidth = in.readByte() & 0xFF;
+    final int[] anchorLengths = new int[anchorCount];
+    if (anchorLenWidth == 0 || anchorLenWidth > widthOf(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES)) {
+      throw new IllegalStateException("invalid synthesized projection order-label length width " + anchorLenWidth);
+    }
+    unpackIntsInto(in, anchorCount, anchorLenWidth, anchorLengths);
+
+    final byte[] source = in.buffer();
+    final int[] anchorOffsets = new int[anchorCount];
+    final long[] anchorTails = new long[anchorCount];
+    long anchorByteTotal = 0L;
+    for (int anchor = 0; anchor < anchorCount; anchor++) {
+      if (anchorLengths[anchor] < 1) {
+        throw new IllegalStateException("invalid synthesized projection order-label length at anchor " + anchor);
+      }
+      anchorByteTotal += anchorLengths[anchor];
+    }
+    if (anchorByteTotal > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+      throw new IllegalStateException("synthesized projection order-label anchors exceed the bounded lane");
+    }
+    final int anchorBytesOffset = in.position();
+    if (anchorBytesOffset + anchorByteTotal > source.length) {
+      throw new IllegalStateException("truncated synthesized projection order-label anchors");
+    }
+    int anchorCursor = anchorBytesOffset;
+    for (int anchor = 0; anchor < anchorCount; anchor++) {
+      anchorOffsets[anchor] = anchorCursor;
+      anchorTails[anchor] = anchorLengths[anchor] >= tailLen
+          ? tailValue(source, anchorCursor + anchorLengths[anchor] - tailLen, tailLen)
+          : 0L;
+      anchorCursor += anchorLengths[anchor];
+    }
+    in.skip((int) anchorByteTotal);
+
+    long[] tails = null;
+    if (deltaWidth > 0) {
+      final long tailLimit = 1L << (tailLen << 3);
+      tails = new long[rowCount];
+      final long[] deltas = new long[Math.max(deltaCount, 1)];
+      unpackInto(in, deltaCount, deltaWidth, deltaBase, deltas, 0);
+      int anchor = 0;
+      int delta = 0;
+      for (int row = 0; row < rowCount; row++) {
+        if (anchor < anchorCount && anchorRows[anchor] == row) {
+          tails[row] = anchorTails[anchor];
+          anchor++;
+          continue;
+        }
+        // deltaBase >= 1 is checked above and an unpacked value of width <= 56 is non-negative, so
+        // every step is >= 1 and the run is strictly increasing by construction; only the field
+        // bound can still be violated by a corrupt stream.
+        final long tail = tails[row - 1] + deltas[delta++];
+        if (tail >= tailLimit) {
+          throw new IllegalStateException("synthesized projection order-label deltas leave the tail field");
+        }
+        tails[row] = tail;
+      }
+    }
+
+    final SynthesizedOrderLabels lane = new SynthesizedOrderLabels(rowCount, tailLen, deltaBase, tails, source,
+        anchorRows, anchorOffsets, anchorLengths, anchorTails);
+    lane.validate();
+    return lane;
+  }
+
+  private static OrderLabelLane decodeFrontCodedOrderLabelLane(final Cursor in, final int rowCount) {
+    final int byteLength = in.readInt();
+    final int prefixWidth = in.readByte() & 0xFF;
+    final int suffixWidth = in.readByte() & 0xFF;
+    final int suffixMin = in.readInt();
+    // A label cannot be longer than the bounded lane, so no length field can be wider than
+    // widthOf(MAX_ORDER_LABEL_BYTES). Bounding the widths HERE is what keeps every length below
+    // arithmetic that could overflow the cursor checks in the rebuild loop.
+    final int maxLengthWidth = widthOf(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES);
+    if (byteLength < 0 || byteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES
+        || prefixWidth > maxLengthWidth || suffixWidth > maxLengthWidth || suffixMin < 0
+        || suffixMin > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+      throw new IllegalStateException("invalid front-coded projection order-label header");
+    }
+    final int[] prefixLengths = new int[rowCount];
+    final int[] suffixLengths = new int[rowCount];
+    unpackIntsInto(in, rowCount, prefixWidth, prefixLengths);
+    unpackIntsInto(in, rowCount, suffixWidth, suffixLengths);
+    final byte[] source = in.buffer();
+    final int suffixOffset = in.position();
+    final byte[] labels = new byte[byteLength];
+    final int[] offsets = new int[rowCount + 1];
+    int labelCursor = 0;
+    int suffixCursor = suffixOffset;
+    int previousStart = 0;
+    int previousLength = 0;
+    for (int row = 0; row < rowCount; row++) {
+      final int prefix = prefixLengths[row];
+      final int suffix = suffixLengths[row] + suffixMin;
+      if (prefix > previousLength || suffix < 1 || (row == 0 && prefix != 0)) {
+        throw new IllegalStateException("invalid front-coded projection order-label lengths at row " + row);
+      }
+      final int length = prefix + suffix;
+      if (labelCursor + length > byteLength || suffixCursor + suffix > source.length) {
+        throw new IllegalStateException("truncated front-coded projection order-label lane");
+      }
+      offsets[row] = labelCursor;
+      System.arraycopy(labels, previousStart, labels, labelCursor, prefix);
+      System.arraycopy(source, suffixCursor, labels, labelCursor + prefix, suffix);
+      suffixCursor += suffix;
+      previousStart = labelCursor;
+      previousLength = length;
+      labelCursor += length;
+    }
+    offsets[rowCount] = labelCursor;
+    if (labelCursor != byteLength) {
+      throw new IllegalStateException("front-coded projection order-label lane length mismatch");
+    }
+    in.skip(suffixCursor - suffixOffset);
+    return newValidatedFlatLane(ORDER_LABEL_MARKER_FRONT_CODED, labels, 0, offsets, byteLength, rowCount);
+  }
+
+  /**
+   * Read view over one leaf's order labels, independent of which wire form carried them. Compare and
+   * copy are the only per-row operations the consumers need
+   * ({@code ProjectionIndexFences#compareFirstOrderLabel}, the change listener's binary search); the
+   * synthesized implementation answers both from the run description with NO per-row state.
+   */
+  sealed interface OrderLabelLane permits FlatOrderLabels, SynthesizedOrderLabels {
+
+    /**
+     * The wire marker this lane was decoded from: {@code >= 0} for the legacy offset lane, else
+     * {@link #ORDER_LABEL_MARKER_SYNTHESIZED} or {@link #ORDER_LABEL_MARKER_FRONT_CODED}. Diagnostics
+     * and the encoder's mode witnesses read it; nothing on the serving path branches on it.
+     */
+    int marker();
+
+    /** Concatenated length of every label — the legacy lane's {@code byteLength}. */
+    int totalBytes();
+
+    /** {@code compareOrderLabels(label(row), other)}. */
+    int compareAt(int row, byte[] other);
+
+    /** A fresh copy of row {@code row}'s label. */
+    byte[] copyAt(int row);
+
+    /** The concatenated labels, exactly {@link #totalBytes()} long. */
+    byte[] materializeLabelBytes();
+
+    /** Fills {@code dst[0..rowCount]} with the label offsets. */
+    void copyOffsetsInto(int[] dst);
+  }
+
+  /** Labels stored one after another with an explicit offset per row (LEGACY and FRONT_CODED). */
+  record FlatOrderLabels(int marker, byte[] source, int bytesOffset, int[] offsets, int totalBytes)
+      implements OrderLabelLane {
+
+    @Override
+    public int compareAt(final int row, final byte[] other) {
+      return ProjectionIndexRowGroupPage.compareOrderLabels(source, bytesOffset + offsets[row],
+          bytesOffset + offsets[row + 1], other, 0, other.length);
+    }
+
+    @Override
+    public byte[] copyAt(final int row) {
+      return Arrays.copyOfRange(source, bytesOffset + offsets[row], bytesOffset + offsets[row + 1]);
+    }
+
+    @Override
+    public byte[] materializeLabelBytes() {
+      return Arrays.copyOfRange(source, bytesOffset, bytesOffset + totalBytes);
+    }
+
+    @Override
+    public void copyOffsetsInto(final int[] dst) {
+      System.arraycopy(offsets, 0, dst, 0, offsets.length);
+    }
+  }
+
+  /**
+   * Labels described as arithmetic runs over anchor labels. A row that is not an anchor has its
+   * anchor's byte length and leading bytes, and a trailing {@code tailLen}-byte big-endian field
+   * derived from the anchor's — either {@code anchorTail + (row - anchorRow) * stride} when the
+   * strides are uniform (the in-order-append shape, and then this lane holds NO per-row state at all)
+   * or the prefix-summed {@code tails} otherwise.
+   */
+  static final class SynthesizedOrderLabels implements OrderLabelLane {
+    private final int rowCount;
+    private final int tailLen;
+    private final long stride;
+    private final long[] tails;
+    private final byte[] source;
+    private final int[] anchorRows;
+    private final int[] anchorOffsets;
+    private final int[] anchorLengths;
+    private final long[] anchorTails;
+    private final int totalBytes;
+
+    SynthesizedOrderLabels(final int rowCount, final int tailLen, final long stride, final long[] tails,
+        final byte[] source, final int[] anchorRows, final int[] anchorOffsets, final int[] anchorLengths,
+        final long[] anchorTails) {
+      this.rowCount = rowCount;
+      this.tailLen = tailLen;
+      this.stride = stride;
+      this.tails = tails;
+      this.source = source;
+      this.anchorRows = anchorRows;
+      this.anchorOffsets = anchorOffsets;
+      this.anchorLengths = anchorLengths;
+      this.anchorTails = anchorTails;
+      long total = 0L;
+      for (int anchor = 0; anchor < anchorRows.length; anchor++) {
+        final int runEnd = anchor + 1 < anchorRows.length
+            ? anchorRows[anchor + 1]
+            : rowCount;
+        total += (long) anchorLengths[anchor] * (runEnd - anchorRows[anchor]);
+      }
+      if (total > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+        throw new IllegalStateException("synthesized projection order-label lane exceeds the bounded lane");
+      }
+      this.totalBytes = (int) total;
+    }
+
+    /**
+     * Index of the anchor governing {@code row} — the greatest anchor row {@code <= row}. Anchor
+     * counts are single digits on a run-shaped leaf, so the binary search settles in 1-2 probes.
+     */
+    private int anchorOf(final int row) {
+      int low = 0;
+      int high = anchorRows.length - 1;
+      while (low < high) {
+        final int middle = (low + high + 1) >>> 1;
+        if (anchorRows[middle] <= row) {
+          low = middle;
+        } else {
+          high = middle - 1;
+        }
+      }
+      return low;
+    }
+
+    /** Trailing field value of {@code row}. */
+    private long tailAt(final int row, final int anchor) {
+      return tails != null
+          ? tails[row]
+          : anchorTails[anchor] + (long) (row - anchorRows[anchor]) * stride;
+    }
+
+    @Override
+    public int marker() {
+      return ORDER_LABEL_MARKER_SYNTHESIZED;
+    }
+
+    @Override
+    public int totalBytes() {
+      return totalBytes;
+    }
+
+    @Override
+    public int compareAt(final int row, final byte[] other) {
+      return compareToRange(row, other, 0, other.length);
+    }
+
+    /** {@code compareOrderLabels(label(row), other[from, to))} without materialising the label. */
+    int compareToRange(final int row, final byte[] other, final int from, final int to) {
+      final int anchor = anchorOf(row);
+      final int length = anchorLengths[anchor];
+      final int offset = anchorOffsets[anchor];
+      final int otherLength = to - from;
+      if (anchorRows[anchor] == row) {
+        return ProjectionIndexRowGroupPage.compareOrderLabels(source, offset, offset + length, other, from, to);
+      }
+      final int common = Math.min(length, otherLength);
+      final int prefixLength = length - tailLen;
+      int index = 0;
+      while (index < common && index < prefixLength) {
+        final int left = source[offset + index] & 0xFF;
+        final int right = other[from + index] & 0xFF;
+        if (left != right) {
+          return left - right;
+        }
+        index++;
+      }
+      if (index < common) {
+        final long tail = tailAt(row, anchor);
+        while (index < common) {
+          final int left = (int) ((tail >>> ((length - 1 - index) << 3)) & 0xFFL);
+          final int right = other[from + index] & 0xFF;
+          if (left != right) {
+            return left - right;
+          }
+          index++;
+        }
+      }
+      return Integer.compare(length, otherLength);
+    }
+
+    @Override
+    public byte[] copyAt(final int row) {
+      final int anchor = anchorOf(row);
+      final int length = anchorLengths[anchor];
+      final byte[] label = new byte[length];
+      writeLabel(row, anchor, label, 0);
+      return label;
+    }
+
+    /** Writes row {@code row}'s label into {@code dst} at {@code dstOff}. */
+    private void writeLabel(final int row, final int anchor, final byte[] dst, final int dstOff) {
+      final int length = anchorLengths[anchor];
+      final int offset = anchorOffsets[anchor];
+      if (anchorRows[anchor] == row) {
+        System.arraycopy(source, offset, dst, dstOff, length);
+        return;
+      }
+      final int prefixLength = length - tailLen;
+      System.arraycopy(source, offset, dst, dstOff, prefixLength);
+      final long tail = tailAt(row, anchor);
+      for (int index = 0; index < tailLen; index++) {
+        dst[dstOff + prefixLength + index] = (byte) (tail >>> ((tailLen - 1 - index) << 3));
+      }
+    }
+
+    @Override
+    public byte[] materializeLabelBytes() {
+      final byte[] labels = new byte[totalBytes];
+      int cursor = 0;
+      int anchor = 0;
+      for (int row = 0; row < rowCount; row++) {
+        if (anchor + 1 < anchorRows.length && anchorRows[anchor + 1] == row) {
+          anchor++;
+        }
+        writeLabel(row, anchor, labels, cursor);
+        cursor += anchorLengths[anchor];
+      }
+      return labels;
+    }
+
+    @Override
+    public void copyOffsetsInto(final int[] dst) {
+      int cursor = 0;
+      int anchor = 0;
+      for (int row = 0; row < rowCount; row++) {
+        if (anchor + 1 < anchorRows.length && anchorRows[anchor + 1] == row) {
+          anchor++;
+        }
+        dst[row] = cursor;
+        cursor += anchorLengths[anchor];
+      }
+      dst[rowCount] = cursor;
+    }
+
+    /**
+     * Every guard the flat lane gets, answered from the run description: a derived row must have a
+     * tail that fits its field, and every row must be strictly greater than its predecessor. Uniform
+     * strides make this O(anchors) — one bound check per run instead of one per row.
+     */
+    void validate() {
+      final long tailLimit = 1L << (tailLen << 3);
+      for (int anchor = 0; anchor < anchorRows.length; anchor++) {
+        final int anchorRow = anchorRows[anchor];
+        final int runEnd = anchor + 1 < anchorRows.length
+            ? anchorRows[anchor + 1]
+            : rowCount;
+        final int span = runEnd - 1 - anchorRow;
+        if (span > 0) {
+          if (anchorLengths[anchor] < tailLen) {
+            throw new IllegalStateException("synthesized projection order-label run is shorter than its tail field");
+          }
+          // Bound the LAST tail without ever forming the product: an overflowing multiply would wrap
+          // past the limit check instead of failing it.
+          if (tails == null
+              ? stride > (tailLimit - 1L - anchorTails[anchor]) / span
+              : tails[runEnd - 1] >= tailLimit) {
+            throw new IllegalStateException("synthesized projection order-label run overflows its tail field");
+          }
+        }
+        if (anchorRow > 0) {
+          final int offset = anchorOffsets[anchor];
+          if (compareToRange(anchorRow - 1, source, offset, offset + anchorLengths[anchor]) >= 0) {
+            throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
+          }
+        }
+      }
+    }
   }
 
   /**
