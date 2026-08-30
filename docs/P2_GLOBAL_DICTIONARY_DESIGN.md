@@ -8,6 +8,22 @@ carrying the experiment that settles it.
 
 ---
 
+> # ⛔ STATUS: SEGMENT 0'S GATE FAILED. THE P2 TRACK IS STOPPED.
+>
+> **The lead has stopped the P2 track** pending the re-derivation in §18.3. `impl-p2s1` built the gate for real —
+> dictionaries constructed through the product writer, bytes weighed on disk, a control run reproducing the product
+> build byte-for-byte — and it **failed by 1.6× in its best shape and 2.5× as this document specified it** (§18).
+>
+> **Two of the three causes are errors in this document, and they are corrected in place** (§1.1, §3.3, §4.1): it
+> multiplied cardinality by the **occurrence-weighted** mean value length where a dictionary needs the
+> **distinct-weighted** one — 90.45 B against the measured 184.01 for URL, a 2.03× under-count that made the
+> acceptance look reachable — and it asserted that dictionary blocks pass through the page body codec, which they
+> do not.
+>
+> Everything below is kept, corrected where it was wrong and annotated where it was right, because the document is
+> the artifact that survives. **§18 is the record of what was measured and what it costs; read it before reviving
+> anything here.**
+
 ## 0. The result, after review
 
 **Status: revised after two independent reviews and the lead's rulings.** What the reviews changed is worth stating
@@ -31,10 +47,12 @@ their values*, is global and cannot be produced by a streaming mint. Rank-ordere
 integer work: `MIN(URL)` becomes `min(id)`, `URL < 'x'` becomes an id range that zone maps prune exactly, the
 top-k heap comparison becomes `Long.compare`, and the `O(entryCount)` verdict sweep survives only for
 `contains`/regex. On measured inputs — **53.77 M distinct values across the four columns** and rebuild #2's own
-**69.63 GB** — the projection half reaches ≤ 30 B/row **only if both** front-coded value blocks and the dropped
-forward index hold (23.9 B/row; 32.6 with the index kept, 33.3 without front coding), and it lands at 62.4 GB,
-so **M1's ≤ 50 GB needs the trie's string region to name the same ids**: that region is 19.31 GB of the 69.63 GB
-file and 87 % of it is these four columns. With it, 45.7 GB.
+**69.63 GB** — the design predicted the projection half at 23.9 B/row. **Segment 0 weighed it on disk at 27.4 B/row
+in its best shape and 42.6 as specified, against a 17.3 acceptance (§18).** The projection half is therefore worth
+**−5.6 GB, not −7.2**, and misses the plan's ≤ 30 B/row. What does not change is the shape of the conclusion:
+**M1's ≤ 50 GB needs the trie's string region to name the same ids** — that region is 19.31 GB of the 69.63 GB file
+and 87 % of it is these four columns — and the failure makes the projection half smaller, so the trie lane carries
+even more of it.
 
 **The governing constraint is the user's: reduce storage WITHOUT hurting performance.** Every segment in §12
 therefore carries a latency clause beside its byte clause, judged **per query** against rebuild #2's leg — a lever
@@ -88,10 +106,27 @@ SearchPhrase ×1.000 (URL and Referer are ~99 % escaped, Title 10 %, SearchPhras
 | SearchPhrase | **6,031,488** | 13.17 % | 56.17 | 7.4 | **23 bits** |
 | **total** | **53.77 M distinct** | | | **258.7 B/row** | **97 bits = 12.1 B/row** |
 
-Two facts fall straight out and drive everything below:
+> **CORRECTED after segment 0 (§18.2).** The `decoded avg B` column above is **occurrence-weighted** — the mean
+> over every row. A dictionary stores each value **once**, so the multiplicand it needs is the
+> **distinct-weighted** mean, which `impl-p2s1` measured over the whole corpus and which is far larger:
+>
+> | column | occurrence-weighted [M] | **distinct-weighted [M]** | ratio |
+> |---|---|---|---|
+> | URL | 90.45 | **184.01** | **2.03×** |
+> | Referer | 81.61 | **136.60** | 1.67× |
+> | Title | 111.50 | **132.79** | 1.19× |
+> | SearchPhrase | 56.17 | **65.27** | 1.16× |
+>
+> The sign is the one §4.1 predicted — distinct values are longer, because short and empty values recur most — but
+> the **magnitude was not**, and 2.03× on the largest column is what broke the arithmetic. The cardinalities were
+> fine: `impl-p2s1`'s exact counts agree with the HLL estimates to **0.1–1.1 %**.
 
-- **The corpus carries 258.7 B/row of fat-column string payload but only 4.68 GB of distinct values** (§4.1) — a
-  **5.5× dedup** that per-leaf dictionaries over ~9.7 rows/page cannot see and a resource-wide one takes in full.
+Two facts fall out, the second **as corrected**:
+
+- **The corpus carries 258.7 B/row of fat-column string payload against 7.750 GB of distinct values** (§4.1) — a
+  **3.34× dedup**, not the 5.5× this document originally claimed, which per-leaf dictionaries over ~9.7 rows/page
+  cannot see and a resource-wide one takes in full. The dedup is real and still the reason P2 was worth designing;
+  it is simply 61 % of what was claimed.
 - The cardinality is **1.7× higher than a Heaps' extrapolation from the 10–30 M prefix predicted** (11 M vs 18.4 M
   for URL). The prefix is clustered; extrapolating it would have under-priced the dictionary by 40 %. This is why
   the full pass was worth running, and it is why §4.1's conclusion changed.
@@ -264,10 +299,14 @@ value**, for free, with no layout change: a block is a run of lexicographically 
 
 Two consequences the design leans on:
 
-- **Compression.** The blocks live in `KeyValueLeafPage`s of the NamePage sub-trie and go through the ordinary body
-  codec bake-off (zero-run vs LZ77, `PageKind.emitSmallestBody` — at 100 M LZ77 wins 100 % of string regions,
-  `load.log:106`). **[A]** a ranked dictionary compresses at ~0.45 where an intern-ordered one compresses at ~0.65
-  (the ratio the trie's string region achieves on these same values today).
+- **Compression — THIS CLAIM WAS FALSE, and it is the second cause of the gate's failure (§18.2).** The blocks do
+  **not** go through the page body codec bake-off. A 256-value block is **~33 KB**, far above
+  `Constants.MAX_RECORD_SIZE = 1023`, so it never lives in a `KeyValueLeafPage` heap at all: it is diverted to an
+  `OverflowPage`, whose `serializePage` writes the payload **verbatim**. `impl-p2s1` measured `written/raw = 1.001`
+  — the dictionary reaches disk **raw**. `PageSectionDiag` never sees those pages either, which is why no earlier
+  measurement caught it. The original text read: *"the blocks live in `KeyValueLeafPage`s of the NamePage sub-trie
+  and go through the ordinary body codec bake-off … a ranked dictionary compresses at ~0.45"*. Every ratio in
+  §4.1's table was therefore multiplying a compression that does not happen.
 - **Front coding**, which rank order is what makes possible: inside a block each entry becomes
   `(uvarint sharedPrefixLen, suffix bytes)` measured against the **previous entry in the same block only**, so a
   block stays independently decodable and §3.3's bounded tail rewrite is unaffected. §4.1 shows this is
@@ -489,42 +528,50 @@ throws a typed error when none is bound — never returns the id bytes as a valu
 so the width is the resource-wide id magnitude, not leaf locality: 25 + 25 + 24 + 23 bits =
 **12.125 B/row = 1.21 GB**.
 
-**Value region** [D from M, on an [A] average — see below]:
+**Value region.** ~~The original arithmetic~~ — struck through because both of its inputs were wrong:
 
 ```
+  WRONG (occurrence-weighted lengths, and a codec that does not run):
   18,364,684 × 90.46  +  19,966,360 × 81.61  +  9,411,056 × 111.50  +  6,031,488 × 56.17  =  4.68 GB raw
+
+  CORRECT (distinct-weighted lengths, measured over the whole corpus by impl-p2s1, §1.1):
+  18,364,684 × 184.01 +  19,966,360 × 136.60 +  9,411,056 × 132.79 +  6,031,488 × 65.27  =  7.750 GB raw
+       3.379 GB       +       2.727 GB       +      1.250 GB       +      0.394 GB
 ```
 
-> **[A], flagged by the review and accepted.** Those averages are **occurrence-weighted** (measured over every row),
-> but the dictionary stores each value once, so the right multiplier is the **distinct-weighted** mean length. The
-> two differ, and the likely sign is that distinct values are *longer* — short and empty values recur far more than
-> long ones — so 4.68 GB is probably an **under**-estimate. *Experiment, cheap and exact enough:* take a 1-in-64
-> hash-prefix sample of values (287 K for URL — fits trivially in memory), dedupe it exactly, and take the mean
-> length of the distinct sample; it is an unbiased estimator of the distinct-weighted mean. S1 also reports the
-> figure exactly, for free, on its first real run — so segment 1 reports it as a by-product and segment 0's gate
-> measures written bytes directly, which is the figure that actually matters. **Still open; it refines §4.1's
-> value-region estimate but cannot change the acceptance, which segment 0 measures rather than derives.**
+**7.750 GB, not 4.68 — a 1.66× under-count**, on top of a compression that §3.3 wrongly assumed would run.
+
+> **This was flagged as an [A] by the review, and I under-rated it.** The document said the distinct-weighted
+> length "refines §4.1's value-region estimate but cannot change the acceptance, which segment 0 measures rather
+> than derives". The first half was true and the second was beside the point: segment 0 measures the *outcome*, but
+> this number is what made **17.3 B/row look reachable in the first place** — it is the reason a gate was set at a
+> level nothing could pass. A term flagged as uncertain and left uncorrected in the arithmetic that sets an
+> acceptance is not a footnote; the lesson is written down in §18.4.
 
 **Directory** [D, §3.3.2]: reverse buckets and block headers ≈ 0.17 B/entry → 53.77 M × 0.17 = 9 MB ≈ **0.1 B/row**.
 The forward hash index is **not built over the ordered prefix**, so it contributes 0 for a freshly rank-passed
 resource; keeping it would add **≈ 8.7 B/row**.
 
-| front-coded value-region ratio | values | + ids | + directory | total | vs ≤ 30 B/row |
-|---|---|---|---|---|---|
-| 0.20 | 9.4 B/row | 12.1 | 0.1 | **21.6** | met, 28 % headroom |
-| **0.25 (design figure [A])** | 11.7 | 12.1 | 0.1 | **23.9** | **met, 20 % headroom** |
-| 0.30 | 14.0 | 12.1 | 0.1 | **26.2** | met, 13 % |
-| 0.37 — break-even | 17.3 | 12.1 | 0.1 | **29.5** | met, exactly |
-| 0.45 (sorting alone, no front coding) | 21.1 | 12.1 | 0.1 | **33.3** | **missed by 11 %** |
-| 0.25 **with the forward index kept** | 11.7 | 12.1 | 8.8 | **32.6** | **missed by 9 %** |
+**The predicted table is deleted rather than patched.** It projected written bytes from an assumed codec ratio, and
+the codec does not run (§3.3). What replaces it is what `impl-p2s1` weighed on disk at 100 M — dictionaries built
+through the product writer, round-trip verified, with a control run reproducing the product build byte for byte:
 
-**Two things must both hold for the ≤ 30 B/row acceptance: front coding at ≤ 0.37, and no forward hash index over
-the ordered prefix.** Neither is a nicety; the last row shows the directory alone breaks it. Against today's
-**95.7 B/row** [M] the projection half at the design figure is **9.57 GB → 2.39 GB, −7.2 GB**.
+| shape | values + directory | + id lanes | four-column total | vs the ≤ 30 B/row acceptance |
+|---|---|---|---|---|
+| **as §3.3.1 specifies it** (rank-ordered, no forward index, front-coded) | **42.6 B/row** | 12.1 | 54.7 | **missed by 1.8×** |
+| **best shape found** (the above **plus an in-record LZ77 frame** `impl-p2s1` built and verified) | **27.4 B/row** | 12.1 | **39.5** | **missed by 1.3×** |
+| the gate's acceptance | 17.3 | 12.1 | 29.4 | — |
 
-**Segment 0's gate is therefore restated:** it measures **written dictionary bytes for a real column — value blocks
-plus every directory record — divided by rows**, not a value-block compression ratio. A ratio taken over the values
-alone is exactly the measurement that hid the directory in the first place.
+Measured per shape at **1 M, 10 M and a 40 M prefix**, all round-trip verified. **The gate failed by 1.6× in its
+best shape and 2.5× as specified** (27.4 and 42.6 against 17.3).
+
+Against today's **95.7 B/row** [M], the best shape still saves: **9.57 GB → 3.95 GB, −5.6 GB** — a real reduction,
+just 78 % of the −7.2 GB claimed and short of the ≤ 30 B/row the plan asked for. **If segment 1 is ever revived,
+its acceptance is ~27 B/row of values + directory, not 17.3** — that is what the mechanism actually achieves.
+
+**Segment 0's gate design was right even though its threshold was wrong.** It measured written dictionary bytes for
+a real column including every directory record, rather than a value-block ratio — which is exactly why it caught
+this instead of shipping it. The failure is in the number the design handed it, not in the gate.
 
 ### 4.2 The trie half — measured, and required for M1
 
@@ -553,26 +600,36 @@ Target, from the plan of record (`STORAGE_AND_SPEED_PLAN.md` §2): **M1 ≤ 50 G
 | | 100 M | vs M1 ≤ 50 GB |
 |---|---|---|
 | **rebuild #2, measured** [M] | **69.63 GB** | |
-| − projection half (§4.1) | −7.2 → **62.4 GB** | **missed** |
-| − trie lane (§4.2) | −16.7 → **45.7 GB** | **met, 4.3 GB of margin, inside the expected 45–50 band** |
+| − projection half, **measured best shape** (§4.1) | −5.6 → **64.0 GB** | **missed** |
+| − trie lane (§4.2, still a derivation — never built) | −16.7 → **47.3 GB** | met on paper, **2.7 GB of margin, down from 4.3** |
 
-**The projection half alone does not reach M1; the trie lane delivers −16.7 of the −23.9 GB.** That is the sentence
-this design exists to establish, and it is why §12 now stages segment 5 *before* the serving segments.
+**The projection half alone does not reach M1; the trie lane would deliver −16.7 of the −22.3 GB.** That conclusion
+survives the gate's failure — indeed the failure strengthens it, since the projection half shrank from −7.2 to
+−5.6 GB while the trie lane's estimate did not move.
 
-Caveats on the 45.7 GB, all named:
+**But the 47.3 GB is not a number to plan on**, for two independent reasons: the trie lane was never built, and
+§18.3's baseline change is about to move the ground under both halves. This row is kept so the arithmetic is
+traceable, not because it is a forecast.
 
-- Three **[A]**s remain: the front-coding ratio (0.20–0.25), the id-lane compression (0.85), and the
-  distinct-weighted mean length. M1 still holds at a front-coding ratio of 0.45 (→ 47.2 GB) and at id compression
-  1.0 (→ 46.1 GB); it fails only if several miss together, which segment 0 catches first.
-- Nothing counts the `OverflowPage` class's 17.45 GB, which holds the projection's segments **and** genuine trie
-  overflows above `MAX_RECORD_SIZE`. Long Titles and URLs that overflow today become 3-byte ids and stop
-  overflowing — a further, unquantified gain left out.
+Caveats on the 47.3 GB, all named — and the first two are what segment 0 turned from caveats into results:
+
+- ~~Three **[A]**s remain: the front-coding ratio, the id-lane compression, and the distinct-weighted mean
+  length.~~ **Two of the three are now measured and both went against the design**: the distinct-weighted length
+  was 1.66× larger than assumed (§18.2) and the front-coding ratio never applied because the codec does not run
+  (§3.3). Only the id-lane compression (0.85) is still an assumption, and it belongs to the unbuilt trie lane.
+- The `OverflowPage` class's 17.45 GB was called out here as "an unquantified gain left out". **It is now the
+  headline of §18.3**: that class is uncompressed by default, it holds the projection's own segments as well as the
+  dictionary blocks, and a codec landing on it moves the baseline under both halves of P2. The re-derivation the
+  lead has stopped the track for is exactly this.
 
 ### 4.4 What P2 does not pay for twice
 
-The dictionary is counted **once**. If the trie lane ships, the same ~1.2 GB serves both the projection's id lanes
-and the trie's — which is why the two halves belong in one brief, and why the trie lane is cheap *given* the
-projection half: one encoding kind, a registry, and a resolver over a structure already paid for.
+The dictionary is counted **once**. If the trie lane ships, the same dictionary — **2.74 GB written in the best
+measured shape**, not the ~1.2 GB predicted — serves both the projection's id lanes and the trie's. That is why the
+two halves belong in one brief, and why the trie lane is cheap *given* the projection half: one encoding kind, a
+registry, and a resolver over a structure already paid for. **It is also why the gate's failure does not transfer
+to the trie lane one-for-one**: the trie lane's saving is set by the value bytes it stops writing, not by what the
+dictionary costs, and the dictionary is already charged to the projection half.
 
 ---
 
@@ -1182,7 +1239,7 @@ against a `git show HEAD:`-compiled build, and lands with its witnesses.
 
 | # | segment | byte acceptance | **latency acceptance** | kill switch |
 |---|---|---|---|---|
-| **0** | **The dictionary-bytes gate** (no product code). Builds a real dictionary from a 5 M-value sample in three forms — intern order, rank order, rank order front-coded — and reports **written bytes for every persisted record**: value blocks, value buckets, the reverse radix, and (for the intern-order control) the forward hash index and its radix. Blocks hold 256 values, so front-coding runs are 256 long (§3.3.1). | **written dictionary bytes ÷ rows ≤ 17.3 B/row** for the front-coded, forward-index-free form (§4.1's break-even at ratio 0.37). **Above it, segment 1 does not start.** A *value-block ratio* is explicitly NOT the acceptance — measuring that is what hid the directory in draft 1. | n/a (no product code runs) | n/a |
+| **0** | ⛔ **FAILED — RUN, MEASURED, AND THE TRACK IS STOPPED (§18).** Built dictionaries through the product writer, weighed bytes on disk, round-trip verified, with a control run reproducing the product build byte for byte, at 1 M / 10 M / a 40 M prefix. | **FAILED.** Acceptance was ≤ 17.3 B/row of values + directory. Measured: **42.6 B/row as §3.3.1 specifies it**, **27.4 B/row in the best shape found** (adding an in-record LZ77 frame `impl-p2s1` built and verified). **Fails 2.5× as specified, 1.6× at best.** Causes in §18.2 — two of the three are errors in this document. **If segment 1 is ever revived the acceptance is ~27 B/row, not 17.3.** | n/a (no product code ran) | n/a |
 | **1** | **The rank pass, offline, one column** — `orderedPrefixCount`, front-coded value blocks, no forward index over the ordered prefix, S1–S4, the election, the disk preflight. | At 1 M: the four fat columns' post-codec bytes match §4.1 ±10 %; W1–W6, W10, W12, W14, W15, W17 green. | **The load path is byte-identical and its wall time unchanged** (the pass is offline, so this is a proof of non-interference, not a measurement of the pass). **The pass's own cost is reported, not bounded** — it is a one-off reorganisation. **W18's maintenance-intern ratio is recorded and must be ≤ 5×**; above that, §3.3.2's widening decision is taken before segment 5. | `-Dsirix.projection.globalDict.rank=false`, `…globalDict.frontCoding=false` |
 | **5** | **The trie lane** — registry, encoding kind 3, flag byte 2, the resolver. **−16.7 of the −23.9 GB, so it precedes the serving segments.** §16's screen is DONE and confirmed it: L1 recovers ≈ 4.7–8.1 GB against segment 5's ≈ 15 GB. | 100 M leaf class falls by ≥ 12 GB; reconstruction round trip byte-identical with the lane on and off; W11 green. | **The binding clause for this segment.** Point lookup by record key, full-resource reconstruction, and the row-path queries: **no regression beyond noise** — the plan's "point/row-path queries never slower" rule. Measured *before* the encoder is written, on a 1 M resource whose dictionary segment 1 already built. A resolver hop that costs measurable point-read latency kills the segment, whatever it saves. | `-Dsirix.page.stringRegion.globalIdLane=false` |
 | **2** | **The integer arms.** §6.2 B1–B8: `globalIdsAreOrdered`; `sortColumnsOrderable` **together with** `EXEC:16409` and `EXEC:16442`; best-first + zone prune; `compareKeyAt`; `keyIsNumeric`; the id-range translation of ordering predicates. (No dense-arm claim — see B5.) | Differentials under `STRICT_SERVING` for q25/q26/q13/q14/q16/q17/q33/q34; W3, W7 green; 43 dumps byte-identical. | q25/q26 improve; **no query regresses.** The risk to watch is B3: best-first changes leaf *visitation order*, so a query whose zone maps prune badly could read more leaves than document order did. That is the specific regression this clause exists to catch. | `-Dsirix.projection.globalDict.orderedArms=false` |
@@ -1191,8 +1248,11 @@ against a `git show HEAD:`-compiled build, and lands with its witnesses.
 | **4** | **The verdict**: per-query cache keyed `(revision, headerNodeKey, entryCount, op, literal)` (or hung on the `ReadView`) + bucket-partitioned parallel sweep + the one per-query derived-heap accumulator (§8, static `maxMemory/16`). | W8, W9, W13 green. | q20/q22 improve; **no query regresses.** The parallel sweep takes cores from the scan it serves, so the clause covers queries that run *beside* a verdict build, not only the one that builds it. | `-Dsirix.projection.verdict.parallel=false`, `…verdict.cache=false` |
 | **6** | **Grouped 3-gram filters** for `contains` — granularity refitted per §7 (per-block is not viable at 256 values/block); the design point opens only after segment 1's measurements. | filter cost ≤ 5 % of the dictionary. | q20/q22 improve; **no query regresses.** A filter that is read but never skips is pure added latency, so the acceptance includes its measured skip rate, not only its size. | `-Dsirix.projection.globalDict.blockFilter=false` |
 
-**Order: 0 → 1 → 5, then 2 → 3 → 3b → 4 → 6.** Segment 5 delivers **−16.7 of the −23.9 GB** and is the only reason
-M1 is reached, while segments 2–4 buy speed whose baseline does not exist yet. Doing 1 → 5 first settles the
+> **The order below is what the campaign intended; segment 0 stopped it at the first step.** Everything from
+> segment 1 onward is unbuilt and is kept as a specification, not a plan.
+
+**Order: 0 → 1 → 5, then 2 → 3 → 3b → 4 → 6.** Segment 5 delivers **−16.7 of the −22.3 GB** and is the only reason
+M1 would be reached, while segments 2–4 buy speed whose baseline does not exist yet. Doing 1 → 5 first settles the
 *storage* outcome in one rebuild before any serving code is written.
 
 **§16's screen is done and segment 5 stands.** Exact per-window distinct sets over the full 100 M corpus put a
@@ -1271,6 +1331,8 @@ is also run with the guard inverted, and each named case must then fail.
 - It does not derive a heap ceiling from live headroom (§8): the ceiling is static `maxMemory/16` and the
   headroom variant stays behind its opt-in flag, where its benefit is unwitnessed at 100 M.
 - It does not accept a segment on bytes alone (§12).
+- **It did not survive its own gate.** Segment 0 failed by 1.6× at best (§18), on two errors recorded above in the
+  places they were made. The document is kept as the record of what was measured and what it cost.
 
 ---
 
@@ -1396,4 +1458,75 @@ the primary read path of *every* resource that adopts the exponent, not only of 
 | b | re-rank contract: id-range or single-revision? | **single-revision only (b)** — *conditional* on the versioned path staying fully correct with its degradation named; (a) stays implementable, one field-widening away | §5.7, §5.7.1 |
 | c | drop the forward hash index over the ordered prefix? | **accepted**, with W17 (binary search proven identical to the hash probe, including block/bucket boundaries, spilled values and a hash-collision pair) and W18 (the maintenance-intern ratio **measured**, not predicted, and recorded in segment 1's acceptance) | §3.3.2, §13 |
 | — | standing constraint | **storage reduction must not cost query time**; every §12 acceptance has a latency clause, judged per query against rebuild #2's leg | §12 |
+| e | does segment 0's gate pass? | **NO — FAILED, measured: 27.4 B/row best shape, 42.6 as specified, against a 17.3 acceptance. The lead has STOPPED the P2 track** pending re-derivation against a compressed `OverflowPage` class | §18 |
 | d | segment 5 or L1 for the trie's string bytes? | **segment 5**, on the measured screen: a 2^17-slot leaf recovers ≈ 4.7–8.1 GB against ≈ 15 GB for naming global ids, and a per-leaf dictionary at any width cannot remove cross-leaf duplication. L1 keeps its own case (per-page framing, leaf count, the number and name-key regions) and its own gate | §16.3, §16.4 |
+
+---
+
+## 18. Segment 0: the gate that stopped the track
+
+**Run by `impl-p2s1`. Dictionaries built through the product writer, bytes weighed on disk, round-trip verified,
+with a control run reproducing the product build byte for byte. Measured per shape at 1 M, 10 M and a 40 M
+prefix.** This section exists because a design document whose gate failed is only useful if it says so first.
+
+### 18.1 The result
+
+| shape | values + directory | acceptance | verdict |
+|---|---|---|---|
+| as §3.3.1 specifies it (rank-ordered, no forward index, front-coded) | **42.6 B/row** | 17.3 | **fails 2.5×** |
+| best shape found (the above + an in-record LZ77 frame `impl-p2s1` built and verified) | **27.4 B/row** | 17.3 | **fails 1.6×** |
+
+The mechanism still saves — **9.57 GB → 3.95 GB, −5.6 GB** for the four columns (§4.1) — but it misses both the
+gate and the plan's ≤ 30 B/row. **The gate did its job**: it measured written bytes for a real column including
+every directory record, which is why the shortfall surfaced before any of segment 1 was written.
+
+### 18.2 Why — three causes, two of them errors in this document
+
+1. **The distinct-weighted length (§1.1, §4.1).** The design multiplied cardinality by the **occurrence-weighted**
+   mean value length. A dictionary stores each value once, so it needs the **distinct-weighted** mean — measured at
+   **URL 184.01 B against 90.45, a 2.03×** under-count (Referer 136.60, Title 132.79, SearchPhrase 65.27). The raw
+   distinct value region at 100 M is **7.750 GB, not 4.68**, and the corpus dedup is **3.34×, not 5.5×**. The
+   review flagged this term as an assumption; the design agreed, recorded the experiment, and then **left the
+   uncorrected number in the arithmetic that set the acceptance**. The cardinalities were sound — exact counts
+   agree with the HLL estimates to 0.1–1.1 %.
+2. **The dictionary is never compressed (§3.3).** The design asserted that value blocks "go through the ordinary
+   body codec bake-off". They do not. A 256-value block is **~33 KB**, far over `Constants.MAX_RECORD_SIZE = 1023`,
+   so it is diverted to an `OverflowPage` whose `serializePage` writes the payload **verbatim** — measured
+   `written/raw = 1.001`. Every compression ratio in §4.1's original table multiplied a codec that does not run.
+   `PageSectionDiag` does not observe those pages either, which is why no earlier measurement caught it.
+3. **The class those blocks land in is uncompressed by default** — the general finding, §18.3.
+
+### 18.3 The general finding, and why P2's numbers must be re-derived before it is revived
+
+**The default byte handler is `none`, so every `OverflowPage` payload reaches disk raw.** That class is
+**17.45 GB — 25 % of the 69.63 GB database** (`load.log:125`), and it holds the projection's column segments, the
+dictionary blocks and every overlong record. An agent is implementing the body codec bake-off for that class now.
+
+This changes the baseline P2 is measured against, in the direction that hurts P2:
+
+- the projection's **own segment bytes shrink underneath it**, so the 9.57 GB that P2's four columns cost today is
+  not what they would cost against a compressed OverflowPage class;
+- P2's **−5.6 GB is therefore an over-statement of its future value**, and must be re-derived against the
+  compressed baseline rather than today's;
+- the dictionary blocks P2 writes would also be compressed by the same change, which cuts the *other* way and is
+  part of why the re-derivation has to be done properly rather than estimated.
+
+**The lead has stopped the P2 track pending that re-derivation.** Nothing here should be revived until the
+OverflowPage codec lands and both halves are re-measured against it.
+
+### 18.4 What the design got wrong, as a method note
+
+Two failures, and neither was a missing measurement — both were measurements the document *had* and did not use:
+
+- **An [A] inside an acceptance is not a footnote.** The distinct-weighted length was flagged, its experiment was
+  specified, and it was left uncorrected because "segment 0 measures directly". That reasoning is what set a gate
+  at a level nothing could pass. **A term that sets a threshold must be measured before the threshold is set**, not
+  after — the whole point of a gate is that its number is defensible.
+- **A codec claim needs its layout checked.** "The blocks go through the body codec" was inferred from where the
+  records live logically, not verified against `MAX_RECORD_SIZE` and the overflow diversion. One `grep` for the cap
+  would have found it, and the same document *quotes* that cap in §3.5's slot-payload discussion.
+
+What went right is worth recording too, because it is why this cost days rather than a rebuild: **§3.3.2's
+directory finding, the decision to make segment 0 weigh written bytes rather than a ratio, and running it as a gate
+before segment 1** — the review's insistence on measuring the whole persisted structure is what turned a wrong
+design into a cheap failure instead of an expensive one.
