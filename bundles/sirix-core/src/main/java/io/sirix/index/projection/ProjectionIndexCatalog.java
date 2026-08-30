@@ -149,6 +149,13 @@ public final class ProjectionIndexCatalog {
                       // flat charge an upper bound rather than a hope. Charging the whole-leaf
                       // projection instead put a 10 GB handle over this cache's own maximumWeight,
                       // so Caffeine evicted it on insert and every lookup re-decoded a fresh one.
+                      // R1 (headroom-gated residency) can only LOWER what a store retains — its
+                      // budget is min(eagerMaterializeBytes, the heap headroom share) and query-scope
+                      // exits release back down to it — so this charge, fixed at insert as Caffeine
+                      // requires, stays the upper bound it was. That is also the only sense in which
+                      // a release can "inform" the weigher: a fixed weight cannot be lowered later,
+                      // and lowering it would in any case only admit more handles than the heap has
+                      // room for the moment the released columns are filled again.
                       bytes += windowedResidentWeightBytes(handle.projectedWeightBytes());
                     } else {
                       // Eager handle: leaves are pre-materialized, so no materializer is needed.

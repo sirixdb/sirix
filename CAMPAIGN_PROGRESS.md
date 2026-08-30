@@ -2311,3 +2311,51 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   targeted gates green (re-based fixtures verified under Gradle in the worktree).** Wave 3 in flight: B3-a
   (`ElisionDeriver` + PageKind elision sections) and B6 (`ProjectionResidencyScope`, store/catalog/spill headroom
   sharing); B5-c queued behind B3-a.
+- 19:31 **B6 (R1 residency) reviewed by the lead:** `ProjectionResidencyScope` (copy-on-write registry of open
+  scopes; a pin = volatile load + bit test, column-granular — verified: every `pinResident` site is in `column`,
+  `columnFilled`, `columnIdentityFilled`, `columnDistinctIdentity`, `columnBytes`, `recordKeys` or the resident
+  access factory, none in `ResidentLeafAccess.predicateSlice` or a per-leaf loop); the executor opens the scope at
+  the outermost admitted call and closes it OUTSIDE the lifecycle lock; the sweep releases the largest unpinned
+  lane set under the store's publish monitor until retained ≤ min(static budget, `HeapHeadroom.plannedShareBytes`
+  = min(max/8, headroom/4)) — ONE figure now shared with `GroupTableSpill` and `GroupDistinctAccumulator`. Known
+  bounded transient: a query that reads a resident slot just before another query's close sweeps it keeps serving
+  from its own reference while the ledger under-counts that one column until it ends (correctness unaffected).
+  Rig (core6): ResidencyReleaseTest 5/5, HeapHeadroomBudgetTest 5/5, GroupDistinctAccumulatorTest 4/4, parity 18,
+  windowedPayloadServe 13, GroupWindowedSlices 28, GroupHashRangePass 2, OOM-restart 1, spill differential 1,
+  strict 2, top-k 47, sorted-windowed 3, temporal 9, catalog serving 45, global-dict serving 5, ClickBench
+  acceptance 7 — all green; under `-Dsirix.projection.residency.headroom=false` only B6's own witness
+  `theHeadroomShareGatesRetentionAndTheQueryExitReleasesIt` fails (the switch is its mutation) and
+  `ResidencyReleaseTest#theKillSwitchNeverReleases` holds. Caveat kept for the 100M A/B: the default residency budget
+  drops from min(cache/2, max/4) to ≤ max/8 (1 GB at 8 GB) — hot-run timings are the thing to watch. Worktree gate
+  (targeted + full core + full query) running on HEAD + B6's 11 files.
+- 19:36 **B3-a deliverable 1 (addendum items 1–5) arrived; item 6 (pathNodeKey column) in progress.** New
+  `ElisionDeriver` (~960 lines): value-elision section = flags byte {ALL_CANDIDATES, TYPE_EXC, INDEX_EXC,
+  WIDTH_EXC} + optional elided-slot bitmap + sparse exception lists (varint count, ordinal gap + value); name-key
+  section = flags byte + optional width exceptions; region index = tagStart[T] + running per-tag rank (T from the
+  pathNodeKey column or ObjectKeyNameKeyRegion, never the heap); type = 0 / 2 / 3 by kind and int range; widths
+  canonical. The WRITER runs the same derivation and verifies each field; the READER dispatches on
+  `STRUCT_FLAG_DERIVED_ELISION` (0x20), so both forms coexist in one resource; kill switch
+  `-Dsirix.page.body.derivedElision=false` proven by SHA-256 against a classpath with none of its classes. Reader
+  change reviewed: the RegionTable is read at the same wire position but before heap expansion on the
+  template-dedup path (widths depend on region values); +282/−47 whitespace-insensitive, the rest re-indentation;
+  failure paths null-check the frame and keep the table owned. Fixture witness: 4.44 → 0.16 B/record
+  (name-tagged), path-tagged 6.15 → 1.87 with pathNodeKeyColumn 1.72 the residue for item 6. Mutation seam
+  `ASSUME_PREDICTED_FOR_TESTING` caught on a Long-in-int-range page (silent subtype change) and on a page whose
+  pnk column did not pay (8 index exceptions). Non-canonical WIDTH: no writer can produce one (width is a pure
+  function of type + region value) — kept as a documented gap with the exception list implemented. Measuring at 1M.
+- 19:38 **B3-a deliverable 1 measured at 1M (`storage1m-b3a-d1`, its classes over HEAD `194e52299`): file
+  1,770.4 → 1,418.1 MB (−19.9 %), KeyValueLeafPage 1,070.4 → 721.7 MB (−32.6 %; acceptance ≤ 950 MET), overflow
+  unchanged; body on wire 758.1 → 409.4 MB (per record 6.68 → 3.61 B), staged elision metadata 6.43 → 1.88
+  B/record (valueElision 3.76 → 0.13, nameKeyElision 0.93 → 0.00; the pathNodeKey column ≈ 1.4 is item 6's
+  residue), regions unchanged at 4.60 B/record (B5-c's target).** Cumulative vs the wave-1 baseline: file 1,854.3
+  → 1,418.1 MB (−23.5 %), leaf 1,093.3 → 721.7 (−34.0 %). Rig on B3-a's classes: DerivedElisionSectionTest
+  10/10, DerivedElisionResourceRoundTripTest 6/6, BodyCodecElection 3/3, PageSectionDiagCounters 5/5,
+  SlottedPageEncodingSerialization 28/28, StringRegionPerTagCompleteness 9/9, FusedRecordSizeCap 4/4,
+  OverflowSlotSidecarWire 8/8, StructuralKeyColumnCodec 19/19, chunked wire/sabotage 11+10, LargeRecordRoundTrip
+  3/3, KeyValueLeafPageTest 26/26, SerializationDeserializationTest 106/106, JsonNodeTrxMoveTest 15/15,
+  GoldenFormatTest 14/14; kill switch (`derivedElision=false`) round-trip/serialization/completeness 6+28+9 green.
+- 19:40 **USER DECISION: the old 100M campaign DB (`clickbench-100m-campaign-20260830-0058/db`, 123 GB) may be deleted — deleted 19:40:28; results-vec*/logs kept; 137 GB free (78 %).** Rebuild #1 pre-flight now needs ≥ 120 GB (the rebuilt DB is expected ≤ 100 GB after wave 2 + B3-a: leaf −34 % at 1M), i.e. it can launch as soon as wave 3's first commits are gated.
+- 19:47 **B6 gate on the worktree:** targeted core rc=0 (1m 46s), targeted query rc=0, FULL query rc=0 (3m 9s),
+  FULL core 10,904 tests / 8 failed — exactly the three cap-fixture classes fixed in `194e52299` (the worktree was
+  still detached at `32b7c2a37`; B6's files cannot reach page fixtures); re-checked on a worktree at `a67e2a3f6` +
+  B6's files. **B6 committed.**

@@ -7,6 +7,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.HeapHeadroom;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -264,6 +265,64 @@ final class GroupWindowedSlicesTest {
     assertEquals(failedBefore, SirixVectorizedExecutor.groupAggFailedCount(), "no failure signal");
     assertEquals(retainedBefore, store.retainedFillBytes(),
         "the resident path must not have filled a column first: the fit decision is the combined fill");
+  }
+
+  @Test
+  void theHeadroomShareGatesRetentionAndTheQueryExitReleasesIt() throws Exception {
+    // R1. The static fill budget is untouched here and is orders of magnitude above this fixture:
+    // the ONLY thing deciding residency is the shared heap-headroom share, and the only thing
+    // returning bytes is the query scope's exit.
+    final String query = "subsequence(for $h in " + DOC + " let $k := $h.k40 group by $k let $c := count($h) "
+        + "order by $c descending return {\"k40\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)";
+    final String generic = run(query, false);
+    final ProjectionColumnStore store;
+    final long combined;
+    try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
+          new String[] {"[]"}, new String[] {"k40", "amount"});
+      assertNotNull(handle, "the projection must be loadable");
+      store = handle.columnStoreOrNull();
+      assertNotNull(store, "the catalog must build a column store");
+      combined = store.projectedColumnFillBytes(handle.columnOf("k40"))
+          + store.projectedColumnFillBytes(handle.columnOf("amount"));
+      assertTrue(combined > 0L, "projected fills");
+    }
+    final long previousHeadroom = HeapHeadroom.setHeadroomForTesting(-1L);
+    try {
+      // (a) Over the share: the arm serves through windowed slices and the store retains nothing.
+      shareOf(combined - 1);
+      final long retainedBefore = store.retainedFillBytes();
+      final long windowedBefore = SirixVectorizedExecutor.groupWindowedSlicesCount();
+      assertEquals(generic, run(query, true), "the windowed serve must answer like the interpreter");
+      assertTrue(SirixVectorizedExecutor.groupWindowedSlicesCount() > windowedBefore,
+          "over the headroom share the arm must take the windowed-slice route");
+      assertEquals(retainedBefore, store.retainedFillBytes(), "a fill over the share must retain nothing");
+
+      // (b) Under the share: the same query fills resident, and its exit keeps what still fits.
+      shareOf(4L * combined);
+      assertEquals(generic, run(query, true));
+      final long resident = store.retainedFillBytes();
+      assertTrue(resident > retainedBefore, "under the share the arm must retain its fills");
+
+      // (c) The share falls below what is retained: the NEXT query's exit returns the bytes.
+      final long releasedBefore = ProjectionColumnStore.residencyReleasedBytes();
+      shareOf(resident / 2);
+      assertEquals(generic, run(query, true), "an already-resident column still serves and still agrees");
+      assertTrue(store.retainedFillBytes() < resident, "the query exit must return bytes");
+      assertTrue(store.retainedFillBytes() <= resident / 2, "…down to the share");
+      assertTrue(ProjectionColumnStore.residencyReleasedBytes() > releasedBefore, "…and say so");
+    } finally {
+      HeapHeadroom.setHeadroomForTesting(previousHeadroom);
+      ProjectionColumnStore.sampleHeadroomShare();
+    }
+  }
+
+  /** Pin the shared headroom share to exactly {@code bytes} (a quarter of the headroom on this heap). */
+  private static void shareOf(final long bytes) {
+    HeapHeadroom.setHeadroomForTesting(Math.max(0L, bytes) * 4L);
+    assertEquals(bytes, ProjectionColumnStore.sampleHeadroomShare(),
+        "the share must be a quarter of the pinned headroom on this heap");
   }
 
   /** Serves by any group arm: the keyed arms or the constant-key fold. */

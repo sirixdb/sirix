@@ -14,6 +14,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
@@ -328,6 +329,10 @@ public final class ProjectionColumnStore {
     this.stringExtrema = new int[columnKinds.length][];
     this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
+    this.residencyPins = new AtomicIntegerArray(columnKinds.length + 1);
+    this.chargedSliceBytes = new long[columnKinds.length];
+    this.chargedIdentityBytes = new long[columnKinds.length];
+    this.chargedBodyBytes = new long[columnKinds.length];
   }
 
   /**
@@ -786,7 +791,7 @@ public final class ProjectionColumnStore {
    */
   public boolean columnFillWithinBudget(final int col) {
     return col >= 0 && col < columnKinds.length
-        && retainedFillBytes.get() + incrementalFillBytes(col, projectedColumnFillBytes(col)) <= columnFillBudgetBytes;
+        && retainedFillBytes.get() + incrementalFillBytes(col, projectedColumnFillBytes(col)) <= residencyBudgetBytes();
   }
 
   /**
@@ -827,6 +832,7 @@ public final class ProjectionColumnStore {
     final ColumnSlice[][] slots = columns;
     ColumnSlice[] slices = slots[col];
     if (slices != null) {
+      pinResident(col); // this query is now serving from these arrays — no close may release them
       return slices;
     }
     if (corruptColumns[col] != 0) {
@@ -846,6 +852,7 @@ public final class ProjectionColumnStore {
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
     slices = fillColumn(col, fetcher);
+    pinResident(col);
     synchronized (this) {
       final ColumnSlice[] existing = columns[col];
       if (existing != null) {
@@ -857,7 +864,9 @@ public final class ProjectionColumnStore {
       columns = next;
       // Re-priced HERE, not reused from the check: the fill above ran the inner raw-BODY door,
       // which may have published and charged that chain in between. Same helper, later moment.
-      retainedFillBytes.addAndGet(incrementalFillBytes(col, projected));
+      final long charged = incrementalFillBytes(col, projected);
+      chargedSliceBytes[col] = charged;
+      retainedFillBytes.addAndGet(charged);
     }
     return slices;
   }
@@ -885,6 +894,83 @@ public final class ProjectionColumnStore {
     final long previous = columnFillBudgetBytes;
     columnFillBudgetBytes = value;
     return previous;
+  }
+
+  /** Kill switch: {@code false} restores the static budget with retention for the store's lifetime. */
+  public static final String RESIDENCY_HEADROOM_PROPERTY = "sirix.projection.residency.headroom";
+
+  private static volatile boolean residencyHeadroom =
+      !"false".equalsIgnoreCase(System.getProperty(RESIDENCY_HEADROOM_PROPERTY, "true"));
+
+  /**
+   * Test seam for the kill switch.
+   *
+   * @param value {@code false} for the pre-R1 behaviour (static budget, no release)
+   * @return the previous value, for restoring in a finally block
+   */
+  public static boolean setResidencyHeadroomForTesting(final boolean value) {
+    final boolean previous = residencyHeadroom;
+    residencyHeadroom = value;
+    return previous;
+  }
+
+  /** Whether headroom-gated residency (R1) is in effect. */
+  public static boolean residencyHeadroomEnabled() {
+    return residencyHeadroom;
+  }
+
+  /**
+   * The heap share the retained fills may occupy, sampled at query-scope boundaries; {@code -1}
+   * before the first sample.
+   *
+   * <p>
+   * Sampled rather than read per call for two reasons. It is CONSTANT within a query, so every
+   * planner predicate and every fill door of one query price against the same figure — a budget that
+   * shrank between the route decision and the route's second fill would produce exactly the mid-route
+   * decline that the combined-fit rule ({@link #columnsFitWithinBudget}) exists to prevent. And the
+   * sample walks the heap pools' post-collection usage, which belongs at a query boundary, not on a
+   * planner path a group arm re-enters per pass.
+   * </p>
+   */
+  private static volatile long headroomShareBytes = -1L;
+
+  /**
+   * Re-read {@link HeapHeadroom#plannedShareBytes()} — called when a query scope opens and when one
+   * closes, and by tests that move the headroom seam without running a query.
+   *
+   * @return the new share in bytes
+   */
+  public static long sampleHeadroomShare() {
+    final long share = HeapHeadroom.plannedShareBytes();
+    headroomShareBytes = share;
+    return share;
+  }
+
+  /**
+   * The budget every residency decision prices against: the static per-store fill budget, and — with
+   * R1 in effect — no more than the shared {@link HeapHeadroom#plannedShareBytes() headroom share}.
+   *
+   * <p>
+   * The SAME figure gates the planner predicates and the fill doors. A planner that priced against a
+   * looser budget than the door enforces would admit a resident route whose second fill then throws
+   * the decline door mid-kernel; the store answers one question with one number so that cannot
+   * happen. Above the budget nothing is refused that is already resident, and nothing fails: the
+   * windowed lanes serve every column without retention, so the budget only ever decides whether
+   * bytes are KEPT.
+   * </p>
+   *
+   * @return the effective residency budget in bytes
+   */
+  public static long residencyBudgetBytes() {
+    final long stat = columnFillBudgetBytes;
+    if (!residencyHeadroom) {
+      return stat;
+    }
+    long share = headroomShareBytes;
+    if (share < 0L) {
+      share = sampleHeadroomShare();
+    }
+    return Math.min(stat, share);
   }
 
   /**
@@ -1008,7 +1094,15 @@ public final class ProjectionColumnStore {
    */
   public boolean columnFilled(final int col) {
     final ColumnSlice[][] slots = columns;
-    return col >= 0 && col < slots.length && slots[col] != null;
+    final boolean filled = col >= 0 && col < slots.length && slots[col] != null;
+    if (filled) {
+      // A POSITIVE residency answer is what a planner turns into a resident route, so it pins for the
+      // asking query exactly like a fill does. Without this a concurrent scope's close could release
+      // the column between the planner's answer and the route's first read — and the route would then
+      // meet the decline door mid-kernel instead of having been sent windowed up front.
+      pinResident(col);
+    }
+    return filled;
   }
 
   /**
@@ -1056,6 +1150,197 @@ public final class ProjectionColumnStore {
   /** Bytes retained by published fills so far — observability for the budget witness. */
   public long retainedFillBytes() {
     return retainedFillBytes.get();
+  }
+
+  /**
+   * Per-slot pin counts: how many open {@link ProjectionResidencyScope}s have published or observed
+   * this column (or the KEYS lane) resident. A COUNTER per slot, not a list per query: the release
+   * only has to know whether anyone still holds a column, and a counter answers that in one read on a
+   * path that must not allocate.
+   */
+  private final AtomicIntegerArray residencyPins;
+
+  /**
+   * Bytes each published lane charged to {@link #retainedFillBytes}; {@code 0} = not published.
+   * Guarded by {@code this}, like the publish sites that write them.
+   *
+   * <p>
+   * The charge is recorded rather than recomputed, because it is NOT a function of the column alone:
+   * a slice fill that follows a raw-BODY fill of the same column charges only its decoded arrays
+   * ({@link #incrementalFillBytes}). Releasing a lane must return exactly what that lane added, or
+   * the ledger drifts from the heap in the one direction a budget cannot survive — downward.
+   * </p>
+   */
+  private final long[] chargedSliceBytes;
+
+  private final long[] chargedIdentityBytes;
+
+  private final long[] chargedBodyBytes;
+
+  private long chargedKeysBytes;
+
+  /** Bytes returned to the heap by {@link #releaseUnpinnedOverBudget()} process-wide. */
+  private static final LongAdder RESIDENCY_RELEASED_BYTES = new LongAdder();
+
+  /** Lanes released process-wide (one per column-with-its-lanes, or the KEYS lane). */
+  private static final LongAdder RESIDENCY_RELEASES = new LongAdder();
+
+  /** Test observability: bytes released at query-scope exits process-wide. */
+  public static long residencyReleasedBytes() {
+    return RESIDENCY_RELEASED_BYTES.sum();
+  }
+
+  /** Test observability: released columns (and KEYS lanes) process-wide. */
+  public static long residencyReleaseCount() {
+    return RESIDENCY_RELEASES.sum();
+  }
+
+  /** Pin slots: one per column plus one for the store-wide KEYS lane. */
+  int pinSlotCount() {
+    return columnKinds.length + 1;
+  }
+
+  /** The pin slot of the store-wide KEYS lane. */
+  public int keysPinSlot() {
+    return columnKinds.length;
+  }
+
+  /** Pin {@code slot} for one open scope. */
+  void acquirePin(final int slot) {
+    residencyPins.incrementAndGet(slot);
+  }
+
+  /** Drop the pins one closing scope holds, named by the set bits of {@code bits}. */
+  void dropPins(final long[] bits) {
+    final int slots = pinSlotCount();
+    for (int word = 0; word < bits.length; word++) {
+      long remaining = bits[word];
+      while (remaining != 0) {
+        final int bit = Long.numberOfTrailingZeros(remaining);
+        remaining &= remaining - 1;
+        final int slot = (word << 6) + bit;
+        if (slot < slots) {
+          residencyPins.decrementAndGet(slot);
+        }
+      }
+    }
+  }
+
+  /** Test observability: scopes currently pinning {@code slot}. */
+  public int residencyPins(final int slot) {
+    return slot >= 0 && slot < residencyPins.length()
+        ? residencyPins.get(slot)
+        : 0;
+  }
+
+  /** Pin the column (or KEYS) slot in every open query scope — see {@link ProjectionResidencyScope}. */
+  private void pinResident(final int slot) {
+    ProjectionResidencyScope.pin(this, slot);
+  }
+
+  /**
+   * Release published fills that no open query pins, largest first, until this store's retained total
+   * is back within {@link #residencyBudgetBytes()}. Called at a query-scope exit — never on a timer,
+   * never from a cache listener, never while a query that observed a column resident is still open.
+   *
+   * <p>
+   * Retention is an OPTIMISATION: every route that reads a resident column also reads it through the
+   * windowed lanes ({@link #leafAccess}, {@link WindowedLeafAccess}), which retain nothing. So
+   * releasing can cost a re-fetch, never an answer — and keeping instead is what made a leg's later
+   * queries plan their group tables against a heap the earlier queries' fills had already taken.
+   * </p>
+   *
+   * <p>
+   * A column's lanes are released TOGETHER (slices, distinct-identity slices, raw BODY bytes). They
+   * are one column's residency, priced incrementally against each other, and releasing the raw bytes
+   * out from under the decoded slices they were decoded from would leave the ledger describing a
+   * combination that never existed. The store-wide KEYS lane is its own unit. Fingerprint chains are
+   * deliberately NOT released: they are what lets a predicate prune leaves before a single BODY byte
+   * is fetched, so dropping them to save their own bytes would cost the pruning that keeps the fills
+   * small — the same economics that made them charged-but-never-refused.
+   * </p>
+   */
+  void releaseUnpinnedOverBudget() {
+    if (!residencyHeadroom) {
+      return; // kill switch: retain for the store's lifetime, exactly as before R1
+    }
+    final long budget = residencyBudgetBytes();
+    if (retainedFillBytes.get() <= budget) {
+      return;
+    }
+    long freed = 0L;
+    int releases = 0;
+    synchronized (this) {
+      long retained = retainedFillBytes.get();
+      final int keysSlot = keysPinSlot();
+      while (retained > budget) {
+        // Largest releasable unit first: not an LRU (no recency is consulted, and none is recorded),
+        // simply the choice that reaches the budget in the fewest drops and therefore re-fetches the
+        // fewest columns if they are wanted again.
+        int bestColumn = -1;
+        long bestBytes = 0L;
+        for (int col = 0; col < columnKinds.length; col++) {
+          if (residencyPins.get(col) != 0) {
+            continue;
+          }
+          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+          if (bytes > bestBytes) {
+            bestBytes = bytes;
+            bestColumn = col;
+          }
+        }
+        final boolean keys = residencyPins.get(keysSlot) == 0 && chargedKeysBytes > bestBytes;
+        if (keys) {
+          bestBytes = chargedKeysBytes;
+        } else if (bestColumn < 0) {
+          break; // everything left is pinned or already released
+        }
+        if (bestBytes <= 0L) {
+          break;
+        }
+        if (keys) {
+          recordKeySlices = null;
+          chargedKeysBytes = 0L;
+        } else {
+          releaseColumnLanes(bestColumn);
+        }
+        retained = retainedFillBytes.addAndGet(-bestBytes);
+        freed += bestBytes;
+        releases++;
+      }
+    }
+    if (freed > 0L) {
+      RESIDENCY_RELEASED_BYTES.add(freed);
+      RESIDENCY_RELEASES.add(releases);
+      if (Boolean.getBoolean("sirix.projDiag")) {
+        System.err.println("[proj] residency release: " + releases + " column(s), " + (freed >> 20)
+            + " MB returned, retained " + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20)
+            + " MB budget");
+      }
+    }
+  }
+
+  /** Drop every published lane of {@code col}; the caller holds the monitor and does the accounting. */
+  private void releaseColumnLanes(final int col) {
+    assert Thread.holdsLock(this);
+    if (chargedSliceBytes[col] != 0L) {
+      final ColumnSlice[][] next = columns.clone();
+      next[col] = null;
+      columns = next;
+      chargedSliceBytes[col] = 0L;
+    }
+    if (chargedIdentityBytes[col] != 0L) {
+      final ColumnSlice[][] next = identityColumns.clone();
+      next[col] = null;
+      identityColumns = next;
+      chargedIdentityBytes[col] = 0L;
+    }
+    if (chargedBodyBytes[col] != 0L) {
+      final byte[][][] next = columnBytes.clone();
+      next[col] = null;
+      columnBytes = next;
+      chargedBodyBytes[col] = 0L;
+    }
   }
 
   /** Whether {@code col}'s raw BODY chain is already published — and therefore already charged. */
@@ -1111,20 +1396,28 @@ public final class ProjectionColumnStore {
    */
   private void checkFillBudget(final int col, final long projected, final String mode) {
     final long retained = retainedFillBytes.get();
-    if (retained + projected > columnFillBudgetBytes) {
+    final long budget = residencyBudgetBytes();
+    if (retained + projected > budget) {
       throw new FillBudgetExceededException((col < 0
           ? "The store's "
           : "Column " + col + " ") + mode + " adds " + projected + " B beside " + retained
-          + " B already retained, over the " + columnFillBudgetBytes
-          + " B budget (sirix.projection.eagerMaterializeBytes) — declining the fill; the caller falls back to the "
-          + "whole-leaf windowed route");
+          + " B already retained, over the " + budget + " B residency budget (min of "
+          + columnFillBudgetBytes + " B sirix.projection.eagerMaterializeBytes and the "
+          + (residencyHeadroom
+              ? headroomShareBytes + " B heap headroom share"
+              : "static budget: " + RESIDENCY_HEADROOM_PROPERTY + "=false")
+          + ") — declining the fill; the caller falls back to the whole-leaf windowed route");
     }
   }
 
   /** Whether {@code col}'s DISTINCT-IDENTITY slices are already filled and cached. */
   public boolean columnIdentityFilled(final int col) {
     final ColumnSlice[][] slots = identityColumns;
-    return col >= 0 && col < slots.length && slots[col] != null;
+    final boolean filled = col >= 0 && col < slots.length && slots[col] != null;
+    if (filled) {
+      pinResident(col); // see columnFilled: a positive residency answer pins for the asking query
+    }
+    return filled;
   }
 
   /** Lazily-computed per-column projected DISTINCT-IDENTITY fill bytes; 0 = not yet computed. */
@@ -1231,7 +1524,7 @@ public final class ProjectionColumnStore {
       }
       needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
     }
-    return retainedFillBytes.get() + needed <= columnFillBudgetBytes;
+    return retainedFillBytes.get() + needed <= residencyBudgetBytes();
   }
 
   /**
@@ -1244,7 +1537,7 @@ public final class ProjectionColumnStore {
    */
   public boolean columnIdentityFillable(final int col) {
     return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col) || retainedFillBytes.get()
-        + incrementalFillBytes(col, projectedColumnIdentityFillBytes(col)) <= columnFillBudgetBytes);
+        + incrementalFillBytes(col, projectedColumnIdentityFillBytes(col)) <= residencyBudgetBytes());
   }
 
   /**
@@ -1283,11 +1576,13 @@ public final class ProjectionColumnStore {
     // hash on the fly), and reusing them beats fetching a second chain.
     final ColumnSlice[][] full = columns;
     if (full[col] != null) {
+      pinResident(col);
       return full[col];
     }
     final ColumnSlice[][] slots = identityColumns;
     ColumnSlice[] slices = slots[col];
     if (slices != null) {
+      pinResident(col);
       return slices;
     }
     if (corruptColumns[col] != 0) {
@@ -1299,6 +1594,7 @@ public final class ProjectionColumnStore {
     if (slices == null) {
       return column(col, fetcher); // no leaf carries hashes — the whole column falls back
     }
+    pinResident(col);
     synchronized (this) {
       final ColumnSlice[] existing = identityColumns[col];
       if (existing != null) {
@@ -1307,7 +1603,9 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = identityColumns.clone();
       next[col] = slices;
       identityColumns = next;
-      retainedFillBytes.addAndGet(incrementalFillBytes(col, projectedIdentity));
+      final long charged = incrementalFillBytes(col, projectedIdentity);
+      chargedIdentityBytes[col] = charged;
+      retainedFillBytes.addAndGet(charged);
     }
     return slices;
   }
@@ -1817,6 +2115,7 @@ public final class ProjectionColumnStore {
     final byte[][][] slots = columnBytes;
     byte[][] segments = slots[col];
     if (segments != null) {
+      pinResident(col);
       return segments;
     }
     if (corruptColumns[col] != 0) {
@@ -1825,6 +2124,7 @@ public final class ProjectionColumnStore {
     final long projectedBody = projectedColumnBodyFillBytes(col);
     checkFillBudget(col, projectedBody, "raw BODY fill");
     segments = fetchColumnBytes(col, fetcher);
+    pinResident(col);
     synchronized (this) {
       final byte[][] existing = columnBytes[col];
       if (existing != null) {
@@ -1833,6 +2133,7 @@ public final class ProjectionColumnStore {
       final byte[][][] next = columnBytes.clone();
       next[col] = segments;
       columnBytes = next;
+      chargedBodyBytes[col] = projectedBody;
       retainedFillBytes.addAndGet(projectedBody);
     }
     return segments;
@@ -2082,6 +2383,7 @@ public final class ProjectionColumnStore {
   public long[][] recordKeys(final ColumnSegmentFetcher fetcher) {
     long[][] slices = recordKeySlices;
     if (slices != null) {
+      pinResident(keysPinSlot());
       return slices;
     }
     if (keysCorrupt) {
@@ -2102,12 +2404,14 @@ public final class ProjectionColumnStore {
       keysCorrupt = true;
       throw corrupt;
     }
+    pinResident(keysPinSlot());
     synchronized (this) {
       slices = recordKeySlices;
       if (slices != null) {
         return slices;
       }
       recordKeySlices = decoded;
+      chargedKeysBytes = projectedKeys;
       retainedFillBytes.addAndGet(projectedKeys);
     }
     return decoded;
@@ -2390,10 +2694,18 @@ public final class ProjectionColumnStore {
     if (resident && needKeys && recordKeySlices == null) {
       needed += projectedRecordKeysFillBytes();
     }
-    if (resident && retainedFillBytes.get() + needed > columnFillBudgetBytes) {
+    if (resident && retainedFillBytes.get() + needed > residencyBudgetBytes()) {
       resident = false;
     }
     if (resident) {
+      // Admitted as resident: pin every lane the access will fill, so a concurrent scope's close
+      // cannot release one of them between this decision and the access's first read.
+      for (final int col : columns) {
+        pinResident(col);
+      }
+      if (needKeys) {
+        pinResident(keysPinSlot());
+      }
       return new ResidentLeafAccess(fetcher, keepWords);
     }
     WINDOWED_LEAF_ACCESSES.increment();

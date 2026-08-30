@@ -79,11 +79,12 @@ public final class GroupDistinctAccumulator {
 
   /**
    * The derived ceiling for {@code maxMemory} and {@code headroom} bytes (pure, for tests): the
-   * smaller of an eighth of the heap and a quarter of the headroom at {@value #BYTES_PER_ENTRY}
-   * bytes per entry, within the floor and the cap.
+   * shared {@link HeapHeadroom#plannedShareBytes(long, long)} at {@value #BYTES_PER_ENTRY} bytes per
+   * entry, within the floor and the cap. The share itself lives in ONE place, so this ceiling, the
+   * per-pass group budget and the store's residency budget cannot drift apart.
    */
   public static long defaultMaxValuesFor(final long maxMemory, final long headroom) {
-    final long planned = Math.min(maxMemory / 8L, headroom / 4L) / BYTES_PER_ENTRY;
+    final long planned = HeapHeadroom.plannedShareBytes(maxMemory, headroom) / BYTES_PER_ENTRY;
     return Math.max(FLOOR_VALUES, Math.min(CEILING_VALUES, planned));
   }
 

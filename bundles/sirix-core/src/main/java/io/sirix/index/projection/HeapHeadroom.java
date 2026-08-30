@@ -50,6 +50,39 @@ public final class HeapHeadroom {
   }
 
   /**
+   * The ONE heap share every projection-side budget plans against: the smaller of an eighth of the
+   * maximum heap and a quarter of the current headroom.
+   *
+   * <p>
+   * Three consumers size themselves from it and must not disagree about it — the per-pass group table
+   * ({@link GroupTableSpill#groupBudgetFor}), the grouped {@code COUNT(DISTINCT)} ceiling
+   * ({@link GroupDistinctAccumulator#defaultMaxValuesFor}) and, since R1, the column store's RETAINED
+   * fill total ({@code ProjectionColumnStore}'s residency budget). They fight for one heap: while a
+   * store retained every fill of every earlier query for its whole lifetime and the group tables
+   * planned against the headroom that was left, the group side paid for the residency side's memory
+   * in extra hash-range passes. One figure, three consumers, so raising the share raises all three
+   * together and releasing residency raises what the group side may plan.
+   * </p>
+   *
+   * @return the planned per-consumer share of the heap, in bytes
+   */
+  public static long plannedShareBytes() {
+    return plannedShareBytes(Runtime.getRuntime().maxMemory(), headroomBytes());
+  }
+
+  /**
+   * The share for an explicit {@code maxMemory} and {@code headroom} (pure, for tests and for the
+   * derived budgets' own pure twins).
+   *
+   * @param maxMemory the maximum heap in bytes
+   * @param headroom the headroom in bytes
+   * @return {@code min(maxMemory / 8, headroom / 4)}, never negative
+   */
+  public static long plannedShareBytes(final long maxMemory, final long headroom) {
+    return Math.max(0L, Math.min(maxMemory / 8L, headroom / 4L));
+  }
+
+  /**
    * Test seam: pin the headroom so a budget derivation can be exercised deterministically.
    *
    * @param value the headroom in bytes, or a negative value to restore the derived default

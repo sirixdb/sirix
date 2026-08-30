@@ -55,6 +55,7 @@ import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.WindowedSliceArrays;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
+import io.sirix.index.projection.ProjectionResidencyScope;
 import io.sirix.index.projection.ProjectionStringIdentityRegistry;
 import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
@@ -742,6 +743,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private boolean terminallyClosed;
   /** Calls admitted locally and not yet returned, including degraded inline calls. */
   private int activeCalls;
+
+  /**
+   * The R1 residency scope of the outermost admitted call, or {@code null} while none is running.
+   * Guarded by {@code workerPoolLifecycleLock}, like {@link #activeCalls} whose transitions own it.
+   */
+  private @Nullable ProjectionResidencyScope residencyScope;
   /**
    * Executor-owned projection warm-up lane. Keeping advisory I/O off {@link #workerPool} preserves
    * the configured scan parallelism (especially the one-thread case), while ownership gives
@@ -1278,6 +1285,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (terminallyClosed && !reentrant) {
           throw new IllegalStateException("Vectorized executor is closed");
         }
+        if (activeCalls == 0) {
+          // R1: the outermost admitted call IS the query scope. Column fills published while it is
+          // open are pinned; at its exit the stores it touched release what nothing pins any more
+          // and no longer fits the headroom share. Nested and concurrent calls share the scope —
+          // the counter, not the object, decides when the last one has left.
+          residencyScope = ProjectionResidencyScope.open();
+        }
         activeCalls++;
         admitted = true;
       }
@@ -1290,13 +1304,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /** Leave a call admitted by {@link #enterExecution()}. */
   public void leaveExecution() {
+    ProjectionResidencyScope scope = null;
     synchronized (workerPoolLifecycleLock) {
       if (activeCalls <= 0) {
         throw new IllegalStateException("Unbalanced vectorized executor call admission");
       }
       if (--activeCalls == 0) {
+        scope = residencyScope;
+        residencyScope = null;
         workerPoolLifecycleLock.notifyAll();
       }
+    }
+    if (scope != null) {
+      // OUTSIDE the lifecycle lock: the release takes each touched store's publish monitor, and a
+      // concurrent query must be able to publish a fill while this one is releasing.
+      scope.close();
     }
     executionLifecycle.leave();
   }

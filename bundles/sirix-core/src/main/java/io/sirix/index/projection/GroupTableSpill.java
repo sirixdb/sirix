@@ -107,9 +107,14 @@ public final class GroupTableSpill {
     return groupBudgetFor(Runtime.getRuntime().maxMemory(), HeapHeadroom.headroomBytes());
   }
 
-  /** The derived budget for {@code maxMemory} and {@code headroom} bytes (pure, for tests). */
+  /**
+   * The derived budget for {@code maxMemory} and {@code headroom} bytes (pure, for tests) — the
+   * shared {@link HeapHeadroom#plannedShareBytes(long, long)} at {@value #BYTES_PER_GROUP} bytes per
+   * group. The share is NOT recomputed here: the residency budget and the distinct ceiling read the
+   * same figure, and a second copy of the arithmetic is how they would drift apart.
+   */
   public static long groupBudgetFor(final long maxMemory, final long headroom) {
-    final long planned = Math.min(maxMemory / 8L, headroom / 4L) / BYTES_PER_GROUP;
+    final long planned = HeapHeadroom.plannedShareBytes(maxMemory, headroom) / BYTES_PER_GROUP;
     return Math.max(1L << 20, Math.min(1L << 26, planned));
   }
 

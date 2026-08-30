@@ -130,6 +130,32 @@ final class GroupHashRangePassTest {
         "no arm ever restarted with more passes: the budget seam did not take, the agreement above is vacuous");
   }
 
+  @Test
+  @DisplayName("a per-pass budget raised the way more headroom raises it costs no pass restart")
+  void aRaisedPerPassBudgetCostsNoRestart() throws Exception {
+    // The budget -> pass-count half of the chain R1 shortens. The other half (more headroom raises
+    // the shared figure, which raises this budget) is HeapHeadroomBudgetTest's; end to end the
+    // effect needs a group state above the 2^20-group floor, which is the 100M leg, not a fixture.
+    final String query = QUERIES.get(0);
+    final String generic = run(query, false);
+
+    GroupTableSpill.setGroupBudgetForTesting(32L);
+    final long starvedBefore = SirixVectorizedExecutor.groupPassRestartsCount();
+    final String starved = run(query, true);
+    assertEquals(generic, starved, "the starved budget's passes must agree with the interpreter");
+    assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > starvedBefore,
+        "the starved budget must force at least one restart, or the comparison below is vacuous");
+
+    // Exactly what an empty heap plans through the shared headroom share.
+    final long maxMemory = Runtime.getRuntime().maxMemory();
+    GroupTableSpill.setGroupBudgetForTesting(GroupTableSpill.groupBudgetFor(maxMemory, maxMemory));
+    final long roomyBefore = SirixVectorizedExecutor.groupPassRestartsCount();
+    final String roomy = run(query, true);
+    assertEquals(generic, roomy, "the roomy budget must answer the same");
+    assertEquals(roomyBefore, SirixVectorizedExecutor.groupPassRestartsCount(),
+        "a budget raised the way released residency raises it must cost no restart at all");
+  }
+
   private String run(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
