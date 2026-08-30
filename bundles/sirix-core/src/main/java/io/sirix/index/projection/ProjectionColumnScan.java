@@ -138,6 +138,16 @@ public final class ProjectionColumnScan {
     return resolvePredicateColumns(store, predicates, fetcher);
   }
 
+  /**
+   * The predicates' zone-map / fingerprint keep mask ({@code null} = nothing pruned), for callers that
+   * feed the kernels windowed slices instead of the shared resident fill.
+   */
+  public static long @Nullable [] predicateKeepMask(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    checkPredicates(store, predicates);
+    return computeKeepMask(store, predicates, fetcher);
+  }
+
   /** Ranged variant over PRE-RESOLVED columns ({@link #resolvePredicateColumnsShared}). */
   public static long conjunctiveCount(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int fromRowGroup, final int toRowGroup, final ColumnSlice[][] cols) {
@@ -1367,9 +1377,8 @@ public final class ProjectionColumnScan {
     }
     final ColumnSlice[][] cols = new ColumnSlice[predicates.length][];
     for (int i = 0; i < predicates.length; i++) {
-      cols[i] = keep == null
-          ? store.column(predicates[i].column, fetcher)
-          : store.columnMasked(predicates[i].column, fetcher, keep);
+      // A resident column is masked in place — no second fetch, no second budget charge.
+      cols[i] = store.columnMaskedView(predicates[i].column, fetcher, keep);
     }
     return cols;
   }

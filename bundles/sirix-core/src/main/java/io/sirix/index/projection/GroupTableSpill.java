@@ -89,8 +89,11 @@ public final class GroupTableSpill {
   private static volatile long groupBudgetForTesting = -1L;
 
   /**
-   * The resident-group ceiling per pass: the property when set, else an eighth of the heap at
-   * {@value #BYTES_PER_GROUP} bytes per group, floored at 2^20 and capped at 2^26 groups.
+   * The resident-group ceiling per pass: the property when set, else the smaller of an eighth of the
+   * heap and a quarter of the current {@link HeapHeadroom} at {@value #BYTES_PER_GROUP} bytes per
+   * group, floored at 2^20 and capped at 2^26 groups. The headroom term is what lets a query late in
+   * a leg — after earlier queries retained fills, fingerprints and windows — split into more passes
+   * instead of dying in a worker.
    */
   public static long groupBudget() {
     final long testing = groupBudgetForTesting;
@@ -101,8 +104,58 @@ public final class GroupTableSpill {
     if (configured > 0L) {
       return configured;
     }
-    final long heapDerived = Runtime.getRuntime().maxMemory() / 8L / BYTES_PER_GROUP;
-    return Math.max(1L << 20, Math.min(1L << 26, heapDerived));
+    return groupBudgetFor(Runtime.getRuntime().maxMemory(), HeapHeadroom.headroomBytes());
+  }
+
+  /** The derived budget for {@code maxMemory} and {@code headroom} bytes (pure, for tests). */
+  public static long groupBudgetFor(final long maxMemory, final long headroom) {
+    final long planned = Math.min(maxMemory / 8L, headroom / 4L) / BYTES_PER_GROUP;
+    return Math.max(1L << 20, Math.min(1L << 26, planned));
+  }
+
+  private static volatile boolean simulateOutOfMemoryOnFlush;
+  private static final LongAdder OUT_OF_MEMORY_ABORTS = new LongAdder();
+
+  /**
+   * Test seam: the next flush throws a synthetic {@link OutOfMemoryError} once, so the arms' restart
+   * on a worker OOM can be exercised without exhausting a heap.
+   */
+  public static void setSimulateOutOfMemoryOnFlushForTesting(final boolean simulate) {
+    simulateOutOfMemoryOnFlush = simulate;
+  }
+
+  /** Test observability: passes aborted because a worker ran out of memory. */
+  public static long outOfMemoryAbortsCount() {
+    return OUT_OF_MEMORY_ABORTS.sum();
+  }
+
+  /**
+   * A worker failure that is an {@link OutOfMemoryError} (anywhere in the cause chain) aborts the
+   * pass like an over-budget table does — the arm restarts with more passes, each keeping fewer
+   * groups — unless the key space is already split one pass per partition, where the failure stands.
+   *
+   * @param failure the scan failure
+   * @param currentPasses the passes the arm is running
+   * @return {@code true} when the pass was aborted and the arm should restart
+   */
+  public boolean abortOnOutOfMemory(final Throwable failure, final int currentPasses) {
+    Throwable cause = failure;
+    boolean outOfMemory = false;
+    while (cause != null) {
+      if (cause instanceof OutOfMemoryError) {
+        outOfMemory = true;
+        break;
+      }
+      cause = cause.getCause() == cause
+          ? null
+          : cause.getCause();
+    }
+    if (!outOfMemory || currentPasses >= partitions) {
+      return false;
+    }
+    aborted = true;
+    OUT_OF_MEMORY_ABORTS.increment();
+    return true;
   }
 
   /**
@@ -240,6 +293,10 @@ public final class GroupTableSpill {
    * grown one, and the old one becomes garbage at once).
    */
   public void flush(final NumericGroupAggTable local) {
+    if (simulateOutOfMemoryOnFlush) {
+      simulateOutOfMemoryOnFlush = false;
+      throw new OutOfMemoryError("simulated: GroupTableSpill flush (test seam)");
+    }
     final int[][] index = local.buildPartitionIndex(partitions, shift);
     final NumericGroupAggTable[] sources = {local};
     final int[][][] indexes = {index};

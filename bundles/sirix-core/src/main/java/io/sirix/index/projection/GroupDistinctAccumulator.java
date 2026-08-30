@@ -74,8 +74,17 @@ public final class GroupDistinctAccumulator {
         // fall through to the derived default
       }
     }
-    final long heapDerived = Runtime.getRuntime().maxMemory() / 8L / BYTES_PER_ENTRY;
-    return Math.max(FLOOR_VALUES, Math.min(CEILING_VALUES, heapDerived));
+    return defaultMaxValuesFor(Runtime.getRuntime().maxMemory(), HeapHeadroom.headroomBytes());
+  }
+
+  /**
+   * The derived ceiling for {@code maxMemory} and {@code headroom} bytes (pure, for tests): the
+   * smaller of an eighth of the heap and a quarter of the headroom at {@value #BYTES_PER_ENTRY}
+   * bytes per entry, within the floor and the cap.
+   */
+  public static long defaultMaxValuesFor(final long maxMemory, final long headroom) {
+    final long planned = Math.min(maxMemory / 8L, headroom / 4L) / BYTES_PER_ENTRY;
+    return Math.max(FLOOR_VALUES, Math.min(CEILING_VALUES, planned));
   }
 
   /**

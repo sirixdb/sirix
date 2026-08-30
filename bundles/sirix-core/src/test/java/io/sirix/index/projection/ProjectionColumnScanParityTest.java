@@ -20,6 +20,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1048,6 +1049,34 @@ final class ProjectionColumnScanParityTest {
             new byte[ids.length][]));
       }
       leaf++;
+    }
+  }
+
+  @Test
+  void maskedFillOfAColumnWhoseBytesAreRetainedIsPricedIncrementally() {
+    // q19 at 100M/8 GB inside a leg: the predicate column's body was already retained, the residency
+    // decision priced it at zero, and the masked fetch then charged its masked projection against a
+    // budget the column's own body already filled — "masked slice fill adds 117 MB beside 2,118 MB
+    // already retained", declined on every try. A masked fill of a retained column adds nothing.
+    final Fixture fx = buildFixture(7L, 12, false);
+    final int col = 0;
+    fx.store().column(col, fx.fetcher());
+    final long retained = fx.store().retainedFillBytes();
+    assertTrue(retained > 0L, "the plain fill must retain bytes");
+    final long prior = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(retained); // zero headroom
+    try {
+      final long[] keep = new long[(fx.store().leafCount() + 63) >>> 6];
+      keep[0] = 1L; // leaf 0 only
+      final ProjectionColumnStore.ColumnSlice[] masked = fx.store().columnMasked(col, fx.fetcher(), keep);
+      assertEquals(fx.store().leafCount(), masked.length);
+      assertTrue(masked[0].rowCount() > 0, "the kept leaf decodes");
+      assertEquals(0, masked[1].rowCount(), "a dropped leaf is the pruned sentinel");
+      assertEquals(retained, fx.store().retainedFillBytes(), "a masked fill retains nothing");
+      final ProjectionColumnStore.ColumnSlice[] view = fx.store().columnMaskedView(col, fx.fetcher(), keep);
+      assertSame(fx.store().column(col, fx.fetcher())[0], view[0], "the view hands out the resident slice");
+      assertEquals(0, view[1].rowCount(), "the view prunes the dropped leaf");
+    } finally {
+      ProjectionColumnStore.setColumnFillBudgetBytesForTesting(prior);
     }
   }
 }

@@ -1707,3 +1707,279 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   so the final file shows only the tail: 76 full / 8,532 young, max pause 413.6 ms, STW 70.2 s in the tail).
 - Dumps from the 12 GB legs kept in `results-vec-12g` (27); the 8 GB leg's 43 are in `results-vec` (q19's is the
   interpreter's — correct by construction, to be replaced by the re-run).
+- 10:12 q19 re-run at 8 GB: `predicate-value-emission`, 0.563 s cold / 0.078 s hot, 4 rows, proof PASSED ⇒ **all 43
+  queries served on their vectorized routes at the 8 GB envelope** (42 in the leg + q19). `results-vec` now holds 43
+  vectorized dumps at 8 GB (`results-vec-12g`: 27 at 12 GB).
+- Committed everything on `codex/clickbench-port-rebased-20260827` at the user's request: `09a20540c` (513 files,
+  +60,503/−42,235); not pushed.
+- USER DECISION 10:15: keep the 100M DB, defer the DuckDB reference; use the DB for HFT work on the 8 GB envelope now.
+
+## HFT phase (8 GB envelope) — measured targets from the strict leg (Σ cold 3,803 s)
+- Slow tier = whole-leaf streaming (each try re-reads the projection's row-group bytes, all 25 columns, through the
+  windowed payloads) × hash-range passes: q32 696 s, q18 253 s, q31 247 s, q30 178 s, q29 174 s, q9 169 s, q16 144 s,
+  q17 133 s, q23 118 s, q35 105 s. Lever 1: run the SLICED group kernels over the windowed LeafColumnAccess (read only
+  the 2-4 needed columns per leaf) instead of falling back to whole-leaf byte kernels when a column cannot be resident.
+- GC: 620 Full GCs through q13 — residency budgets (fills ≤ maxMemory/4, windows, page tree) + q5's ~3 GB transient
+  Strings. Lever 2: heap-relative residency at small heaps (A/B `-Dsirix.projection.eagerMaterializeBytes`); lever 3:
+  q5's fat-column count-distinct without String materialization.
+
+## 2026-08-30 10:30 — HFT lever 1 implemented: sliced group kernels over windowed per-leaf slices (budget-refused columns)
+
+- Mechanism (general, not benchmark-specific): the group-aggregate gate now splits **sliced by KIND** (`slicedKinds`:
+  every predicate/tree/key/aggregate column is readable as slices) from **sliced by FIT** (`slicedFits`: the existing
+  fill-budget checks). `groupSliced = slicedFits || windowedSlices`, `windowedSlices = slicedKinds && !slicedFits &&
+  !cdStringDict`. Under `windowedSlices` the four flat arms (numeric, string, composite, packed-substring) skip the
+  resident resolution and every worker owns a `WindowedSliceArrays` (new, sirix-core): one full-length `ColumnSlice[]`
+  per needed column, filled per 64-leaf sub-chunk through `ProjectionColumnStore.windowedLeafAccess(fetcher, keep, 64,
+  128)` (`predicateColumns`/`treeColumns`/`column`/`columns`/`columnsNullable`), kernel call unchanged, `release(sub,
+  subEnd)` after it; the conjunctive keep mask comes from `ProjectionColumnScan.predicateKeepMask` (new). Winner
+  emission (string key strings, composite key parts, packed substrings) reads each winner's leaf once through a
+  one-leaf access (`sEmit`/`cEmit`/`pEmit`). Kept on the fit decision (no windowed twin yet, routed exactly as before a
+  budget refusal): the per-leaf-dictionary COUNT(DISTINCT) identity fill (`cdStringDict`), the deferred string-extrema
+  pass 2 (`anyDeferred`, string arm), the dense global-id lane, and the two legacy emission legs (no order plan).
+  Counter `groupWindowedSlicesCount()` ticks per arm serve; `-Dsirix.projDiag` prints `[proj] groupAgg windowed slices`.
+- Witness `GroupWindowedSlicesTest` (sirix-query, 24 parameterized runs, strict serving): 9 shapes × {single-leaf
+  sub-chunks + pass budget 32 + flush 8, defaults} must serve WINDOWED under a one-byte fill budget and agree with the
+  resident arm and the interpreter; 3 shapes (string extremum, two no-order legacy legs) must serve WITHOUT the route.
+  Rig: 24/24. Mutations: (i) pruned leaves left `null` in the shared per-column array → NPE in the two shapes that
+  filter AND aggregate on the same column (the resident path has separate masked/unmasked arrays; one shared array must
+  hold the store's zero-row sentinel for pruned leaves — a real defect the witness caught); (ii) emission accesses
+  disabled → exactly the 12 string/composite/packed windowed runs fail, numeric ones pass. Rig sweep of the existing
+  differentials running (results below).
+- Next: Gradle gates, then the 100M A/B at 8 GB on the slow tier (`queries100m-vec.sh $D 8g 9,16,17,18,29,30,31,32,35`).
+- 10:42 Rig sweep after lever 1 (17 classes, one JVM each): GroupWindowedSlices 24/24, GroupTopK 47/47, CompositeGroupKeyCollision
+  5/5, StringPredicate 12/12, StringDistinctGroupServing 6/6, GlobalValueDictionaryServing 5/5, ArrayContainsScope 11/11,
+  EmptyStringPredicateCount 2/2, GroupTableSpill 1/1, GroupHashRangePass 1/1, StrictServing 2/2, SortedScanWindowedAccess 2/2,
+  ArrayContainsPredicate 4/4, GroupDistinctAccumulator 4/4, ProjectionWindowedPayloadServe 13/13, ProjectionColumnScanParity
+  17/17, ProjectionIndexCatalogServing 44/45 → 45/45 after updating the one test that pinned the PRE-lever contract
+  (`anOverBudgetColumnRoutesToTheWholeLeafKernelInsteadOfDecliningIntoTheSlicedArm` asserted sliced-served == 0 under a
+  one-byte budget; renamed `…ServesThroughWindowedSlicesInsteadOfDecliningOrFailing`, now asserts sliced-served == 1,
+  windowed == 1, failed == 0, answer unchanged). Gradle gates next (`gates-lever1.sh`), then the 100M A/B.
+- 10:49 Gradle gates (serial, `gates-lever1.sh`, verified from the XML results): core 11 classes / 100 tests (parity 17,
+  windowed serve 13, accumulator 4, composite identity 8, GlobalValueDictionary* 46, ProjectionBulkLoad* 12) — BUILD
+  SUCCESSFUL 26 s; query 25 classes / 237 tests (GroupWindowedSlices 24, GroupTopK 47, catalog serving 45, ClickBench*
+  51, JsonBench* 9, the rest as in the rig sweep) — BUILD SUCCESSFUL 2 m 45 s, 0 failures. Cosmetic pass afterwards
+  (nested ternaries, `treeSliceable` delegating to the kind check, helper javadoc) re-verified in the rig (24/24, 45/45).
+  Trap: the rig javac read `sirix-core-…-tests.jar` while Gradle's `testJar` rewrote it (1 GB) → "zip END header not
+  found"; wait for the gate, do not chase.
+- 10:50 100M A/B, step 1: q16 probe at 8 GB with `-Dsirix.projDiag=true` (pre-lever 144.1 s cold / 129.2 s hot, whole-leaf
+  `group-aggregate`); the 43 pre-lever dumps are kept in `results-vec-8g-prelever1` for a byte-level compare. The full
+  slow tier (`9,16,17,18,29,30,31,32,35`) follows if the windowed route engages at 100M.
+- 10:56 **q16 probe at 100M/8 GB: 26.079 s cold / 21.282 s hot (pre-lever 144.072 / 129.179 s → 5.5× / 6.1×)**, route
+  `group-aggregate`, strict serving silent, dump byte-IDENTICAL to the pre-lever one (10 rows). `[proj] groupAgg windowed
+  slices` on every try; every try's first pass aborted over the per-pass group budget (spilled 9.4-10.8M vs 8,388,608 at
+  8 GB, `leaves=97654` row groups) and restarted with more passes, as designed for 17.6M groups. GC over the probe:
+  **0 Full, 182 young** (the pre-lever leg had counted 620 Full GCs by q13). Whole probe incl. Gradle: 88 s. Slow tier
+  `9,16,17,18,29,30,31,32,35` launched at 8 GB (`query-vec-q9,16,…-8g.log`).
+- 11:05 Slow-tier leg (pre-fit-fix build), rows so far: **q16 25.7 / 21.8 s** (was 144.1 / 129.2), **q17 21.6 / 20.9 s**
+  (was 132.8 / 129.0), **q18 59.0 / 56.9 s** (was 252.9 / 244.2, ≈100M groups, passes) — all `group-aggregate`, strict
+  serving silent. **q9 172.3 s cold / 1.486 s hot** (was 169.2 / 168.4) exposed a gate defect: the FIT half judged each
+  column against the remaining budget one at a time (`columnFillable`/`aggColumnsFillable`), so try 1 filled RegionID and
+  AdvEngineID resident (1.84 GB retained), the third fill threw ("Column 11 slice fill adds 955943253 B beside 1844085286 B
+  already retained, over the 2147483648 B budget"), and the `FillBudgetExceededException` handler re-entered with
+  `wholeLeafOnly=true` — the pre-lever whole-leaf scan (`[cat] windowed payloads … projected=77719MB`, 170 s); tries 2-3
+  found the budget exhausted, went windowed and served in 1.5 s. Same trap as the sorted scan's (memory
+  `fat-column-serving-needs-windowed-leaf-access`): residency must be decided on the COMBINED fill.
+- 11:12 Fix (general): `ProjectionColumnStore.columnsFitWithinBudget(int[] columns, int identityColumn)` prices the
+  combined incremental fill of every not-yet-resident column (duplicates once, the COUNT(DISTINCT) operand in identity
+  mode) against the budget headroom; the group gate's `slicedFits` now also requires it over `residentColumns(preds, tree,
+  groupCols, aggColsFlat, keyCondCols)` (predicate columns at their whole-column projection — conservative). The budget
+  handler re-enters with `budgetRefused=true` first (residency refused → the windowed sliced route) and only then with
+  `wholeLeafOnly` (no witness for that second hop yet — it needs a fill the gate does not price, e.g. a bloom fetch).
+  Witness `GroupWindowedSlicesTest#columnsThatEachFitButNotTogetherGoWindowedOnTheFirstTry` (budget = max + min/2 of the
+  two columns' projected fills; asserts windowed on the FIRST try, no decline, no failure, `retainedFillBytes` unchanged,
+  interpreter agreement): passes; mutation (store returns true) fails it on the retained bytes (71,264 B filled first).
+  Class 25/25 in the rig. The running leg still uses the pre-fix build (its q29-q35 rows are pre-fix numbers); Gradle
+  gates + a re-run of q9,29,30,31,32,35 follow when it exits.
+
+## 2026-08-30 11:10 — Slow tier at 100M/8 GB after lever 1 (pre-fit-fix build): 4.3×–33× cold, dumps byte-identical
+
+| q | pre-lever cold / hot (s) | lever 1 cold / hot (s) | cold × | route |
+|---|---|---|---|---|
+| q9  | 169.237 / 168.358 | 172.319 / 1.486 | 0.98 (hot 113×) | numeric + count-distinct — try 1 hit the per-column fit defect (fixed 11:12), tries 2-3 windowed |
+| q16 | 144.072 / 129.179 | 25.744 / 21.763 | 5.60 | composite, 17.6M groups, passes |
+| q17 | 132.751 / 129.011 | 21.623 / 20.852 | 6.14 | composite |
+| q18 | 252.916 / 244.217 | 59.012 / 56.896 | 4.29 | composite (minute transform), ≈100M groups, passes |
+| q29 | 173.859 / 172.090 | 165.758 / 165.053 | 1.05 | const-group-aggregate (not a group arm; whole-leaf tier) |
+| q30 | 178.301 / 177.775 | 5.429 / 2.601 | 32.84 | composite + `SearchPhrase <> ''` |
+| q31 | 246.679 / 252.141 | 9.578 / 8.457 | 25.75 | composite + `SearchPhrase <> ''` |
+| q32 | 695.901 / 714.459 | 33.528 / 33.282 | 20.76 | composite (WatchID, ClientIP), ≈100M groups, passes |
+| q35 | 105.485 / 105.383 | 4.819 / 3.908 | 21.89 | const + URL string key |
+
+- Leg elapsed 1,151 s for 27 tries (the same nine queries cost 6,300 s of tries in the pre-lever leg). All nine dumps
+  byte-IDENTICAL to `results-vec-8g-prelever1`. `# served: … groupAggregates=24 … groupSliced=23` (the one non-sliced
+  serve is q9's try 1), 23 `[proj] groupAgg windowed slices`, 18 pass restarts, 1 fill decline (q9). GC: 112 Full GCs —
+  clustered in q9's try 1 (the 1.84 GB of retained fills beside the whole-leaf scan); the probe's q16 alone had 0 Full.
+- Pipeline `postleg-fix.sh` launched 11:11: Gradle gates for the fit fix → `9,29,30,31,32,35` re-run at 8 GB → the full
+  43-query leg at 8 GB (`query-vec-8g.log`; the pre-lever log is `query-vec-8g-prelever1.log`).
+- 11:18 Fit pricing completed: the deferred string-extrema operands (`deferredCols`, filled resident by the string arm's
+  pass 2, not part of `aggColsFlat`) are now in `residentColumns(...)` too. Audit of the remaining fill doors on the
+  group route: blooms are "charged but never refused", masked predicate fetches are priced at the whole-column projection
+  (≥ their masked projection), tree/key/aggregate/condition/identity/deferred fills are all priced ⇒ under
+  `budgetRefused` nothing fills, so the `wholeLeafOnly` hop is a safety net no path reaches (no witness by construction).
+  Rig: `GroupWindowedSlicesTest` 25/25 after the edit; the edit landed after the fit-fix gates started (they validated the
+  prior version) — the full-leg build and the final gate cover it. Runner `# served:` line gained `groupWindowedSlices=`.
+- 11:20 Fit-fix Gradle gates (`gates-fitfix`, XML-verified): core 11 classes / 100 tests, query 25 classes / 238 tests
+  (+1: the combined-fit witness), 0 failures; BUILD SUCCESSFUL 28 s / 2 m 32 s. Re-run of `9,29,30,31,32,35` at 8 GB
+  started 11:14:53 (its build predates the 11:17 deferred-column pricing edit, which no ClickBench query exercises).
+
+## 2026-08-30 11:18 — Re-run after the combined-fit fix (100M/8 GB, 3 tries): every group serve windowed, no fill decline
+
+| q | pre-lever cold / hot (s) | after fit fix cold / hot (s) | cold × |
+|---|---|---|---|
+| q9  | 169.237 / 168.358 | **3.251 / 1.449** | 52.1 |
+| q29 | 173.859 / 172.090 | **1.030 / 0.057** | 168.8 (const-group: its single column now fills resident — nothing retained by q9 any more) |
+| q30 | 178.301 / 177.775 | 5.199 / 2.363 | 34.3 |
+| q31 | 246.679 / 252.141 | 8.859 / 7.211 | 27.9 |
+| q32 | 695.901 / 714.459 | 30.873 / 30.520 | 22.5 |
+| q35 | 105.485 / 105.383 | 5.292 / 3.518 | 19.9 |
+
+- `# served: … groupAggregates=15 … groupSliced=15 groupWindowedSlices=15` (every group serve on windowed slices),
+  `sliced fill declined by budget` = 0, 9 pass restarts, GC 12 Full / 1,326 young; elapsed 166 s incl. Gradle for 18
+  tries. Dumps: the pipeline's next stage (`queries100m-vec.sh` without a query list) `rm -rf`s `results-vec` before it
+  regenerates all 43, so the re-run's six dumps were gone before the compare ran — the full leg's 43 are compared against
+  `results-vec-8g-prelever1` instead (the slow-tier leg already proved these six byte-identical). Full 43 leg started
+  11:18:10 (`query-vec-8g.log`).
+- 11:40 Full leg in progress (q0-q20 done; the group family broadly faster: q8 23.0→3.3 s, q12 42.1→3.9 s, q13 66.5→8.0 s,
+  q14 28.2→6.3 s). **q19 `route=NONE` (363 s/try) INSIDE the leg** although its single re-run at 8 GB served in 0.56 s:
+  a state-dependent decline — the value-emission route's `FillBudgetExceededException` catch (counted as
+  `PREDICATE_VALUE_EMISSION_DECLINED`, printed only under projDiag) is the prime suspect: `leafAccess` prices the columns'
+  INCREMENTAL fill (≈0 for a body already retained) while `ResidentLeafAccess.predicateSlice` → `columnMasked` re-checks the
+  masked projection against the budget without that credit. Not provable from the log (no projDiag in the leg);
+  `repro-q19.sh` (q0-q19 in one JVM with diagnostics, the full leg's 43 dumps copied to `results-vec-8g-lever1-full`
+  first) runs when the leg exits. The integrality probe was ruled out (descriptor-based, no fill).
+- 11:58 **Windowed pass 2 (deferred string extrema)** — q21 (`MIN(URL)`, 51.7 s in the leg vs 57.4 pre-lever) and q22 were
+  still on the whole-leaf arm because the string arm's second pass filled its operand columns resident. Now the string
+  arm keeps its sliced route under `windowedSlices` and pass 2 runs the unchanged `stringAggForWinnerGroupsSliced` per
+  64-leaf sub-chunk over the worker's `WindowedSliceArrays`, folding each sub-chunk's extrema into the worker's running
+  best (the kernel WRITES its range's result — it does not fold — a mutation that passed `best` straight through failed
+  the witness on the interpreter agreement under single-leaf sub-chunks). Witness shape added to
+  `GroupWindowedSlicesTest` (`min($h.w)`/`max($h.w)` with a predicate; `w` has 8,000 distinct values so every group's
+  extremum lives in ONE leaf). Fixture trap: at 8,000 distinct values `w` crossed the auto global-dictionary policy's
+  `minEntries` (4,096) and became STRING_GLOBAL — global deferred operands fold in the whole-leaf kernels by design, so
+  the shape served but never sliced; the fixture now pins `sirix.projection.globalDict=never` around its build (restored
+  in tearDown, the pattern `PinnedTrieProjectionSpillColdReopenTest` uses). Rig: 25/25. Gradle gates + a q21/q22 re-run
+  follow after the q19 work.
+- 12:25 Full leg (fit-fix build) at q32: **q29 163.6 s inside the leg** (1.03 s in the fresh-JVM re-run — its single column
+  fit there; in the leg earlier queries' retained fills push it to the whole-leaf const-group tier ⇒ the const-group
+  route needs the windowed-slices treatment too) and **q32 FAILED under strict serving** ("group-aggregate serving
+  failed instead of falling back", 30.9 s served in the re-run): an arm EXCEPTION, state-dependent. The gc log shows
+  594 Full GCs by then and 5.9 GB live after a Full GC at 8 GB — residency accumulated over q0-q31 (retained column
+  fills capped at 2 GB, but blooms are charged-never-refused, plus windowed payload caps, descriptors, decoded windows).
+  Most likely a worker OOM inside the passes; no projDiag in the leg, so `repro-q19.sh` now replays q0-q32 with
+  diagnostics in one JVM (q19's decline and q32's exception in one run) when the leg exits. Lever 2 (heap-relative
+  residency accounting across everything the executor retains) is now a correctness item, not only GC hygiene.
+
+## 2026-08-30 12:24 — Full 43-query leg at 100M/8 GB after lever 1 + combined fit: Σ cold 3,803 → 1,327 s; 41/43 on their routes
+
+- Elapsed 3,948 s (pre-lever 11,219 s). 42 rows: Σ cold 1,327.5 s / Σ hot 1,282.0 s including q19's 363 s in the
+  interpreter (964 s cold without it); pre-lever Σ cold 3,802.8 s over 43. All 42 dumps byte-identical to
+  `results-vec-8g-prelever1` (q19's is the interpreter's — correct by construction). `# served: … groupAggregates=84
+  constGroupAggregates=3 numericGroupBys=15 groupDistinct=18 groupSliced=72 groupWindowedSlices=70 sortedScans=12
+  predicateCounts=6 projectionAggregates=9 projectionCountDistinct=6 stringMinMax=6 structuralArraySizes=6`.
+- Big movers (cold): q9 169→2.2, q10 22.8→1.5, q11 22.4→2.0, q8 23.0→3.3, q12 42.1→3.9, q13 66.5→8.0, q14 28.2→6.3,
+  q16 144→22.1, q17 133→21.1, q18 253→58.1, q27 22.4→8.6, q30 178→6.4, q31 247→14.2, q33 89.8→24.8, q34 88.7→23.1,
+  q35 105→6.4, q40 (32.6→4.3), q39 (→2.1). Unchanged tiers: q5 45 s (fat count-distinct, lever 3), q7 20.7 s, q20 26.8 s
+  (predicate-count on URL LIKE), q21/q22/q28 50-60 s (deferred string extrema: the windowed pass 2 landed AFTER this
+  build — re-run pending), q23-q26 58-117 s (sorted scans: per-leaf URL dictionary decode), q29 164 s (const-group
+  whole-leaf in context).
+- **Proof FAILED on two in-context items** (both served alone in a fresh JVM): **q19 route=NONE** (value-emission
+  decline, 363 s/try) and **q32 FAILED** (strict serving: group-aggregate arm exception). Both are state-dependent —
+  what earlier queries left resident. The q0-q32 diagnostic replay is running (`query-vec-q0,…,32-8g.log`).
+- 12:27 **Const-group windowed twin** (q29: 1.03 s in a fresh JVM, 164 s in the leg once earlier fills were retained):
+  `constGroupAggregate` now splits `constKinds`/`constFits` (combined budget over predicate + operand columns) and, when
+  residency is refused, each worker folds `aggregateAllNumericFlat` per 64-leaf sub-chunk over `WindowedSliceArrays`
+  (the fold accumulates into the worker's block); its budget handler re-enters `budgetRefused` before `wholeLeafOnly`.
+  Witness shape `group by $g := 1` with a predicate and count/sum/max/min added to `GroupWindowedSlicesTest` (served
+  assertions now count keyed + const serves); rig 27/27. Diag line `[proj] const-groupAgg windowed slices`.
+- 12:31 USER DIRECTION: fix the query path FIRST, in this branch, with the projection index — nothing else additionally
+  (the base-store/PAX-per-path discussion is parked); NEXT goal after correctness: cut the storage size tremendously
+  ("almost all other databases are below half our storage cost" — ClickBench website).
+- 12:32 **Legacy no-LIMIT legs windowed** (the replay's q7 — `ORDER BY COUNT(*) DESC` without LIMIT ⇒ no order plan —
+  fell into the whole-leaf legacy scan under refused residency and thrashed the 20-window payload cache for 20+ min at
+  14 cores with no GC/no I/O diag; thread dump: workers decoding FSST dictionaries of every column): both legacy legs
+  now feed the same kernels per-sub-chunk windowed slices (`legKeep`/`legKeepS`), the string leg's drain resolves key
+  strings through a per-worker windowed leaf access (`drainStringGroupTable(…, LeafColumnAccess, groupCol)`); the two
+  no-order-plan shapes moved into the WINDOWED witness set (RESIDENT_ONLY is now empty). Rig 27/27. Replay JVM
+  SIGTERMed and relaunched on the fixed build (12:30). Knife-edge cause behind q7's routing: the retained-fill ledger
+  sits within bytes of the 2 GB budget after q0-q6, so `columnsFitWithinBudget` flips between runs — lever 2 material.
+- 12:34 ClickBench 100M `data_size` (c6a.4xlarge, newest results in ClickHouse/ClickBench): **Umbra 8.30 GB** (2026-08-15),
+  **CedarDB 8.46 GB** (2026-08-15), **ClickHouse 15.26 GB** (2026-08-30), **DuckDB 20.46 GB** (2026-05-11), PostgreSQL
+  106.49 GB (2025-03-10). Ours: `sirix.data` **131.9 GB** (trie + projection in one file). Target after correctness:
+  a storage breakdown by page kind / component first (StorageProfiler), then the levers.
+- 12:36 Replay on the legacy-leg build: **q7 0.234 s cold / 0.147 s hot** (pre-lever 21.2 s; 20.7 s in the full leg where
+  its column still fit resident; 20+ min in the first replay where it did not). The no-LIMIT legacy legs were the last
+  group shapes without a windowed twin.
+- 12:50 **q19 in-context decline — root cause from the replay:** `[proj] predicate value emission declined by budget:
+  Column 7 masked slice fill adds 117265534 B beside 2118235407 B already retained, over the 2147483648 B budget`. The
+  residency decision (`leafAccess`) priced UserID at its INCREMENTAL fill (≈0: its body bytes were already retained by
+  an earlier query) and chose resident; the predicate path then re-fetched it MASKED and `columnMasked` charged the full
+  masked projection against a budget the column's own body already filled — declined on every try inside a leg, served
+  alone in a fresh JVM. Fixes (general, store-level): (1) `columnMasked` prices its fill with `incrementalFillBytes` like
+  every residency decision; (2) `columnMaskedView(col, fetcher, keep)` masks an already-published column IN PLACE (the
+  resident slices behind the keep mask, the pruned sentinel elsewhere — no second fetch, no second decode), used by
+  `ResidentLeafAccess.predicateSlice` and the shared predicate resolver `resolvePredicateColumns` (so every sliced arm's
+  resident predicate fetch benefits). Witnesses: core `ProjectionColumnScanParityTest#maskedFillOfAColumnWhoseBytesAre
+  RetainedIsPricedIncrementally` (zero-headroom budget after a plain fill; mutation to the old pricing throws
+  `FillBudgetExceededException … adds 7247 B beside 56994 B already retained`), query-level
+  `SortedScanWindowedAccessTest#valueEmissionReusesAResidentPredicateColumnUnderAFullBudget` (a group query publishes
+  `v`, budget = retained exactly, value emission must serve with the decline counter unchanged). Rig: 18/18, 3/3.
+- 13:05 **q32 in-context failure — root cause from the replay:** try 1 served (46.5 s, windowed composite, passes); try 2
+  `[proj] group-aggregate serving failed …: Parallel scan failed — OutOfMemoryError: Java heap space` → strict serving
+  FAILED. The per-pass group budget (`maxMemory/8/128 B`) and the distinct ceiling (`maxMemory/8/24 B`) planned against
+  the MAXIMUM heap while ~5.9 GB of it was live (retained fills, charged fingerprints, payload windows, descriptors).
+  Fixes (general): (1) `HeapHeadroom` (new, sirix-core) = maxMemory − post-collection usage of the heap pools
+  (`MemoryPoolMXBean.getCollectionUsage`); `GroupTableSpill.groupBudget()` and
+  `GroupDistinctAccumulator.defaultMaxValues()` now plan on min(maxMemory/8, headroom/4) (pure `…For(max, headroom)`
+  twins, floor/cap unchanged); (2) a worker `OutOfMemoryError` inside a pass is a pass abort — the four arms wrap their
+  scan fan-out, `GroupTableSpill.abortOnOutOfMemory(failure, passes)` marks the pass aborted (walks the cause chain,
+  refuses only at one pass per partition), and the existing restart path doubles the passes. Witnesses:
+  `HeapHeadroomBudgetTest` (arithmetic + the seam) and `GroupPassOutOfMemoryRestartTest` (a synthetic OOM thrown by the
+  spill's first flush, strict serving: the four arms must abort exactly one pass, restart, serve and agree).
+- 13:20 Witnesses for the q32 fixes: `HeapHeadroomBudgetTest` 3/3 (an 8 GB heap with 5.9 GB live plans headroom/4 per
+  pass; floor/cap; the seam reaches `groupBudget()`), `GroupPassOutOfMemoryRestartTest` 1/1 (numeric, string, composite
+  + COUNT(DISTINCT), packed: exactly one OOM abort each, a restart, interpreter agreement; strict serving on). Mutation
+  (catch removed): the synthetic OOM fails the test under strict serving. Catch widened to `RuntimeException |
+  OutOfMemoryError` (a single-worker fan-out may run inline). The catalog test's second over-budget twin (`contains`
+  predicate, `anOverBudgetPredicateColumn…`) moved to the kind/fit contract (sliced == 1). Rig: catalog 45/45, pass 1/1,
+  windowed 27/27, parity 18/18, sorted 3/3, spill 1/1, strict 2/2, GroupTopK 47/47, accumulator 4/4.
+- 13:34 Final Gradle gates (`gates-final`, XML-verified): core 12 classes / 104 tests (+HeapHeadroomBudgetTest), query 26
+  classes / 242 tests (+GroupPassOutOfMemoryRestartTest), 0 failures; BUILD SUCCESSFUL 33 s / 2 m 48 s. Pipeline
+  continues: 1M storage profile (13:33) → final full 43-query leg at 8 GB.
+- 13:36 **Storage breakdown, 1M rows (`-Dsirix.storage.profile=true`, writer-path ground truth; file 1,862,664,192 B =
+  1,863 B/row; the 100M file is 1,319 B/row):** KeyValueLeafPage 1,089,317,198 B (58.7 %, 105,702 writes, avg 10.3 KB),
+  OverflowPage 740,099,355 B (39.9 %, 315,245 writes, avg 2,347 B), HOTLeafPage 22.8 MB, IndirectPage 1.9 MB, everything
+  else < 100 KB. **Compression ratio 1.000 — the byte-handler pipeline is `none`, nothing on disk is compressed.**
+  Reference: Umbra 83 B/row, ClickHouse 153 B/row, DuckDB 205 B/row for all 105 columns. The OverflowPage share is
+  the projection's column segments (to be confirmed by the writer sites) plus the ~7 % refused fused records.
+- 13:38 Confirmed from the writer sites: the projection's column segments are stored as `OverflowPage`s hung off the HOT
+  leaves' side maps (`ProjectionIndexHOTStorage`), so the 740 MB OverflowPage share at 1M is essentially the 25-column
+  projection (+ the ~7 % refused fused records as carriers). The byte-handler default is `sirix.compression=none`
+  (`ResourceConfiguration#selectDefaultByteHandler`; `lz4` → `FFILz4Compressor`); the region-only page read skips the
+  body by its length prefix, so any compression has to be per section/region to keep that path. Storage phase starts
+  after the final leg closes out: (1) inside-KeyValueLeafPage accounting (row heap vs regions per kind vs directory vs
+  hashes), (2) projection segment accounting per column kind (dict vs body), then the levers.
+- 13:50 Projection bytes per column at 1M (`ProjDump`, projected fill bytes of the covering handle, 977 row groups;
+  458.4 B/row over 25 columns): numerics 8.2-10.1 B/row each (IsRefresh/IsLink/IsDownload/DontCountHits — 0/1 flags —
+  8.2-8.3 B/row: the bodies are effectively raw longs), 64-bit hash columns 16.2 B/row (WatchID, RefererHash, URLHash),
+  UserID 15.0, EventTime 10.2 (kind 5 = global at 1M), URL 10.2 (global at 1M — declined at 100M), Title 107.4 and
+  Referer 119.9 (per-leaf dictionaries), SearchPhrase 12.1, EventDate 4.3, MobilePhoneModel 4.4. The OverflowPage share on
+  disk (740 B/row) minus this (458) = carriers for refused fused records + keys chains / zone maps / fingerprints /
+  segment framing. Trie leaves: 1,089 B/row = ~105 field records × ~10 B; `RegionCompressionType.LZ77` is the DEFAULT
+  (regions compressed inside the page; the byte-handler ratio of 1.000 is page-level). Plan follows.
+- 14:05 **Correction to 13:50:** `projectedColumnFillBytes` is the HEAP residency projection (decoded 8-byte lanes), not
+  disk bytes. On-disk projection segments from the row-group descriptors (`ProjDiskDump`, 1M, 977 leaves): **109.6 B/row
+  for 25 columns** — numerics are FOR bit-packed as designed (IsRefresh 0.16, IsLink 0.09, CounterID 0.03, RegionID 2.0,
+  ResolutionWidth 1.4, UserID 6.9, the three 64-bit hashes 8.03 each), Title 21.9 and Referer 24.7 (per-leaf FSST dicts
+  + blooms), SearchPhrase 2.2, EventDate 0.12, URL 2.1 / EventTime 2.1 (global codes at 1M; their dictionaries live in
+  GlobalValueDictionary pages, not counted), **keys chain 12.8 B/row** (a real lever — dense strided keys should be
+  ~1 B/row). Consequence: at 100M the projection is on the order of 150-250 B/row and the NODE TRIE (~1,090 B/row ≈
+  105 field records × 10.4 B) is ~85 % of the 131.9 GB. The 1M writer profile's 740 B/row OverflowPage share was mostly
+  the incremental build's superseded row-group versions plus global-dictionary pages and carriers. Storage plan
+  re-ordered: trie leaf compaction first (section split pending), global dictionaries for speed (+~40 B/row), keys chain.
+- 14:12 **Storage + speed plan, draft 2: `docs/STORAGE_AND_SPEED_PLAN.md`.** Order: measure (▢ trie leaf section split
+  at 1M, ▢ `ProjDiskDump` at 100M) → T1 trie leaf compaction (directory/templates, values once + bit-packed regions +
+  FSST string region, structure in templates, raise the fused cap) = the M1 "below half" step → P3 keys chain + R1
+  residency eviction → P2 disk-resident order-preserving global dictionaries = the speed step (sorted scans, q5, q20,
+  extrema, string group-bys) → P4/T2 by measurement. M2 (DuckDB-class ≤ 25 GB) needs the trie's values per PATH —
+  the parked direction — flagged as a user decision. Draft 1's "P1 numeric bit-packing" was dropped (already effective).

@@ -7,6 +7,8 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionColumnStore;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -22,6 +24,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -162,6 +165,48 @@ final class SortedScanWindowedAccessTest {
           "not served by value emission under the one-byte budget: " + queries.get(i));
     }
     assertTrue(ProjectionColumnStore.windowedLeafAccessCount() > windowedBefore, "the windowed access never engaged");
+  }
+
+  @Test
+  @DisplayName("a predicate column already resident is masked in place — no second fetch, no second budget charge")
+  void valueEmissionReusesAResidentPredicateColumnUnderAFullBudget() throws Exception {
+    // q19 at 100M/8 GB inside a leg: UserID's body was retained by an earlier query, the residency
+    // decision priced it at zero (resident), then the predicate path fetched it masked and priced the
+    // masked bytes against a budget the column's own body already filled — declined every try
+    // ("masked slice fill adds 117 MB beside 2,118 MB already retained"), while alone it served.
+    final String query = "for $h in " + DOC + " where $h.v eq 12345 return $h.t";
+    final String generic = run(query, false);
+    // Make `v` resident through a route that PUBLISHES its fill (the value-emission route masks its
+    // columns and masked fills are never published): a sliced group-by keyed on it.
+    final String fill = "subsequence(for $h in " + DOC + " let $k := $h.v group by $k let $c := count($h) "
+        + "order by $c descending return {\"v\": $k, \"c\": $c}, 1, 5)";
+    assertEquals(run(fill, false), run(fill, true), "the filling group query diverges");
+    final ProjectionColumnStore store;
+    final int v;
+    try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
+          new String[] {"[]"}, new String[] {"v", "t"});
+      assertNotNull(handle, "the projection must be loadable");
+      store = handle.columnStoreOrNull();
+      assertNotNull(store, "the catalog must build a column store");
+      v = handle.columnOf("v");
+    }
+    assertTrue(v >= 0 && store.columnFilled(v), "the first (resident) serve must have retained the predicate column");
+    // No headroom at all: any charge for the already-resident column would trip the door.
+    previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(store.retainedFillBytes());
+    final long servedBefore = SirixVectorizedExecutor.predicateValueEmissionsServedCount();
+    final long declinedBefore = SirixVectorizedExecutor.predicateValueEmissionDeclinedCount();
+    final long retainedBefore = store.retainedFillBytes();
+    final String served = run(query, true);
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
+    previousBudget = -1L;
+    assertEquals(generic, served, "value emission over the masked resident view diverges");
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.predicateValueEmissionsServedCount(),
+        "the route must serve the resident column under a full budget");
+    assertEquals(declinedBefore, SirixVectorizedExecutor.predicateValueEmissionDeclinedCount(),
+        "a resident predicate column must not be re-priced against the budget");
+    assertEquals(retainedBefore, store.retainedFillBytes(), "nothing new may be retained");
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {

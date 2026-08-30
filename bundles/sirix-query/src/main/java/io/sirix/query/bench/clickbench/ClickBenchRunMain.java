@@ -472,7 +472,8 @@ public final class ClickBenchRunMain {
         "# served: structuralArraySizes=%d predicateCounts=%d projectionAggregates=%d projectionCountDistinct=%d "
             + "stringMinMax=%d doubleAggregates=%d binaryAggregates=%d computedAggregates=%d pathSummaryStats=%d "
             + "groupAggregates=%d constGroupAggregates=%d numericGroupBys=%d groupDistinct=%d denseGlobalGroups=%d "
-            + "groupSliced=%d sortedScans=%d predicateScans=%d valueEmissions=%d rowMaterializations=%d%n",
+            + "groupSliced=%d groupWindowedSlices=%d sortedScans=%d predicateScans=%d valueEmissions=%d"
+            + " rowMaterializations=%d%n",
         SirixArraySize.storedArraySizesServedCount(), SirixVectorizedExecutor.projectionCountsServed(),
         SirixVectorizedExecutor.projectionAggregatesServed(),
         SirixVectorizedExecutor.projectionCountDistinctServedCount(),
@@ -481,7 +482,8 @@ public final class ClickBenchRunMain {
         SirixVectorizedExecutor.pathSummaryStatsServed(), SirixVectorizedExecutor.groupAggServedCount(),
         SirixVectorizedExecutor.constGroupAggServedCount(), SirixVectorizedExecutor.numericGroupByServedCount(),
         SirixVectorizedExecutor.groupDistinctServedCount(), SirixVectorizedExecutor.groupDenseServedCount(),
-        SirixVectorizedExecutor.groupAggSlicedServedCount(), SirixVectorizedExecutor.sortedScanServedCount(),
+        SirixVectorizedExecutor.groupAggSlicedServedCount(),
+        SirixVectorizedExecutor.groupWindowedSlicesCount(), SirixVectorizedExecutor.sortedScanServedCount(),
         SirixVectorizedExecutor.predicateScanServedCount(),
         SirixVectorizedExecutor.predicateValueEmissionsServedCount(),
         SirixVectorizedExecutor.rowMaterializeServedCount());

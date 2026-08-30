@@ -1200,6 +1200,41 @@ public final class ProjectionColumnStore {
   }
 
   /**
+   * Whether the WHOLE-COLUMN fills of every not-yet-resident column in {@code columns} fit the budget
+   * TOGETHER — the route-level twin of {@link #columnFillWithinBudget}, which prices ONE column against
+   * the remainder. Two columns that each fit the remainder need not fit together: the first fill would
+   * succeed and retain its bytes, the second would throw the budget door mid-route (a whole-leaf
+   * re-entry, or a decline). {@code identityColumn} ({@code -1} for none) is priced in
+   * DISTINCT-IDENTITY mode, as {@link #columnIdentityFillable} prices it; a column already resident in
+   * either mode costs nothing; a repeated column counts once.
+   *
+   * @param columns the columns a route would fill resident (predicates, keys, aggregates, conditions)
+   * @param identityColumn the {@code COUNT(DISTINCT)} operand filled in identity mode, or {@code -1}
+   * @return {@code true} when the combined fill fits beside what the store already retains
+   */
+  public boolean columnsFitWithinBudget(final int[] columns, final int identityColumn) {
+    long needed = 0L;
+    final boolean[] counted = new boolean[columnKinds.length];
+    for (final int col : columns) {
+      if (col < 0 || col >= columnKinds.length) {
+        return false;
+      }
+      if (counted[col] || columnFilled(col)) {
+        continue;
+      }
+      counted[col] = true;
+      if (col == identityColumn) {
+        if (!columnIdentityFilled(col)) {
+          needed += incrementalFillBytes(col, projectedColumnIdentityFillBytes(col));
+        }
+        continue;
+      }
+      needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
+    }
+    return retainedFillBytes.get() + needed <= columnFillBudgetBytes;
+  }
+
+  /**
    * Whether the sliced route is VIABLE for {@code col} when it will be filled in DISTINCT-IDENTITY
    * mode — the {@code COUNT(DISTINCT)} operand's mode. Asking {@link #columnFillable} instead rejects
    * a fat dictionary column on a projection the identity fill never fetches.
@@ -1455,6 +1490,39 @@ public final class ProjectionColumnStore {
    * {@code rowCount == 0} slice that every evaluator already skips. The result is predicate-specific,
    * so it is NOT published to the column cache.
    */
+  /**
+   * The keep-masked slices of {@code col} WITHOUT a second fetch or a second budget charge when the
+   * column is already resident: the retained slices behind a mask (dropped leaves yield the shared
+   * {@code rowCount == 0} sentinel, exactly what {@link #columnMasked} decodes to). A column that is
+   * not resident takes the masked fill. The residency decisions price a resident column's fill at
+   * zero, so re-fetching it masked — and pricing the masked bytes against a budget the column's own
+   * body already fills — declined q19 at 100M/8 GB ("masked slice fill adds 117 MB beside 2,118 MB
+   * already retained") on every try inside a leg, while it served alone in a fresh JVM.
+   *
+   * @param col the column
+   * @param fetcher the caller's own live fetcher (used only when the column is not resident)
+   * @param keepWords the leaf keep mask, or {@code null} for every leaf
+   * @return one slice per leaf
+   */
+  public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
+      final long @Nullable [] keepWords) {
+    if (keepWords == null) {
+      return column(col, fetcher);
+    }
+    if (!columnFilled(col)) {
+      return columnMasked(col, fetcher, keepWords);
+    }
+    final ColumnSlice[] resident = column(col, fetcher);
+    final ColumnSlice[] view = new ColumnSlice[resident.length];
+    for (int i = 0; i < resident.length; i++) {
+      final int word = i >>> 6;
+      view[i] = word < keepWords.length && (keepWords[word] & 1L << (i & 63)) != 0L
+          ? resident[i]
+          : PRUNED_SLICE;
+    }
+    return view;
+  }
+
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
@@ -1466,7 +1534,10 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
-    checkFillBudget(col, projectedMaskedFillBytes(col, keepWords), "masked slice fill");
+    // Priced INCREMENTALLY, like every residency decision: a column whose body bytes are already
+    // retained (an identity fill, a previous plain fill) adds nothing the ledger has not counted, and
+    // re-charging its masked projection against a budget it already fills declined q19 at 100M/8 GB.
+    checkFillBudget(col, incrementalFillBytes(col, projectedMaskedFillBytes(col, keepWords)), "masked slice fill");
     final byte[][] segments = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords);
     final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
@@ -2326,7 +2397,7 @@ public final class ProjectionColumnStore {
       return new ResidentLeafAccess(fetcher, keepWords);
     }
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW);
+    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN);
   }
 
   /** The resident access regardless of budget (tests and callers that already hold the fills). */
@@ -2334,11 +2405,20 @@ public final class ProjectionColumnStore {
     return new ResidentLeafAccess(fetcher, keepWords);
   }
 
-  /** The windowed access regardless of budget (tests). */
+  /** The windowed access regardless of budget (tests), with the default per-column leaf cache. */
   public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
       final int windowLeaves) {
+    return windowedLeafAccess(fetcher, keepWords, windowLeaves, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN);
+  }
+
+  /**
+   * The windowed access with an explicit per-column leaf cache: a sequential kernel that consumes one
+   * sub-chunk at a time needs only a couple of windows, a top-k heap wants room for its entries.
+   */
+  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int windowLeaves, final int cacheLeaves) {
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves);
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves);
   }
 
   private final class ResidentLeafAccess implements LeafColumnAccess {
@@ -2370,7 +2450,7 @@ public final class ProjectionColumnStore {
       }
       ColumnSlice[] slices = byPredicateColumn[col];
       if (slices == null) {
-        slices = columnMasked(col, fetcher, keepWords);
+        slices = columnMaskedView(col, fetcher, keepWords);
         byPredicateColumn[col] = slices;
       }
       return slices[leaf];
@@ -2412,7 +2492,8 @@ public final class ProjectionColumnStore {
      * so the heap comparisons that resolve OTHER leaves' entries hit the cache instead of re-decoding
      * a window per comparison — the pathology that made a 100M sorted scan slower than the interpreter.
      */
-    private static final int LEAVES_PER_COLUMN = 512;
+    static final int DEFAULT_LEAVES_PER_COLUMN = 512;
+    private final int cacheLeaves;
     private final ColumnSegmentFetcher fetcher;
     private final long @Nullable [] keepWords;
     private final int windowLeaves;
@@ -2425,13 +2506,18 @@ public final class ProjectionColumnStore {
     private ChainOffsets keysChain;
     private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
 
-    WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves) {
+    WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
+        final int cacheLeaves) {
       if (windowLeaves <= 0) {
         throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
+      }
+      if (cacheLeaves < windowLeaves) {
+        throw new IllegalArgumentException("cacheLeaves " + cacheLeaves + " below one window of " + windowLeaves);
       }
       this.fetcher = fetcher;
       this.keepWords = keepWords;
       this.windowLeaves = windowLeaves;
+      this.cacheLeaves = cacheLeaves;
     }
 
     @Override
@@ -2461,7 +2547,7 @@ public final class ProjectionColumnStore {
       }
       Int2ObjectLinkedOpenHashMap<ColumnSlice> cache = leafCache[col];
       if (cache == null) {
-        cache = new Int2ObjectLinkedOpenHashMap<>(LEAVES_PER_COLUMN * 2);
+        cache = new Int2ObjectLinkedOpenHashMap<>(cacheLeaves * 2);
         leafCache[col] = cache;
       }
       final ColumnSlice hit = cache.getAndMoveToLast(leaf);
@@ -2474,7 +2560,7 @@ public final class ProjectionColumnStore {
       for (int i = 0; i < decoded.length; i++) {
         cache.putAndMoveToLast(from + i, decoded[i]);
       }
-      while (cache.size() > LEAVES_PER_COLUMN) {
+      while (cache.size() > cacheLeaves) {
         cache.removeFirst();
       }
       return decoded[leaf - from];
@@ -2599,7 +2685,7 @@ public final class ProjectionColumnStore {
             segments[i - from]);
         keyCache.putAndMoveToLast(i, decoded[i - from]);
       }
-      while (keyCache.size() > LEAVES_PER_COLUMN) {
+      while (keyCache.size() > cacheLeaves) {
         keyCache.removeFirst();
       }
       return decoded[leaf - from];

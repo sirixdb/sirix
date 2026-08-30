@@ -480,6 +480,50 @@ oversized=… kvlPinnedByPromotion=… kvlRetriedNextEpoch=… kvlPinnedAfterCap
   unmasked, predicate role keep-masked). Witnesses `ProjectionColumnScanParityTest`, `SortedScanWindowedAccessTest`.
   Re-run of q23-q26 at 100M pending the leg's end.
 
+- **Status 2026-08-30 10:15.** 8 GB strict leg: 43/43 served on vectorized routes (q19 via its re-run after the
+  value-emission fix); everything committed as `09a20540c`. USER DECISION: keep the 100M DB, defer the DuckDB
+  reference, do the HFT work on the 8 GB envelope next (levers: sliced group kernels over the windowed leaf access,
+  heap-relative residency, q5's string-free distinct tier). The DuckDB step (§6.5) runs afterwards.
+
+- **HFT lever 1 (2026-08-30 10:30, implemented, rig-witnessed).** The whole-leaf fallback of the group arms
+  (q9/q16-q18/q29-q32/q35's slow tier: every column of every row group streamed per try × hash-range passes) is
+  replaced, when only the fill budget blocks residency, by the SAME sliced kernels over per-worker windowed slice
+  arrays (`WindowedSliceArrays`, 64-leaf sub-chunks, 2-window per-column cache, keep-masked): the gate decides by
+  KIND, residency by FIT. Emission reads winners' leaves through one-leaf accesses. Not windowed (routed as before a
+  refusal): dictionary COUNT(DISTINCT) identity fills, deferred string extrema, the dense lane, the legacy legs.
+  Witness `GroupWindowedSlicesTest` (25 runs, three mutations confirmed load-bearing).
+  **Measured at 100M/8 GB (slow tier, 3 tries, dumps byte-identical):** q16 144→25.7 s, q17 133→21.6 s, q18 253→59.0 s,
+  q30 178→5.4 s, q31 247→9.6 s, q32 696→33.5 s, q35 105→4.8 s cold; q29 unchanged (const-group tier, not a group arm).
+  q9 exposed the FIT half's per-column judgement (two fills retained, the third refused, whole-leaf re-entry: 172 s cold
+  vs 1.5 s windowed) → `ProjectionColumnStore.columnsFitWithinBudget` prices the COMBINED fill at the gate and the budget
+  handler re-enters windowed before whole-leaf; witness `columnsThatEachFitButNotTogetherGoWindowedOnTheFirstTry`.
+  **Full leg 12:24: Σ cold 3,803 → 1,327 s (964 s without q19), 42 dumps byte-identical, 41/43 on their routes; the two
+  in-context failures (q19 value-emission decline, q32 group-arm exception — both serve alone in a fresh JVM) are open:
+  residency accumulated over the leg (retained fills + charged blooms + payload windows) is now a correctness item.**
+
+- **12:31 USER DIRECTION.** Query fixes first, in this branch, with the projection index — nothing else additionally
+  (base-store/PAX-per-path parked). NEXT phase: storage size. ClickBench `data_size` (c6a.4xlarge, 100M): Umbra 8.30 GB,
+  CedarDB 8.46 GB, ClickHouse 15.26 GB, DuckDB 20.46 GB, PostgreSQL 106.49 GB; ours 131.9 GB (`sirix.data`, trie +
+  projection). Step 1 = per-page-class breakdown (`-Dsirix.storage.profile=true`, `storage1m.sh`), then levers.
+- **12:36 Windowed twins completed after the full leg's build:** deferred string-extrema pass 2 (q21/q22/q28 shapes),
+  the const-group fold (q29: 164 s in context → windowed), both no-LIMIT legacy legs (q7: 20.7 s → 0.23 s). The full leg's
+  two in-context failures (q19 decline, q32 exception) are being reproduced with diagnostics (q0-q32 in one JVM).
+
+- **13:25 Both in-context failures root-caused by the q0-q32 replay and fixed generally.** q19: `leafAccess` priced an
+  already-retained predicate column at zero, then `columnMasked` re-priced its masked projection against a full budget
+  ("masked slice fill adds 117 MB beside 2,118 MB already retained") → `columnMasked` prices incrementally,
+  `columnMaskedView` masks a published column in place (resident access + shared predicate resolver). q32: a worker
+  `OutOfMemoryError` on the second try — per-pass budgets planned against maxMemory with 5.9 GB live → `HeapHeadroom`
+  (post-collection pool usage) drives `GroupTableSpill.groupBudget()`/the distinct ceiling, and a worker OOM aborts the
+  pass and restarts with more passes. Witnesses with mutations: core parity (masked pricing), `HeapHeadroomBudgetTest`,
+  `GroupPassOutOfMemoryRestartTest`, `SortedScanWindowedAccessTest` (resident predicate under a full budget). Final
+  pipeline launched 13:30: gates → 1M storage profile → full 43-query leg at 8 GB.
+
+- **14:12 Storage phase plan:** `docs/STORAGE_AND_SPEED_PLAN.md` (draft 2). Measured: the projection is 109.6 B/row on
+  disk at 1M (numerics bit-packed; per-leaf string dictionaries 22-25 B/row; keys chain 12.8); the node trie ~1,090 B/row
+  (~105 field records × 10.4 B) is ~85 % of the 131.9 GB. Trie leaf compaction is the storage step (M1 ≤ 55 GB),
+  disk-resident order-preserving global dictionaries the speed step; DuckDB-class size needs per-path value regions.
+
 ## 7. Order of work
 P2 (§5.6 additions, §5.5 tests, load-main counter line) → focused core suites → full core suite →
 §6.1 1M pre-check → §6.2 diagnostic → §6.3 100M load (P1 is CODED while it runs — no JVM work beside
