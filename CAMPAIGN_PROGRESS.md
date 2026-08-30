@@ -2549,3 +2549,20 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   per-leaf string dictionaries — P2's target), HOTLeafPage 1.93 GB. ClickBench data_size context: Umbra 8.3 /
   CedarDB 8.5 / ClickHouse 15.3 / DuckDB 20.5 / PostgreSQL 106.5 GB. **43-query vectorized leg launched DETACHED
   (setsid nohup) at 22:20** — 3 tries, dumps → `results-vec`, `--require-vectorized-serving`, 8 GB heap.
+- 22:30 **B7 (P2) DESIGN delivered — `docs/P2_GLOBAL_DICTIONARY_DESIGN.md`, 891 lines, no code.** Measured, not
+  derived: full-corpus HLL over `hits.json.gz` (terminated at exactly 99,997,497 rows) gives URL D=18,364,684
+  (avg 90.5 B), Referer 19,966,360, Title 9,411,056, SearchPhrase 6,031,488 — 53.77 M distinct, 4.68 GB of distinct
+  values, 5.5× dedup. **A Heaps' fit on the 10–30M prefix predicted 11 M for URL — 1.7× LOW (the prefix is
+  clustered)**, and at the true D, sorting alone leaves the four columns at 33.2 B/row (misses ≤ 30), so front-coded
+  dictionary blocks became mandatory in segment 1. **Headline: the projection half alone takes 69.63 → 62.2 GB —
+  M1 MISSED; M1 needs the TRIE's string region to name the same ids (69.63 − 7.4 − 16.7 = 45.5 GB).** The trie's
+  string region is 19.31 GB written = 193.1 B/row = 27.7 % of the whole file, 87.3 % of it the four fat columns.
+  Promotion's decline explained exactly: `ProjectionIndexBuilder:356-364` bounds distinct by ROWS and `:515-524`
+  multiplies by 4 → 57 GB reserved for URL alone vs the ≤ 2 GiB budget; the genuinely resident probe front is
+  5.86 GB. Design shape: post-pass (rank order is global) S1 extract → S2 k-way UTF-16 merge (provably plain byte
+  order after 0xEE→0xFE, 0xEF→0xFF substitution) → S3 sort triples → S4 remap, peak heap ≈ 1.0 GB independent of D;
+  feeding the sorted stream to the EXISTING writer mints id == rank with no minting change. Two independent reviews
+  next; no code before both.
+- 22:30 **q3 regression CONFIRMED on the fresh 69.6 GB DB with nothing else running: 23.4 s cold / 21.1 s hot vs
+  1.859 / 0.112 this morning (route unchanged: projection-aggregate). hot ≈ cold = the "retains nothing" signature.**
+  The leg continues (4/43); the A/B with `-Dsirix.projection.residency.headroom=false` runs the moment it ends.
