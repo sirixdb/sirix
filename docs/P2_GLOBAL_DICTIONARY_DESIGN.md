@@ -35,8 +35,12 @@ forward index hold (23.9 B/row; 32.6 with the index kept, 33.3 without front cod
 so **M1's ≤ 50 GB needs the trie's string region to name the same ids**: that region is 19.31 GB of the 69.63 GB
 file and 87 % of it is these four columns. With it, 45.7 GB.
 
-On speed the document deliberately promises nothing yet: **rebuild #2's 43-query leg is running as this is
-written**, and it is the only defensible baseline. §6 says which arms change and why; what they are worth is the
+**The governing constraint is the user's: reduce storage WITHOUT hurting performance.** Every segment in §12
+therefore carries a latency clause beside its byte clause, judged **per query** against rebuild #2's leg — a lever
+that improves Σ while regressing one query does not land.
+
+On speed the document deliberately promises nothing yet: rebuild #2's 43-query leg is the only defensible baseline
+and it is still running as this is written. §6 says which arms change and why; what they are worth is the
 leg's to say. One first-draft claim is withdrawn outright — capped `ORDER BY … LIMIT` on a global column is
 **already served today** (`EXEC:16377-16385`, `PCS:549-561`); what rank order makes newly possible is the
 *uncapped* form, and what it makes fast is the capped one.
@@ -374,12 +378,22 @@ Two obligations this creates:
   `(entryCount == 0) != (forwardRootKey == 0 && reverseRootKey == 0)`, which forbids a live dictionary with no
   forward root. It becomes: a zero `forwardRootKey` is legal exactly when `orderedPrefixCount == entryCount`. That
   is one predicate, and W15 is its witness.
-- **Probes get slower and it must be said.** A literal probe costs ~16 page reads instead of ~5 radix decodes.
-  That is free on the query path — `probe` is called **per literal, not per row** (`EXEC:8437` `globalStringPredicate`,
-  `EXEC:13322` conditional-else literals) — but the maintenance interner
-  (`ProjectionIndexChangeListener:3183-3193`) probes **per new value**, so incremental maintenance on a
-  rank-ordered column pays ~3× per newly interned value. Stated as a cost, accepted, and bounded by the fact that
-  such a column's maintenance is already the slow path.
+- **Probes get slower, and the slowdown is measured rather than asserted.** A literal probe costs ~16 page reads
+  instead of ~5 radix decodes. That is free on the query path — `probe` is called **per literal, not per row**
+  (`EXEC:8437` `globalStringPredicate`, `EXEC:13322` conditional-else literals) — but the maintenance interner
+  (`ProjectionIndexChangeListener:3183-3193`) probes **per new value**. The first draft predicted ~3×; **a
+  prediction is not an acceptance**, so segment 1 measures it (W18) and the figure enters §12's acceptance. If it
+  lands far above 3×, the tail's forward index can be widened to cover the prefix per resource, at §4.1's byte
+  cost, by measurement.
+
+**The binary-search probe must be proven equivalent to the hash probe, not merely believed to be.** W17 runs both
+against the *same* dictionary and requires identical answers on every case where the two could diverge: a present
+value at each end of a value block and each end of a 256-id bucket, the empty string, the longest admitted value
+(`MAX_VALUE_BYTES`), a **spilled** oversized value (which lives behind its own `ValueDictionaryEntryNode` rather
+than in a block, so the search must reach it), a value whose neighbours share a long prefix (front coding's worst
+case for a mid-block landing), absent values ordered before the first entry, after the last, and between two
+adjacent entries, and a pair colliding on `valueHash` (where the hash probe's tie-break and the search's byte
+compare must agree). Absent must answer `ID_ABSENT`, never `ID_UNKNOWN` and never a neighbour's id.
 
 If the reviewers reject dropping the forward index, §4.1 prices that world too: it costs **+8.7 B/row** and the
 ≤ 30 B/row acceptance is then missed at every front-coding ratio.
@@ -779,10 +793,69 @@ contracts and asks the reviewers to pick:
   revision (or one whose history is being discarded anyway), refusing by name otherwise. Cheap, exact, no dead
   entries, and honest about being a bulk reorganisation of a resource nobody is time-travelling in.
 
-**Recommendation: (b)** for this campaign — rebuild #2 has exactly one revision, and (a) buys a capability nothing
-has asked for at a recurring cost. (a) is on the record so the choice is deliberate rather than discovered later.
-Either way the `orderedPrefixCount` field of §3.1 is what the *first* pass needs, which is all segment 1 depends
-on; the range form is a widening of that same field, and W12 pins whichever is chosen.
+**RULED: (b) — re-rank is single-revision only.** It renumbers in place and refuses by name on a resource with
+history. (a) stays on the record so the choice is deliberate rather than rediscovered later. The
+`orderedPrefixCount` field of §3.1 is what the first pass needs either way, and W12 pins the chosen contract.
+
+**But the ruling carries a condition, and it is the more important half of it.** "We only optimise single-revision
+resources" is acceptable only because the *versioned* path stays fully correct and its cost is named. SirixDB is a
+versioned store; a lever that quietly degrades a versioned resource into wrong answers, or into an unbounded cost
+nobody wrote down, would be trading away the system's identity for bytes. So §5.7.1 is a first-class part of this
+design, not an appendix.
+
+#### 5.7.1 The versioned path: correct, bounded, and named
+
+A resource that is written after its rank pass has an **ordered prefix plus an unordered tail**, and every claim
+about it is already tabulated in §3.2. Restating what that means operationally:
+
+**Correctness.** Nothing degrades to a wrong answer, and the mechanism is one field. Every arm that needs order
+tests `orderedPrefixCount == entryCount`, not `orderedPrefixCount > 0` (W3 is the witness, and its mutation is
+precisely that off-by-one). When the test fails: sorted scans and id-range predicates fall back to `compareIds`,
+ordering zone-map pruning turns off, and the group/equality/count-distinct arms — which need identity, not order —
+are **unaffected**. A versioned resource therefore keeps every answer it had before P2 and keeps the grouping and
+distinct wins; it loses only the ordering dividend.
+
+**Probe cost as revisions accumulate.** With the forward index built over the tail alone (§3.3.2), a probe is
+`binarySearch(prefix)` **or** `hashProbe(tail)`, and it must try both — the value may be in either:
+
+| tail size `T` | binary search over the prefix | hash probe over the tail | total |
+|---|---|---|---|
+| 0 (freshly ranked) | ~16 page reads | — | **~16** |
+| ≤ 16,384 (one generation) | ~16 | ~5 radix decodes | ~21 |
+| growing | ~16 (log D barely moves) | ~5 (radix depth is log-ish in `T`) | **~21, flat** |
+
+So probe cost is **bounded and does not grow with revision count** — the prefix term is `O(log D)` and the tail
+term is the radix's existing `O(1)`-ish walk. What grows is not latency per probe but the *tail itself*.
+
+**Tail growth, and what it costs.** Each maintenance commit that interns a value the dictionary has never seen
+appends it above the boundary. The tail therefore grows with the number of **new distinct values**, not with the
+number of writes: re-writing existing URLs costs nothing, and on a corpus whose vocabulary is saturating (URL's
+measured Heaps exponent is ~0.63, §1.1) new-value arrivals decay. The costs the tail imposes, all bounded:
+
+- **Bytes.** A forward index over `T` entries at §3.3.2's ~35 B/entry raw. At `T = 1 M` that is ~35 MB — three
+  orders of magnitude below the 650 MB a whole-column forward index would cost.
+- **Ordering arms.** They stay off until a re-rank, whatever `T` is. This is the real cost and it is a **cliff, not
+  a slope**: one appended value takes `orderedPrefixCount < entryCount` and turns the ordering dividend off
+  wholesale. That is the honest characterisation and the design does not soften it.
+
+**What a versioned resource is told.** Silence here would be the actual failure, so:
+
+- a `PROJ_DIAG` line and a counter name the boundary whenever an ordering arm declines because
+  `orderedPrefixCount < entryCount` — the decline reason says *"the dictionary's ordered prefix ends at B of
+  entryCount N; a re-rank would restore ordered serving"*, not a generic "not servable";
+- the projection's metadata exposes `(orderedPrefixCount, entryCount)` so an operator can see the tail without a
+  query, and `tailFraction = 1 − B/entryCount` is the one number that says whether a re-rank is worth its
+  transaction;
+- **a versioned resource that never re-ranks is a supported, documented state**, not a broken one: it serves every
+  query correctly, keeps grouping and distinct-counting, and loses ordering acceleration. It never silently
+  degrades and never returns a wrong answer.
+
+**When a re-rank is offered.** Contract (b) refuses on a resource with history, so the honest statement to an
+operator of a versioned resource is: *the ordering dividend is available on this column only for a
+single-revision resource, or after a rewrite that discards history.* If that turns out to be too narrow in
+practice, contract (a) — the `(orderedFrom, orderedTo)` range, which is history-safe at the price of dead entries —
+is the designed alternative and is one field-widening away. **The decision to keep (a) implementable rather than
+designing it out is deliberate.**
 
 ### 5.8 The cheaper input adapter (already-global columns)
 
@@ -939,13 +1012,18 @@ Three consequences for P2:
    tests:** a per-query `DerivedHeapBudget` object with `tryReserve(bytes)` / `release()`, threaded through the
    arms that build `O(D)` state, whose ceiling is *one* configured figure and whose reservations compose. It is the
    same object §7.2 wants for the verdict memo, so it is one object, not two.
-3. **What the accumulator's ceiling should be is a decision, not a default.** Reusing `plannedShareBytes` is
-   tempting and wrong for the same reason R1 was turned off: `min(max/8, headroom/4)` at an 8 GB heap is ~1 GB, and
-   a rule computed from *live* headroom makes a query's admission depend on what other queries happen to be doing —
-   which is precisely the state-dependent decline the campaign has been fighting. **Recommendation: a static,
-   explicitly configured ceiling** (`sirix.projection.globalDict.derivedHeapBytes`, default `maxMemory/16`),
-   independent of live headroom, so an arm's decision is reproducible across runs. Segment 2 should not ship a
-   headroom-derived figure without the lead's ruling.
+3. **RULED: the ceiling is static, `maxMemory/16`.** `sirix.projection.globalDict.derivedHeapBytes`, default
+   `maxMemory/16` (512 MB at an 8 GB heap), computed once and **independent of live headroom**. The reasoning is
+   empirical rather than aesthetic: a headroom-derived figure is sampled *at a query boundary*, and a sample cannot
+   know what the query is about to do — which is exactly how R1 produced q3 at 23.4 s against 2.4 s and left q4
+   unfinished. A static ceiling makes an arm's decision reproducible across runs and independent of what other
+   queries happen to be doing; the accumulator is what stops N claimants each spending it.
+
+   **The headroom-derived variant remains available behind the existing opt-in flag**
+   (`-Dsirix.projection.residency.headroom=true`), and this document does not argue it is worthless — it argues
+   that **its benefit is unwitnessed at 100 M**. What was measured there is its cost. A deployment that must bound
+   what a store keeps across queries can still turn it on; P2's arms read the static figure either way, so the two
+   mechanisms do not interact.
 
 What is unchanged and still true:
 
@@ -973,14 +1051,17 @@ directory — but P2 makes the consequences load-bearing, so they are written do
 2. **A `ReadView` is bound to a revision** and re-checks it before every operation (`GVD:143-157`, `ensureRevision`),
    so an id can never be interpreted against another revision's dictionary. Unchanged by P2.
 3. **`orderedPrefixCount` only grows, and only by a rank pass.** An append never raises it. A reader that sees
-   `B < entryCount` knows the tail is unordered without reading it.
+   `B < entryCount` knows the tail is unordered without reading it. **What a resource in that state keeps, what it
+   loses, and what it is told is §5.7.1** — the versioned path is a supported state, not a degraded one, and it is
+   the condition attached to the single-revision re-rank ruling.
 4. **Cost of monotonicity.** On an update-heavy resource the dictionary accumulates dead entries. That is the price
    of ids being stable across revisions, and it is the same price the name dictionary already pays. The election
    (§10) therefore requires an **analytical/bulk shape**: the pass is offered for a resource whose measured update
    rate is nil, and a resource marked transactional is never elected. This is a data/statistics gate, not a name.
 5. **Garbage collection is out of scope and must stay out.** Compacting the dictionary would renumber ids and
-   invalidate every older revision's stored ids — it is a *resource rewrite*, not a maintenance operation. If it is
-   ever wanted, it is the re-rank pass of §5.8 applied to every revision at once, which is a different brief.
+   invalidate every older revision's stored ids — it is a *resource rewrite*, not a maintenance operation. This is
+   the same argument that makes re-rank single-revision-only (§5.7): **renumbering and history are incompatible**,
+   and the design says so once rather than discovering it twice.
 6. **No format-version machinery.** Per the plan's standing rule the header layout changes in place; the golden
    pins covering a dictionary header are re-recorded by name in the same commit, with the sticky-codec reset rule.
 
@@ -1081,28 +1162,38 @@ are mandatory, not optional, and have moved into segment 1 — see §4.1.)*
 
 ## 12. Staged plan — a gate, then 1 → 5, then the serving segments
 
-Each segment is independently revertible, has its own kill switch whose "off" state is proven byte-identical against
-a `git show HEAD:`-compiled build, and lands with its witnesses.
+> **Standing constraint, from the user, governing every segment: the aim is reducing storage WITHOUT hurting
+> performance.** A segment that saves bytes and costs measurable query time **does not land**. So every acceptance
+> below has a **latency clause** as well as a byte clause, and neither is optional. Two consequences worth stating
+> once rather than repeating per row:
+>
+> - **The baseline is rebuild #2's 43-query leg**, not the plan's pre-wave-3 numbers. Until that leg exists, no
+>   segment can be accepted, because "no measurable regression" has nothing to be measured against.
+> - **"No regression" is judged per query, not on Σ.** A lever that takes 3 s off one query and puts 1 s onto each
+>   of five others improves Σ and still violates the constraint. The acceptance is: **no query in the 43 regresses
+>   beyond run-to-run noise** (min-of-3, thermal check, interleaved A/B — the campaign's existing timing protocol),
+>   and the 43 dumps stay byte-identical.
 
-| # | segment | acceptance | kill switch |
-|---|---|---|---|
-| **0** | **The dictionary-bytes gate** (no product code). A bench-package probe that builds a real dictionary from a 5 M-value sample in three forms — intern order, rank order, rank order front-coded — and reports **written bytes for every persisted record: value blocks, value buckets, the reverse radix, and (for the intern-order control) the forward hash index and its radix.** Blocks hold 256 values, so the front-coding runs are 256 long (§3.3.1). | **written dictionary bytes ÷ rows ≤ 17.3 B/row** for the front-coded, forward-index-free form (§4.1's break-even at ratio 0.37). **Above it, segment 1 does not start.** A *value-block ratio* is explicitly NOT the acceptance — measuring that is what hid the directory in draft 1. | n/a |
-| **1** | **The rank pass, offline, one column** — `orderedPrefixCount` in the header, front-coded value blocks, S1–S4, the election, the disk preflight. No executor change; the column serves exactly as a global column serves today (equality, grouping), just with ordered ids. | At 1 M on a synthetic fixture: the four fat columns' post-codec bytes match the §4.1 arithmetic ±10 %; W1–W6, W10, W12, W14 green; the load path byte-identical. | `-Dsirix.projection.globalDict.rank=false`, `…globalDict.frontCoding=false` |
-| **5** | **The trie lane** — registry, encoding kind 3, flag byte 2, the resolver. **This is −16.7 of the −23.9 GB, so it comes before the serving segments.** Go/no-go gate first: the resolver cost (R4) — measure point-lookup and full-reconstruction latency against the lane before writing the encoder, on a 1 M resource whose dictionary segment 1 already built. | The plan's rule holds — *point/row-path queries never slower*; reconstruction round trip byte-identical with the lane on and off; the 100 M leaf class falls by ≥ 12 GB; W11 green. | `-Dsirix.page.stringRegion.globalIdLane=false` |
-| **2** | **The integer arms.** §6.2 B1–B8: `globalIdsAreOrdered`; `sortColumnsOrderable` **together with** `EXEC:16409` and `EXEC:16442`; best-first + zone prune; `compareKeyAt`; `keyIsNumeric`; the id-range translation of ordering predicates. (No dense-arm claim — see B5.) | Differentials under `STRICT_SERVING` for q25/q26/q13/q14/q16/q17/q33/q34; W3, W7 green. Speed judged against rebuild #2's leg. | `-Dsirix.projection.globalDict.orderedArms=false` |
-| **3** | **The three missing arms.** §6.1 A1 and A2 (each with `columnSparseClean`, the empty-sequence contract and the `ID_UNKNOWN` decline) + A3 **scoped to stores under `ROW_MAT_MAX_ROWS`** + the `globalDistinctBitmaps` sizing tidy-up. | q5 served from the id bitset; A1/A2 differentials green under `STRICT_SERVING`; W7 green. Timing targets come from rebuild #2's leg, not from this document. | `-Dsirix.projection.globalDict.newArms=false` |
-| **3b** | **Lift `ROW_MAT_MAX_ROWS` for `LIMIT`-bounded plans** — its own step because it means making covered-row serving streaming or limit-aware rather than eagerly materialising (`EXEC:16915-16922`). Not P2-specific; P2 only exposes the need. | q23 materialises at 100 M without an eager 100 M-row buffer. | `-Dsirix.projection.rowMaterializeMaxRows` |
-| **4** | **The verdict**: per-query cache keyed `(revision, headerNodeKey, entryCount, op, literal)` (or hung on the `ReadView`) + bucket-partitioned parallel sweep, and the one per-query derived-heap accumulator of §8. | q20 improved against rebuild #2's leg; W8, W9, W13 green. | `-Dsirix.projection.verdict.parallel=false`, `…verdict.cache=false` |
-| **6** | **Grouped 3-gram filters** for `contains` — granularity refitted per §7 (per-block is not viable at 256 values/block); design point opens only after segment 1's measurements. | q20/q22 improved against rebuild #2's leg at a filter cost ≤ 5 % of the dictionary. | `-Dsirix.projection.globalDict.blockFilter=false` |
+Each segment is independently revertible, has its own kill switch whose "off" state is proven byte-identical
+against a `git show HEAD:`-compiled build, and lands with its witnesses.
 
-**Order: 0 → 1 → 5, then 2 → 3 → 3b → 4 → 6.** The review's staging ruling, and it is right on the numbers:
-segment 5 delivers **−16.7 of the −23.9 GB** and is the only reason M1 is reached, while segments 2–4 buy speed
-whose baseline does not exist yet. Doing 1 → 5 first settles the *storage* outcome in one rebuild before any
-serving code is written.
+| # | segment | byte acceptance | **latency acceptance** | kill switch |
+|---|---|---|---|---|
+| **0** | **The dictionary-bytes gate** (no product code). Builds a real dictionary from a 5 M-value sample in three forms — intern order, rank order, rank order front-coded — and reports **written bytes for every persisted record**: value blocks, value buckets, the reverse radix, and (for the intern-order control) the forward hash index and its radix. Blocks hold 256 values, so front-coding runs are 256 long (§3.3.1). | **written dictionary bytes ÷ rows ≤ 17.3 B/row** for the front-coded, forward-index-free form (§4.1's break-even at ratio 0.37). **Above it, segment 1 does not start.** A *value-block ratio* is explicitly NOT the acceptance — measuring that is what hid the directory in draft 1. | n/a (no product code runs) | n/a |
+| **1** | **The rank pass, offline, one column** — `orderedPrefixCount`, front-coded value blocks, no forward index over the ordered prefix, S1–S4, the election, the disk preflight. | At 1 M: the four fat columns' post-codec bytes match §4.1 ±10 %; W1–W6, W10, W12, W14, W15, W17 green. | **The load path is byte-identical and its wall time unchanged** (the pass is offline, so this is a proof of non-interference, not a measurement of the pass). **The pass's own cost is reported, not bounded** — it is a one-off reorganisation. **W18's maintenance-intern ratio is recorded and must be ≤ 5×**; above that, §3.3.2's widening decision is taken before segment 5. | `-Dsirix.projection.globalDict.rank=false`, `…globalDict.frontCoding=false` |
+| **5** | **The trie lane** — registry, encoding kind 3, flag byte 2, the resolver. **−16.7 of the −23.9 GB, so it precedes the serving segments.** §16's screen decides whether it is built at all. | 100 M leaf class falls by ≥ 12 GB; reconstruction round trip byte-identical with the lane on and off; W11 green. | **The binding clause for this segment.** Point lookup by record key, full-resource reconstruction, and the row-path queries: **no regression beyond noise** — the plan's "point/row-path queries never slower" rule. Measured *before* the encoder is written, on a 1 M resource whose dictionary segment 1 already built. A resolver hop that costs measurable point-read latency kills the segment, whatever it saves. | `-Dsirix.page.stringRegion.globalIdLane=false` |
+| **2** | **The integer arms.** §6.2 B1–B8: `globalIdsAreOrdered`; `sortColumnsOrderable` **together with** `EXEC:16409` and `EXEC:16442`; best-first + zone prune; `compareKeyAt`; `keyIsNumeric`; the id-range translation of ordering predicates. (No dense-arm claim — see B5.) | Differentials under `STRICT_SERVING` for q25/q26/q13/q14/q16/q17/q33/q34; W3, W7 green; 43 dumps byte-identical. | q25/q26 improve; **no query regresses.** The risk to watch is B3: best-first changes leaf *visitation order*, so a query whose zone maps prune badly could read more leaves than document order did. That is the specific regression this clause exists to catch. | `-Dsirix.projection.globalDict.orderedArms=false` |
+| **3** | **The three missing arms.** A1 and A2 (each with `columnSparseClean`, the empty-sequence contract and the `ID_UNKNOWN` decline) + A3 **scoped to stores under `ROW_MAT_MAX_ROWS`** + the `globalDistinctBitmaps` sizing tidy-up. | q5 served from the id bitset; A1/A2 differentials green under `STRICT_SERVING`; W7, W13 green. | q5 improves; **no query regresses.** These arms replace *declines*, so the regression risk is that a newly admitted route is slower than the interpreter path it replaced — each new arm is A/B'd against its own decline, not only against the suite. | `-Dsirix.projection.globalDict.newArms=false` |
+| **3b** | **Lift `ROW_MAT_MAX_ROWS` for `LIMIT`-bounded plans** — its own step: covered-row serving must become streaming or limit-aware rather than eagerly materialising (`EXEC:16915-16922`). Not P2-specific; P2 only exposes the need. | q23 materialises at 100 M without an eager 100 M-row buffer. | **no query regresses**, and RSS during q23 stays within the leg's envelope — the cap exists to prevent an OOM, so lifting it must show the replacement bound working. | `-Dsirix.projection.rowMaterializeMaxRows` |
+| **4** | **The verdict**: per-query cache keyed `(revision, headerNodeKey, entryCount, op, literal)` (or hung on the `ReadView`) + bucket-partitioned parallel sweep + the one per-query derived-heap accumulator (§8, static `maxMemory/16`). | W8, W9, W13 green. | q20/q22 improve; **no query regresses.** The parallel sweep takes cores from the scan it serves, so the clause covers queries that run *beside* a verdict build, not only the one that builds it. | `-Dsirix.projection.verdict.parallel=false`, `…verdict.cache=false` |
+| **6** | **Grouped 3-gram filters** for `contains` — granularity refitted per §7 (per-block is not viable at 256 values/block); the design point opens only after segment 1's measurements. | filter cost ≤ 5 % of the dictionary. | q20/q22 improve; **no query regresses.** A filter that is read but never skips is pure added latency, so the acceptance includes its measured skip rate, not only its size. | `-Dsirix.projection.globalDict.blockFilter=false` |
+
+**Order: 0 → 1 → 5, then 2 → 3 → 3b → 4 → 6.** Segment 5 delivers **−16.7 of the −23.9 GB** and is the only reason
+M1 is reached, while segments 2–4 buy speed whose baseline does not exist yet. Doing 1 → 5 first settles the
+*storage* outcome in one rebuild before any serving code is written.
 
 **§16's screen comes before segment 5 is committed to.** If a bigger leaf (L1) recovers the same bytes through
-ordinary per-leaf dictionaries, segment 5's resolver is not worth building; the windowed-dedup measurement decides,
-and it costs one quiet core-hour.
+ordinary per-leaf dictionaries, segment 5's resolver is not worth building.
 
 Segment 0 is a gate with no product code. **Segments 1 and 5 must land together in one 100 M rebuild** — they share
 the dictionary, and measuring either alone would mis-attribute its bytes.
@@ -1126,6 +1217,8 @@ the dictionary, and measuring either alone would mis-attribute its bytes.
 | W11 | `TrieGlobalLaneRoundTrip` — the resource serialises back to byte-identical JSON with the lane on and off; a record read without a bound resolver throws the typed error. | resolve without the tag registry (use the first dictionary) → wrong values for the second promoted tag. |
 | W12 | `DictionaryIsAppendOnlyAcrossRevisions` — revision *r*'s ids still resolve after *r+1* appends and after a value is deleted from every row. | reuse a retired id → revision *r* reads the wrong value. |
 | W13 | `DerivedHeapIsBudgeted` — the length table and the verdict decline above `HeapHeadroom.plannedShareBytes` rather than allocating. | remove the check → the fixture OOMs at a 256 MB heap. |
+| W17 | `BinarySearchProbeEqualsHashProbe` — both probes run against the same dictionary and agree on every case in §3.3.2: block and bucket boundaries, the empty string, `MAX_VALUE_BYTES`, a spilled oversized value, a long-shared-prefix neighbourhood, absent-before-first / absent-after-last / absent-between, and a `valueHash` collision pair. Present values give the same id; absent values give `ID_ABSENT`, never `ID_UNKNOWN` and never a neighbour's id. | drop the final byte-compare after the search converges → the collision pair returns the neighbour's id; use `<` where `<=` is meant at a block boundary → the first value of each block is reported absent. |
+| W18 | `MaintenanceInternCostIsMeasured` — a fixture interning `N` new values into a rank-ordered column reports page reads and wall time per interned value, for the binary-search probe and for a hash-probe control on the same data. **The ratio is recorded in segment 1's acceptance, not predicted.** | none needed — this witness exists to produce a number, and its failure mode is not running it. Its guard is that segment 1 cannot be accepted with the field empty. |
 | W15 | `ForwardIndexIsAbsentOverAnOrderedPrefix` (§3.3.2) — after the rank pass the header's `forwardRootKey` is 0, no hash-bucket or forward-radix record exists in the reserved run, and a literal probe still resolves the right id by binary search. | keep building the forward index → the written dictionary bytes rise by the §3.3.2 arithmetic (assert **bytes**, not the answer, so the mutation is visible rather than merely slower); relax the header invariant without the `orderedPrefixCount == entryCount` condition → a streaming-built dictionary is accepted with no way to probe it. |
 | W16 | `RankPassCommitsPerEpoch` (§5.5) — the `-Dsirix.til.diag` census stays flat across a pass whose dictionary and segments together exceed the configured intent-log ceiling. | remove the per-epoch commit → the log grows monotonically and the fixture exhausts its budget, proving the cadence is load-bearing. |
 | W14 | `PreP2HeaderReadsAsUnordered` — a 28-byte header written by a `git show HEAD:`-compiled writer is read by a P2 build as `orderedPrefixCount == 0` (§3.1's verification obligation). | read the field unconditionally → the deserializer over-reads or throws, proving the defensive read is load-bearing. |
@@ -1147,7 +1240,7 @@ is also run with the guard inverted, and each named case must then fail.
 | R6 | **`B < entryCount` after the first maintenance commit silently degrades every ordering arm.** | medium | Not silent: a `PROJ_DIAG` line and a counter; the decline reason names the boundary. The re-rank pass (§5.8) is the remedy and is cheap for an already-global column. |
 | R7 | **Rank order costs id-lane bits.** ≈ +5 B/row over four columns (25 bits for URL where intern order might pack 14–16). | low | Priced in §4.1; §11.1 is the recovery. |
 | R11 | **The dictionary's directory was priced at zero in draft 1.** Corrected in §3.3.2/§4.1: the forward hash index alone is ≈ 8.7 B/row post-codec, which on its own breaks the ≤ 30 B/row acceptance. | **high — it changed the design** | The design now drops the forward index over the ordered prefix and probes by binary search, and **segment 0's gate measures written dictionary bytes including every directory record**. If reviewers reject dropping it, the acceptance must be renegotiated (§4.1's last row). |
-| R12 | **Probe latency on the maintenance path.** Binary search costs ~16 page reads per newly interned value against ~5 radix decodes today (§3.3.2). | medium | Query-path probes are per literal, not per row, so they are unaffected. Incremental maintenance on a rank-ordered column is already the slow path; if it becomes the binding constraint, the tail's own forward index can be widened to cover the prefix at the §4.1 cost, per resource, by measurement. |
+| R12 | **Probe latency on the maintenance path.** Binary search costs ~16 page reads per newly interned value against ~5 radix decodes today (§3.3.2). | medium | Query-path probes are per literal, not per row, so they are unaffected. **W18 measures the maintenance ratio and segment 1 cannot be accepted without the number**; the ~3× is a prediction, not a result. If it lands far above, the tail's forward index widens to cover the prefix at §4.1's byte cost, per resource, by measurement. |
 | R13 | **`ROW_MAT_MAX_ROWS` blocks q23 regardless of P2** (`EXEC:16922` caps on TOTAL store rows). | medium | Segment 3b, with its own acceptance. P2 must not claim q23 until that lands — the first draft did. |
 | R8 | **The pass takes the write transaction for its duration.** The resource is unavailable for writes for the length of the pass (**[A]** 10–25 min at 100 M). | medium | Stated as a limitation. It is a bulk reorganisation; an online variant is a different brief. |
 | R9 | **`stringOpVerdict` remains `O(D)` for `contains`** until segment 6, whose granularity is itself an open design point (§7). | medium | Segment 4's cache + parallelism is the interim. No target is asserted: the plan's 1–2 s for q20 predates wave 3, and the honest baseline is rebuild #2's leg. |
@@ -1166,6 +1259,11 @@ is also run with the guard inverted, and each named case must then fail.
 - It does not collect garbage in the dictionary (§9.5).
 - It does not mention a column name, a field list or a query anywhere in main code. The harness
   (`io.sirix.query.bench.*`) remains the only place that knows what URL is.
+- It does not make a versioned resource worse. A resource with history keeps every answer, keeps grouping and
+  distinct-counting, loses only the ordering dividend, and is **told so by name** (§5.7.1).
+- It does not derive a heap ceiling from live headroom (§8): the ceiling is static `maxMemory/16` and the
+  headroom variant stays behind its opt-in flag, where its benefit is unwitnessed at 100 M.
+- It does not accept a segment on bytes alone (§12).
 
 ---
 
@@ -1237,6 +1335,12 @@ exact set per window, which is ≤ 10,000 entries and therefore trivial in memor
 
 ### 16.4 Recommendation
 
+**Both routes are also governed by the standing latency constraint (§12), and it does not fall on them equally.**
+Segment 5 puts a resolver hop on the *primary* read path, so its risk is point reads and reconstruction. L1 puts a
+~1 MB page on the primary read path, so its risk is point-lookup I/O, COW amplification and versioned-merge cost —
+a *larger* surface, on every resource that adopts the exponent, not only on columns that elect a lane. Whichever
+route is taken, the latency clause is the binding one.
+
 **They are not exclusive, and the honest recommendation is to run §16.3's screen before committing to either.**
 If `W = 1234` shows a large dedup, L1 is the better route for this particular cost — no resolver, no append-only
 dictionary on the primary read path, and it helps the other regions too — and segment 5 should be dropped in its
@@ -1244,3 +1348,14 @@ favour, leaving P2 as a projection-only lever that does not reach M1 alone. If i
 substitute here (whatever its other merits) and segment 5 is the only route to M1 in this track. Committing to
 segment 5's resolver before that screen is run would be spending the design's riskiest change without knowing
 whether a cheaper one was available.
+
+---
+
+## 17. Rulings on record
+
+| # | question | ruling | where it lives |
+|---|---|---|---|
+| a | derived-heap ceiling: static or headroom-derived? | **static `maxMemory/16`**, with one per-query accumulator so N claimants cannot each spend it; the headroom variant stays available behind `-Dsirix.projection.residency.headroom=true`, benefit unwitnessed at 100 M | §8 |
+| b | re-rank contract: id-range or single-revision? | **single-revision only (b)** — *conditional* on the versioned path staying fully correct with its degradation named; (a) stays implementable, one field-widening away | §5.7, §5.7.1 |
+| c | drop the forward hash index over the ordered prefix? | **accepted**, with W17 (binary search proven identical to the hash probe, including block/bucket boundaries, spilled values and a hash-collision pair) and W18 (the maintenance-intern ratio **measured**, not predicted, and recorded in segment 1's acceptance) | §3.3.2, §13 |
+| — | standing constraint | **storage reduction must not cost query time**; every §12 acceptance has a latency clause, judged per query against rebuild #2's leg | §12 |
