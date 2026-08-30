@@ -48,6 +48,11 @@ for every T1 estimate is therefore *fixed per page ÷ 10 rows + per value*, not 
 
 References (`data_size`, c6a.4xlarge, all 105 columns): Umbra 83 B/row, CedarDB 85, ClickHouse 153, DuckDB 205.
 
+## 1b. Rebuild #1 at 100M (2026-08-30 20:55, commit `eb5a307b7`)
+**90.4 GB (−31.4 % from 131.9 GB)**: leaf class 70.8 GB (≈ 708 B/row), overflow/projection 17.4 GB, HOT 1.9 GB;
+load 46m 55s unchanged; projection acceptance OK. Not yet in this build: B5-c per-tag FOR + string framing + zone-map
+fold and B3-a d4 (together another −24 % on the leaf class at 1M) → rebuild #2 expected ≈ 70 GB.
+
 ## 2. Targets
 | milestone | 100M | trie B/record | how |
 |---|---|---|---|
@@ -202,7 +207,13 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   counter above drops to 0 on a bulk fixture with long strings; region-only reads on pages with carriers; mutation:
   a page with an overflow record must not lose its other strings' elision. Acceptance at 1M: string-elision pages
   ≈ 100 %, carriers < 1 %.
-- **B5-c — per-tag FOR + folded zone map; page schema.** Files: `page/pax/NumberRegion.java`, `NumberRegionCompact`,
+- **B5-c — deliverable 1 DONE (per-tag FOR, kind 6; zone map V2 varint), measured 20:27 at 1M: number region
+  1.49 → 0.67 B/record, zone map 0.63 → 0.38, leaf 680.2 → 559.2 MB (−17.8 %); cumulative file −32.1 % / leaf
+  −48.9 % vs the wave-1 baseline. Deliverable 2 (string framing + plain lane) DONE, measured 20:46: string region 1.79 → 1.52 B/record, leaf
+  559.2 → 528.6 MB — cumulative file −33.9 % / leaf −51.7 % vs the wave-1 baseline. Deliverable 3 measured the fixed
+  per-page overhead (1.21 B/record; schema-sharable 0.37 → Proposal A parked, §8); deliverable 4 = the zone-map fold
+  (Proposal B, 0.435 B/record) being built.**
+- **B5-c — per-tag FOR + folded zone map; page schema (original brief).** Files: `page/pax/NumberRegion.java`, `NumberRegionCompact`,
   `NumberRegionSimd`, `BitUnpackSimd`, `NumberZoneMapRegion.java` (derive or drop), `PageKind.java` (region build /
   read), `page/pax/RegionTable.java`; the schema sub-trie in a NamePage-keyed store. Witness: parity of every
   region-only scan and zone-map prune; mutation: one width for all tags. Acceptance: regions ≤ 2 B/record at 1M;
@@ -210,7 +221,11 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
 - **B3-a — deliverable 1 COMPLETE, measured 19:58 at 1M: leaf 1,070.4 → 680.2 MB (−36.5 %), file 1,770.4 →
   1,376.1 MB (−22.3 %; −25.8 % vs the wave-1 baseline); staged elision metadata 6.43 → 0.71 B/record (value 0.13,
   name-key 0, pathNodeKey column 0.27 via `PathNodeKeyRegion`'s compact form); latent pathNodeKey sentinel defect
-  fixed on the way. Deliverable 2 (structure columns + revision elision) in progress.** Launched 18:48 (impl-b3a), deliverable 1 = DERIVED elision metadata (elided-slot bitmap, per-tag
+  fixed on the way. Deliverable 2 = MEASURED NEGATIVE (sibling columns +13.7 B/page on real records: LZ77 already collapses the
+  constant deltas) → shipped dormant; revision elision + T1-b not funded. Deliverable 3 = post-codec attribution
+  instrument (body 0.95 B/record on disk at 1M; regions 3.54 = 75 % of the leaf). Deliverable 4 = run-length lane +
+  delta dictionary for the columns (pathNodeKey column 0.14 → 0.04 on the fixture). B3-a COMPLETE; d2–d4 in the
+  combined wave-3 commit.** Launched 18:48 (impl-b3a), deliverable 1 = DERIVED elision metadata (elided-slot bitmap, per-tag
   running rank instead of a region index, canonical widths/types with exception lists, name-key width derived;
   kill switch `-Dsirix.page.body.derivedElision=false` proven against HEAD bytes; acceptance staged elision
   metadata ≤ 0.6 B/record and leaf class ≤ 950 MB at 1M), deliverable 2 = structure as columns + revision elision.
@@ -220,7 +235,10 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   / the STRUCT_POINTERS region, `node/NodeKind.java`. Fixtures the mutation "assume predicted" must fail on: a deleted
   middle field, a moved subtree, a nested object crossing a page boundary, `{}`, an array of scalars, a
   `SLIDING_SNAPSHOT` fragment with 3 modified slots. Acceptance: heap ≤ 1.5 B/record on the wire at 1M.
-- **B4-b — directory residue** (only if B0r says so). Files: `page/PageLayout.java`, `page/PageKind.java`.
+- **B4-b — DROPPED on measurement (B3-a d3 attribution at 1M): the compact directory is 0.14 B/record post-codec
+  (91.4 % of entries predictable, LZ77 already collapses them); templates+slotIds 0.16.** The whole encoded body is
+  0.95 B/record on disk at 1M; the region table (3.54 B/record) is 75 % of the leaf class — B5-c's levers.
+- **B4-b — directory residue (original brief).** Files: `page/PageLayout.java`, `page/PageKind.java`.
 - **B2 — DONE 17:45** (impl-b2): the order-label lane's leading `int32` is a sign-discriminated marker (legacy ≥ 0
   byte-identical; −1 synthesized = anchors + packed tail deltas under a general byte-level rule; −2 front-coded);
   mode by encoded size per leaf; `decodeKeysView` allocation-free; kill switch
@@ -270,6 +288,10 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   behaviour at 100M).
 
 ## 8. Parked (user decisions on record)
+- **T1-d page schema (B5-c Proposal A, measured 20:41):** a NamePage-keyed, content-hashed region-shape descriptor
+  (capped pool, inline fallback) would cut the schema-sharable 0.37 B/record of per-page framing; with the zone-map
+  fold (Proposal B, being built) the fixed overhead reaches ≈ 0.54 B/record, below 0.5 only with schema-declared
+  string length modes on top. Parked: generality is fine (data-driven, capped), but the gain is below P2's.
 Configurable slots per leaf (a per-resource counterpart of picking a larger page class; costs: COW amplification,
 point-lookup I/O, arena size classes, `NDP_NODE_COUNT` in 15 files) — 1,024 stays for point-query / history /
 reconstruction resources; scheduling L1 after T1 with a measured gate is open. One record per JSON object — a

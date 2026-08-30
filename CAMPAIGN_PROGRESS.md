@@ -2383,3 +2383,102 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   query rc=0, full core rc=0 (6m 53s), full query rc=0 (3m 10s). Committed from the snapshot via git plumbing
   (`commit-snapshot.sh`) — the working tree keeps B3-a d2's and B5-c's in-progress edits. Rebuild #1 at 100M launches
   from the gate worktree at this commit.**
+- 20:07 **Rebuild #1 at 100M LAUNCHED from the gate worktree at `eb5a307b7`** (wave 2 + B6 + B3-a d1; envelope -Xmx10g + 12 GiB arena, expectedRows=99997497, storage profile + section diag on) into `clickbench-100m-campaign-20260830-2007`; 137 GB free at launch. Queries follow with `queries100m-vec.sh <dir> 8g`.
+- 20:12 **B3-a deliverable 2 = measured NEGATIVE result (shipped dormant):** sibling-key columns remove 930 raw
+  B/page from the heap (staged heap 6.97 → 5.97 B/record) but add ~19 B/page on the wire (+5.1 % body) because the
+  sibling deltas are the same two varint bytes in every record and LZ77 already collapsed them; +7 B ahead only on a
+  synthetic ±1 page. Columns ship implemented + tested + OFF (`-Dsirix.page.body.structuralColumns=true` to enable);
+  revision elision and T1-b NOT funded (same character). Landed: N-way strip/inject ranges (byte-neutral, pins
+  unchanged), shared `collectStructuralKey`, a second structural-flags byte written only when a lever behind it is
+  on, and a reader BUG fix — `probeRegionTableOffset` and `deserializeRegionsOnlyPage` skipped exactly one flags
+  byte (now `skipStructuralFlags`); `StructuralKeyColumnPageTest` pins the finding in both directions. Snapshot of
+  its 7 files taken (no B5-c hunk in PageKind's region range yet); gate + commit after the 100M query leg.
+  Decision: the body is 3.25 B/record on the wire at 1M vs regions 4.60 — B5-c's region work is the larger lever;
+  B3-a gets a diagnostic deliverable 3 (post-codec attribution per body section) to decide T1-b with evidence.
+- 20:17 Integration rule (from B3-a's cross-compile against B5-c's pax sources — no API drift): the two byte-identity pins (`DerivedElisionSectionTest#killSwitchIsByteIdenticalToTheReferenceEncoder`, `StringRegionPerTagCompletenessTest#killSwitchIsByteIdenticalToHead`) must flip EVERY lever landed since HEAD; B5-c adds its own statics there (no re-recording).
+- 20:23 **B5-c deliverable 1 done (per-tag FOR number region, kind 6; zone map V2 varint form elected when smaller;
+  count/tagStart/extrema DERIVED at parse; widths 0..56 or raw 64; `VarInt` canonical LEB128):** fixtures — mixed
+  regions on the wire 1,257 → 745 B (−40.7 %), record-shaped 3,834 → 1,784 B (−53.5 %, 2.97 B/value); LZ77 kept
+  but now saves 0.7 % / loses on the mixed page (was 46 % / 0.54); mutation "one width for the page" 4.75× more
+  bytes; kill switch `-Dsirix.page.numberRegion.perTagWidth=false` proven by three HEAD-compiled digests (and
+  B3-a's whole-page pin matches with it off); PageKind/KeyValueLeafPage untouched; rig 24 classes green incl.
+  GoldenFormatTest 14/14, TypedGroupByDifferential 129/129, VersioningColumnScan 35/35. Caveats: masked count over a
+  window spanning tags declines (−1; call sites pass one tag), zone map still repeats the per-tag header (~23 % of
+  the wide fixture's region bytes, deliberately uncoupled), number-region framing ≈ 35 % on the wide fixture →
+  deliverable 3. Snapshot `b5c1-snap` (9 files); overlay HEAD + B3-a d2 + B5-c d1 compiled for the 1M measurement.
+- 20:25 Lead added `NumberRegion.setPerTagWidthEnabled(false)` (restored in tearDown) to both byte-identity pins; with B5-c's per-tag region ON both pass against their ORIGINAL digests (DerivedElisionSectionTest 10/10, StringRegionPerTagCompletenessTest 9/9). Wave-3 overlay (eb5a307b7 + B3-a d2 + B5-c d1) measuring at 1M.
+- 20:27 **Wave-3 overlay measured at 1M (`storage1m-wave3` = `eb5a307b7` + B3-a d2 (columns OFF) + B5-c d1):
+  file 1,376.1 → 1,258.7 MB (−8.5 %), KeyValueLeafPage 680.2 → 559.2 MB (−17.8 %), overflow unchanged; region table
+  4.60 → 3.54 B/record: number 1.49 → 0.67 (raw 762 → 88 MB; LZ77 now 0.83), zone map 0.63 → 0.38 (V2 varint
+  form), string 1.79 unchanged (B5-c d2); body 3.25 unchanged (columns dormant, as measured); projection
+  acceptance OK.** Cumulative vs the wave-1 baseline (1,854.3 MB / leaf 1,093.3): **file −32.1 %, leaf −48.9 %.**
+  B5-c d1 acceptance: number region ≤ 0.6 → 0.67 (miss by 0.07 = the zone map's repeated per-tag header + framing,
+  deliverable 3); regions ≤ 2 → 3.54 pending the string framing (d2).
+- 20:31 **B3-a deliverable 3 (post-codec attribution diag, `-Dsirix.pageSectionDiag=true`, no format change):** per
+  section raw → alone-compressed B/record on a ClickBench-shaped leaf — compactDir 2.00 → 0.02, templates+slotIds
+  1.06 → 0.06, pathNodeKey column 0.29 → 0.14, valueElision 0.13 → 0.01, heap 15.79 → 1.12; sections-alone sum
+  1.37 vs actual body 1.35 (cross-section gain 1.4 %); 59.7 % of directory entries predictable from the template.
+  **T1-b is dead on the numbers** (the directory is 0.02 B/record post-codec); the columns are the least
+  compressible lanes; deliverable 2's heap acceptance (≤ 1.5) already met by d1. Witness
+  `PageSectionDiagCountersTest#postCodecAttributionChargesEverySection` (sum ≥ actual body invariant); sentinel
+  defect pinned by `PathNodeKeyColumnCompactionTest#aNonPositivePathNodeKeyStaysInline`; width gap documented on
+  `ElisionDeriver.VE_FLAG_WIDTH_EXCEPTIONS`. Snapshot `b3a3-snap` (d2+d3, 9 files) taken — B5-c still has no
+  PageKind hunk; gate + plumbing commit after the 100M query leg. Running the instrument at 1M next.
+- 20:34 **1M post-codec attribution (`storage1m-wave3b`, B3-a d3 instrument, 103,523 document pages):** per section
+  raw → alone-compressed B/record: compactDir 1.87 → 0.14 (91.4 % of entries predictable → T1-b worth 0.14 at most),
+  templates+slotIds 1.05 → 0.16, zeroHashBitmap 0.12 → 0.03, parentKeyColumn 0.20 → 0.11 (ratio 0.55),
+  pathNodeKeyColumn 0.27 → 0.15 (0.54), valueElision 0.13 → 0.08, heap 13.38 → 0.31 (fused 0.31, structural 0.02);
+  sum 0.98 vs **actual body 0.95 B/record** (cross-section gain 3.3 %). Leaf class 559.2 MB = regions 3.54 B/record
+  (75 %: string 1.79, number 0.67, name-key 0.51, zone map 0.38, sketch 0.08, ordinal 0.07) + body 0.95 + header
+  0.16 + overlong 0.1 (+ NAME index pages). **The body is solved; the regions are the trie.** Next: B5-c d2 (string
+  framing) + d3 (zone-map fold); B3-a follow-up = RLE for StructuralKeyColumnCodec's 2-bit lane (0.26 B/record of
+  columns, the least compressible lanes). Diag caveat: `encodedBody on wire` (368 MB) counts 12,752 inline-path
+  serializations (~20 KB each) that the StorageProfile shows never reached disk (leaf class 559 MB = regions 402 +
+  bodies 108 + headers 19 + overlong 12 + NAME pages) — B3-a to reconcile (retried leaves vs NAME index pages).
+- 20:38 **B5-c deliverable 2 done (string-region framing, kind 2 varint-framed: per-tag varint headers, 1/2/4-byte
+  length tables, PLAIN lane for all-distinct tags — rank ⇔ id bijection only — with cross-tag windows refused;
+  StringDictSketch walks the tag's width):** record-shaped page raw 4,274 → 3,203 B, wire 1,598 → 1,204 B (−24.7 %),
+  framing 1,311 → 297 B (−77 %); brief fixture wire −11.7 %; kill switch `-Dsirix.page.stringRegion.plainLane=false`
+  proven by two HEAD-compiled digests; mutations: dictionary layout ≥ 25 % more, a repeated value stays off the
+  plain lane (equality count 4 not 1), cross-tag window throws, length-width sweep with FSST sign; 30+ classes green
+  incl. GoldenFormat 14/14, TypedGroupByDifferential 129/129. Lead adds `StringRegion.setPlainLaneEnabled(false)` to
+  both byte-identity pins. Snapshot `b5c2-snap`; full wave-3 overlay measured at 1M next.
+- 20:41 **B5-c deliverable 3 (measurement): fixed per-page overhead on a ClickBench-shaped leaf 4.80 → 1.21 B/record
+  after d1+d2 (number framing 1.82 → 0.44, zone map 1.56 → 0.44 all framing, string header+lengths 1.40 → 0.32);
+  schema-sharable part only 0.37 B/record, page data 0.84 (per-tag min/spread written TWICE 0.435, string length
+  tables 0.20).** Proposal A (NamePage-keyed schema descriptor, capped pool, inline fallback) would reach ~0.85 —
+  PARKED as an M2 user decision. Proposal B (split instead of duplicate: zone map = per-tag directory incl.
+  min/spread, number region = counts + values with an "external header" flag and a self-contained fallback) = the
+  fold already re-scoped as d3 → **BUILD NOW (B5-c d4)**; A+B would reach ~0.54; the 0.5 floor needs schema-declared
+  length modes after A. B5-c's pin note already handled by the lead (both switches in both pins).
+- 20:46 **Full wave-3 overlay at 1M (`storage1m-wave3c` = `eb5a307b7` + B3-a d2+d3 + B5-c d1+d2): file 1,225.1 MB,
+  KeyValueLeafPage 528.6 MB (from 559.2 with d1 only: −5.5 %); string region 1.79 → 1.52 B/record (raw 334 → 269 MB,
+  LZ77 0.644), region table 3.54 → 3.27 B/record; projection acceptance OK. Cumulative vs the wave-1 baseline:
+  file 1,854.3 → 1,225.1 MB (−33.9 %), leaf 1,093.3 → 528.6 MB (−51.7 %).** Pin verification deferred: the
+  working-tree pin tests already reference B3-a's in-progress `StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED`
+  (its follow-up added its switch, as required), so the pins compile only with that code — they will be verified in
+  the combined wave-3 gate. Commit plan: ONE wave-3 commit (B3-a d2+d3+d4 and B5-c d1+d2+d4 together, since the
+  shared pin tests reference both agents' switches), gated once on the worktree after the 100M query leg.
+- 20:50 **B3-a follow-up (d4) done:** run-length lane in `StructuralKeyColumnCodec` (FLAG_LANE_RUN_LENGTH; parentKey
+  column 70 → 40 B after LZ77 per page — LZ77 matches bytes, a 105-bit run's byte boundary shifts) and, the bigger
+  one found by the attribution, a DELTA dictionary in `PathNodeKeyRegion`'s compact form (offset-from-min ids were
+  a byte ramp LZ77 made LARGER, 106 → 110 B; deltas 106 → 8 B; elected on a size TIE because the delta form is never
+  smaller raw — trap noted); ClickBench-shaped leaf pathNodeKey column 0.14 → 0.04 B/record, body 1.35 → 1.25
+  (−7.4 %); expected ≈ −0.14 of the 0.95 B/record body at 1M. Kill switch `-Dsirix.structuralColumn.runLengthLane=
+  false` added to both pins (originals still pass). Verdict check: dormant sibling columns now −2.5 % on a synthetic
+  ±1 page but still +13.7 B/page on real records → stay dormant. Reconciliation: 116,275 − 103,523 = 12,752 =
+  exactly the inline-path (templateDedupAborted) serializations, i.e. index pages (RECORD_TO_REVISIONS et al.), not
+  retries (a retry increments both counters). Snapshot `b3a4-snap` (13 files).
+- 20:52 **Reconciliation resolved:** the 12,752 inline-path serializations at 1M are NAME index leaves (12,198) +
+  PATH_SUMMARY (554); StorageProfile shows 105,464 KeyValueLeafPage writes vs 116,270 serializations ⇒ the NAME
+  leaves are serialized ~6× more often than written (≈ 260 MB of discarded serialization incl. LZ77 at 1M, ≈ 26 GB
+  of codec work at 100M) — an INGEST-CPU lever (deferred-flush retries of hot index leaves), not bytes; parked as
+  a follow-up brief. B3-a COMPLETE (d1 committed, d2+d3+d4 in `b3a4-snap`, 13 files).
+- 20:55 **REBUILD #1 AT 100M DONE (`eb5a307b7`: wave 2 + B6 + B3-a d1): `sirix.data` = 90,446,364,672 B = 90.4 GB
+  (this morning 131.9 GB → −31.4 %); load 46m 55s (unchanged); projection acceptance OK, rows=99,997,497, 97,654
+  row groups.** Page classes: KeyValueLeafPage 70.76 GB (≈ 708 B/row; was ≈ 1,130), OverflowPage 17.45 GB
+  (projection segments + genuine overflows; was ≈ 17.8 GB projection alone), HOTLeafPage 1.93 GB. Section diag at
+  100M: body on wire 1.22 B/record, region table 5.26 B/record (string regions grow without global dictionaries),
+  staged elision metadata 0.80, string region on 100 % of pages, stranded 0. Query leg launched 20:55 from the
+  worktree (`queries100m-vec-wt.sh`, 8 GB, 3 tries, dumps → `results-vec`), to compare with this morning's Σ cold
+  807 s / hot 705 s and its 43 dumps.

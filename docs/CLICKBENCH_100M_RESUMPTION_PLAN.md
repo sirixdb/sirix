@@ -566,3 +566,8 @@ javadoc, cap comment rewritten. Not applied: R7 (measure first), R8 (see §5.4),
 - Rebuild #1 at 100M happens after B3-a (derived elision metadata — the largest measured trie lever) and B5-c; it
   needs the old 124 GB campaign DB (`clickbench-100m-campaign-20260830-0058/db`) deleted first (15 GB free now) and
   the harness's declared `date`/`timestamp` types — every old DB is invalid for the new cap/region/kind layouts.
+
+## Status 2026-08-30 20:55 — rebuild #1 done: 90.4 GB
+- `clickbench-100m-campaign-20260830-2007/db` at `eb5a307b7`: 90.4 GB (−31.4 %), load 46m 55s, acceptance OK.
+- Query leg running from the gate worktree (`queries100m-vec-wt.sh <dir> 8g`); compare with
+  `clickbench-100m-campaign-20260830-0058/results-vec` (43 dumps) and `query-vec-8g.log` (Σ cold 807 s / hot 705 s).
