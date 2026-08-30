@@ -25,6 +25,8 @@ public final class BulkAdoptionDiagnostics {
   private static final LongAdder CARRIERS_OVERSIZED = new LongAdder();
   private static final LongAdder CARRIERS_REFUSED = new LongAdder();
   private static final LongAdder KVL_PAGES_PINNED_AFTER_DEFERRAL_CAP = new LongAdder();
+  private static final LongAdder KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS = new LongAdder();
+  private static final LongAdder KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS = new LongAdder();
 
   private BulkAdoptionDiagnostics() {
     throw new AssertionError("no instances");
@@ -48,6 +50,14 @@ public final class BulkAdoptionDiagnostics {
 
   static void kvlPagePinnedAfterDeferralCap() {
     KVL_PAGES_PINNED_AFTER_DEFERRAL_CAP.increment();
+  }
+
+  static void kvlEncodeDiscardedForUnresolvedCarriers() {
+    KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS.increment();
+  }
+
+  static void kvlEncodeSkippedForUnresolvedCarriers() {
+    KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS.increment();
   }
 
   /** Adopted-leaf overflow carriers staged as immutable side pages. */
@@ -75,6 +85,25 @@ public final class BulkAdoptionDiagnostics {
     return KVL_PAGES_PINNED_AFTER_DEFERRAL_CAP.sum();
   }
 
+  /**
+   * Background pre-serializations that ran to completion and were then thrown away because the
+   * encode had minted overflow carriers with no durable key. Each one is a full body encode — region
+   * build and codec included — whose bytes never reach the file.
+   */
+  public static long kvlEncodesDiscardedForUnresolvedCarriers() {
+    return KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS.sum();
+  }
+
+  /**
+   * Pre-serializations the flush lane declined to start because this page had already been refused
+   * for unresolved carriers. The counterpart to
+   * {@link #kvlEncodesDiscardedForUnresolvedCarriers()}: encodes that did NOT happen. Zero with
+   * {@code -Dsirix.flush.skipRefusedOverflowLeaves=false}.
+   */
+  public static long kvlEncodesSkippedForUnresolvedCarriers() {
+    return KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS.sum();
+  }
+
   /** Reset every counter; tests call this before a measured load. */
   public static void reset() {
     CARRIERS_STAGED.reset();
@@ -82,5 +111,7 @@ public final class BulkAdoptionDiagnostics {
     CARRIERS_OVERSIZED.reset();
     CARRIERS_REFUSED.reset();
     KVL_PAGES_PINNED_AFTER_DEFERRAL_CAP.reset();
+    KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS.reset();
+    KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS.reset();
   }
 }

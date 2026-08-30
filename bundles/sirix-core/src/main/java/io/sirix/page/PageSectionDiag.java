@@ -6,6 +6,7 @@ package io.sirix.page;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.pax.RegionTable;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
 import java.util.concurrent.atomic.LongAdder;
 
@@ -337,6 +338,123 @@ public final class PageSectionDiag {
   private static final LongAdder[] OVERFLOW_DESCRIPTOR_HISTOGRAM = newAdders(4);
 
   // ==================================================================================
+  // U6 — serialization-work attribution (the discarded-encode ledger).
+  //
+  // A page can be FULLY encoded — body staging, template dedup, the region build and its per-region
+  // LZ77 — without one byte of that work reaching the file. The async snapshot pre-serializer
+  // encodes a disposable copy and may then REFUSE it, and a refused leaf is promoted back into the
+  // live TIL, where the next epoch encodes it again. Byte totals cannot see this: they count bytes
+  // written, not the work that produced them, and a discarded encode writes nothing.
+  //
+  // These lanes count the encodes themselves, split by the call path that asked for one and by the
+  // page's index type, time them, and reconcile them against the pages the writer actually
+  // appended. The repeat ledger answers the question a ratio cannot: whether an excess encode is
+  // the SAME page key encoded again, and whether that repeat happened inside one flush epoch (a
+  // genuine redundancy) or across epochs (a page that keeps being refused, or keeps changing).
+  // ==================================================================================
+
+  /**
+   * Whether the section diagnostic is active in this JVM. Public because the ingest and flush paths
+   * that feed the U6 lanes live outside this package; every U6 call site is guarded by it, so all of
+   * U6 folds away when the property is absent.
+   */
+  public static final boolean ENABLED = Boolean.getBoolean("sirix.pageSectionDiag");
+
+  /** Call path: the write path — {@code PagePersister.serializePage} on the way to the file. */
+  public static final int SER_PATH_WRITE = 0;
+
+  /** Call path: the async snapshot pre-serializer ({@code PageKind.serializeDisposablePage}). */
+  public static final int SER_PATH_SNAPSHOT = 1;
+
+  private static final int SER_PATH_COUNT = 2;
+
+  /** Discard: the encoded copy still carried overflow references with unassigned disk keys. */
+  public static final int DISCARD_UNRESOLVED_OVERFLOW = 0;
+
+  /** Discard: the encoded copy did not fit the disposable native frame it must be published into. */
+  public static final int DISCARD_FRAME_TOO_SMALL = 1;
+
+  /** Discard: serialization threw, so the encode produced nothing publishable. */
+  public static final int DISCARD_SERIALIZATION_FAILED = 2;
+
+  private static final int DISCARD_REASON_COUNT = 3;
+
+  /** Carrier state of a refused snapshot copy: every carrier already durable (or none). */
+  public static final int REFUSAL_CARRIERS_RESOLVED = 0;
+
+  /** Carrier state of a refused copy: its unresolved carriers are staged side pages. */
+  public static final int REFUSAL_CARRIERS_PENDING = 1;
+
+  /** Carrier state of a refused copy: a carrier only the recursive final commit can key. */
+  public static final int REFUSAL_CARRIERS_UNRESOLVED = 2;
+
+  private static final int REFUSAL_CARRIER_STATE_COUNT = 3;
+
+  /** Refused snapshot copies by the carrier state observed on the copy, per {@code REFUSAL_CARRIERS_*}. */
+  private static final LongAdder[] REFUSAL_CARRIER_STATE = newAdders(REFUSAL_CARRIER_STATE_COUNT);
+
+  /** Snapshot entries that reached the pre-serializer already carrying the refusal mark. */
+  private static final LongAdder MARKED_ARRIVALS = new LongAdder();
+
+  /** Full (cache-missing) encodes per index-type id. */
+  private static final LongAdder[] FULL_ENCODES_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Wall-clock nanos spent inside those encodes, per index-type id. */
+  private static final LongAdder[] FULL_ENCODE_NANOS_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Bytes each of those encodes produced, per index-type id. */
+  private static final LongAdder[] FULL_ENCODE_BYTES_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Full encodes per {@code SER_PATH_*}. */
+  private static final LongAdder[] FULL_ENCODES_BY_PATH = newAdders(SER_PATH_COUNT);
+
+  /** Wall-clock nanos of those encodes per {@code SER_PATH_*}. */
+  private static final LongAdder[] FULL_ENCODE_NANOS_BY_PATH = newAdders(SER_PATH_COUNT);
+
+  /** Serializations served straight from a page's encoded cache — no encode ran. */
+  private static final LongAdder[] CACHE_SERVES_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Pages whose bytes the writer actually appended to the file, per index-type id. */
+  private static final LongAdder[] PAGE_WRITES_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Encodes whose bytes were thrown away, per {@code DISCARD_*}. */
+  private static final LongAdder[] DISCARDED_ENCODES_BY_REASON = newAdders(DISCARD_REASON_COUNT);
+
+  /** Bytes those discarded encodes produced, per {@code DISCARD_*}. */
+  private static final LongAdder[] DISCARDED_ENCODE_BYTES_BY_REASON = newAdders(DISCARD_REASON_COUNT);
+
+  /** Snapshot leaves promoted back into the live TIL after a refused encode, per index-type id. */
+  private static final LongAdder[] PROMOTED_PAGES_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Snapshot leaves deferred to the next epoch BEFORE any encode ran, per index-type id. */
+  private static final LongAdder[] DEFERRED_PAGES_BY_INDEX_TYPE = newAdders(INDEX_TYPE_SLOTS);
+
+  /** Repeat encodes of a page key already encoded inside the CURRENT flush epoch. */
+  private static final LongAdder SAME_EPOCH_REPEAT_ENCODES = new LongAdder();
+
+  /** Repeat encodes of a page key last encoded in an EARLIER flush epoch. */
+  private static final LongAdder CROSS_EPOCH_REPEAT_ENCODES = new LongAdder();
+
+  /** Encodes the repeat ledger could not track because it hit {@link #REPEAT_LEDGER_CAPACITY}. */
+  private static final LongAdder REPEAT_LEDGER_OVERFLOW = new LongAdder();
+
+  /**
+   * Hard bound on the repeat ledger. The ledger holds one entry per (index type, page key) pair and
+   * exists only under the diagnostic, but a 100M load has enough distinct leaves to matter; past the
+   * bound new keys are counted as overflow rather than grown into.
+   */
+  private static final int REPEAT_LEDGER_CAPACITY = 8_000_000;
+
+  /** (index type, page key) → {@code (epoch << 32) | encodeCount}. Guarded by itself. */
+  private static final Long2LongOpenHashMap REPEAT_LEDGER = new Long2LongOpenHashMap(1 << 16);
+
+  /**
+   * Flush-epoch counter. Written by the flush driver before each snapshot epoch and read by every
+   * encoding thread; a plain int would let a worker attribute a repeat to the previous epoch.
+   */
+  private static volatile int flushEpoch;
+
+  // ==================================================================================
   // U4 — post-envelope region bytes.
   //
   // {@link #REGION_BYTES_BY_KIND} counts a region's RAW payload; what the file pays is the payload
@@ -523,6 +641,292 @@ public final class PageSectionDiag {
     return count <= 3
         ? 2
         : 3;
+  }
+
+  // ─────────────────────────────────── U6 recording API
+
+  /**
+   * Open a new flush epoch. Called once per snapshot flush by the flush driver, so a repeat encode
+   * of the same page key can be attributed to redundancy inside one epoch or to a leaf that survives
+   * from epoch to epoch.
+   */
+  public static void noteFlushEpoch() {
+    flushEpoch++;
+  }
+
+  /**
+   * Record one FULL page encode — a serialization that missed the page's encoded cache and therefore
+   * ran the whole body staging, template dedup, region build and codec pass.
+   *
+   * @param indexTypeId {@link IndexType#getID()} of the encoded page
+   * @param callPath one of {@link #SER_PATH_WRITE}, {@link #SER_PATH_SNAPSHOT}
+   * @param nanos wall-clock nanos the encode took
+   * @param encodedBytes bytes the encode produced
+   * @param pageKey the page's key, for the repeat ledger
+   */
+  public static void recordFullEncode(final int indexTypeId, final int callPath, final long nanos,
+      final long encodedBytes, final long pageKey) {
+    final int slot = indexTypeSlot(indexTypeId);
+    FULL_ENCODES_BY_INDEX_TYPE[slot].increment();
+    FULL_ENCODE_NANOS_BY_INDEX_TYPE[slot].add(nanos);
+    FULL_ENCODE_BYTES_BY_INDEX_TYPE[slot].add(encodedBytes);
+    final int pathSlot = callPath >= 0 && callPath < SER_PATH_COUNT
+        ? callPath
+        : SER_PATH_WRITE;
+    FULL_ENCODES_BY_PATH[pathSlot].increment();
+    FULL_ENCODE_NANOS_BY_PATH[pathSlot].add(nanos);
+    noteRepeatEncode(slot, pageKey);
+  }
+
+  /** Ledger one encode of {@code (slot, pageKey)} and classify it as first / same-epoch / cross-epoch. */
+  private static void noteRepeatEncode(final int slot, final long pageKey) {
+    final int epoch = flushEpoch;
+    final long ledgerKey = pageKey * INDEX_TYPE_SLOTS + slot;
+    synchronized (REPEAT_LEDGER) {
+      final long previous = REPEAT_LEDGER.get(ledgerKey);
+      if (previous == 0L) {
+        if (REPEAT_LEDGER.size() >= REPEAT_LEDGER_CAPACITY) {
+          REPEAT_LEDGER_OVERFLOW.increment();
+          return;
+        }
+        REPEAT_LEDGER.put(ledgerKey, packLedgerEntry(epoch, 1));
+        return;
+      }
+      if ((int) (previous >>> 32) == epoch) {
+        SAME_EPOCH_REPEAT_ENCODES.increment();
+      } else {
+        CROSS_EPOCH_REPEAT_ENCODES.increment();
+      }
+      REPEAT_LEDGER.put(ledgerKey, packLedgerEntry(epoch, (int) previous + 1));
+    }
+  }
+
+  /** {@code count} is always {@code >= 1}, so a packed entry is never the map's {@code 0} default. */
+  private static long packLedgerEntry(final int epoch, final int count) {
+    return ((long) epoch << 32) | (count & 0xFFFF_FFFFL);
+  }
+
+  /**
+   * Record one serialization served straight from the page's encoded cache: bytes were copied, no
+   * encode ran.
+   *
+   * @param indexTypeId {@link IndexType#getID()} of the page
+   */
+  public static void recordCacheServe(final int indexTypeId) {
+    CACHE_SERVES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].increment();
+  }
+
+  /**
+   * Record one page whose bytes the writer appended to the file. The denominator every encode count
+   * is measured against.
+   *
+   * @param indexTypeId {@link IndexType#getID()} of the written page
+   */
+  public static void recordPageWrite(final int indexTypeId) {
+    PAGE_WRITES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].increment();
+  }
+
+  /**
+   * Record one encode whose bytes were thrown away.
+   *
+   * @param reason one of {@link #DISCARD_UNRESOLVED_OVERFLOW}, {@link #DISCARD_FRAME_TOO_SMALL},
+   *        {@link #DISCARD_SERIALIZATION_FAILED}
+   * @param encodedBytes bytes the discarded encode produced ({@code 0} when unknown)
+   */
+  public static void recordDiscardedEncode(final int reason, final long encodedBytes) {
+    if (reason < 0 || reason >= DISCARD_REASON_COUNT) {
+      return;
+    }
+    DISCARDED_ENCODES_BY_REASON[reason].increment();
+    DISCARDED_ENCODE_BYTES_BY_REASON[reason].add(encodedBytes);
+  }
+
+  /**
+   * Record one snapshot leaf promoted back into the live TIL after its encode was refused.
+   *
+   * @param indexTypeId {@link IndexType#getID()} of the promoted page
+   */
+  public static void recordSnapshotPromotion(final int indexTypeId) {
+    PROMOTED_PAGES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].increment();
+  }
+
+  /**
+   * Record one snapshot leaf deferred to the next epoch before any encode ran — the cheap refusal,
+   * counted separately because it wastes no codec work.
+   *
+   * @param indexTypeId {@link IndexType#getID()} of the deferred page
+   */
+  public static void recordSnapshotDeferral(final int indexTypeId) {
+    DEFERRED_PAGES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].increment();
+  }
+
+  static long fullEncodesForIndexType(final int indexTypeId) {
+    return FULL_ENCODES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].sum();
+  }
+
+  static long cacheServesForIndexType(final int indexTypeId) {
+    return CACHE_SERVES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].sum();
+  }
+
+  static long pageWritesForIndexType(final int indexTypeId) {
+    return PAGE_WRITES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].sum();
+  }
+
+  static long promotedPagesForIndexType(final int indexTypeId) {
+    return PROMOTED_PAGES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].sum();
+  }
+
+  static long deferredPagesForIndexType(final int indexTypeId) {
+    return DEFERRED_PAGES_BY_INDEX_TYPE[indexTypeSlot(indexTypeId)].sum();
+  }
+
+  static long discardedEncodesForReason(final int reason) {
+    return reason >= 0 && reason < DISCARD_REASON_COUNT
+        ? DISCARDED_ENCODES_BY_REASON[reason].sum()
+        : 0L;
+  }
+
+  static long fullEncodesForPath(final int callPath) {
+    return callPath >= 0 && callPath < SER_PATH_COUNT
+        ? FULL_ENCODES_BY_PATH[callPath].sum()
+        : 0L;
+  }
+
+  /**
+   * Record the carrier state observed on a refused snapshot copy, which is what decides whether the
+   * refusal is permanent for this content.
+   *
+   * @param state one of {@link #REFUSAL_CARRIERS_RESOLVED}, {@link #REFUSAL_CARRIERS_PENDING},
+   *        {@link #REFUSAL_CARRIERS_UNRESOLVED}
+   */
+  public static void recordRefusalCarrierState(final int state) {
+    if (state >= 0 && state < REFUSAL_CARRIER_STATE_COUNT) {
+      REFUSAL_CARRIER_STATE[state].increment();
+    }
+  }
+
+  /** Record one snapshot entry that arrived at the pre-serializer already marked as unflushable. */
+  public static void recordMarkedArrival() {
+    MARKED_ARRIVALS.increment();
+  }
+
+  static long refusalCarrierState(final int state) {
+    return state >= 0 && state < REFUSAL_CARRIER_STATE_COUNT
+        ? REFUSAL_CARRIER_STATE[state].sum()
+        : 0L;
+  }
+
+  static long markedArrivals() {
+    return MARKED_ARRIVALS.sum();
+  }
+
+  static long sameEpochRepeatEncodes() {
+    return SAME_EPOCH_REPEAT_ENCODES.sum();
+  }
+
+  static long crossEpochRepeatEncodes() {
+    return CROSS_EPOCH_REPEAT_ENCODES.sum();
+  }
+
+  /**
+   * Print the serialization-work ledger: encodes against writes per index type, the call path that
+   * asked for each encode, what the refusals cost, and the repeat histogram.
+   */
+  private static void dumpSerializationWork() {
+    long encodesTotal = 0;
+    long writesTotal = 0;
+    long cacheServesTotal = 0;
+    long encodeNanosTotal = 0;
+    long encodeBytesTotal = 0;
+    for (int slot = 0; slot < INDEX_TYPE_SLOTS; slot++) {
+      encodesTotal += FULL_ENCODES_BY_INDEX_TYPE[slot].sum();
+      writesTotal += PAGE_WRITES_BY_INDEX_TYPE[slot].sum();
+      cacheServesTotal += CACHE_SERVES_BY_INDEX_TYPE[slot].sum();
+      encodeNanosTotal += FULL_ENCODE_NANOS_BY_INDEX_TYPE[slot].sum();
+      encodeBytesTotal += FULL_ENCODE_BYTES_BY_INDEX_TYPE[slot].sum();
+    }
+    if (encodesTotal == 0 && writesTotal == 0) {
+      return;
+    }
+
+    System.out.printf(
+        "[PageSectionDiag] serialization work: fullEncodes=%,d  cacheServes=%,d  pagesWritten=%,d"
+            + "  excessEncodes=%,d (%.1f%% of encodes)  encodeWall=%.2f s over %,d B produced%n",
+        encodesTotal, cacheServesTotal, writesTotal, encodesTotal - writesTotal,
+        pct(encodesTotal - writesTotal, encodesTotal), encodeNanosTotal / 1e9, encodeBytesTotal);
+
+    System.out.printf("[PageSectionDiag]   by call path: write=%,d (%.2f s)  snapshotPreSerialize=%,d (%.2f s)%n",
+        FULL_ENCODES_BY_PATH[SER_PATH_WRITE].sum(), FULL_ENCODE_NANOS_BY_PATH[SER_PATH_WRITE].sum() / 1e9,
+        FULL_ENCODES_BY_PATH[SER_PATH_SNAPSHOT].sum(), FULL_ENCODE_NANOS_BY_PATH[SER_PATH_SNAPSHOT].sum() / 1e9);
+
+    for (int slot = 0; slot < INDEX_TYPE_SLOTS; slot++) {
+      final long encodes = FULL_ENCODES_BY_INDEX_TYPE[slot].sum();
+      final long writes = PAGE_WRITES_BY_INDEX_TYPE[slot].sum();
+      final long serves = CACHE_SERVES_BY_INDEX_TYPE[slot].sum();
+      final long promoted = PROMOTED_PAGES_BY_INDEX_TYPE[slot].sum();
+      final long deferred = DEFERRED_PAGES_BY_INDEX_TYPE[slot].sum();
+      if (encodes == 0 && writes == 0 && serves == 0) {
+        continue;
+      }
+      System.out.printf(
+          "[PageSectionDiag]   indexType %-18s encodes=%,d  writes=%,d  encodesPerWrite=%.2f"
+              + "  cacheServes=%,d  wall=%.2f s  bytes=%,d  snapshotPromoted=%,d  snapshotDeferred=%,d%n",
+          indexTypeName(slot), encodes, writes, writes == 0
+              ? 0.0d
+              : (double) encodes / writes, serves, FULL_ENCODE_NANOS_BY_INDEX_TYPE[slot].sum() / 1e9,
+          FULL_ENCODE_BYTES_BY_INDEX_TYPE[slot].sum(), promoted, deferred);
+    }
+
+    long discardedEncodes = 0;
+    long discardedBytes = 0;
+    for (int reason = 0; reason < DISCARD_REASON_COUNT; reason++) {
+      discardedEncodes += DISCARDED_ENCODES_BY_REASON[reason].sum();
+      discardedBytes += DISCARDED_ENCODE_BYTES_BY_REASON[reason].sum();
+    }
+    System.out.printf(
+        "[PageSectionDiag]   discarded encodes=%,d (%,d B produced then dropped)"
+            + "  [unresolvedOverflow=%,d  frameTooSmall=%,d  serializationFailed=%,d]%n",
+        discardedEncodes, discardedBytes, DISCARDED_ENCODES_BY_REASON[DISCARD_UNRESOLVED_OVERFLOW].sum(),
+        DISCARDED_ENCODES_BY_REASON[DISCARD_FRAME_TOO_SMALL].sum(),
+        DISCARDED_ENCODES_BY_REASON[DISCARD_SERIALIZATION_FAILED].sum());
+
+    System.out.printf(
+        "[PageSectionDiag]   refusal carrier state: resolved=%,d  pendingSideWrites=%,d  unresolved=%,d"
+            + "  markedArrivals=%,d%n",
+        REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_RESOLVED].sum(),
+        REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_PENDING].sum(),
+        REFUSAL_CARRIER_STATE[REFUSAL_CARRIERS_UNRESOLVED].sum(), MARKED_ARRIVALS.sum());
+
+    // The repeat ledger: distinct page identities against the encodes spent on them.
+    long distinctKeys = 0;
+    long once = 0;
+    long twice = 0;
+    long threeToFive = 0;
+    long sixPlus = 0;
+    int maxCount = 0;
+    synchronized (REPEAT_LEDGER) {
+      distinctKeys = REPEAT_LEDGER.size();
+      for (final long packed : REPEAT_LEDGER.values()) {
+        final int count = (int) packed;
+        if (count > maxCount) {
+          maxCount = count;
+        }
+        if (count == 1) {
+          once++;
+        } else if (count == 2) {
+          twice++;
+        } else if (count <= 5) {
+          threeToFive++;
+        } else {
+          sixPlus++;
+        }
+      }
+    }
+    System.out.printf(
+        "[PageSectionDiag]   repeat ledger: distinctPageKeys=%,d  encodedOnce=%,d  twice=%,d  3-5x=%,d  6+x=%,d"
+            + "  max=%,d  repeats[sameEpoch=%,d crossEpoch=%,d]  ledgerOverflow=%,d%n",
+        distinctKeys, once, twice, threeToFive, sixPlus, maxCount, SAME_EPOCH_REPEAT_ENCODES.sum(),
+        CROSS_EPOCH_REPEAT_ENCODES.sum(), REPEAT_LEDGER_OVERFLOW.sum());
   }
 
   /** One slot per {@link IndexType} id, plus a trailing catch-all for an id outside the enum. */
@@ -989,6 +1393,9 @@ public final class PageSectionDiag {
             noCandidatePages, refusedPages);
       }
     }
+
+    // ---- U6: serialization work — encodes against the pages that reached the file ----
+    dumpSerializationWork();
 
     // ---- U2: string region suppressed by an overflow descriptor ----
     final long regionBuildPages = REGION_BUILD_PAGES.sum();

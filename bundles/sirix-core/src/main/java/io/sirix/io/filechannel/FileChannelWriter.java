@@ -38,6 +38,7 @@ import io.sirix.io.Writer;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.PageSectionDiag;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
@@ -1048,6 +1049,21 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       serializedPageLength = serializedPageBytes.length;
     } else {
       throw new IllegalStateException("Failed to build serialized page payload");
+    }
+
+    if (PageSectionDiag.ENABLED && keyValueLeafPage != null) {
+      // [DIAG] The single choke point for bytes that reach the file. The serialization ledger's
+      // encode counts are meaningless without it: only a per-index-type write count can say which
+      // pages are encoded more often than they are written.
+      //
+      // A leaf reaches this writer without an index type in the unit tests that drive it directly,
+      // and the core test task turns the diagnostic ON by default, so an unguarded dereference here
+      // fails eight of them. A page whose type is unknown is simply not attributed: the ledger's
+      // question is per-type, and a diagnostic may never decide whether a page is written.
+      final var writtenIndexType = keyValueLeafPage.getIndexType();
+      if (writtenIndexType != null) {
+        PageSectionDiag.recordPageWrite(writtenIndexType.getID());
+      }
     }
 
     if (storageProfileEnabled) {

@@ -1700,6 +1700,9 @@ public enum PageKind {
       final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
       if (cachedSegment != null) {
         sink.writeSegment(cachedSegment, 0, cachedSegment.byteSize());
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCacheServe(keyValueLeafPage.getIndexType().getID());
+        }
         return;
       }
 
@@ -1707,8 +1710,21 @@ public enum PageKind {
       final var bytes = keyValueLeafPage.getBytes();
       if (bytes != null) {
         sink.write(bytes.toByteArray());
+        if (PAGE_SECTION_DIAG) {
+          PageSectionDiag.recordCacheServe(keyValueLeafPage.getIndexType().getID());
+        }
         return;
       }
+
+      // [DIAG] Past this point the page is FULLY encoded: staging, template dedup, the region build
+      // and the codec pass all run. The U6 ledger times exactly that work and attributes it to the
+      // call path, so an encode whose bytes are later discarded is visible as work, not as bytes.
+      final long encodeStartNanos = PAGE_SECTION_DIAG
+          ? System.nanoTime()
+          : 0L;
+      final long encodeStartPosition = PAGE_SECTION_DIAG
+          ? sink.writePosition()
+          : 0L;
 
       // Ensure slotted page exists — ALL pages use slotted page format V0
       keyValueLeafPage.ensureSlottedPage();
@@ -1921,6 +1937,13 @@ public enum PageKind {
       // disposable-copy caller may deliberately own the empty-pipeline identity copy; it copies the
       // sink into that frame only after this method (and therefore every flyweight unbind) returns.
       keyValueLeafPage.clearRecordsForGC();
+
+      if (PAGE_SECTION_DIAG) {
+        PageSectionDiag.recordFullEncode(keyValueLeafPage.getIndexType().getID(), disposableWriterTable == null
+            ? PageSectionDiag.SER_PATH_WRITE
+            : PageSectionDiag.SER_PATH_SNAPSHOT, System.nanoTime() - encodeStartNanos,
+            sink.writePosition() - encodeStartPosition, keyValueLeafPage.getPageKey());
+      }
     }
 
     private static boolean skipsEmptyPipelineIdentityCache(final ResourceConfiguration resourceConfig,

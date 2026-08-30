@@ -68,6 +68,7 @@ import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
+import io.sirix.page.PageSectionDiag;
 import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.page.ProjectionIndexPage;
@@ -2619,6 +2620,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return;
       }
       injectAsyncFlushFault("write");
+      if (PageSectionDiag.ENABLED) {
+        // One epoch per flush: the repeat ledger uses it to separate a page encoded twice inside a
+        // single flush from a page that is encoded again in every flush it survives.
+        PageSectionDiag.noteFlushEpoch();
+      }
       final BytesOut<?> bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
       final PageReference shadowRef = new PageReference();
       try {
@@ -3252,6 +3258,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       PageKind.KEYVALUELEAFPAGE.serializeDisposablePage(resourceConfig, bytes, page, SerializationType.DATA);
 
       if (!carriersKnownResolved && hasUnresolvedOverflowReferences(page)) {
+        if (PageSectionDiag.ENABLED) {
+          // The encode above ran in full and is about to be dropped: the leaf goes back to the live
+          // TIL and the write path encodes it again. Count the work, not the (absent) bytes.
+          PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_UNRESOLVED_OVERFLOW,
+              pooledSegment.position());
+        }
         return false;
       }
       if (!directIdentity) {
@@ -3265,6 +3277,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final MemorySegment frame = page.getSlottedPage();
       if (encodedLength <= 0L || frame == null || !frame.isNative() || frame.isReadOnly()
           || encodedLength > frame.byteSize()) {
+        if (PageSectionDiag.ENABLED) {
+          PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_FRAME_TOO_SMALL, encodedLength);
+        }
         return false;
       }
 
@@ -3312,7 +3327,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             // cleanup publishes. Skip the serialization entirely and let cleanupSnapshot()
             // re-promote the leaf for the next epoch — no deep copy, no encoded bytes discarded.
             kvl.noteFlushDeferral();
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordSnapshotDeferral(kvl.getIndexType().getID());
+            }
             log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_RETRY_NEXT_EPOCH);
+            return;
+          }
+          if (wasRefusedForUnresolvedCarriers(kvl)) {
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordMarkedArrival();
+            }
+            // An earlier epoch already encoded this leaf's records and had to drop every byte: the
+            // encode itself mints the carriers, and only the recursive final commit can key them.
+            // Promoting now reaches exactly that outcome without paying the encode a second time.
+            BulkAdoptionDiagnostics.kvlEncodeSkippedForUnresolvedCarriers();
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordSnapshotPromotion(kvl.getIndexType().getID());
+            }
+            log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
             return;
           }
           // Bulk-import ADOPTED pages are immutable post-adoption: serialize IN PLACE, skipping
@@ -3335,6 +3367,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               // cleanupSnapshot() promotes the ORIGINAL page into the live TIL, where recursive
               // final commit either resolves the overflow or serializes with an ordinary owned
               // cache. No borrowed pooled alias is ever published on this path.
+              final KeyValueLeafPage.OverflowReferenceState refusedState =
+                  serializationCopy.overflowReferenceState();
+              if (PageSectionDiag.ENABLED) {
+                PageSectionDiag.recordRefusalCarrierState(switch (refusedState) {
+                  case RESOLVED -> PageSectionDiag.REFUSAL_CARRIERS_RESOLVED;
+                  case PENDING_SIDE_WRITES -> PageSectionDiag.REFUSAL_CARRIERS_PENDING;
+                  case UNRESOLVED -> PageSectionDiag.REFUSAL_CARRIERS_UNRESOLVED;
+                });
+              }
+              if (refusedState == KeyValueLeafPage.OverflowReferenceState.UNRESOLVED) {
+                // Read the copy's reference map BEFORE closing it: this is the only moment the
+                // CAUSE of the refusal is observable, and it is the cause that predicts the next
+                // epoch. UNRESOLVED is the permanent one — a carrier that is neither durable nor
+                // staged can only be keyed by the recursive final commit. PENDING_SIDE_WRITES is
+                // deliberately NOT marked: those carriers gain keys one epoch later and the
+                // deferral arm above exists to let exactly those pages through. Nor does a
+                // frame-size refusal mark, since a later encode of the page can fit.
+                noteRefusedOverflowLeaf(serializationCopy);
+                BulkAdoptionDiagnostics.kvlEncodeDiscardedForUnresolvedCarriers();
+              }
               if (!inPlace) {
                 serializationCopy.close();
               }
@@ -3344,6 +3396,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 // the regression visible instead of letting the arena tell the story hours later.
                 BulkAdoptionDiagnostics.kvlPagePinnedAfterDeferralCap();
               }
+              if (PageSectionDiag.ENABLED) {
+                PageSectionDiag.recordSnapshotPromotion(kvl.getIndexType().getID());
+              }
               log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
               return;
             }
@@ -3352,6 +3407,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             // closeWindowLeftovers — release its pooled segments before recording.
             if (!inPlace) {
               serializationCopy.close();
+            }
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_SERIALIZATION_FAILED, 0L);
             }
             throw t;
           }
@@ -5289,6 +5347,60 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * rather than an unbounded retry. Package-private and non-final for the test's cap-zero arm.
    */
   static int MAX_KVL_FLUSH_DEFERRALS = 2;
+
+  /**
+   * Whether the flush lane declines to re-encode a leaf whose previous pre-serialization minted
+   * overflow carriers with no durable key.
+   *
+   * <p>
+   * Such an encode is unpublishable by construction: {@code addReferences} discovers the overlong
+   * records DURING the encode, so the carrier keys are assigned only by the recursive final commit,
+   * and the copy is dropped the moment the encode finishes. The leaf is then promoted into the live
+   * intent log — where the next epoch finds it and encodes it again. The refusal is a property of
+   * the page's records, and records are only added to a leaf inside a flush window, never removed,
+   * so the second encode is guaranteed to end the same way as the first. Declining it reaches the
+   * identical outcome (promote to the intent log, write at the final commit) without the body
+   * staging, region build and codec pass — and without the deep copy that feeds them.
+   * </p>
+   *
+   * <p>
+   * Kill switch {@code -Dsirix.flush.skipRefusedOverflowLeaves=false} restores the unconditional
+   * re-encode. Non-final and package-private so a test can drive both arms in one JVM, exactly as
+   * {@link #MAX_KVL_FLUSH_DEFERRALS} is; production reads it once per snapshot entry, never per
+   * record.
+   * </p>
+   */
+  static boolean skipRefusedOverflowLeaves =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.flush.skipRefusedOverflowLeaves"));
+
+  /**
+   * Leaf identities whose pre-serialization minted overflow carriers only the recursive final commit
+   * can key. Always allocated so the kill switch can be flipped inside one JVM.
+   */
+  private final RefusedOverflowLeafTable refusedOverflowLeaves =
+      new RefusedOverflowLeafTable(RefusedOverflowLeafTable.DEFAULT_SLOTS);
+
+  /**
+   * Remember that this leaf's content pre-serializes into carriers the background flush cannot key.
+   *
+   * @param page the refused snapshot copy — it carries the same identity as the live leaf
+   */
+  private void noteRefusedOverflowLeaf(final KeyValueLeafPage page) {
+    if (skipRefusedOverflowLeaves) {
+      refusedOverflowLeaves.note(page.getPageKey(), page.getIndexType().getID());
+    }
+  }
+
+  /**
+   * Whether an earlier epoch already proved this leaf's encode unpublishable.
+   *
+   * @param page the live leaf the flush lane is about to pre-serialize
+   * @return {@code true} when the encode is known to end in a discard
+   */
+  private boolean wasRefusedForUnresolvedCarriers(final KeyValueLeafPage page) {
+    return skipRefusedOverflowLeaves && refusedOverflowLeaves.contains(page.getPageKey(),
+        page.getIndexType().getID());
+  }
 
   @Override
   public KeyValueLeafPage prepareDocumentLeafForBlit(final long recordPageKey) {

@@ -2633,3 +2633,17 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   D2 (hoist the refusal ahead of the encode) approved with guardrails: the unsafe failure direction must be
   impossible (no leaf may be stranded or pinned to final commit), `sirix.data` digest identical, acceptance = the
   counter gap closing, and any reader-visible change gets a query leg.
+- 00:56 **L1 SCREEN RESULT (full 100M corpus, exact per-window distinct sets, per decile): a leaf-sized window does
+  NOT subsume the global dictionary.** distinct-byte ratio per window — URL 0.730 (W=10, today) → 0.569 (W=1234) →
+  0.513 (W=10000); Referer 0.690 → 0.534 → 0.496; Title 0.682 → 0.416 → 0.329; SearchPhrase 0.870 → 0.801 → 0.757.
+  Weighted over the four columns W=1234 gives 0.522, i.e. a 2^17-slot leaf recovers ≈ 8 GB of the 16.9 GB those
+  columns occupy in the trie's 19.31 GB string region, against ≈ 15 GB for naming global ids — and LZ77 already
+  reaches 0.652 on that region, better than a per-leaf dictionary at today's W=10, so part of L1's raw gain is
+  already banked. Deciles are stable (URL 1.97–2.69 at W=1234), so this is not a clustering artefact. **DECISION:
+  P2 segments 0 → 1 → 5 is the storage path; L1 remains a separate lever for framing/leaf count, not for value
+  duplication.**
+- 00:57 **Ingestion D2 gated and accepted** (full :sirix-core:test rc=1 only on the known order-dependent Mockito
+  flake; targeted io.sirix.io.filechannel.* + access.trx.page.* rc=0). Lead fixed one defect the agent's suite
+  selection missed: the new per-write diagnostic dereferenced `getIndexType()` without a null guard and the core
+  test task enables the diag by default, failing 8 `FileChannelWriterEmptyPipelineTest` cases; a page whose type is
+  unknown is now simply not attributed.
