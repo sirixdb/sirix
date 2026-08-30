@@ -7,10 +7,8 @@ import io.sirix.cache.HOTLookupCache;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PathSummaryCacheKey;
 import io.sirix.cache.PathSummaryData;
-import io.sirix.cache.RBIndexKey;
 import io.sirix.cache.RevisionRootPageCacheKey;
 import io.sirix.index.name.Names;
-import io.sirix.node.interfaces.Node;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
@@ -29,8 +27,6 @@ public final class EmptyBufferManager implements BufferManager {
 
   private static final EmptyCache<RevisionRootPageCacheKey, RevisionRootPage> REVISION_ROOT_PAGE_CACHE =
       new EmptyCache<>();
-
-  private static final EmptyCache<RBIndexKey, Node> INDEX_CACHE = new EmptyCache<>();
 
   private static final HOTLookupCache HOT_LOOKUP_CACHE = HOTLookupCache.disabled();
 
@@ -68,11 +64,6 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache() {
     return REVISION_ROOT_PAGE_CACHE;
-  }
-
-  @Override
-  public Cache<RBIndexKey, Node> getIndexCache() {
-    return INDEX_CACHE;
   }
 
   @Override

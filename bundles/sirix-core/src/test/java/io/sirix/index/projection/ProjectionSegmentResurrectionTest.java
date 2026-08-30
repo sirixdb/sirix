@@ -7,11 +7,11 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * NO EXECUTION HAS EVER PRODUCED EITHER FORM. This class passes against unmodified production code,
  * as did every other probe run for task #57 — three strategies, six phases, three window widths,
- * point reads, content bytes and a full range enumeration, with the vulnerable in-place split
+ * point reads, content bytes and a full range enumeration, with a ref-carrying incremental split
  * confirmed each time. What this class therefore IS is a pinned invariant rather than a regression
  * test: if a future change makes the walk reachable, the byte comparison below fails instead of a
  * database quietly serving stale segments.
@@ -62,7 +62,7 @@ final class ProjectionSegmentResurrectionTest {
   private static final String RESOURCE = "projection-segment-resurrection";
   private static final Path DATABASE_PATH = JsonTestHelper.PATHS.PATH1.getFile();
 
-  /** Measured: the in-place leaf split first appears around this many row groups in this shape. */
+  /** Measured: a ref-carrying incremental leaf split appears within this many row groups. */
   private static final int ROW_GROUPS = 2000;
 
   @BeforeEach
@@ -79,7 +79,6 @@ final class ProjectionSegmentResurrectionTest {
           ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT).build());
     }
     VersioningType.resetFragmentMergeCounters();
-    HOTTrieWriter.resetInPlaceLeafSplits();
   }
 
   @AfterEach
@@ -107,19 +106,20 @@ final class ProjectionSegmentResurrectionTest {
       writeSegments(session, 1, (byte) 3);
       writeSegments(session, 1, (byte) 4);
 
-      // TWO WITNESSES, both required before any absence assertion below means anything. The merge
-      // witness alone is insufficient: measured elsewhere, a shape can reconstruct fragments while
-      // never taking the in-place split, and the split is the only thing that makes a stale
-      // fragment chain reachable. Claiming split coverage in a COMMENT (as this class used to) is
-      // exactly what HOTTrieWriter's own counter javadoc says not to do.
-      assertTrue(HOTTrieWriter.inPlaceLeafSplits() > 0,
-          "no in-place leaf split ran, so this case covers nothing (splits=" + HOTTrieWriter.inPlaceLeafSplits() + ")");
+      // TWO WITNESSES, both required before any absence assertion below means anything. Starting
+      // from a root leaf, the shared driver can create an indirect root only by a structural split;
+      // this is a production-state witness and does not depend on a retired legacy counter.
       assertTrue(VersioningType.multiFragmentMerges() > 0,
           "the merge path was never entered, so this case proves nothing (merges="
               + VersioningType.multiFragmentMerges() + ")");
 
       try (JsonNodeTrx probe = session.beginNodeTrx()) {
         final StorageEngineReader reader = probe.getStorageEngineReader();
+        assertTrue(reader.loadHOTPage(ProjectionIndexHOTStorage.rootReference(reader, 0)) instanceof HOTIndirectPage,
+            "the projection remained a root leaf, so this case did not execute a structural split");
+        assertTrue(ProjectionIndexHOTStorage.segmentPageOffset(reader, 0,
+            ProjectionIndexHOTStorage.columnSegmentSlotKey(1, 0), 0) >= 0,
+            "the split fixture must use a referenced segment, not an inline slot payload");
         int missing = 0;
         int staleBytes = 0;
         for (long rg = 1; rg <= ROW_GROUPS; rg++) {
@@ -151,7 +151,7 @@ final class ProjectionSegmentResurrectionTest {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
       for (long rg = 1; rg <= count; rg++) {
-        final byte[] segment = new byte[512];
+        final byte[] segment = new byte[600];
         segment[0] = marker;
         segment[1] = (byte) rg;
         storage.putColumnSegmentSlot(ProjectionIndexHOTStorage.columnSegmentSlotKey(rg, 0), segment);

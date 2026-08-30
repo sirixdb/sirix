@@ -29,11 +29,12 @@ import java.util.Arrays;
  * against header longs and nothing else.
  *
  * <p>
- * So the zone maps get their own region: small, always stored raw, and written first. A scan reads
- * this one and leaves {@link RegionTable#KIND_NUMBER} on the wire, decompressing it only on the
- * pages it could not decide. It is the same trick {@link StringDictSketch} plays for string
- * equality, where a Bloom filter over the dictionary settles most pages without the dictionary
- * being decompressed at all.
+ * So the zone maps get their own region and are written first. A scan reads this one and leaves
+ * {@link RegionTable#KIND_NUMBER} on the wire, materializing it only on the pages it could not
+ * decide. Narrow-schema maps stay raw. A wide-schema map may independently elect the region table's
+ * bounded LZ77 envelope, so reading it decodes only the summary rather than the larger number
+ * column. It is the same trick {@link StringDictSketch} plays for string equality, where a Bloom
+ * filter over the dictionary settles most pages without the dictionary being decompressed at all.
  *
  * <h2>Wire format</h2>
  *
@@ -52,12 +53,15 @@ import java.util.Arrays;
  * <p>
  * No {@code tagStart}: it addresses into the value bytes, and a caller that has got as far as
  * needing an offset has already decided to materialize the number region, where the real header
- * carries it. This region holds only what a pruning decision needs, because every byte of it is
- * stored uncompressed and is read on pages that turn out not to need it.
+ * carries it. This region holds only what a pruning decision needs. Narrow maps stay raw; wide maps
+ * may independently elect the region table's bounded LZ77 envelope and are decoded without
+ * materializing the number column.
  *
  * <p>
  * At 22 bytes of header plus 24 per tag, a page with three numeric fields spends 94 bytes to
- * potentially skip decompressing a payload measured in kilobytes.
+ * potentially skip decompressing a payload measured in kilobytes. Wide maps are sufficiently large
+ * that {@link RegionTable} may compress this logical V1 payload on disk; parsing still sees these
+ * exact bytes after the per-region envelope is decoded.
  *
  * <h2>Compatibility</h2>
  *

@@ -7,13 +7,10 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -43,25 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public final class HOTFragmentCachePopulationTest {
 
-  private static String originalHOTSetting;
-
   /** The global buffer manager whose sweepers are parked for the duration of each test. */
   private BufferManagerImpl bufferManager;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   @BeforeEach
   void setUp() {
@@ -98,8 +78,6 @@ public final class HOTFragmentCachePopulationTest {
 
   @Test
   void slidingSnapshotCommitsPopulateTheHotFragmentCache() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this test");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final long databaseId;
     final long resourceId;

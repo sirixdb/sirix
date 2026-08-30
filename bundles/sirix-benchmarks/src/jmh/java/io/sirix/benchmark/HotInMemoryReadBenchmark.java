@@ -92,8 +92,8 @@ import static io.brackit.query.util.path.Path.parse;
  * <li>{@link #serializeKey} — CAS key encoding alone.</li>
  * <li>{@link #descendToLeaf} — the PEXT-routed descent, the part directly comparable to a
  * main-memory trie lookup.</li>
- * <li>{@link #lowerBoundSeek} — the descent plus the full lower-bound machinery (landing verify,
- * successor peek, lex re-descent on a miss).</li>
+ * <li>{@link #lowerBoundSeek} — PEXT descent plus the Binna search-stack walk to the affected
+ * subtree for an absent key.</li>
  * <li>{@link #pointGet} — the whole public lookup, including chunk reassembly into
  * {@code NodeReferences}, which a single-value trie lookup does not have to do.</li>
  * <li>{@link #findEntryInLeaf} — the in-leaf binary search alone, on one fixed leaf, with no

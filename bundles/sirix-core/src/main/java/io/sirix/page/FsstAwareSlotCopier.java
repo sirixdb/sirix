@@ -113,11 +113,10 @@ public final class FsstAwareSlotCopier {
    * Try to rewrite {@code slot} into a freshly-allocated byte array whose
    * compressed-flag byte is {@code 0} and whose value bytes are the
    * uncompressed form of the original. Returns {@code null} when no rewrite
-   * is required — either the slot is not a string kind, or the slot's
-   * compressed flag is already {@code 0}, or the wire layout is malformed
-   * (caller should fall back to raw copy, which then requires the target
-   * keep the source's FSST table — so callers must verify {@link #active()}
-   * before deciding whether raw copy is safe in a multi-fragment combine).
+   * is required — either the slot is not a string kind or the slot's compressed flag is already
+   * {@code 0}. A malformed string layout throws instead: returning {@code null} for both raw and
+   * unreadable table-dependent bytes made multi-fragment callers either reject valid raw slots when
+   * table ids differed or silently copy corrupt compressed bytes into an unbound target.
    *
    * <p>When this returns a non-null array, the returned layout is a
    * byte-for-byte copy of the input up to (but not including) the
@@ -154,12 +153,12 @@ public final class FsstAwareSlotCopier {
       final int fieldCount, final int payloadField) {
     final int dataStart = 1 + fieldCount;
     if (dataStart > slotLen) {
-      return null;
+      throw malformedStringSlot("truncated offset table");
     }
     final int payloadOffset = slot.get(ValueLayout.JAVA_BYTE, 1 + payloadField) & 0xFF;
     final int payloadAbs = dataStart + payloadOffset;
     if (payloadAbs >= slotLen) {
-      return null;
+      throw malformedStringSlot("payload offset exceeds slot length");
     }
     return rewriteFromCompressedFlag(slot, slotLen, payloadAbs);
   }
@@ -172,31 +171,33 @@ public final class FsstAwareSlotCopier {
     pos = skipVarint(slot, pos, slotLen); // prevRev
     pos = skipVarint(slot, pos, slotLen); // lastModRev
     if (pos >= slotLen) {
-      return null;
+      throw malformedStringSlot("truncated legacy string header");
     }
     return rewriteFromCompressedFlag(slot, slotLen, pos);
   }
 
   /**
    * Given the absolute byte offset of the isCompressed flag within the slot,
-   * decode the FSST-compressed payload and return a rewritten slot. Returns
-   * {@code null} if the flag is already 0 or the length varint cannot be
-   * decoded within the slot bounds.
+   * decode the FSST-compressed payload and return a rewritten slot. Returns {@code null} only when
+   * the flag is explicitly zero; malformed flags and lengths fail closed.
    */
   private byte[] rewriteFromCompressedFlag(final MemorySegment slot, final int slotLen, final int flagPos) {
     final byte isCompressed = slot.get(ValueLayout.JAVA_BYTE, flagPos);
-    if (isCompressed != 1) {
+    if (isCompressed == 0) {
       return null;
+    }
+    if (isCompressed != 1) {
+      throw malformedStringSlot("invalid compression flag " + (isCompressed & 0xFF));
     }
     // Read length varint.
     long readResult = readSignedVarint(slot, flagPos + 1, slotLen);
     if (readResult == READ_FAILED) {
-      return null;
+      throw malformedStringSlot("truncated compressed length");
     }
     final int lenVarEnd = (int) (readResult >>> 32);
     final int compressedLen = (int) (readResult & 0xFFFFFFFFL);
-    if (compressedLen < 0 || lenVarEnd + compressedLen > slotLen) {
-      return null;
+    if (compressedLen < 0 || (long) lenVarEnd + compressedLen > slotLen) {
+      throw malformedStringSlot("compressed payload exceeds slot length");
     }
     // Materialize the compressed blob. Unavoidable since FSSTCompressor.decode
     // takes a byte[] — but we allocate exactly once per compressed slot.
@@ -225,6 +226,10 @@ public final class FsstAwareSlotCopier {
       MemorySegment.copy(slot, ValueLayout.JAVA_BYTE, tailStart, out, totalLen - tailLen, tailLen);
     }
     return out;
+  }
+
+  private static IllegalStateException malformedStringSlot(final String detail) {
+    return new IllegalStateException("Malformed FSST string slot: " + detail);
   }
 
   // =========================================================================

@@ -101,6 +101,36 @@ final class SlottedPageEncodingSerializationTest {
     }
   }
 
+  @Test
+  @DisplayName("a 512-byte inline fallback record survives the compact-directory sign bit")
+  void maximumInlineRecordRoundTrips() {
+    final ResourceConfiguration config = newConfig();
+    final KeyValueLeafPage orig = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(1), null, -1);
+    KeyValueLeafPage deserialized = null;
+    try {
+      final byte[] record = new byte[PageConstants.MAX_RECORD_SIZE];
+      for (int i = 0; i < record.length; i++) {
+        record[i] = (byte) i;
+      }
+      orig.setSlot(record, 511);
+
+      final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, orig, SerializationType.DATA);
+      final BytesIn<?> source = sink.bytesForRead();
+      source.readByte();
+      deserialized = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
+          .deserializePage(config, source, SerializationType.DATA);
+
+      assertArrayEquals(record, deserialized.getSlotAsByteArray(511));
+    } finally {
+      orig.close();
+      if (deserialized != null) {
+        deserialized.close();
+      }
+    }
+  }
+
   @RepeatedTest(25)
   @DisplayName("random slot insertions round-trip bit-identical (fallback path)")
   void randomSlots() {

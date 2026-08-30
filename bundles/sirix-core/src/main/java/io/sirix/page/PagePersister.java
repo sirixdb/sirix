@@ -110,9 +110,9 @@ public final class PagePersister {
   public RegionsOnlyPage deserializeRegionTableAt(final ResourceConfiguration resourceConfiguration,
       final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
       final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask,
-      final long @Nullable [] slotBitmap) {
+      final long @Nullable [] slotBitmap, final boolean hasCompleteColumnCoverage) {
     return PageKind.KEYVALUELEAFPAGE.deserializeRegionTableAt(resourceConfiguration, source, pageKey, revision,
-        populatedCount, fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
+        populatedCount, fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap, hasCompleteColumnCoverage);
   }
 
   public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfiguration,

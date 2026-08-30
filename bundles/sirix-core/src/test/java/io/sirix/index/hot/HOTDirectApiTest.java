@@ -429,87 +429,6 @@ class HOTDirectApiTest {
   }
 
   @Nested
-  @DisplayName("ChunkDirectory Tests")
-  class ChunkDirectoryTests {
-
-    @Test
-    @DisplayName("Test full directory lifecycle")
-    void testFullLifecycle() {
-      ChunkDirectory dir = new ChunkDirectory();
-
-      // Initially empty
-      assertTrue(dir.isEmpty());
-      assertFalse(dir.isModified());
-      assertEquals(0, dir.chunkCount());
-
-      // Add chunks
-      for (int i = 0; i < 10; i++) {
-        PageReference ref = dir.getOrCreateChunkRef(i * 1000);
-        ref.setKey(100 + i);
-      }
-
-      assertEquals(10, dir.chunkCount());
-      assertFalse(dir.isEmpty());
-      assertTrue(dir.isModified());
-
-      // Clear modified
-      dir.clearModified();
-      assertFalse(dir.isModified());
-
-      // Copy
-      ChunkDirectory copy = dir.copy();
-      assertEquals(dir.chunkCount(), copy.chunkCount());
-
-      // Get indices
-      int[] indices = dir.getChunkIndices();
-      assertEquals(10, indices.length);
-    }
-
-    @Test
-    @DisplayName("Test chunkIndexFor calculation")
-    void testChunkIndexFor() {
-      // Boundary tests
-      assertEquals(ChunkDirectory.chunkIndexFor(0), ChunkDirectory.chunkIndexFor(65535));
-      assertTrue(ChunkDirectory.chunkIndexFor(65536) > ChunkDirectory.chunkIndexFor(0));
-    }
-
-    @Test
-    @DisplayName("Test setChunkRef and getChunkRef")
-    void testSetGetChunkRef() {
-      ChunkDirectory dir = new ChunkDirectory();
-
-      for (int idx = 0; idx < 20; idx++) {
-        PageReference ref = new PageReference();
-        ref.setKey(1000 + idx);
-        dir.setChunkRef(idx, ref);
-
-        PageReference retrieved = dir.getChunkRef(idx);
-        assertNotNull(retrieved);
-        assertEquals(1000 + idx, retrieved.getKey());
-      }
-    }
-
-    @Test
-    @DisplayName("Test getChunkRefAtPosition")
-    void testGetChunkRefAtPosition() {
-      int[] indices = new int[] {0, 100, 200, 300, 400};
-      PageReference[] refs = new PageReference[5];
-      for (int i = 0; i < 5; i++) {
-        refs[i] = new PageReference();
-        refs[i].setKey(i * 10);
-      }
-
-      ChunkDirectory dir = new ChunkDirectory(5, indices, refs);
-
-      for (int pos = 0; pos < 5; pos++) {
-        PageReference ref = dir.getChunkRefAtPosition(pos);
-        assertNotNull(ref);
-        assertEquals(pos * 10, ref.getKey());
-      }
-    }
-  }
-
-  @Nested
   @DisplayName("DiscriminativeBitComputer Tests")
   class DiscriminativeBitComputerTests {
 
@@ -559,4 +478,3 @@ class HOTDirectApiTest {
     }
   }
 }
-

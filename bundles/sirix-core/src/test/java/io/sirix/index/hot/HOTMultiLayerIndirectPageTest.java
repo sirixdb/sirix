@@ -69,15 +69,12 @@ class HOTMultiLayerIndirectPageTest {
   void setUp() throws IOException {
     DATABASE_PATH = tempDir.resolve("hot-multilayer-db");
     Files.createDirectories(DATABASE_PATH);
-    // Use correct property for HOT index enable - this controls both writing and reading
-    System.setProperty("sirix.index.useHOT", "true");
     // Initialize memory allocator for HOTLeafPage
     Allocators.getInstance();
   }
 
   @AfterEach
   void tearDown() {
-    System.clearProperty("sirix.index.useHOT");
     try {
       Databases.removeDatabase(DATABASE_PATH);
     } catch (Exception ignored) {
@@ -622,7 +619,7 @@ class HOTMultiLayerIndirectPageTest {
   }
 
   @Nested
-  @DisplayName("HOTTrieWriter Split Tests")
+  @DisplayName("Canonical HOT writer split tests")
   class TrieWriterSplitTests {
 
     @Test
@@ -673,4 +670,3 @@ class HOTMultiLayerIndirectPageTest {
     }
   }
 }
-

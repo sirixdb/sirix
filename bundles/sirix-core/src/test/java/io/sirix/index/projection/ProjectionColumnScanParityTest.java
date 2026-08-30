@@ -114,12 +114,13 @@ final class ProjectionColumnScanParityTest {
       final int[] ids = new int[columnSegmentCount];
       final long[] offsets = new long[columnSegmentCount];
       for (int i = 0; i < columnSegmentCount; i++) {
-        ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
+        ids[i] = encoded.columnSegmentIds()[i];
         offsets[i] = nextOffset;
         segmentsByOffset.put(nextOffset, encoded.segments()[i]);
         nextOffset += 1 + encoded.segments()[i].length;
       }
-      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets));
+      directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets,
+          new byte[ids.length][]));
     }
     final ColumnSegmentFetcher fetcher = wanted -> {
       final byte[][] out = new byte[wanted.length][];
@@ -419,7 +420,7 @@ final class ProjectionColumnScanParityTest {
     final long[] offsets = new long[ids.length];
     long nextOffset = 1_000;
     for (int i = 0; i < ids.length; i++) {
-      ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
+      ids[i] = encoded.columnSegmentIds()[i];
       offsets[i] = nextOffset;
       segmentsByOffset.put(nextOffset, encoded.segments()[i]);
       nextOffset += 1 + encoded.segments()[i].length;
@@ -432,7 +433,8 @@ final class ProjectionColumnScanParityTest {
       return out;
     };
     final ProjectionColumnStore store =
-        new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets)));
+        new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets,
+            new byte[ids.length][])));
     return new Fixture(store, List.of(raw), fetcher);
   }
 
@@ -621,13 +623,14 @@ final class ProjectionColumnScanParityTest {
     final long[] offsets = new long[columnSegmentCount];
     long nextOffset = 1_000;
     for (int i = 0; i < columnSegmentCount; i++) {
-      ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
+      ids[i] = encoded.columnSegmentIds()[i];
       offsets[i] = nextOffset;
       segmentsByOffset.put(nextOffset, encoded.segments()[i]);
       nextOffset += 1 + encoded.segments()[i].length;
     }
     final ProjectionColumnStore store =
-        new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets)));
+        new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(), ids, offsets,
+            new byte[ids.length][])));
     final ColumnSegmentFetcher fetcher = wanted -> {
       final byte[][] out = new byte[wanted.length][];
       for (int i = 0; i < wanted.length; i++) {
@@ -696,7 +699,7 @@ final class ProjectionColumnScanParityTest {
               ProjectionIndexColumnSegmentCodec.encode(raw);
           final java.util.Map<Integer, byte[]> byId = new HashMap<>();
           for (int i = 0; i < encoded.columnSegmentIds().length; i++) {
-            byId.put(encoded.columnSegmentIds()[i] & 0xFF, encoded.segments()[i]);
+            byId.put(encoded.columnSegmentIds()[i], encoded.segments()[i]);
           }
           final byte[] assembled = ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), byId::get);
           assertEquals(raw.length, assembled.length, "assembly length seed=" + seed);
@@ -1033,7 +1036,7 @@ final class ProjectionColumnScanParityTest {
       final int[] ids = new int[columnSegmentCount];
       final long[] offsets = new long[columnSegmentCount];
       for (int i = 0; i < columnSegmentCount; i++) {
-        ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
+        ids[i] = encoded.columnSegmentIds()[i];
         offsets[i] = nextOffset;
         if (segsOut != null) {
           segsOut.put(nextOffset, encoded.segments()[i]);
@@ -1041,7 +1044,8 @@ final class ProjectionColumnScanParityTest {
         nextOffset += 1 + encoded.segments()[i].length;
       }
       if (dirsOut != null) {
-        dirsOut.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets));
+        dirsOut.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets,
+            new byte[ids.length][]));
       }
       leaf++;
     }

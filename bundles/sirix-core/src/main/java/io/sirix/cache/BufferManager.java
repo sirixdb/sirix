@@ -5,7 +5,6 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
-import io.sirix.node.interfaces.Node;
 import io.sirix.page.interfaces.Page;
 
 public interface BufferManager extends AutoCloseable {
@@ -33,11 +32,8 @@ public interface BufferManager extends AutoCloseable {
 
   Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache();
 
-  Cache<RBIndexKey, Node> getIndexCache();
-
   /**
-   * Memoized HOT point lookups, keyed by committed revision — the HOT analogue of
-   * {@link #getIndexCache()}, which serves the red-black-tree backend.
+   * Memoized HOT point lookups, keyed by committed revision.
    *
    * <p>
    * Not a {@link Cache} like its neighbours because it does not hold pages: it holds the ANSWER to a

@@ -52,8 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * HARD GATE for {@code jn:drop-valid-time-index}: the drop must persist across a commit, after which
  * the index is no longer maintained/used at the new revision (jn:valid-at falls back, the optimizer
- * stops rewriting), while time-travel at the pre-drop revision still uses the index. No {@code -D}
- * flags.
+ * stops rewriting), while time-travel at the pre-drop revision still uses the index.
  *
  * @author Johannes Lichtenberger
  */
@@ -89,10 +88,6 @@ public final class ValidTimeIndexDropTest {
   @Test
   @DisplayName("drop persists; fallback correct; no rewrite; insert after drop ok; time-travel keeps index")
   void dropGate() throws IOException {
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "must run WITHOUT -Dsirix.index.useHOT");
-
     records = new ArrayList<>(buildDataset());
     final String json = toJson(records);
 
@@ -251,10 +246,6 @@ public final class ValidTimeIndexDropTest {
   @Test
   @DisplayName("drop VALIDTIME while keeping a CAS index: catalog keeps CAS, drops VALIDTIME, both correct")
   void dropValidTimeKeepingCasIndex() throws IOException {
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "must run WITHOUT -Dsirix.index.useHOT");
-
     records = new ArrayList<>(buildDataset());
     final String json = toJson(records);
     final var dbPath = sirixPath.resolve(DB);

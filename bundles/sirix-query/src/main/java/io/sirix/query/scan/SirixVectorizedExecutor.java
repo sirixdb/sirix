@@ -38,6 +38,7 @@ import io.sirix.settings.Fixed;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
 import io.sirix.index.pageskip.PageSkipRegistry;
+import io.sirix.index.projection.CompositeGroupIdentity;
 import io.sirix.index.projection.DenseGlobalGroupAggTable;
 import io.sirix.index.projection.GroupDistinctBitmaps;
 import io.sirix.index.projection.NumericGroupAggTable;
@@ -49,8 +50,11 @@ import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.GlobalValueDictionary;
+import io.sirix.index.projection.GroupDistinctAccumulator;
+import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
+import io.sirix.index.projection.ProjectionStringIdentityRegistry;
 import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -771,7 +775,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Per-field cache of the {@code {count, sum, min, max}} tuple produced by
-   * {@link #parallelAggregate(String)}. The executor is scoped to a single (session, revision), so
+   * {@link #parallelAggregate(String[], String, long, boolean[])}. The executor is scoped to a
+   * single (session, revision), so
    * the result is stable for the executor's lifetime — a closed-form invalidation is therefore not
    * required. This exists so that query shapes like {@code {"min": min(...x), "max": max(...x)}} —
    * which Brackit compiles to two separate aggregate calls on the same field — pay the parallel scan
@@ -781,8 +786,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private final ConcurrentHashMap<String, long[]> aggregateCache = new ConcurrentHashMap<>();
 
   /**
+   * Presence-only {@code count($row.field)} results. Kept separate from the value-aggregate caches:
+   * a count scan deliberately never decodes or accumulates field values, so publishing it as a full
+   * aggregate would let a later sum/min/max read accumulator lanes that were never computed.
+   */
+  private final ConcurrentHashMap<String, Long> aggregateFieldCountCache = new ConcurrentHashMap<>();
+
+  /**
    * Per-predicate cache of the {@code long} count produced by
-   * {@link #parallelGenericPredicateCount(PredicateNode)}. Key is the canonicalized predicate
+   * {@link #parallelGenericPredicateCount(String[], PredicateNode)}. Key is the canonicalized predicate
    * signature (field + op + value); value is the scan result. Same validity argument as
    * {@link #aggregateCache} — the executor is bound to a single (session, revision). Realistic
    * dashboards re-issue the same filter-count after small delays (e.g. 5 s polling); the cache keeps
@@ -792,7 +804,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Per-field cache of the Brackit {@link Sequence} produced by
-   * {@link #parallelGroupByCount(String)}. The Sequence is a flat {@code ItemSequence} of immutable
+   * {@link #parallelGroupByCount(String[], String, long, long[])}. The Sequence is a flat
+   * {@code ItemSequence} of immutable
    * {@code ArrayObject}s — safe to share across callers. Same validity argument as the
    * aggregate/filter caches: the executor is bound to one (session, revision).
    */
@@ -813,16 +826,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private final ConcurrentHashMap<String, Sequence> multiGroupByCountCache = new ConcurrentHashMap<>();
 
   /**
-   * Double-typed aggregate stats for columns carrying non-integral numbers — parallel to
-   * {@code aggregateCache}; same (session, revision) validity. Layout: {@code [count, sum, min, max]}
-   * as doubles.
+   * Typed aggregate stats for the generic page scan — parallel to {@code aggregateCache}; same
+   * (session, revision) validity. The wrapper also retains the type-agnostic number of present field
+   * values, because {@code count($row.field)} counts strings, booleans, nulls and complex values too.
    */
-  private final ConcurrentHashMap<String, MixedAgg> aggregateDblCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, AggregateScan> aggregateDblCache = new ConcurrentHashMap<>();
 
   /**
    * Served double-column aggregate results (§11-8), keyed {@code func + '#' + cacheKey} (per-func —
    * each function serves a different Sequence). Probed BEFORE {@link #aggregateDblCache} so a served
-   * answer is stable across repeats and can never be shadowed by a MixedAgg cached while the
+   * answer is stable across repeats and can never be shadowed by an AggregateScan cached while the
    * projection was still hydrating.
    */
   private final ConcurrentHashMap<String, Sequence> servedDoubleAggCache = new ConcurrentHashMap<>();
@@ -838,6 +851,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * read-only revision.
    */
   private final ConcurrentHashMap<String, Long> pathNodeKeyCache = new ConcurrentHashMap<>();
+
+  /**
+   * Allocation-free cursor matchers for scans whose target path cannot be represented by a
+   * {@code pathNodeKey}. This is the ordinary case for resources built without a path summary, and
+   * also covers fused array-valued anchors whose slot carries the anonymous array layer instead of
+   * the named field layer. The matcher stores only source-path name keys and is immutable for this
+   * executor's revision.
+   */
+  private final ConcurrentHashMap<String, SourcePathMatcher> sourcePathMatcherCache = new ConcurrentHashMap<>();
+
+  /**
+   * Exact field-occurrence scopes used by {@code count($row.field)}. Unlike the value-scan resolver,
+   * this retains the named OBJECT_KEY PathNode when the field is array-valued: fused array slots
+   * carry the anonymous child key, but the named node's reference count is still the exact number
+   * of field occurrences. Stable for this executor's immutable (session, revision) view.
+   */
+  private final ConcurrentHashMap<String, CountPathScope> countPathScopeCache = new ConcurrentHashMap<>();
 
   /**
    * Cache of {@link #sourcePathIsPresent(String[])} verdicts, keyed by the source path alone. Stable
@@ -883,6 +913,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   public void clearAggregateResultCachesForBenchmarks() {
     aggregateCache.clear();
+    aggregateFieldCountCache.clear();
     filterCountCache.clear();
     groupByCountCache.clear();
     filteredGroupByCountCache.clear();
@@ -1059,8 +1090,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * chain-wide execution lifetime and lazy-result cursor pool remain open.
    */
   public void retire() {
+    regionCacheAdmissionOpen = false;
     try {
       shutdownPoolsAndAwait(false);
+      awaitActiveCallsAndClearRegionCaches();
     } finally {
       executionLifecycle.unregister(this);
     }
@@ -1077,11 +1110,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * under a synchronous retire.
    */
   public void retireAsync() {
+    regionCacheAdmissionOpen = false;
     initiatePoolShutdown(false);
     try {
       RETIREMENT_REAPER.execute(() -> {
         try {
           awaitPoolTermination(false);
+          awaitActiveCallsAndClearRegionCaches();
         } catch (final RuntimeException | Error failure) {
           LOGGER.warn("Background executor retirement failed", failure);
         } finally {
@@ -1092,6 +1127,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // JVM shutdown took the reaper: fall back to the synchronous join.
       try {
         awaitPoolTermination(false);
+        awaitActiveCallsAndClearRegionCaches();
       } finally {
         executionLifecycle.unregister(this);
       }
@@ -1108,8 +1144,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (executionLifecycle.isEnteredByCurrentThread()) {
       throw new IllegalStateException("Cannot close a vectorized executor from its admitted work");
     }
+    regionCacheAdmissionOpen = false;
     try {
       shutdownPoolsAndAwait(true);
+      clearRegionCaches();
     } finally {
       executionLifecycle.unregister(this);
     }
@@ -1193,6 +1231,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
     }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /**
+   * A retired executor remains callable inline by expressions compiled before retirement. Stop new
+   * cache leases first, then wait for calls that may already hold one before closing the entries.
+   */
+  private void awaitActiveCallsAndClearRegionCaches() {
+    boolean interrupted = false;
+    synchronized (workerPoolLifecycleLock) {
+      while (activeCalls != 0) {
+        try {
+          workerPoolLifecycleLock.wait();
+        } catch (final InterruptedException ignored) {
+          interrupted = true;
+        }
+      }
+    }
+    clearRegionCaches();
     if (interrupted) {
       Thread.currentThread().interrupt();
     }
@@ -1307,6 +1366,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // while looking checked — the divergence it exists to stop, wearing the appearance of a
       // guard. With statistics off nothing here can be proven, so the predicate is served as before.
       final var resourceConfig = session.getResourceConfig();
+      if (resourceConfig.withPathSummary) {
+        // `$m.f[]` over a value that is not an array is the interpreter's type error (XPTY0004),
+        // which the kernels would answer as "no member". An error is not false: when the scoped
+        // field can hold a non-array value anywhere in this revision, the generic pipeline raises
+        // it. Reference counts, not statistics — the summary alone maintains them.
+        final Set<String> unboxed = new HashSet<>(2);
+        collectArrayContainsFields(predicate, unboxed);
+        if (!unboxed.isEmpty() && anyFieldHoldsNonArrayValues(sourcePath, unboxed)) {
+          return false;
+        }
+      }
       if (!resourceConfig.withPathSummary || !resourceConfig.withPathStatistics) {
         return true;
       }
@@ -1320,6 +1390,58 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // Never let a gate throw — an unresolvable path simply keeps the previous behaviour.
       return true;
     }
+  }
+
+  /** Fields the predicate unboxes with {@code []} (array membership), over the whole tree. */
+  private static void collectArrayContainsFields(final PredicateNode node, final Set<String> out) {
+    switch (node) {
+      case PredicateNode.ArrayContains ac -> out.add(ac.field());
+      case PredicateNode.And n -> n.children().forEach(c -> collectArrayContainsFields(c, out));
+      case PredicateNode.Or n -> n.children().forEach(c -> collectArrayContainsFields(c, out));
+      case PredicateNode.Not n -> collectArrayContainsFields(n.child(), out);
+      default -> {
+      }
+    }
+  }
+
+  /**
+   * Whether any of {@code fields}, resolved under {@code sourcePath}, holds a value that is not an
+   * array in this revision — or cannot be proven not to.
+   *
+   * <p>
+   * The named path node's references count every occurrence of the field; its anonymous ARRAY
+   * child's count the array-valued ones. Any surplus is a scalar, an object or a null, and
+   * {@code []} over it raises. An absent path raises nothing ({@code ()[]} is empty), an unscoped one
+   * (ambiguous or corrupt summary) cannot be proven and declines.
+   */
+  private boolean anyFieldHoldsNonArrayValues(final String[] sourcePath, final Set<String> fields) {
+    for (final String field : fields) {
+      final CountPathScope scope = resolveCountPathScope(sourcePath, field);
+      if (scope.absent()) {
+        continue;
+      }
+      if (scope.namedPathNodeKey() < 0L) {
+        return true;
+      }
+      try (var rtx = session.beginNodeReadOnlyTrx(revision);
+           var summary = rtx.getResourceSession().openPathSummary(revision)) {
+        if (!summary.moveTo(scope.namedPathNodeKey())) {
+          return true;
+        }
+        final long keyReferences = summary.getPathNode().getReferences();
+        long arrayReferences = 0L;
+        if (scope.anonymousArrayPathNodeKey() >= 0L) {
+          if (!summary.moveTo(scope.anonymousArrayPathNodeKey())) {
+            return true;
+          }
+          arrayReferences = summary.getPathNode().getReferences();
+        }
+        if (keyReferences > arrayReferences) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -1578,11 +1700,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // synthesizes the missing-key group — the interpreter's behavior.
           // (This used to be a loud QueryException; correct beats loud.)
           final long[] scanStats = new long[2];
-          fresh = parallelGroupByCount(groupField, targetPathNodeKey, scanStats);
-          final boolean pathScopingSound = targetPathNodeKey != -1L || resolveFieldKey(groupField) == -1;
-          final long recordCount = pathScopingSound
-              ? topLevelRecordCountOrUnknown(sourcePath)
-              : -1L;
+          fresh = parallelGroupByCount(sourcePath, groupField, targetPathNodeKey, scanStats);
+          final long recordCount = topLevelRecordCountOrUnknown(sourcePath);
           final boolean sparseGap = recordCount >= 0 && scanStats[0] != recordCount;
           if (sparseGap || scanStats[0] != scanStats[1]) {
             fresh = typedGroupByCount(sourcePath, null, new String[] {groupField}, new String[] {groupField}, "count");
@@ -1716,10 +1835,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } catch (final IllegalStateException ise) {
       // Counted, not silent: a THROW is a malformed leaf, not a gate decline, and a route that
       // reads as "never taken" instead of "failing" hides exactly the drift worth seeing.
-      GROUP_AGG_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] numeric group-count serving failed, using generic pipeline: " + ise);
-      }
+      failSoft(GROUP_AGG_FAILED, "numeric group-count serving", ise);
       return null;
     }
     if (agg == null) {
@@ -2277,32 +2393,63 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         : compile(predicateOrNull);
     final String[] required = requiredFields(new String[] {field}, cp);
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
-    if (handle == null)
+    if (handle == null) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj-agg] decline field=" + field + ": no covering handle");
+      }
       return null;
+    }
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     // Session-bound sources built from THIS executor's own live session, threaded into the
     // shared handle's fill calls (no session-scoped state on the cached handle).
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
     final int col = handle.columnOf(field);
-    if (col < 0)
+    if (col < 0) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj-agg] decline field=" + field + ": column absent");
+      }
       return null;
+    }
     // One kind-check path for both handle tiers; columnKindOf never materializes a
     // column-lazy handle (descriptor truth).
-    if (handle.rowGroupCount() == 0)
+    if (handle.rowGroupCount() == 0) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj-agg] decline field=" + field + ": zero row groups");
+      }
       return null;
-    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG)
+    }
+    final byte columnKind = handle.columnKindOf(col);
+    if (columnKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj-agg] decline field=" + field + ": kind=" + columnKind);
+      }
       return null;
+    }
     // Value-exact gate: the builder truncates non-integral numbers into the
     // NUMERIC_LONG column (Number#longValue). Serve aggregates only when the
     // column is PROVABLY integral; unknown provenance falls back. On a lazy
     // handle these gates read the column's OWN slices — no materialization.
+    final long integralStart = PROJ_DIAG
+        ? System.nanoTime()
+        : 0L;
     if (!handle.numericColumnIsIntegral(col, fetcher)) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj-agg] decline field=" + field + ": non-integral/unknown evidence in "
+            + (System.nanoTime() - integralStart) / 1_000_000.0 + " ms");
+      }
       return null;
     }
     // Sparse-evidence gate: without per-row presence, MISSING rows would fold
     // their phantom default 0 into count/min/max (sum survives by luck).
+    final long sparseStart = PROJ_DIAG
+        ? System.nanoTime()
+        : 0L;
     if (!handle.columnSparseClean(col, fetcher, materializer)) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj-agg] decline field=" + field + ": sparse/unknown evidence in "
+            + (System.nanoTime() - sparseStart) / 1_000_000.0 + " ms; col=" + col);
+      }
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] preds;
@@ -2321,8 +2468,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     if (store != null && predsFillable(store, preds)) {
       try {
-        return sliceAggregateParallel(store, preds, col, fetcher, aggMask);
+        final long sliceStart = PROJ_DIAG
+            ? System.nanoTime()
+            : 0L;
+        final long[] result = sliceAggregateParallel(store, preds, col, fetcher, aggMask);
+        if (PROJ_DIAG) {
+          System.err.println("[proj-agg] served field=" + field + " from slices in "
+              + (System.nanoTime() - sliceStart) / 1_000_000.0 + " ms");
+        }
+        return result;
       } catch (final IllegalStateException ise) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj-agg] slice decline field=" + field + ": " + ise);
+        }
         // Corrupt/missing slices — fall through to the eager path, which re-surfaces
         // the condition through the established fail-soft flow.
       }
@@ -2813,6 +2971,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
           return false; // membership only
         }
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+          && p.globalIdVerdict != null) {
+        // A verdict predicate slices: the evaluator answers each row with one bit test over the id
+        // lane; the literal it retains is the zone-skip exemption, not an untranslated leftover.
       } else if (p.stringLitBytes != null) {
         return false; // a string literal against a non-string column is the record path's case
       }
@@ -3229,10 +3391,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       counts = parallelConjunctiveCountByGroupNumeric(handle, preds, groupColumn, missing);
     } catch (final IllegalStateException ise) {
       // See the twin site above: a malformed leaf must be countable, not invisible.
-      GROUP_AGG_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] numeric typed group-count serving failed, using generic pipeline: " + ise);
-      }
+      failSoft(GROUP_AGG_FAILED, "numeric typed group-count serving", ise);
       return null;
     }
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>(counts.size() + 1);
@@ -3617,6 +3776,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return emptyGroupMap();
     }
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, anchorPathNodeKey);
     // A predicate over the group-by field itself can be applied by the page kernel rather than
     // per record; anything else stays null and the columnar path is skipped exactly as before.
     final RegionCountPlan regionFilter = predicateOrNull == null
@@ -3651,7 +3812,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // tuples that per-field PAX regions don't provide. A predicate needs per-record evaluation
       // UNLESS it constrains the group-by field itself — then the filter and the key read the same
       // tag, and the page kernel applies it with a selection vector instead (regionGroupFilter).
-      final boolean regionEligible = groupIdxs.length == 1 && (predicateOrNull == null || regionFilter != null);
+      final boolean regionEligible = structuralSourceMatcher == null && groupIdxs.length == 1
+          && (predicateOrNull == null || regionFilter != null);
       final RegionGroupScratch regionScratch = regionEligible
           ? new RegionGroupScratch()
           : null;
@@ -3682,7 +3844,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
               continue;
             }
-            if (!rtx.moveTo(anchorObjectKey))
+            if (!positionOnScopedAnchor(rtx, anchorObjectKey, structuralSourceMatcher))
               continue;
             if (!rtx.moveToParent())
               continue;
@@ -3719,7 +3881,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       mergedEvidence.mergeFrom(ev);
     }
     mergedEvidence.requireConsistent(groupFields);
-    if (anchorIsGroupField && anchorPathNodeKey != -1L) {
+    if (anchorIsGroupField) {
       // Anchor-visibility fixup: records LACKING the group field were never
       // visited (the scan iterates the field's slots). For a SINGLE group key
       // over a top-level array source the unvisited remainder is exactly the
@@ -3768,9 +3930,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * anchor turns out to be dense never gets here, so the fast path is unchanged.
    *
    * @return {@code false} when the completion cannot be trusted and the caller should keep the loud
-   *         error: a key field whose path does not resolve (nested same-name fields would then be
-   *         miscounted as records), an anchor that is not {@code groupFields[0]} (so the anchor pass
-   *         is not this walk's first pass), or a visited total exceeding the record count.
+   *         error: an anchor that is not {@code groupFields[0]} (so the anchor pass is not this
+   *         walk's first pass), or a structurally scoped visited total exceeding the record count.
    */
   private boolean completeSparseMultiKeyGroups(final String[] sourcePath, final CompiledPredicate cp,
       final String[] groupFields, final int[] groupIdxs, final long recordCount,
@@ -3801,6 +3962,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       final int fieldIdx = g;
       final long anchorPathNodeKey = pathNodeKeys[g];
+      final SourcePathMatcher structuralSourceMatcher =
+          structuralSourcePathMatcher(sourcePath, anchorPathNodeKey);
       @SuppressWarnings("unchecked")
       final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
       final GroupKeyEvidence[] perThreadEvidence = new GroupKeyEvidence[eff];
@@ -3838,8 +4001,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (recordBuf != null)
               recordBuf.add((int) pk);
             for (final int slot : matches) {
-              tallySparseGroupSlot(rtx, kv, slot, base + slot, anchorPathNodeKey, cp, scratch, typed, groupIdxs,
-                  fieldIdx, groupFields, keyBuf, evidence, local);
+              tallySparseGroupSlot(rtx, kv, slot, base + slot, anchorPathNodeKey, structuralSourceMatcher, cp,
+                  scratch, typed, groupIdxs, fieldIdx, groupFields, keyBuf, evidence, local);
             }
           }
         }
@@ -3882,9 +4045,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         continue;
       }
       pathNodeKeys[g] = resolveTargetPathNodeKey(sourcePath, groupFields[g]);
-      if (pathNodeKeys[g] == -1L) {
-        return false;
-      }
     }
     return true;
   }
@@ -3897,13 +4057,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * is counted once — and by a rule no worker has to agree on.
    */
   private void tallySparseGroupSlot(final JsonNodeReadOnlyTrx rtx, final KeyValueLeafPage kv, final int slot,
-      final long anchorObjectKey, final long anchorPathNodeKey, final CompiledPredicate cp, final EvalScratch scratch,
-      final TypedGroupScratch typed, final int[] groupIdxs, final int fieldIdx, final String[] groupFields,
-      final StringBuilder keyBuf, final GroupKeyEvidence evidence, final Object2LongOpenHashMap<String> local) {
-    if (kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+      final long anchorObjectKey, final long anchorPathNodeKey,
+      final @Nullable SourcePathMatcher structuralSourceMatcher, final CompiledPredicate cp,
+      final EvalScratch scratch, final TypedGroupScratch typed, final int[] groupIdxs, final int fieldIdx,
+      final String[] groupFields, final StringBuilder keyBuf, final GroupKeyEvidence evidence,
+      final Object2LongOpenHashMap<String> local) {
+    if (anchorPathNodeKey != -1L
+        && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
       return;
     }
-    if (!rtx.moveTo(anchorObjectKey) || !rtx.moveToParent()) {
+    if (!positionOnScopedAnchor(rtx, anchorObjectKey, structuralSourceMatcher) || !rtx.moveToParent()) {
       return;
     }
     loadFieldsTypedGroups(rtx, cp, scratch, typed);
@@ -4881,11 +5044,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // redo with the typed kernel, which represents missing keys.
       return null;
     }
-    // Resolve the anchor field's fully-qualified pathNodeKey once. -1L ⇒
-    // PathSummary unavailable or path not found; fall back to name-only match
-    // (legacy behaviour — correct for flat schemas, may over-count nested
-    // same-name fields, but preserves existing semantics).
+    // Resolve the anchor field's fully-qualified pathNodeKey once. A -1L key requires the exact
+    // cursor-ancestry matcher below; page-only shortcuts that cannot apply it are not eligible.
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, anchorPathNodeKey);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -4947,7 +5110,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               continue;
             if (recordBuf != null)
               recordBuf.add((int) pk);
-            collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
+            collectColumns(kv, base, matches, cp, anchorPathNodeKey, structuralSourceMatcher, batch, rtx);
             if (batch.size == 0)
               continue;
             final long[] bitmap;
@@ -5011,7 +5174,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
                 continue;
               }
-              if (!rtx.moveTo(anchorObjectKey))
+              if (!positionOnScopedAnchor(rtx, anchorObjectKey, structuralSourceMatcher))
                 continue;
               if (!rtx.moveToParent())
                 continue;
@@ -5238,6 +5401,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     // Resolve the fully-qualified path for the anchor field. See parallelAggregate.
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, anchorPathNodeKey);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -5298,7 +5463,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
             continue;
           }
-          if (!rtx.moveTo(anchorObjectKey))
+          if (!positionOnScopedAnchor(rtx, anchorObjectKey, structuralSourceMatcher))
             continue;
           if (!rtx.moveToParent())
             continue;
@@ -5374,15 +5539,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final StringBuilder sb = new StringBuilder(32);
     if (sourcePath != null) {
       for (final String seg : sourcePath) {
-        sb.append(seg == null
-            ? ""
-            : seg)
-          .append('/');
+        if (seg == null) {
+          sb.append("-1:");
+        } else {
+          sb.append(seg.length()).append(':').append(seg);
+        }
+        sb.append('/');
       }
     }
     sb.append('|');
-    if (field != null)
-      sb.append(field);
+    if (field == null) {
+      sb.append("-1:");
+    } else {
+      sb.append(field.length()).append(':').append(field);
+    }
     return sb.toString();
   }
 
@@ -5447,13 +5617,215 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // anchor slots by the named key rejects every one of them, and an anchored scan over an
         // array-valued field visits nothing at all. Answer "unscoped" instead: -1 is the state
         // every caller here already handles (it is what a resource without a path summary gives),
-        // and it degrades to name-only matching rather than to a silent empty scan.
+        // and it activates exact cursor-ancestry matching rather than producing a silent empty scan.
         return onlyMatch != -1L && hasAnonymousArrayChild(summary, onlyMatch)
             ? -1L
             : onlyMatch;
       } finally {
         summary.close();
       }
+    }
+  }
+
+  /** Sentinel in {@link SourcePathMatcher#steps}; int name keys cannot collide with it. */
+  private static final long SOURCE_ARRAY_STEP = Long.MIN_VALUE;
+
+  /**
+   * Return the cursor-ancestry scope needed when a page slot has no trustworthy path-node key.
+   * A non-null matcher is an exactness requirement: callers must either apply it to every candidate
+   * anchor or decline the page-only shortcut that cannot inspect ancestry.
+   */
+  private @Nullable SourcePathMatcher structuralSourcePathMatcher(final String[] sourcePath,
+      final long targetPathNodeKey) {
+    if (targetPathNodeKey != -1L) {
+      return null;
+    }
+    final String cacheKey = pathCacheKey(sourcePath, null);
+    final SourcePathMatcher cached = sourcePathMatcherCache.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+    final int length = sourcePath == null
+        ? 0
+        : sourcePath.length;
+    final long[] steps = new long[length];
+    boolean impossible = false;
+    for (int i = 0; i < length; i++) {
+      final String segment = sourcePath[i];
+      if ("[]".equals(segment)) {
+        steps[i] = SOURCE_ARRAY_STEP;
+      } else if (segment == null) {
+        impossible = true;
+      } else {
+        final int nameKey = resolveFieldKey(segment);
+        if (nameKey == -1) {
+          impossible = true;
+        }
+        steps[i] = nameKey;
+      }
+    }
+    final SourcePathMatcher computed = new SourcePathMatcher(steps, impossible);
+    final SourcePathMatcher prior = sourcePathMatcherCache.putIfAbsent(cacheKey, computed);
+    return prior == null
+        ? computed
+        : prior;
+  }
+
+  /**
+   * Position {@code rtx} on {@code anchorNodeKey} and, when necessary, prove that its enclosing
+   * record is selected by the requested source path. The matcher restores the anchor position, so
+   * existing callers can immediately move to the enclosing object or read an inline fused value.
+   */
+  private static boolean positionOnScopedAnchor(final JsonNodeReadOnlyTrx rtx, final long anchorNodeKey,
+      final @Nullable SourcePathMatcher matcher) {
+    if (!rtx.moveTo(anchorNodeKey)) {
+      return false;
+    }
+    return matcher == null || matcher.matchesAnchor(rtx, anchorNodeKey);
+  }
+
+  /**
+   * Exact structural source-path matcher used only when the path summary cannot scope a slot.
+   *
+   * <p>The walk starts on a candidate field, moves to its enclosing record, consumes the source
+   * path backwards, then requires the remaining node to be the document's top-level value. Fused
+   * {@code OBJECT_NAMED_OBJECT}/{@code OBJECT_NAMED_ARRAY} records intentionally satisfy both their
+   * value role and their named-field role, so one physical node can consume the adjacent
+   * {@code name, []} pair without a synthetic cursor step.</p>
+   */
+  private static final class SourcePathMatcher {
+    private final long[] steps;
+    private final boolean impossible;
+
+    private SourcePathMatcher(final long[] steps, final boolean impossible) {
+      this.steps = steps;
+      this.impossible = impossible;
+    }
+
+    private boolean matchesAnchor(final JsonNodeReadOnlyTrx rtx, final long anchorNodeKey) {
+      boolean matches = !impossible && rtx.moveToParent() && rtx.isObject();
+      for (int i = steps.length - 1; matches && i >= 0; i--) {
+        final long step = steps[i];
+        if (step == SOURCE_ARRAY_STEP) {
+          matches = rtx.moveToParent() && rtx.isArray();
+          continue;
+        }
+
+        // A fused structural value is itself the named field. A legacy/non-fused value has a
+        // separate named parent, so move up exactly once in that case.
+        if (!rtx.isObjectKey()) {
+          matches = rtx.moveToParent() && rtx.isObjectKey();
+        }
+        if (matches && (long) rtx.getNameKey() != step) {
+          matches = false;
+        }
+        if (matches) {
+          matches = rtx.moveToParent() && rtx.isObject();
+        }
+      }
+      if (matches) {
+        matches = rtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+      }
+      // Keep the caller's cursor contract even on a mismatch; a failed restore makes the candidate
+      // unusable rather than letting a caller continue from an arbitrary ancestor.
+      return rtx.moveTo(anchorNodeKey) && matches;
+    }
+  }
+
+  /**
+   * Path-summary scope for a type-agnostic field-presence count.
+   *
+   * <p>The ordinary aggregate resolver deliberately returns {@code -1} for an array-valued field,
+   * because its fused slot carries the anonymous ARRAY child's path key instead of the named field
+   * key. That sentinel is unsafe for presence counting: every metadata scan interprets it as
+   * "unscoped" and can count a same-named field below another object. Presence has a stronger
+   * oracle: the exact named PathNode's reference count is one per OBJECT_KEY occurrence, regardless
+   * of whether the value is numeric, string, boolean, null, object or array. Retain that named node
+   * here and also remember its unique anonymous child for the slot fallback.
+   */
+  private CountPathScope resolveCountPathScope(final String[] sourcePath, final String field) {
+    if (field == null || !session.getResourceConfig().withPathSummary) {
+      return CountPathScope.UNSCOPED;
+    }
+    final String cacheKey = pathCacheKey(sourcePath, field);
+    final CountPathScope cached = countPathScopeCache.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+    final CountPathScope resolved = computeCountPathScope(sourcePath, field);
+    final CountPathScope prior = countPathScopeCache.putIfAbsent(cacheKey, resolved);
+    return prior == null
+        ? resolved
+        : prior;
+  }
+
+  private CountPathScope computeCountPathScope(final String[] sourcePath, final String field) {
+    final String[] expectedAncestors = namedAncestorChain(sourcePath);
+    try (var rtx = session.beginNodeReadOnlyTrx(revision);
+         var summary = rtx.getResourceSession().openPathSummary(revision)) {
+      PathNode onlyMatch = null;
+      for (final PathNode candidate : summary.findPathsByLocalName(field)) {
+        if (!candidateMatchesAncestorChain(summary, candidate, expectedAncestors)) {
+          continue;
+        }
+        if (onlyMatch != null) {
+          // A consistent summary interns one node per exact path. Never turn corruption or an
+          // ambiguous scope into a resource-wide name count.
+          return CountPathScope.UNSCOPED;
+        }
+        onlyMatch = candidate;
+      }
+      if (onlyMatch == null) {
+        // The fully-qualified field path is provably absent in this revision. This is distinct
+        // from an unavailable summary: nested same-name fields must not turn count(missing) nonzero.
+        return CountPathScope.ABSENT;
+      }
+      final long anonymousArrayPathNodeKey = uniqueAnonymousArrayChild(summary, onlyMatch.getNodeKey());
+      if (anonymousArrayPathNodeKey == CountPathScope.AMBIGUOUS_ARRAY_CHILD) {
+        return CountPathScope.UNSCOPED;
+      }
+      return new CountPathScope(onlyMatch.getNodeKey(), anonymousArrayPathNodeKey, false);
+    }
+  }
+
+  /** Return the sole anonymous ARRAY child, {@code -1} when absent, or the ambiguity sentinel. */
+  private static long uniqueAnonymousArrayChild(final PathSummaryReader summary, final long namedPathNodeKey) {
+    final long saved = summary.getNodeKey();
+    try {
+      if (!summary.moveTo(namedPathNodeKey) || !summary.moveToFirstChild()) {
+        return -1L;
+      }
+      long onlyChild = -1L;
+      do {
+        final PathNode child = summary.getPathNode();
+        if (child.getPathKind() != NodeKind.ARRAY || resolvedLocalName(summary, child) != null) {
+          continue;
+        }
+        if (onlyChild != -1L) {
+          return CountPathScope.AMBIGUOUS_ARRAY_CHILD;
+        }
+        onlyChild = child.getNodeKey();
+      } while (summary.moveToRightSibling());
+      return onlyChild;
+    } finally {
+      summary.moveTo(saved);
+    }
+  }
+
+  /**
+   * A named field path plus the alternate key carried by fused array-valued slots. {@code absent}
+   * means the summary proved the exact field path does not exist; two negative keys without that
+   * proof require the cursor-ancestry source matcher.
+   */
+  private record CountPathScope(long namedPathNodeKey, long anonymousArrayPathNodeKey, boolean absent) {
+    private static final long AMBIGUOUS_ARRAY_CHILD = -2L;
+    private static final CountPathScope UNSCOPED = new CountPathScope(-1L, -1L, false);
+    private static final CountPathScope ABSENT = new CountPathScope(-1L, -1L, true);
+
+    private boolean matches(final long pathNodeKey) {
+      return namedPathNodeKey < 0L
+          || pathNodeKey == namedPathNodeKey
+          || anonymousArrayPathNodeKey >= 0L && pathNodeKey == anonymousArrayPathNodeKey;
     }
   }
 
@@ -5586,50 +5958,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       cursor = cursor.getParent();
     }
     return cursor == null; // a remaining named ancestor means too deep
-  }
-
-  /**
-   * The path node key of the anonymous ARRAY layer beneath {@code field}, or {@code -1}.
-   *
-   * <p>
-   * A fused OBJECT_NAMED_ARRAY slot, and therefore the element values tagged by it, carries THAT key
-   * rather than the field's own — `/[]/genres/[]`, not `/[]/genres`. Resolved once per scan.
-   */
-  private long arrayLayerPathNodeKey(final String[] sourcePath, final String field) {
-    if (field == null || !session.getResourceConfig().withPathSummary) {
-      return -1L;
-    }
-    final String cacheKey = "arr\u0000" + pathCacheKey(sourcePath, field);
-    final Long cached = pathNodeKeyCache.get(cacheKey);
-    if (cached != null) {
-      return cached.longValue();
-    }
-    long resolved = -1L;
-    try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
-      final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
-      try {
-        candidates: for (final PathNode candidate : summary.findPathsByLocalName(field)) {
-          if (!summary.moveTo(candidate.getNodeKey()) || !summary.moveToFirstChild()) {
-            continue;
-          }
-          do {
-            if (resolvedLocalName(summary, summary.getPathNode()) == null) {
-              if (resolved != -1L) {
-                resolved = -1L; // two array layers under this name: ambiguous, fail closed
-                break candidates;
-              }
-              resolved = summary.getNodeKey();
-            }
-          } while (summary.moveToRightSibling());
-        }
-      } finally {
-        summary.close();
-      }
-    } catch (final RuntimeException e) {
-      resolved = -1L;
-    }
-    pathNodeKeyCache.putIfAbsent(cacheKey, Long.valueOf(resolved));
-    return resolved;
   }
 
   /**
@@ -6470,8 +6798,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * </ul>
    */
   /**
-   * If a covering projection index is installed in {@link ProjectionIndexRegistry} for this
-   * {@code (session, sourcePath)} and the predicate is a conjunctive tree over supported leaf shapes
+   * If a covering projection index is catalogued for this {@code (session, sourcePath)} and the
+   * predicate is a conjunctive tree over supported leaf shapes
    * (NUM_CMP, STR_EQ, BOOL_REF), returns the count produced by
    * {@link ProjectionIndexByteScan#conjunctiveCount}. Returns {@code null} otherwise, triggering the
    * generic predicate path below.
@@ -7305,6 +7633,33 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /**
+   * Strict serving: a serving arm that FAILS (an exception, not a gate decline) rethrows instead of
+   * falling back to the generic pipeline. Off by default — the fail-soft fallback is the production
+   * contract — and switched on by a serving-proof run, where a silent fallback is the one outcome
+   * that must not be quietly answered by the interpreter (at 100M rows it looks like a hang).
+   */
+  public static volatile boolean STRICT_SERVING = Boolean.getBoolean("sirix.query.strictServing");
+
+  /** Test seam: a fault raised at the group-aggregate arm's entry, to exercise the fail-soft contract. */
+  static volatile @Nullable RuntimeException GROUP_AGG_TEST_FAULT = null;
+
+  /**
+   * The fail-soft hook every serving arm shares: count the defect, name it under
+   * {@code -Dsirix.projDiag}, and under {@link #STRICT_SERVING} rethrow so the failure surfaces where it
+   * happened. A caller that reaches the line after this call is on the generic pipeline.
+   */
+  private static void failSoft(final LongAdder counter, final String what, final RuntimeException e) {
+    counter.increment();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] " + what + " failed, using generic pipeline: " + e);
+    }
+    if (STRICT_SERVING) {
+      throw new IllegalStateException("strict serving: " + what + " failed instead of falling back to the generic pipeline",
+          e);
+    }
+  }
+
+  /**
    * Whether a bare set-membership count may be answered from the dictionaries alone. On by default; a
    * switch so the two routes can be INTERLEAVED in one build rather than compared across corpora.
    */
@@ -7580,12 +7935,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
         case CompiledPredicate.OP_STR_CMP, CompiledPredicate.OP_STR_CONTAINS -> {
-          // STRING_DICT only, NOT STRING_SET, for the OP_STR_NE reason: ordering/substring
-          // against a SEQUENCE is a different question than against the single value. NOT
-          // STRING_GLOBAL either, for a different one: ids are minted in first-seen order, so
-          // comparing them orders by when a value was first interned, and a substring is not a
-          // question about an id at all. Both would answer confidently and wrongly.
-          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          // STRING_DICT or STRING_GLOBAL; NOT STRING_SET, for the OP_STR_NE reason: ordering/
+          // substring against a SEQUENCE is a different question than against the single value.
+          // A GLOBAL column never evaluates these ops over its ids — ids order by first intern,
+          // and a substring is not a question about an id at all. Instead the predicate is
+          // evaluated ONCE PER DISTINCT VALUE against the resource-wide dictionary's bytes and
+          // rides as a verdict bitset the kernels test per row (globalStringVerdictPredicate) —
+          // the same two-phase evaluation the per-leaf dictionaries already run.
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn) {
             return null;
           }
         }
@@ -7720,19 +8077,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // The direction rides in cmpOp for this one code; an unexpected value declines
           // rather than defaulting to any particular comparison.
           final byte[] litBytes = cp.strLiteralBytes[cp.strIdx[n]];
-          pred = switch (cp.cmpOp[n]) {
-            case OP_GT -> ProjectionIndexScan.ColumnPredicate.stringGt(column, litBytes);
-            case OP_LT -> ProjectionIndexScan.ColumnPredicate.stringLt(column, litBytes);
-            case OP_GE -> ProjectionIndexScan.ColumnPredicate.stringGe(column, litBytes);
-            case OP_LE -> ProjectionIndexScan.ColumnPredicate.stringLe(column, litBytes);
+          final ProjectionIndexScan.Op strOp = switch (cp.cmpOp[n]) {
+            case OP_GT -> ProjectionIndexScan.Op.STR_GT;
+            case OP_LT -> ProjectionIndexScan.Op.STR_LT;
+            case OP_GE -> ProjectionIndexScan.Op.STR_GE;
+            case OP_LE -> ProjectionIndexScan.Op.STR_LE;
             default -> null;
           };
+          if (strOp == null) {
+            return null;
+          }
+          pred = globalStringColumn
+              ? globalStringVerdictPredicate(handle, column, litBytes, strOp)
+              : new ProjectionIndexScan.ColumnPredicate(column, strOp, 0L, 0L, false, litBytes);
           if (pred == null) {
             return null;
           }
         }
         case CompiledPredicate.OP_STR_CONTAINS -> {
-          pred = ProjectionIndexScan.ColumnPredicate.stringContains(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          pred = globalStringColumn
+              ? globalStringVerdictPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]],
+                  ProjectionIndexScan.Op.STR_CONTAINS)
+              : ProjectionIndexScan.ColumnPredicate.stringContains(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          if (pred == null) {
+            return null;
+          }
         }
         case CompiledPredicate.OP_ARRAY_CONTAINS -> {
           // Carried as an ordinary string-EQ predicate: the mask evaluator dispatches on the
@@ -7784,6 +8153,43 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @param equality {@code true} for {@code =}, {@code false} for {@code !=}
    * @return the translated predicate, or {@code null} to decline
    */
+  /**
+   * Turn a per-value string predicate (containment, ordering) over a
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column into a pre-evaluated
+   * verdict-bitset predicate.
+   *
+   * <p>
+   * The op is evaluated ONCE against every distinct value in the resource-wide dictionary — through
+   * the same per-entry authority the per-leaf dictionary kernels use — and the verdict rides with
+   * the predicate as a bitset over id space; the kernels then answer each row with one bit test
+   * against the id its long lane already holds. The string work is O(distinct values) per query
+   * instead of O(rows), which is the whole point of a dictionary encoding.
+   *
+   * @return the verdict predicate, or {@code null} to decline (no readable dictionary here)
+   */
+  private ProjectionIndexScan.ColumnPredicate globalStringVerdictPredicate(
+      final ProjectionIndexRegistry.Handle handle, final int column, final byte[] literalUtf8,
+      final ProjectionIndexScan.Op op) {
+    if (literalUtf8 == null) {
+      return null;
+    }
+    final long headerKey = handle.valueDictionaryHeaderKey(column);
+    if (headerKey <= 0L) {
+      return null;
+    }
+    final GlobalValueDictionary.ReadView view =
+        GlobalValueDictionary.readView(headerKey, workerTrx().getStorageEngineReader());
+    if (view == null) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] global dictionary unreadable for a verdict predicate on column " + column);
+      }
+      return null;
+    }
+    final long[] verdict = view.stringOpVerdict(op, literalUtf8);
+    return ProjectionIndexScan.ColumnPredicate.globalStringVerdict(column, op, literalUtf8, verdict,
+        view.entryCount());
+  }
+
   private ProjectionIndexScan.ColumnPredicate globalStringPredicate(final ProjectionIndexRegistry.Handle handle,
       final int column, final byte[] literalUtf8, final boolean equality) {
     if (literalUtf8 == null) {
@@ -7974,14 +8380,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Projection lookup for this executor's revision: the revision-scoped catalog + page layer first
-   * ({@link ProjectionIndexCatalog} — the same discovery route the other index families use, correct
-   * across commits, rollbacks and time travel by construction), then the in-memory registry pool as
-   * the bench/test fallback for stores without catalogued definitions.
+   * Projection lookup for this executor's revision. The revision-scoped catalog and page layer are
+   * the sole discovery route, matching the other persisted index families and remaining correct
+   * across commits, rollbacks, and time travel.
    */
   /** Whole-projection background readahead on first resolution (advisory; property-gated). */
   private static final boolean PREFETCH_ALL_SEGMENTS =
       !"false".equals(System.getProperty("sirix.projection.prefetchAll"));
+
+  /** Emergency/A-B switch; normal production serving remains enabled. */
+  private static final boolean PROJECTION_SERVING_ENABLED = !Boolean.getBoolean("sirix.projection.serving.disabled");
 
   private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath, final String[] requiredFields) {
     final ProjectionIndexRegistry.Handle resolved = lookupProjectionResolved(sourcePath, requiredFields);
@@ -8002,8 +8410,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     if (wtx != null) {
       // Wtx-visible serving: controller-mediated, through the transaction's
-      // own reader (uncached, read-your-writes). The bench/test pool holds
-      // committed-state snapshots and must not answer for uncommitted state.
+      // own reader (uncached, read-your-writes).
       // Runs under the transaction's lock: the flush inside drains listener
       // state, navigates the transaction, and writes through its log —
       // unlocked it would race a delay-scheduled auto-commit running the
@@ -8013,22 +8420,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           wtxIndexController().openProjectionIndex(wtx.getStorageEngineWriter(), sourcePath, requiredFields));
       return out[0];
     }
-    final ProjectionIndexRegistry.Handle catalogued =
-        ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath, requiredFields);
-    if (catalogued != null) {
-      return catalogued;
-    }
-    // The catalog is AUTHORITATIVE whenever the resource carries catalogued projection
-    // definitions at this revision: a miss then means "not usable HERE" — stale tombstone,
-    // no payloads, wrong shape — and the in-memory registry must not answer instead. Its
-    // handles are only gated by validFromRevision, so a snapshot installed BEFORE an
-    // invalidating commit would otherwise keep serving every later revision in-process
-    // (stale reads the revision-scoped catalog exists to prevent). The registry fallback
-    // stays for bench/test wiring only, where nothing is catalogued.
-    if (ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision)) {
-      return null;
-    }
-    return ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields, revision);
+    return ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath,
+        requiredFields);
   }
 
   /**
@@ -8069,14 +8462,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * the compilation entirely (the common case).
    */
   private boolean anyProjectionAvailable() {
-    if (projectionRegistryKey == null) {
+    if (!PROJECTION_SERVING_ENABLED || projectionRegistryKey == null) {
       return false;
     }
     if (wtx != null) {
       return wtxIndexController().getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION) > 0;
     }
-    return ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision)
-        || ProjectionIndexRegistry.hasProjections(projectionRegistryKey);
+    return ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision);
   }
 
   /**
@@ -8410,8 +8802,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final boolean singleArrayContains = cp.ops.length == 1 && cp.ops[0] == CompiledPredicate.OP_ARRAY_CONTAINS;
     // The path key of the ARRAY LAYER beneath the field — `/[]/genres/[]`, which is what the
     // element values are tagged by. The field's own key names `/[]/genres` and finds nothing.
+    // Ancestry-exact and ambiguity-aware (the count scope resolver): a path node key is a full-path
+    // identity, so the string-region tag it selects proves the source scope of every VALUE the
+    // column route counts. Anchors, seams and attribution carry their own proofs below.
     final long arrayElementPathKey = singleArrayContains && ARRAY_CONTAINS_COLUMNAR_ENABLED
-        ? arrayLayerPathNodeKey(sourcePath, cp.fieldNames[0])
+        ? resolveCountPathScope(sourcePath, cp.fieldNames[0]).anonymousArrayPathNodeKey()
         : -1L;
     final byte[] arrayContainsLiteralBytes = singleArrayContains
         ? cp.strLiteralBytes[cp.strIdx[0]]
@@ -8440,9 +8835,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final int anchorNameKey = cp.fieldNameKeys[0];
     if (anchorNameKey == -1)
       return 0L;
-    // Resolve the fully-qualified pathNodeKey for the anchor. -1L ⇒ unresolvable;
-    // fall back to name-only matching (legacy behaviour).
+    // Resolve the fully-qualified pathNodeKey for the anchor. A -1L key is scoped by the structural
+    // source matcher; it must never become a resource-wide name-only scan.
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, anchorPathNodeKey);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -8465,12 +8862,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // Per-page we probe tagMin/tagMax of the anchor nameKey in the page's
     // NumberRegion and skip the whole page on a provable miss. Cost: a
     // handful of int compares per page when the probe is active.
-    final AnchorZoneProbe zoneProbe = extractAnchorZoneProbe(cp);
+    final AnchorZoneProbe zoneProbe = structuralSourceMatcher == null
+        ? extractAnchorZoneProbe(cp)
+        : null;
     // Column-only plan: when the predicate reduces to one interval over one numeric field, a
     // page's answer is a SIMD pass over its number region — and the page can then be read
     // WITHOUT its record heap, which is where a cold scan spends the overwhelming majority of
     // its time (disk columns → row heap → columns re-derived). Null = not that shape.
-    final RegionCountPlan regionPlan = attachTreeRoute(planRegionCount(cp), cp, sourcePath);
+    final RegionCountPlan regionPlan = structuralSourceMatcher == null
+        ? attachTreeRoute(planRegionCount(cp), cp, sourcePath)
+        : null;
     final boolean stringPlan = regionPlan != null && regionPlan.isString();
     // Every fused field's keys, resolved once for the whole scan rather than per page.
     final int[] fusedFieldNameKeys;
@@ -8663,7 +9064,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
             if (recordBuf != null)
               recordBuf.add((int) pk);
-            collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
+            collectColumns(kv, base, matches, cp, anchorPathNodeKey, structuralSourceMatcher, batch, rtx);
             if (batch.size == 0)
               continue;
             final long[] bitmap;
@@ -8705,6 +9106,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 prefetchWindow = prefetchWindowOrNull(reader);
               }
             }
+            // No structuralSourceMatcher gate here: an array-valued field always resolves to an
+            // unscoped anchor key (the slots carry the array layer's key, not the field's), so
+            // requiring the matcher would retire this route by construction. The layer key proves
+            // scope for column-decided values; seams go through the records WITH the matcher.
             if (singleArrayContains && arrayElementPathKey > 0 && columnarWorthIt) {
               columnarAttempts++;
               // Try the COLUMNS before touching the record page. This is the one-shot cost of the
@@ -8725,8 +9130,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 final int trailing = headerScratch.pendingTrailingAnchorSlot;
                 final int leading = headerScratch.pendingFusedAnchorSlot;
                 headerScratch.clearPendingBoundary();
-                localCount += decideOneArrayContains(leading, pk, rtx, arrayContainsLiteralBytes)
-                    + decideOneArrayContains(trailing, pk, rtx, arrayContainsLiteralBytes);
+                localCount += decideOneArrayContains(leading, pk, rtx, arrayContainsLiteralBytes, structuralSourceMatcher)
+                    + decideOneArrayContains(trailing, pk, rtx, arrayContainsLiteralBytes, structuralSourceMatcher);
                 if (recordBuf != null && anchorSlotOut[0] > 0)
                   recordBuf.add((int) pk);
                 continue;
@@ -8758,7 +9163,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
                 continue;
               }
-              if (!rtx.moveTo(anchorObjectKey))
+              if (!positionOnScopedAnchor(rtx, anchorObjectKey, structuralSourceMatcher))
                 continue;
               if (singleArrayContains) {
                 // The scan is ALREADY standing on the field the predicate asks about — the anchor
@@ -8909,12 +9314,30 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long pageKey, final int anchorNameKey, final long elementPathTag, final byte[] literal,
       final byte[][] literalWrapper, final int[] anchorSlotOut, final RegionHeaderScratch scratch) {
     anchorSlotOut[0] = 0;
+    // Seam slots are consumed only after a SERVE; a decline that set one would otherwise hand it to
+    // the next served page under a different page key.
+    scratch.clearPendingBoundary();
     if (elementPathTag <= 0L || elementPathTag > Integer.MAX_VALUE) {
       return declineArrayContains(ArrayContainsDecline.NO_ARRAY_PATH);
     }
     final RegionsOnlyPage page =
         reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pageKey), ARRAY_CONTAINS_REGION_MASK, 0);
-    if (page == null || !page.hasSlotBitmap()) {
+    if (page == null) {
+      return declineArrayContains(ArrayContainsDecline.NO_REGIONS);
+    }
+    try {
+      return countArrayContainsFromRegions(page, reader, reusableKey, pageKey, anchorNameKey, elementPathTag, literal,
+          literalWrapper, anchorSlotOut, scratch);
+    } finally {
+      page.close();
+    }
+  }
+
+  private long countArrayContainsFromRegions(final RegionsOnlyPage page, final StorageEngineReader reader,
+      final IndexLogKey reusableKey, final long pageKey, final int anchorNameKey, final long elementPathTag,
+      final byte[] literal, final byte[][] literalWrapper, final int[] anchorSlotOut,
+      final RegionHeaderScratch scratch) {
+    if (!page.hasSlotBitmap()) {
       return declineArrayContains(ArrayContainsDecline.NO_REGIONS);
     }
     final MemorySegment nameKeys = page.nameKeyPayload();
@@ -8935,6 +9358,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (sh == null || sh.tagKind != StringRegion.TAG_KIND_PATH_NODE) {
       return declineArrayContains(ArrayContainsDecline.STRING_TAG_NOT_PATH);
     }
+    if (sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS && !SEAM_SKIP_ELEMENT_PROMISE) {
+      // The promise: this page's element set is COMPLETE and structurally pure. Without it a page
+      // whose staging was refused (or never attempted) holds no tags at all, and anchors whose gaps
+      // end at a nested object key would balance the certificate at zero — and serve zero.
+      return declineArrayContains(ArrayContainsDecline.ELEMENTS_NOT_STAGED);
+    }
     final int tag = StringRegion.lookupTag(sh, (int) elementPathTag);
     final int elementCount = tag < 0
         ? 0
@@ -8951,6 +9380,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     int covered = 0;
     int trailingSegment = -1;
     int trailingSlot = -1;
+    int trailingGap = 0;
     int leadingSlot = -1;
     boolean leadingMatched = false;
     // ONE SIMD pass for the anchor's occurrences, rather than asking every object-key slot what it
@@ -8983,7 +9413,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         trailingSegment = segments;
         trailingSlot = from;
       }
-      covered += page.populatedInRange(from + 1, to);
+      final int gap = page.populatedInRange(from + 1, to);
+      covered += gap;
+      if (trailing) {
+        trailingGap = gap;
+      }
       // The gap runs to the next OBJECT KEY, which on an array that is its record's LAST field
       // belongs to the NEXT record — so the next record's OBJECT node sits inside the gap and was
       // being counted as though it were one of the array's values. That is the whole of
@@ -9004,10 +9438,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int next = i + 1 < oh.skipCount
             ? -1
             : (int) decodedOrdinals[i + 1 - oh.skipCount];
-        final int boundaries = next - here;
-        if (boundaries > 0) {
-          covered -= boundaries;
+        // Ordinals are first-appearance by parent, so `next > here` means the next object key is
+        // its parent's FIRST field and that parent is the single bare OBJECT inside this gap, or
+        // the anchor itself. `next - here` subtracted phantom objects (two or more after leaving a
+        // nested object earlier in the record) — a genuine under-count of `covered`.
+        final int boundaries = next > here
+            ? 1
+            : 0;
+        if (gap < boundaries) {
+          // The anchor is a fused OBJECT-valued field: its first field is the next key, nothing lies
+          // in the gap, and the boundary would subtract a value that was never counted.
+          return declineArrayContains(ArrayContainsDecline.GAP_NARROWER_THAN_BOUNDARY);
         }
+        covered -= boundaries;
       }
       // The OTHER seam, and the one that was refusing most of the corpus. A record whose object
       // node sits at the tail of the previous page keeps its fields at the head of this one, so its
@@ -9051,7 +9494,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // Arrays present, none of them holding a value ON THIS PAGE: nothing here satisfies an
       // existential. The seam still can, though — a page ending just after an array node keeps
       // every element of it on the NEXT page.
-      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal, literalWrapper, scratch);
+      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, trailingGap, literal, literalWrapper,
+          scratch);
     }
     final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
         scratch.literalsFor(page.getFsstSymbolTableId(), literalWrapper, reader)[0]);
@@ -9064,7 +9508,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // literals rare enough to be absent from a page at all: measured on the movies corpus,
       // "Drama" (on nearly every page) lost none and "Short" lost 11. Validating against a common
       // literal is what let it hide.
-      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal, literalWrapper, scratch);
+      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, trailingGap, literal, literalWrapper,
+          scratch);
     }
     final long[] hits = scratch.sparseOccRows;
     if (elementCount > hits.length << 6) {
@@ -9119,16 +9564,25 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // CPU), and on a corpus whose array is each record's LAST field this seam falls on ~30 %
         // of pages. The columnar kernel that does the real work is 5 %.
         if ((matchedRecords[record >>> 6] & (1L << (record & 63))) == 0L) {
-          // Nothing on THIS page settles it, so ask the next page's orphan elements before falling
-          // back to rebuilding a whole slotted page for this one record.
-          final int fromOrphans =
-              orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
-          if (fromOrphans == ORPHANS_CONTAIN) {
-            matchedRecords[record >>> 6] |= 1L << (record & 63);
-          } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
+          if (trailingGap == 0 && !SEAM_SETTLE_EMPTY_GAP_FROM_ORPHANS) {
+            // An anchor with NO element on this page carries no scope proof: a same-name array
+            // nested elsewhere in the record looks identical from the columns, and the next page's
+            // orphans belong to whichever array spilled. Only the records decide it — with the
+            // source matcher — never the orphans.
             scratch.pendingTrailingAnchorSlot = trailingSlot;
+          } else {
+            // Nothing on THIS page settles it, so ask the next page's orphan elements before falling
+            // back to rebuilding a whole slotted page for this one record. The gap's values carry
+            // the layer key (the certificate balanced), so the spilled array is this anchor's.
+            final int fromOrphans =
+                orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
+            if (fromOrphans == ORPHANS_CONTAIN) {
+              matchedRecords[record >>> 6] |= 1L << (record & 63);
+            } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
+              scratch.pendingTrailingAnchorSlot = trailingSlot;
+            }
+            // ORPHANS_ABSENT: settled as a non-match, bit stays clear, no record path.
           }
-          // ORPHANS_ABSENT: settled as a non-match, bit stays clear, no record path.
         }
       }
       // A page holding ONE anchor occurrence that both spans in and runs to the page end is both
@@ -9139,12 +9593,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // Both seams at once: the array spans IN from the previous page AND runs to this page's end,
       // so its elements can continue on the next one. Undecided ONLY if nothing here matched — a
       // witness on this page settles it just as it does for the trailing case above — and the next
-      // page's orphans get the same chance to settle it before the record path does.
-      final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
-      if (fromOrphans == ORPHANS_CONTAIN) {
-        leadingMatched = true;
-      } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
+      // page's orphans get the same chance to settle it before the record path does, provided the
+      // anchor's own gap proved the scope; an empty gap goes to the records with the matcher.
+      if (trailingGap == 0 && !SEAM_SETTLE_EMPTY_GAP_FROM_ORPHANS) {
         scratch.pendingFusedAnchorSlot = leadingSlot;
+      } else {
+        final int fromOrphans =
+            orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
+        if (fromOrphans == ORPHANS_CONTAIN) {
+          leadingMatched = true;
+        } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
+          scratch.pendingFusedAnchorSlot = leadingSlot;
+        }
       }
     }
     return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount) + (leadingMatched
@@ -9166,9 +9626,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @return {@code 1} if the seam record matches, {@code 0} otherwise
    */
   private long settleTrailingSeamOnly(final StorageEngineReader reader, final IndexLogKey reusableKey,
-      final long pageKey, final int trailingSlot, final byte[] literal, final byte[][] literalWrapper,
-      final RegionHeaderScratch scratch) {
+      final long pageKey, final int trailingSlot, final int trailingGap, final byte[] literal,
+      final byte[][] literalWrapper, final RegionHeaderScratch scratch) {
     if (trailingSlot < 0) {
+      return 0L;
+    }
+    if (trailingGap == 0 && !SEAM_SETTLE_EMPTY_GAP_FROM_ORPHANS) {
+      // No element of the anchor on this page: no scope proof, so the records decide it (with the
+      // source matcher) rather than the next page's orphans — see the trailing seam above.
+      scratch.pendingTrailingAnchorSlot = trailingSlot;
       return 0L;
     }
     final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
@@ -9214,41 +9680,43 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (next == null) {
         return ORPHANS_UNDECIDABLE; // no next page, or it published no regions
       }
-      final MemorySegment strings = next.stringPayload();
-      if (strings == null) {
-        return ORPHANS_UNDECIDABLE;
-      }
-      final StringRegion.Header sh = next.stringHeaderInto(scratch.stringNext);
-      if (sh == null || sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS) {
-        return ORPHANS_UNDECIDABLE; // written before the promise existed, or staging gave up
-      }
-      final int tag = StringRegion.lookupTag(sh, StringRegion.TAG_ORPHAN_ELEMENTS);
-      if (tag < 0) {
-        return ORPHANS_ABSENT; // it looked and found none: the array ended on the page before
-      }
-      final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
-          scratch.literalsFor(next.getFsstSymbolTableId(), literalWrapper, reader)[0]);
-      if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
-        return ORPHANS_UNDECIDABLE;
-      }
-      // A per-tag dictionary holds only values that occur under that tag, so membership in it IS an
-      // occurrence — an existential needs no more than that.
-      if (dictId != StringRegion.DICT_ID_ABSENT) {
-        return ORPHANS_CONTAIN;
-      }
-      // Absent HERE settles the array only if it ends here. An orphan run that covers every
-      // populated slot of the page leaves the array still open, so its remaining elements sit on
-      // the page after this one — walk on and ask that page's orphans the same question.
-      if (!next.hasSlotBitmap()) {
-        return ORPHANS_UNDECIDABLE;
-      }
-      final int populated = next.populatedInRange(0, Constants.NDP_NODE_COUNT);
-      final int orphanCount = sh.tagCount[tag];
-      if (populated > orphanCount) {
-        return ORPHANS_ABSENT; // the run ended on this page, and the literal was not in it
-      }
-      if (populated < orphanCount) {
-        return ORPHANS_UNDECIDABLE; // more orphans than slots: a shape this does not model
+      try (next) {
+        final MemorySegment strings = next.stringPayload();
+        if (strings == null) {
+          return ORPHANS_UNDECIDABLE;
+        }
+        final StringRegion.Header sh = next.stringHeaderInto(scratch.stringNext);
+        if (sh == null || sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS) {
+          return ORPHANS_UNDECIDABLE; // written before the promise existed, or staging gave up
+        }
+        final int tag = StringRegion.lookupTag(sh, StringRegion.TAG_ORPHAN_ELEMENTS);
+        if (tag < 0) {
+          return ORPHANS_ABSENT; // it looked and found none: the array ended on the page before
+        }
+        final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
+            scratch.literalsFor(next.getFsstSymbolTableId(), literalWrapper, reader)[0]);
+        if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+          return ORPHANS_UNDECIDABLE;
+        }
+        // A per-tag dictionary holds only values that occur under that tag, so membership in it IS an
+        // occurrence — an existential needs no more than that.
+        if (dictId != StringRegion.DICT_ID_ABSENT) {
+          return ORPHANS_CONTAIN;
+        }
+        // Absent HERE settles the array only if it ends here. An orphan run that covers every
+        // populated slot of the page leaves the array still open, so its remaining elements sit on
+        // the page after this one — walk on and ask that page's orphans the same question.
+        if (!next.hasSlotBitmap()) {
+          return ORPHANS_UNDECIDABLE;
+        }
+        final int populated = next.populatedInRange(0, Constants.NDP_NODE_COUNT);
+        final int orphanCount = sh.tagCount[tag];
+        if (populated > orphanCount) {
+          return ORPHANS_ABSENT; // the run ended on this page, and the literal was not in it
+        }
+        if (populated < orphanCount) {
+          return ORPHANS_UNDECIDABLE; // more orphans than slots: a shape this does not model
+        }
       }
       pageKey++;
     }
@@ -9266,11 +9734,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @return {@code 1} if that record's array holds the literal, {@code 0} otherwise
    */
   private static long decideOneArrayContains(final int anchorSlot, final long pk, final JsonNodeReadOnlyTrx rtx,
-      final byte[] literal) {
+      final byte[] literal, final @Nullable SourcePathMatcher matcher) {
     if (anchorSlot < 0) {
       return 0L;
     }
     final long arrayKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + anchorSlot;
+    // The same scope proof the record fallback applies: the fused OBJECT_NAMED_ARRAY node is both the
+    // named field and the value, so the matcher's walk starts at the record object. It moves the
+    // cursor, hence the second positioning.
+    if (!positionOnScopedAnchor(rtx, arrayKey, SEAM_UNSCOPED_SEAM_RECORDS
+        ? null
+        : matcher)) {
+      return 0L;
+    }
     return rtx.moveTo(arrayKey) && arrayContainsAt(rtx, literal)
         ? 1L
         : 0L;
@@ -9304,6 +9780,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * shared statistics, and a value read once at class initialisation cannot be flipped.
    */
   public static boolean ARRAY_CONTAINS_COLUMNAR_ENABLED = Boolean.getBoolean("sirix.scan.arrayContainsColumnar");
+  /**
+   * Mutation seams for the array-membership column route's scope proofs (tests only; the production
+   * value is {@code false} and nothing else reads them). Each one restores a refuted behaviour so a
+   * differential test can show the guard it bypasses is load-bearing.
+   */
+  public static volatile boolean SEAM_SETTLE_EMPTY_GAP_FROM_ORPHANS = false;
+  public static volatile boolean SEAM_UNSCOPED_SEAM_RECORDS = false;
+  public static volatile boolean SEAM_SKIP_ELEMENT_PROMISE = false;
+
+  /**
+   * Canonical-byte budget handed to each query's {@link ProjectionStringIdentityRegistry}: the
+   * documented default ({@code -Dsirix.projection.compositeIdentityMaxBytes}, else heap/8 clamped to
+   * [32 MiB, 1 GiB]). Non-final so a test can prove the budget still binds and that the lazy proof
+   * charges only the answer's vocabulary; production never writes it.
+   */
+  static volatile long compositeIdentityMaxBytes = ProjectionStringIdentityRegistry.DEFAULT_MAX_CANONICAL_BYTES;
 
   /** The three columns an array-membership count reads, and nothing else. */
   private static final int ARRAY_CONTAINS_REGION_MASK = (1 << RegionTable.KIND_STRING)
@@ -9317,6 +9809,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * match — an existential needs nothing more. The cursor is left where it was found.
    */
   private static boolean arrayContainsAt(final JsonNodeReadOnlyTrx rtx, final byte[] literal) {
+    final NodeKind anchorKind = rtx.getKind();
+    if (anchorKind != NodeKind.OBJECT_NAMED_ARRAY && anchorKind != NodeKind.ARRAY) {
+      // acceptsPredicate admits the field only when the summary proves every value an array; a
+      // non-array here is the interpreter's XPTY0004 that the gate exists to leave to it. Loud,
+      // never a silent "no member".
+      throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+          "array membership over a non-array value (" + anchorKind + ") at node " + rtx.getNodeKey()
+              + ": the path summary admitted the field as array-only");
+    }
     if (!rtx.moveToFirstChild()) {
       return false; // an EMPTY array satisfies no existential
     }
@@ -9769,7 +10270,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Single-field predicates keep the existing anchor-only fast path.
    */
   private static void collectColumns(final KeyValueLeafPage kv, final long pageBase, final int[] anchorSlots,
-      final CompiledPredicate cp, final long anchorPathNodeKey, final EvalBatch batch, final JsonNodeReadOnlyTrx rtx) {
+      final CompiledPredicate cp, final long anchorPathNodeKey,
+      final @Nullable SourcePathMatcher structuralSourceMatcher, final EvalBatch batch,
+      final JsonNodeReadOnlyTrx rtx) {
     batch.size = 0;
     batch.hasDecimalRows = false;
     if (anchorSlots.length == 0)
@@ -9817,6 +10320,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int slot = anchorSlots[si];
       final long anchorObjectKey = pageBase + slot;
       if (needPath && slotPathNodeKeys[si] != anchorPathNodeKey) {
+        continue;
+      }
+      if (structuralSourceMatcher != null
+          && !positionOnScopedAnchor(rtx, anchorObjectKey, structuralSourceMatcher)) {
         continue;
       }
       // Reset this row's presence bits for all fields. (Anchor will be set
@@ -10706,7 +11213,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             : 0);
       } else {
         final long[] cdStats = new long[2];
-        distinct = parallelCountDistinct(fieldKey, targetPathNodeKey, cdStats);
+        distinct = parallelCountDistinct(sourcePath, fieldKey, targetPathNodeKey, cdStats);
         if (cdStats[0] != cdStats[1]) {
           final Object2LongOpenHashMap<String> groups = typedGroupKeyCounts(sourcePath, null, new String[] {field});
           distinct = groups.size() - (groups.containsKey("m")
@@ -10721,6 +11228,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized count-distinct failed: %s",
           e.getMessage());
     }
+  }
+
+  /**
+   * Ungrouped {@code COUNT(DISTINCT field)} queries whose result was produced by a projection.
+   *
+   * <p>This is an outcome counter, not an attempt counter: it moves only after one of the exact
+   * projection implementations has produced the value returned to the query.  Without it a
+   * ClickBench route check cannot distinguish Q4/Q5 being projection-served from their correct but
+   * much slower document-scan fallback.
+   */
+  private static final LongAdder PROJECTION_COUNT_DISTINCT_SERVED = new LongAdder();
+
+  /** Total ungrouped count-distinct results served from a projection since process start. */
+  public static long projectionCountDistinctServedCount() {
+    return PROJECTION_COUNT_DISTINCT_SERVED.sum();
   }
 
   /**
@@ -10878,6 +11400,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // SHOT it was the whole document: 8.7 s against 20 ms for DuckDB on the same corpus.
     final Long numericDistinct = projectionNumericDistinct(handle, groupColumn);
     if (numericDistinct != null) {
+      PROJECTION_COUNT_DISTINCT_SERVED.increment();
       return new Int64(numericDistinct);
     }
     // Dictionary-union fast path: with the column sparse-clean, every
@@ -10888,6 +11411,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // predicate: every row counts.
     final long dictDistinct = parallelDistinctPresentStrings(handle, groupColumn);
     if (dictDistinct >= 0) {
+      PROJECTION_COUNT_DISTINCT_SERVED.increment();
       return new Int64(dictDistinct);
     }
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
@@ -10905,6 +11429,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     if (agg == null)
       return null;
+    PROJECTION_COUNT_DISTINCT_SERVED.increment();
     return new Int64(agg.size());
   }
 
@@ -11026,8 +11551,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * orders of magnitude below hardware error rates. If perfect correctness is required at
    * billion-cardinality scale, swap to a 128-bit hash or a keyed-set variant.
    */
-  private long parallelCountDistinct(final int fieldKey, final long targetPathNodeKey, final long[] statsOut)
-      throws Exception {
+  private long parallelCountDistinct(final String[] sourcePath, final int fieldKey, final long targetPathNodeKey,
+      final long[] statsOut) throws Exception {
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, targetPathNodeKey);
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
@@ -11064,7 +11591,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int fastLookupTag;
         if (sh == null) {
           fastLookupTag = Integer.MIN_VALUE;
-        } else if (targetPathNodeKey == -1L) {
+        } else if (targetPathNodeKey == -1L && structuralSourceMatcher == null) {
           fastLookupTag = fieldKey;
         } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE && targetPathNodeKey > 0L
             && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
@@ -11134,6 +11661,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final long objectKeyNodeKey = base + slot;
           if (targetPathNodeKey != -1L
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
+            continue;
+          }
+          if (structuralSourceMatcher != null
+              && !positionOnScopedAnchor(rtx, objectKeyNodeKey, structuralSourceMatcher)) {
             continue;
           }
           visited++;
@@ -11426,6 +11957,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return statsToSequence(func, EMPTY_SOURCE_STATS);
     }
+    final boolean fieldCount = field != null && "count".equals(func);
 
     try {
       if (wtx != null) {
@@ -11486,8 +12018,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return servedDbl;
       }
       long[] stats = aggregateCache.get(cacheKey);
-      MixedAgg dblStats = aggregateDblCache.get(cacheKey);
-      if (stats == null && dblStats == null) {
+      AggregateScan typedStats = aggregateDblCache.get(cacheKey);
+      if (fieldCount) {
+        // A full typed scan is strictly stronger evidence than the presence-only cache and can
+        // answer count directly. Conversely, a cached count must never masquerade as full stats.
+        if (typedStats != null) {
+          return new Int64(typedStats.visited());
+        }
+        if (stats == null) {
+          final Long cachedCount = aggregateFieldCountCache.get(cacheKey);
+          if (cachedCount != null) {
+            return new Int64(cachedCount);
+          }
+        }
+      }
+      if (stats == null && typedStats == null) {
         // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
         // (the long-only column excludes non-integral values by construction, so
         // no typed redo can be needed when it answers).
@@ -11505,9 +12050,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (stats == null)
             stats = projected;
         } else {
-          // Double-column serving (§11-8) runs BEFORE the MixedAgg cache below can be
+          // Double-column serving (§11-8) runs BEFORE the typed aggregate cache below can be
           // populated for this key, and caches its own per-func result: repeats are O(1),
-          // and a MixedAgg cached while the projection was still hydrating can never
+          // and a generic scan cached while the projection was still hydrating can never
           // shadow served digits (review finding — parallel-merged MixedAgg sums are not
           // fold-order-identical to the interpreter).
           final Sequence served = tryServeDoubleAggregate(sourcePath, field, null, func);
@@ -11519,26 +12064,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
       }
-      if (stats == null && dblStats == null) {
-        final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
-        // [0] non-integral value seen, [1] the long sum lane overflowed.
-        final boolean[] flags = new boolean[2];
-        final long[] fresh = parallelAggregate(field, targetPathNodeKey, flags);
-        final boolean nonIntegralOrOverflowed = flags[0] || (flags[1] && ("sum".equals(func) || "avg".equals(func)));
-        // count(for $u return $u.field) counts NON-EMPTY derefs — i.e. every
-        // record carrying the field, regardless of the value's type. The
-        // numeric accumulator's count only covers numbers (a count over a
-        // string field historically returned 0); the visited tally is the
-        // type-agnostic answer.
-        if ("count".equals(func)) {
-          return new Int64(fresh[4]);
+      if (stats == null && typedStats == null) {
+        if (fieldCount) {
+          final CountPathScope countPathScope = resolveCountPathScope(sourcePath, field);
+          final long fresh = parallelCountPresentField(sourcePath, field, countPathScope);
+          final Long prior = aggregateFieldCountCache.putIfAbsent(cacheKey, fresh);
+          return new Int64(prior == null
+              ? fresh
+              : prior);
         }
-        // Value aggregates over a field that EXISTS but never yielded a
-        // numeric value (pure string/boolean/null column). min/max over a
-        // string column is well defined and the interpreter answers it, so
-        // serve it here too; everything else the numeric kernels cannot
-        // reproduce fails LOUDLY instead of fabricating 0/empty.
-        if (!nonIntegralOrOverflowed && fresh[0] == 0 && fresh[4] > 0) {
+        final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+        final AggregateScan fresh = parallelAggregateMixed(sourcePath, field, targetPathNodeKey);
+        typedStats = aggregateDblCache.putIfAbsent(cacheKey, fresh);
+        if (typedStats == null)
+          typedStats = fresh;
+      }
+      if (typedStats != null) {
+        // count(for $u return $u.field) counts NON-EMPTY derefs — i.e. every record carrying the
+        // field, regardless of its value type. Keep it separate from the numeric fold's count.
+        if ("count".equals(func)) {
+          return new Int64(typedStats.visited());
+        }
+        final MixedAgg values = typedStats.values();
+        if (values.count() == 0 && typedStats.visited() > 0) {
           final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, null, field, func);
           if (stringExtreme != null) {
             return stringExtreme;
@@ -11548,30 +12096,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   + "string/boolean/null aggregation is not supported by the vectorized executor",
               func, field);
         }
-        if (nonIntegralOrOverflowed) {
-          // Either the column carries non-integral numbers — long accumulation TRUNCATES
-          // (sum over a half-double column measured 14% short) — or the long sum lane would
-          // have wrapped (a 64-bit id column overflows within a few dozen rows). Redo with a
-          // typed re-walk: decimal rows accumulate EXACTLY (the interpreter
-          // sums xs:decimal exactly and divides via Dec#div), double rows in
-          // double space, and the long lane escalates to BigDecimal on overflow.
-          final MixedAgg mfresh = parallelAggregateMixed(field, targetPathNodeKey);
-          dblStats = aggregateDblCache.putIfAbsent(cacheKey, mfresh);
-          if (dblStats == null)
-            dblStats = mfresh;
-        } else if (flags[1]) {
-          // min/max are still exact when the sum lane wrapped, so this call is answered from
-          // `fresh` — but the entry must NOT reach the cache, which is keyed by (source, field)
-          // and would then serve its bogus sum to a later sum/avg over the same column.
-          stats = fresh;
-        } else {
-          stats = aggregateCache.putIfAbsent(cacheKey, fresh);
-          if (stats == null)
-            stats = fresh;
-        }
-      }
-      if (dblStats != null) {
-        return dblStats.result(func);
+        return values.result(func);
       }
       return statsToSequence(func, stats);
     } catch (Exception e) {
@@ -11622,7 +12147,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final String field = i < aggFields.length
           ? aggFields[i]
           : null;
-      if (field == null || field.startsWith("len:")) {
+      if (field == null || stringLengthMode(field) != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
         // count(*): no column read. strlen operands: the whole-column magnitude bound would
         // read the DICT column's descriptor as numeric — the per-row addExact still guards.
         continue;
@@ -11753,6 +12278,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
       final long[] having, final boolean wholeLeafOnly) {
     try {
+      final RuntimeException fault = GROUP_AGG_TEST_FAULT;
+      if (fault != null) {
+        throw fault;
+      }
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return declineGroupAgg("no projection available");
       }
@@ -11799,10 +12328,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // NUMERIC_DOUBLE, STRING_SET, BOOLEAN — declines.
       boolean numericSingleKey = false;
       boolean anyNumericComponent = false;
+      boolean globalRegexKey = false;
+      long globalRegexHeaderKey = 0L;
       // The single key is a global string column: it rides the NUMERIC arm (its cells are dense
       // ids in the long lane) but is a STRING to the query, so it may neither be ordered on in
       // kernel nor emitted as an integer. Both are handled where they arise, below.
       boolean globalSingleKey = false;
+      final long[] globalSubstringHeaderKeys = new long[keyCount];
+      boolean anyGlobalSubstring = false;
+      boolean anyGlobalComposite = false;
       // The kernels take ONE substitution-literal array: it is the conditional key's ELSE branch
       // where a condition column is named, and the MISSING-value substitution where none is —
       // which is exactly what `fn:string(<chain>)` needs ("" for an absent field). Merge the two
@@ -11859,19 +12393,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             return declineGroupAgg("fn:string key needs an untransformed STRING_DICT column");
           }
         }
-        if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-          return declineGroupAgg("substring key needs a STRING_DICT column"); // a substring transform needs a dict
-                                                                              // component
+        final boolean globalSubstring = keySubstring
+            && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+        if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalSubstring) {
+          return declineGroupAgg("substring key needs a STRING_DICT or readable STRING_GLOBAL column");
         }
         if (keyCondCols != null) {
           keyCondCols[2 * g] = -1;
           keyCondCols[2 * g + 1] = -1;
         }
         if (keyConditional) {
-          // The then-branch reads the dict component; the else branch is a string literal —
-          // a numeric then-branch would emit mixed-type keys and stays declined.
-          if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT || keyShifted || keySubstring) {
-            return declineGroupAgg("conditional key needs an untransformed STRING_DICT column");
+          // The then-branch reads a STRING component — per-leaf dict or resource-wide global; the
+          // else branch is a string literal. A numeric then-branch would emit mixed-type keys and
+          // stays declined.
+          if ((kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+              && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) || keyShifted || keySubstring) {
+            return declineGroupAgg("conditional key needs an untransformed STRING_DICT or STRING_GLOBAL column");
           }
           for (int j = 0; j < 2; j++) {
             final String cf = keyCondFields[2 * g + j];
@@ -11915,12 +12452,52 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // NUMERIC_LONG or per-leaf dict, and an id taking the dict arm would read a dictionary
           // that is not there. Every key TRANSFORM has already declined above, each for its own
           // reason (they all require NUMERIC_LONG or STRING_DICT).
-          if (keyCount != 1 || handle.valueDictionaryHeaderKey(col) <= 0L) {
-            return declineGroupAgg("global key is multi-key or its column has no value dictionary");
+          final long headerKey = handle.valueDictionaryHeaderKey(col);
+          if (headerKey <= 0L) {
+            return declineGroupAgg("global key column has no value dictionary");
           }
-          numericSingleKey = true;
-          globalSingleKey = true;
-          anyNumericComponent = true;
+          if (globalSubstring) {
+            final var header = GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
+            if (header == null || !header.isDirectoryComplete()) {
+              return declineGroupAgg("global substring key has no readable dictionary at this revision");
+            }
+            if (keySubstr[2 * g] > 0) {
+              globalSubstringHeaderKeys[g] = headerKey;
+              anyGlobalSubstring = true;
+            }
+            anyNumericComponent = true;
+          } else if (keyConditional) {
+            // Conditional-then over a global component: the composite kernels fold the ID itself
+            // (exact identity, one lane) and the resolved else id merges with equal-valued rows.
+            final var header = GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
+            if (header == null || !header.isDirectoryComplete()) {
+              return declineGroupAgg("global conditional key has no readable dictionary at this revision");
+            }
+            globalSubstringHeaderKeys[g] = headerKey;
+            anyGlobalComposite = true;
+            anyNumericComponent = true;
+          } else if (keyCount != 1) {
+            // Untransformed global component in a COMPOSITE: the id is the exact identity — the
+            // composite kernels fold it as one lane and only winners materialize their value.
+            final var header = GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
+            if (header == null || !header.isDirectoryComplete()) {
+              return declineGroupAgg("global composite key has no readable dictionary at this revision");
+            }
+            globalSubstringHeaderKeys[g] = headerKey;
+            anyGlobalComposite = true;
+            anyNumericComponent = true;
+          } else if (keyRegexPattern != null && keyRegexPattern.length == 1 && keyRegexPattern[0] != null) {
+            // REGEX-transformed global key: the group identity is the TRANSFORMED string, so the
+            // string-flat arm serves it — the transform and its hash computed once per distinct id
+            // against the resource-wide dictionary rather than per leaf. numericSingleKey stays
+            // false on purpose: an id is not the key here, its transformed value is.
+            globalRegexKey = true;
+            globalRegexHeaderKey = headerKey;
+          } else {
+            numericSingleKey = true;
+            globalSingleKey = true;
+            anyNumericComponent = true;
+          }
         } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           return declineGroupAgg("group key column kind not servable");
         }
@@ -11929,6 +12506,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         groupCols[g] = col;
       }
+      final boolean hasGlobalSubstring = anyGlobalSubstring;
+      final boolean hasGlobalComposite = anyGlobalComposite;
+      final boolean globalRegexGroup = globalRegexKey;
+      final long globalRegexGroupHeaderKey = globalRegexHeaderKey;
       final int groupCol = groupCols[0];
       // REGEX key (Q28): single STRING key only, grouping on the TRANSFORMED string. Brackit's
       // REPLACE mode with no flags appends the pattern verbatim and substitutes with Matcher
@@ -11940,8 +12521,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       String keyRegexReplacement = null;
       if (keyRegexPattern != null && keyRegexPattern.length == keyCount && keyRegexPattern[0] != null) {
         if (keyCount != 1 || numericSingleKey
-            || handle.columnKindOf(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-          return declineGroupAgg("regex key needs a single STRING_DICT column");
+            || (handle.columnKindOf(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                && !globalRegexKey)) {
+          return declineGroupAgg("regex key needs a single STRING_DICT or STRING_GLOBAL column");
         }
         try {
           Regex.match(Regex.Mode.REPLACE, "probe", keyRegexPattern[0], keyRegexRepl[0], null);
@@ -11963,7 +12545,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[] deferredLane = new int[funcs.length];
       final IntArrayList deferredCols = new IntArrayList();
       final BooleanArrayList deferredIsMin = new BooleanArrayList();
+      final LongArrayList deferredGlobalHeaderKeys = new LongArrayList();
       boolean anyDeferred = false;
+      boolean anyDeferredGlobal = false;
       for (int i = 0; i < funcs.length; i++) {
         deferredLane[i] = -1;
         // Exact "min"/"max" only: a dbl:-prefixed cast over a string extremum is the
@@ -11972,12 +12556,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           continue;
         }
         final int col = handle.columnOf(aggFields[i]);
-        if (col >= 0 && handle.columnKindOf(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        final byte deferredKind = col >= 0
+            ? handle.columnKindOf(col)
+            : -1;
+        if (col >= 0 && deferredKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           deferredAgg[i] = true;
           deferredLane[i] = deferredCols.size();
           deferredCols.add(col);
           deferredIsMin.add("min".equals(funcs[i]));
+          deferredGlobalHeaderKeys.add(0L);
           anyDeferred = true;
+        } else if (col >= 0 && deferredKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // A GLOBAL operand defers exactly like a per-leaf dict one — pass 2 folds its best as an
+          // ID under the dictionary's UTF-16 collation and materializes winners only. Requires a
+          // readable dictionary at this revision; without one the column cannot answer.
+          final long headerKey = handle.valueDictionaryHeaderKey(col);
+          if (headerKey <= 0L) {
+            return declineGroupAgg("global string extremum has no value dictionary");
+          }
+          deferredAgg[i] = true;
+          deferredLane[i] = deferredCols.size();
+          deferredCols.add(col);
+          deferredIsMin.add("min".equals(funcs[i]));
+          deferredGlobalHeaderKeys.add(headerKey);
+          anyDeferred = true;
+          anyDeferredGlobal = true;
         }
       }
       // count(distinct-values(f)) entries: ONE distinct operand per query (v1), and its column
@@ -12003,22 +12606,39 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       final int[] aggCols = new int[distinctFields.size()];
-      boolean anyStrlenAgg = false;
+      boolean anyStringLengthAgg = false;
+      int[][] globalLengthTablesFlat = null;
       for (int i = 0; i < aggCols.length; i++) {
         final String df = distinctFields.get(i);
-        final boolean strlen = df.startsWith("len:");
+        final byte lengthMode = stringLengthMode(df);
         final int col = handle.columnOf(rawAggField(df));
         if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
           return declineGroupAgg("aggregate column absent or not sparse-clean");
         }
-        if (strlen) {
-          // string-length over a dict column: codepoint counts fold as the numeric operand.
+        if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
+          // A string length over a dict column folds as the numeric operand. The mode preserves
+          // fn:string-length codepoints versus jn:utf8-length bytes.
           // The sparse gate above is ALSO the null gate — string-length(null) raises where
           // the kernel would fold 0.
-          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-            return declineGroupAgg("string-length aggregate needs a STRING_DICT column");
+          final byte lengthKind = handle.columnKindOf(col);
+          if (lengthKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            // GLOBAL operand: lengths derive once per distinct value into a per-query id table the
+            // kernels index per row — the length twin of the verdict-bitset predicates.
+            final long headerKey = handle.valueDictionaryHeaderKey(col);
+            final GlobalValueDictionary.ReadView lengthView = headerKey > 0L
+                ? GlobalValueDictionary.readView(headerKey, workerTrx().getStorageEngineReader())
+                : null;
+            if (lengthView == null) {
+              return declineGroupAgg("global string-length operand has no readable dictionary");
+            }
+            if (globalLengthTablesFlat == null) {
+              globalLengthTablesFlat = new int[aggCols.length][];
+            }
+            globalLengthTablesFlat[i] = lengthView.lengthTable(lengthMode);
+          } else if (lengthKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return declineGroupAgg("string-length aggregate needs a STRING_DICT or STRING_GLOBAL column");
           }
-          anyStrlenAgg = true;
+          anyStringLengthAgg = true;
         } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)) {
           return declineGroupAgg("aggregate column is not an integral NUMERIC_LONG");
@@ -12063,9 +12683,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int cdBlock = cdBlockIdx;
       final boolean cdStringDict = cdStringOperand;
       final int[] aggColsFlat = aggColsAll;
-      final boolean[] aggStrlenFlat = new boolean[aggColsFlat.length];
-      for (int i = 0; i < aggCols.length; i++) {
-        aggStrlenFlat[i] = distinctFields.get(i).startsWith("len:");
+      final byte[] stringLengthModesFlat = anyStringLengthAgg
+          ? new byte[aggColsFlat.length]
+          : null;
+      if (stringLengthModesFlat != null) {
+        for (int i = 0; i < aggCols.length; i++) {
+          stringLengthModesFlat[i] = stringLengthMode(distinctFields.get(i));
+        }
       }
       final ProjectionIndexScan.ColumnPredicate[] preds;
       ProjectionIndexScan.PredicateTree predTree = null;
@@ -12216,7 +12840,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // strlen operands fold in the numeric and string single-key flat kernels (v1) — the
       // composite/packed arms would read the dict column's id lanes as values.
       final boolean stringFlatRoute = keyCount == 1 && !numericSingleKey && !anyKeyTransform && !packedStringKey;
-      if (anyStrlenAgg && (orderPlan == null || !((numericSingleKey && !anyKeyTransform) || stringFlatRoute))) {
+      if (anyStringLengthAgg && (orderPlan == null || !((numericSingleKey && !anyKeyTransform) || stringFlatRoute))) {
         return declineGroupAgg("string-length aggregate outside the two flat arms");
       }
       // Deferred string extrema serve on the single-string-key flat arm ONLY (v1): pass 2 needs
@@ -12263,16 +12887,26 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
       // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
-      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform;
+      // Global length operands fold in the whole-leaf numeric kernel only (the sliced arm reads
+      // per-leaf dictionaries for its length pass) — routing, not a decline.
+      final boolean numericSlicedArm =
+          groupSliced && numericSingleKey && !anyKeyTransform && globalLengthTablesFlat == null;
       // The string flat arm slices too (regex + strlen + distinct included); deferred string
       // extrema keep whole-leaf — pass 2's winner matching scans payloads.
-      final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null;
+      // A GLOBAL deferred operand or a GLOBAL regex key folds in the whole-leaf kernels only (the
+      // sliced string arms read per-leaf dictionaries); forcing the arm is a routing choice, not a
+      // decline.
+      final boolean stringSlicedArm =
+          groupSliced && stringFlatRoute && orderPlan != null && !anyDeferredGlobal && !globalRegexKey;
       // The LEGACY string emission arm (no order plan) slices too — by construction it is the
       // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
-      final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null;
+      final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null && !globalRegexKey;
       // Composite flat arm (unit 4): multi-key and transformed keys, CD and all three key
       // transforms included — condition columns are gated NUMERIC_LONG upstream.
-      final boolean compositeSlicedArm = groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null;
+      // Untransformed/conditional global components fold in the whole-leaf composite kernel only
+      // (the sliced composite kernel reads per-leaf dictionaries) — routing, not a decline.
+      final boolean compositeSlicedArm =
+          groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null && !hasGlobalComposite;
       final boolean packedSlicedArm = groupSliced && packedStringKey && orderPlan != null;
       // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
       // the flat arms, which never touch payloads).
@@ -12293,32 +12927,39 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return packedSubstringGroupAggregate(armPayloads, packedSlicedArm
             ? groupStore
             : null, preds, tree, groupCol, -keySubstr[0], keySubstr[1], aggColsFlat, keyNames, funcs, aggFields,
-            outNames, distinctFields, eff, chunkSize, orderPlan, selLimit, having, sumExactMask);
+            outNames, distinctFields, eff, chunkSize, orderPlan, selLimit, having, sumExactMask,
+            handle.columnKindOf(groupCol) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+                ? handle.valueDictionaryHeaderKey(groupCol)
+                : 0L);
       }
       if (numericSingleKey && !anyKeyTransform) {
         return numericGroupAggregate(armPayloads, numericSlicedArm
             ? groupStore
             : null, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize,
-            orderPlan, selLimit, cdBlock, tree, having, anyStrlenAgg
-                ? aggStrlenFlat
-                : null,
-            cdStringDict, globalSingleKey
+            orderPlan, selLimit, cdBlock, tree, having, stringLengthModesFlat, globalLengthTablesFlat, cdStringDict,
+            globalSingleKey
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
             sumExactMask);
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
-          // COMPOSITE flat path: components hash leaf-independently into ONE 64-bit identity,
-          // the aux lane carries a first-seen (leaf, row) reference, and only the K winners
-          // ever materialize their key parts — by re-reading that one row each.
+          // COMPOSITE flat path: components hash leaf-independently into ONE 64-bit PROBE hash
+          // while the group's EXACT identity travels in dedicated stripe lanes, the aux lane
+          // carries a first-seen (leaf, row) reference, and only the K winners ever materialize
+          // their key parts — by re-reading that one row each.
           final int cdBase = cdBlock >= 0
               ? 2 + 4 * cdBlock
               : -1;
           final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
-          final long[] transformDecline = anyKeyTransform
+          final long[] transformDecline = anyKeyTransform || hasGlobalSubstring
               ? new long[1]
               : null;
+          final boolean anyGlobalKeyComponent = hasGlobalSubstring || hasGlobalComposite;
+          // Set when two composite groups are proven to share a probe hash while a per-group
+          // COUNT(DISTINCT) set is in play; those sets are keyed by the hash alone and have no way
+          // to tell the two groups apart, so the serve declines rather than answering wrongly.
+          final long[] compositeDistinctCollision = new long[1];
           final byte[][] keyCondElseBytes = keySubstLit != null
               ? new byte[keyCount][]
               : null;
@@ -12329,15 +12970,39 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
             }
           }
-          @SuppressWarnings("unchecked")
-          final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
-              ? new Long2ObjectOpenHashMap[eff]
+          // Conditional GLOBAL components: resolve each else literal to its dictionary id ONCE.
+          // Interned → that id (a then-row holding the same value merges exactly); absent → the
+          // -2 sentinel, below every real id, so the else group can never collide with one.
+          long[] globalCondElseIds = null;
+          if (hasGlobalComposite && keyCondCols != null && keyCondElseBytes != null) {
+            for (int g = 0; g < keyCount; g++) {
+              if (keyCondCols[2 * g] >= 0 && keyCondElseBytes[g] != null
+                  && handle.columnKindOf(groupCols[g]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+                final int elseId = handle.globalDictionaryId(groupCols[g], keyCondElseBytes[g],
+                    workerTrx().getStorageEngineReader());
+                if (elseId == GlobalValueDictionary.ID_UNKNOWN) {
+                  return declineGroupAgg("global conditional else literal could not be resolved");
+                }
+                if (globalCondElseIds == null) {
+                  globalCondElseIds = new long[keyCount];
+                  Arrays.fill(globalCondElseIds, Long.MIN_VALUE);
+                }
+                globalCondElseIds[g] = elseId == GlobalValueDictionary.ID_ABSENT
+                    ? -2L
+                    : elseId;
+              }
+            }
+          }
+          final long[] globalCondElseIdsF = globalCondElseIds;
+          final GroupDistinctAccumulator cdAcc = cdBlock >= 0
+              ? new GroupDistinctAccumulator(eff)
               : null;
           final long[][] cdBudgets = cdBlock >= 0
               ? new long[eff][]
               : null;
+          // 32 partitions regardless of the worker count — see the numeric arm.
           int partitions = 1;
-          while (partitions < Math.min(eff, 32)) {
+          while (partitions < 32) {
             partitions <<= 1;
           }
           final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
@@ -12388,45 +13053,140 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             cAggCols = null;
             cCondCols = null;
           }
+          // Composite groups carry an EXACT identity next to every accumulator: the composite probe
+          // hash folds all key components into 64 bits, and that fold is invertible enough to be
+          // SOLVED for a collision rather than searched for, so two unrelated groups would otherwise
+          // merge silently. Every table on this arm — the per-worker ones and each partition's merge
+          // target — must agree on the width, which mergePartitionIndexed re-checks.
+          final byte[] identityKinds;
+          if (compositeSlicedArm) {
+            identityKinds = cKeyKinds;
+          } else {
+            identityKinds = new byte[keyCount];
+            for (int k = 0; k < keyCount; k++) {
+              identityKinds[k] = armPayloads.isEmpty()
+                  ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                  : armPayloads.get(0)[24 + groupCols[k]];
+            }
+          }
+          final int compositeIdWidth = CompositeGroupIdentity.width(identityKinds, keySubstr);
+          // String components are carried as a fingerprint PAIR, which discriminates but does not
+          // identify: two distinct strings sharing both fingerprints would produce equal identity
+          // lanes, so acquireExact would fold them and — because the lanes match — never report a
+          // probe-key collision. The registry proves byte equality for every repeated fingerprint,
+          // in the per-leaf dictionary pass where the bytes are already in hand, and the serve
+          // declines if it cannot. Numeric and substring-cast components need none of this: they
+          // carry their raw or cast value in an exact lane.
+          final ProjectionStringIdentityRegistry compositeIdentityRegistry =
+              CompositeGroupIdentity.hasFingerprintedComponent(identityKinds, keySubstr)
+                  ? new ProjectionStringIdentityRegistry(keyCount, compositeIdentityMaxBytes)
+                  : null;
+          final int slotWidth = 2 + 4 * aggColsFlat.length;
+          final long groupBudget = GroupTableSpill.groupBudget();
+          final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+          // HASH-RANGE PASSES: one pass keeps every group; past the per-pass group budget the pass
+          // aborts and the scan restarts with P passes, each keeping the groups of partitions
+          // [passLo, passHi) — the post-scan merge's own split, so a partition's groups complete
+          // within one pass and its top-k selector is final. Memory is bounded at any cardinality;
+          // the price is P scans.
+          int passes = 1;
+          for (int pass = 0; pass < passes; pass++) {
+          final int passLo = pass * (partitionsF / passes);
+          final int passHi = passLo + partitionsF / passes;
+          if (passes > 1) {
+            Arrays.fill(tables, null);
+            Arrays.fill(partIdx, null);
+          }
+          if (cdAcc != null) {
+            cdAcc.reset();
+            if (passes > 1) {
+              cdAcc.setPassRange(shift, passLo, passHi);
+            }
+          }
+          final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
+              () -> new NumericGroupAggTable(aggColsFlat.length, 1 << 16, true, sumExactMask, compositeIdWidth),
+              passLo, passHi, groupBudget);
           parallel(eff, idx -> {
             final int from = idx * chunkSize;
             final int to = Math.min(from + chunkSize, rowGroupCount);
             if (from >= to)
               return;
-            final NumericGroupAggTable local =
-                new NumericGroupAggTable(aggColsFlat.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
+            NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
             if (cdBlock >= 0) {
-              cdMaps[idx] = new Long2ObjectOpenHashMap<>();
-              cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+              cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
             }
-            if (compositeSlicedArm) {
-              ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(groupStore, preds, cPredCols, tree, cTreeCols,
-                  cKeyCols, cKeyKinds, cAggCols, from, to, local, cdBlock, cdBlock >= 0
-                      ? cdMaps[idx]
-                      : null,
-                  cdBlock >= 0
-                      ? cdBudgets[idx]
-                      : null,
-                  keyOffsets, keySubstr, transformDecline, keyCondCols, cCondCols, keyCondLits, keyCondElseBytes,
-                  keyDivMod);
-            } else {
-              ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(from, to), preds,
-                  groupCols, aggColsFlat, local, from, cdBlock, cdBlock >= 0
-                      ? cdMaps[idx]
-                      : null,
-                  cdBlock >= 0
-                      ? cdBudgets[idx]
-                      : null,
-                  keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes, keyDivMod);
+            final GlobalValueDictionary.ReadView[] globalKeyViews =
+                globalSubstringReadViews(globalSubstringHeaderKeys);
+            if (anyGlobalKeyComponent && globalKeyViews == null) {
+              transformDecline[0] = 1;
+              return;
+            }
+            final int subChunk = GroupTableSpill.subChunkLeaves();
+            for (int sub = from; sub < to; sub += subChunk) {
+              final int subEnd = Math.min(sub + subChunk, to);
+              if (spill.aborted()) {
+                return; // over the per-pass group budget: the arm restarts with more passes
+              }
+              if (compositeSlicedArm) {
+                ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(groupStore, preds, cPredCols, tree, cTreeCols,
+                    cKeyCols, cKeyKinds, cAggCols, sub, subEnd, local, cdBlock, cdBlock >= 0
+                        ? cdAcc.worker(idx)
+                        : null,
+                    cdBlock >= 0
+                        ? cdBudgets[idx]
+                        : null,
+                    keyOffsets, keySubstr, transformDecline, keyCondCols, cCondCols, keyCondLits, keyCondElseBytes,
+                    keyDivMod, globalKeyViews, compositeIdentityRegistry);
+              } else {
+                ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(sub, subEnd), preds,
+                    groupCols, aggColsFlat, local, sub, cdBlock, cdBlock >= 0
+                        ? cdAcc.worker(idx)
+                        : null,
+                    cdBlock >= 0
+                        ? cdBudgets[idx]
+                        : null,
+                    keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes, keyDivMod,
+                    globalKeyViews, compositeIdentityRegistry, globalCondElseIdsF);
+              }
+              spill.noteLeavesScanned(subEnd - sub);
+              if (subEnd < to && spill.shouldFlush(local)) {
+                spill.flush(local);
+                local = spill.freshLocal();
+              }
             }
             tables[idx] = local;
             partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
           });
+          if (spill.aborted()) {
+            if (PROJ_DIAG) {
+              System.err.println("[proj] groupAgg pass aborted: passes=" + passes + " range=[" + passLo + "," + passHi
+                  + ") spilled=" + spill.groupsSpilled() + " budget=" + groupBudget + " leaves=" + rowGroupCount);
+            }
+            if (passes >= partitionsF) {
+              return declineGroupAgg("composite group state exceeds the per-pass budget even at one pass per partition");
+            }
+            passes = spill.recommendedPasses(passes, rowGroupCount);
+            Arrays.fill(partSelectors, null);
+            GROUP_PASS_RESTARTS.increment();
+            pass = -1;
+            continue;
+          }
+          if (compositeIdentityRegistry != null && !compositeIdentityRegistry.identityProven()) {
+            return declineGroupAgg(compositeIdentityRegistry.collisionDetected()
+                ? "composite string key fingerprint collision — byte identity disproved"
+                : "composite string key identity could not be proven within the canonical-byte budget");
+          }
           if (transformDecline != null && transformDecline[0] != 0) {
             // A matching row hit a transform the interpreter RAISES on (missing operand or a
             // lexically invalid substring) or an overflowing shift — the generic pipeline
             // raises/promotes identically.
             return declineGroupAgg("composite key transform raised on a matching row");
+          }
+          if (cdAcc != null) {
+            cdAcc.finish();
+            if (cdAcc.exceeded()) {
+              return declineGroupAgg("count(distinct) exact-set budget exceeded (composite arm)");
+            }
           }
           if (cdBudgets != null) {
             for (final long[] b : cdBudgets) {
@@ -12444,19 +13204,28 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               scanned += tables[t].sizeIncludingZero();
             }
           }
-          if (scanned == 0) {
-            GROUP_AGG_SERVED.increment();
-            return new ServedGroups(new ItemSequence(), true);
+          if (scanned == 0 && spill.groupsSpilled() == 0) {
+            continue; // nothing in this pass's partitions
           }
-          final int slotWidth = 2 + 4 * aggColsFlat.length;
-          final long perPartitionEstimate = Math.max(16, scanned / partitions);
-          final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+          final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
           parallel(partitions, part -> {
-            final NumericGroupAggTable into = new NumericGroupAggTable(aggColsFlat.length,
-                (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+            if (!spill.ownsPartition(part)) {
+              return;
+            }
+            final NumericGroupAggTable into = spill.takeOrCreate(part, () -> new NumericGroupAggTable(
+                aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask,
+                compositeIdWidth));
             NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
-            if (cdMaps != null) {
-              mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+            if (cdAcc != null) {
+              // The per-group COUNT(DISTINCT) sets are keyed by the probe hash alone, which is
+              // unambiguous exactly when no two groups share one. The table reports that for free
+              // (acquireExact sets the flag the moment it walks past a same-key mismatch), so the
+              // rare real collision declines the serve instead of merging two groups' distinct sets.
+              if (into.hasProbeKeyCollision()) {
+                compositeDistinctCollision[0] = 1;
+                return;
+              }
+              mergeDistinctSizesIntoPartition(cdAcc, part, shift, into, cdBase);
             }
             final int candidates = into.sizeIncludingZero();
             if (candidates == 0) {
@@ -12465,18 +13234,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
             // One sequential walk over the interleaved stripes: a live bucket's key is its first
             // lane, its accumulator the next slotWidth, its aux the one after that.
-            final long[] tbl = into.table();
             final int tblStride = into.stride();
-            for (int off = 0; off < tbl.length; off += tblStride) {
-              if (tbl[off] != 0L) {
-                final int base = off + 1;
-                if (orderPlan.hasCastAvg()) {
-                  orderPlan.writeCastAvgLanes(tbl, base);
+            for (int chunk = 0; chunk < into.storageChunkCount(); chunk++) {
+              final long[] tbl = into.storageChunkOrNull(chunk);
+              if (tbl == null) {
+                continue;
+              }
+              for (int off = 0; off < tbl.length; off += tblStride) {
+                if (tbl[off] != 0L) {
+                  final int base = off + 1;
+                  if (orderPlan.hasCastAvg()) {
+                    orderPlan.writeCastAvgLanes(tbl, base);
+                  }
+                  if (having != null && !havingPasses(tbl, base, having)) {
+                    continue;
+                  }
+                  sel.offer(tbl, base, true, tbl[base + slotWidth], null);
                 }
-                if (having != null && !havingPasses(tbl, base, having)) {
-                  continue;
-                }
-                sel.offer(tbl, base, true, tbl[base + slotWidth], null);
               }
             }
             if (into.hasZeroKey()) {
@@ -12489,6 +13263,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
             partSelectors[part] = sel;
           });
+          if (compositeDistinctCollision[0] != 0) {
+            return declineGroupAgg("composite group probe-hash collision with a per-group count(distinct)");
+          }
+          } // hash-range passes
           int winnerCount = 0;
           for (final GroupTopKSelector sel : partSelectors) {
             if (sel != null) {
@@ -12519,13 +13297,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final boolean[] present = new boolean[keyCount];
           final boolean[] isLong = new boolean[keyCount];
           final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+          final GlobalValueDictionary.ReadView[] winnerGlobalKeyViews =
+              globalSubstringReadViews(globalSubstringHeaderKeys);
+          if (anyGlobalKeyComponent && winnerGlobalKeyViews == null) {
+            return declineGroupAgg("global substring dictionary became unreadable before winner materialization");
+          }
           for (int i = 0; i < finalSel.size(); i++) {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int rowIdx = (int) (src & 0xFFFFF);
             if (compositeSlicedArm) {
               ProjectionColumnGroupScan.readRowKeyPartsSliced(cKeyCols, cKeyKinds, cCondCols, leaf, rowIdx, strParts,
-                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod);
+                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod,
+                  winnerGlobalKeyViews);
             } else {
               final byte[] payload = armPayloads.get(leaf);
               int[] offs = offsetsByLeaf[leaf];
@@ -12533,7 +13317,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
               }
               ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
-                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod);
+                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod,
+                  winnerGlobalKeyViews);
             }
             out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
                 aggFields, outNames, distinctFields, cdBase));
@@ -12634,9 +13419,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[] regexDecline = keyRegex != null
             ? new long[1]
             : null;
-        final boolean[] strlenInFlat = anyStrlenAgg
-            ? aggStrlenFlat
-            : null;
+        final byte[] stringLengthModesInFlat = stringLengthModesFlat;
+        final int[][] globalLengthTablesInFlat = globalLengthTablesFlat;
         // SLICED arm: resolve every column ONCE on the calling thread — workers share the
         // immutable slice arrays; racing the first fill would multiply the segment I/O.
         final ProjectionColumnStore.ColumnSlice[][] sPredCols;
@@ -12655,9 +13439,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           sGroupCol = groupStore.column(groupCol, sFetcher);
           sAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
           for (int a = 0; a < aggColsFlat.length; a++) {
-            final int expected = (strlenInFlat != null && strlenInFlat[a]) || (cdStringDict && a == cdBlock)
-                ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-                : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+            final int expected = (stringLengthModesInFlat != null
+                && stringLengthModesInFlat[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE)
+                || (cdStringDict && a == cdBlock)
+                    ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                    : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
             // JSONBench Q2's shape: a per-leaf-dict GROUP key with a GLOBAL distinct operand. That
             // one lane folds longs into a set, so an id column serves it directly; every other lane
             // keeps the exact-kind assert.
@@ -12679,12 +13465,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
         final long[][] flatMissing = new long[eff][];
-        @SuppressWarnings("unchecked")
-        final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
-            ? new Long2ObjectOpenHashMap[eff]
-            : null;
-        final LongOpenHashSet[] cdMissingSets = cdBlock >= 0
-            ? new LongOpenHashSet[eff]
+        final GroupDistinctAccumulator cdAcc = cdBlock >= 0
+            ? new GroupDistinctAccumulator(eff)
             : null;
         final long[][] cdBudgets = cdBlock >= 0
             ? new long[eff][]
@@ -12696,59 +13478,120 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final GroupDistinctBitmaps cdBitmaps = cdBlock >= 0 && !cdStringDict && stringSlicedArm
             ? globalDistinctBitmaps(groupStore, aggColsFlat[cdBlock])
             : null;
+        // 32 partitions regardless of the worker count — see the numeric arm.
         int partitions = 1;
-        while (partitions < Math.min(eff, 32)) {
+        while (partitions < 32) {
           partitions <<= 1;
         }
         final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
         final int partitionsF = partitions;
         final int[][][] partIdx = new int[eff][][];
+        final int slotWidth = 2 + 4 * aggColsFlat.length;
+        final long groupBudget = GroupTableSpill.groupBudget();
+        final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+        long[] missingMergedFlatHeld = null;
+        // HASH-RANGE PASSES — see the composite arm.
+        int passes = 1;
+        for (int pass = 0; pass < passes; pass++) {
+        final int passLo = pass * (partitionsF / passes);
+        final int passHi = passLo + partitionsF / passes;
+        if (passes > 1) {
+          Arrays.fill(tables, null);
+          Arrays.fill(partIdx, null);
+          Arrays.fill(flatMissing, null);
+        }
+        if (cdAcc != null) {
+          cdAcc.reset();
+          if (passes > 1) {
+            cdAcc.setPassRange(shift, passLo, passHi);
+          }
+        }
+        final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
+            () -> new NumericGroupAggTable(aggColsFlat.length, 1 << 16, true, sumExactMask), passLo, passHi,
+            groupBudget);
         parallel(eff, idx -> {
           final int from = idx * chunkSize;
           final int to = Math.min(from + chunkSize, rowGroupCount);
           if (from >= to)
             return;
-          final NumericGroupAggTable local =
-              new NumericGroupAggTable(aggColsFlat.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
+          NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
           final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggColsFlat.length, Long.MAX_VALUE);
           if (cdBlock >= 0) {
-            cdMaps[idx] = new Long2ObjectOpenHashMap<>();
-            cdMissingSets[idx] = new LongOpenHashSet();
-            cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+            cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
           }
-          if (stringSlicedArm) {
-            ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, sPredCols, tree, sTreeCols,
-                sGroupCol, sAggCols, strlenInFlat, from, to, local, missing, cdBlock, cdBlock >= 0
-                    ? cdMaps[idx]
-                    : null,
-                cdBlock >= 0
-                    ? cdMissingSets[idx]
-                    : null,
-                cdBlock >= 0
-                    ? cdBudgets[idx]
-                    : null,
-                cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps);
-          } else {
-            ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(from, to), preds,
-                groupCol, aggColsFlat, local, missing, from, cdBlock, cdBlock >= 0
-                    ? cdMaps[idx]
-                    : null,
-                cdBlock >= 0
-                    ? cdMissingSets[idx]
-                    : null,
-                cdBlock >= 0
-                    ? cdBudgets[idx]
-                    : null,
-                tree, regexKey, regexRepl, regexDecline, strlenInFlat, cdStringDict);
+          // Per-worker view for a GLOBAL regex key — the view's slice caches are single-threaded.
+          final GlobalValueDictionary.ReadView workerGroupView = globalRegexGroup
+              ? GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader())
+              : null;
+          if (globalRegexGroup && workerGroupView == null) {
+            throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+          }
+          final int subChunk = GroupTableSpill.subChunkLeaves();
+          for (int sub = from; sub < to; sub += subChunk) {
+            final int subEnd = Math.min(sub + subChunk, to);
+            if (spill.aborted()) {
+              return; // over the per-pass group budget: the arm restarts with more passes
+            }
+            if (stringSlicedArm) {
+              ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, sPredCols, tree, sTreeCols,
+                  sGroupCol, sAggCols, stringLengthModesInFlat, sub, subEnd, local, missing, cdBlock, cdBlock >= 0
+                      ? cdAcc.worker(idx)
+                      : null,
+                  cdBlock >= 0
+                      ? cdAcc.worker(idx).missing()
+                      : null,
+                  cdBlock >= 0
+                      ? cdBudgets[idx]
+                      : null,
+                  cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps);
+            } else {
+              ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(sub, subEnd), preds,
+                  groupCol, aggColsFlat, local, missing, sub, cdBlock, cdBlock >= 0
+                      ? cdAcc.worker(idx)
+                      : null,
+                  cdBlock >= 0
+                      ? cdAcc.worker(idx).missing()
+                      : null,
+                  cdBlock >= 0
+                      ? cdBudgets[idx]
+                      : null,
+                  tree, regexKey, regexRepl, regexDecline, stringLengthModesInFlat, cdStringDict, workerGroupView,
+                  globalLengthTablesInFlat);
+            }
+            spill.noteLeavesScanned(subEnd - sub);
+            if (subEnd < to && spill.shouldFlush(local)) {
+              spill.flush(local);
+              local = spill.freshLocal();
+            }
           }
           tables[idx] = local;
           partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
           flatMissing[idx] = missing;
         });
+        if (spill.aborted()) {
+          if (PROJ_DIAG) {
+            System.err.println("[proj] groupAgg pass aborted (string): passes=" + passes + " range=[" + passLo + ","
+                + passHi + ") spilled=" + spill.groupsSpilled() + " budget=" + groupBudget);
+          }
+          if (passes >= partitionsF) {
+            return declineGroupAgg("string group state exceeds the per-pass budget even at one pass per partition");
+          }
+          passes = spill.recommendedPasses(passes, rowGroupCount);
+          Arrays.fill(partSelectors, null);
+          GROUP_PASS_RESTARTS.increment();
+          pass = -1;
+          continue;
+        }
         if (regexDecline != null && regexDecline[0] != 0) {
           // A matched row MISSING the key field: fn:replace over the empty sequence is "",
           // a REAL group key — not the null-key group the kernel's missing arm feeds.
           return declineGroupAgg("regex key over a row missing the key field");
+        }
+        if (cdAcc != null) {
+          cdAcc.finish();
+          if (cdAcc.exceeded()) {
+            return declineGroupAgg("count(distinct) exact-set budget exceeded (string arm)");
+          }
         }
         if (cdBudgets != null) {
           for (final long[] b : cdBudgets) {
@@ -12769,35 +13612,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             scanned += tables[t].sizeIncludingZero();
           }
         }
-        if (cdMissingSets != null && missingMergedFlat[0] > 0) {
-          final LongOpenHashSet mm = new LongOpenHashSet();
-          for (final LongOpenHashSet ms : cdMissingSets) {
-            if (ms != null) {
-              mm.addAll(ms);
-            }
-          }
+        if (cdAcc != null && missingMergedFlat[0] > 0) {
           missingMergedFlat[cdBase + 1] = cdBitmaps != null
               ? cdBitmaps.cardinality(Long.MIN_VALUE)
-              : mm.size();
+              : cdAcc.missingSize();
         }
-        if (scanned == 0 && missingMergedFlat[0] == 0) {
-          GROUP_AGG_SERVED.increment();
-          if (stringSlicedArm) {
-            GROUP_AGG_SLICED_SERVED.increment();
-          }
-          return new ServedGroups(new ItemSequence(), true);
+        if (passLo == 0) {
+          missingMergedFlatHeld = missingMergedFlat; // the missing-key rows belong to the pass owning partition 0
         }
-        final int slotWidth = 2 + 4 * aggColsFlat.length;
-        final long perPartitionEstimate = Math.max(16, scanned / partitions);
-        final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+        if (scanned == 0 && spill.groupsSpilled() == 0) {
+          continue; // nothing in this pass's partitions
+        }
+        final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
         parallel(partitions, part -> {
-          final NumericGroupAggTable into = new NumericGroupAggTable(aggColsFlat.length,
-              (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+          if (!spill.ownsPartition(part)) {
+            return;
+          }
+          final NumericGroupAggTable into = spill.takeOrCreate(part, () -> new NumericGroupAggTable(
+              aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask));
           NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
           if (cdBitmaps != null) {
             mergeDistinctBitmapSizesIntoPartition(cdBitmaps, part, shift, into, cdBase);
-          } else if (cdMaps != null) {
-            mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+          } else if (cdAcc != null) {
+            mergeDistinctSizesIntoPartition(cdAcc, part, shift, into, cdBase);
           }
           final int candidates = into.sizeIncludingZero();
           if (candidates == 0) {
@@ -12806,18 +13643,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
           // One sequential walk over the interleaved stripes: a live bucket's key is its first
           // lane, its accumulator the next slotWidth, its aux the one after that.
-          final long[] tbl = into.table();
           final int tblStride = into.stride();
-          for (int off = 0; off < tbl.length; off += tblStride) {
-            if (tbl[off] != 0L) {
-              final int base = off + 1;
-              if (orderPlan.hasCastAvg()) {
-                orderPlan.writeCastAvgLanes(tbl, base);
+          for (int chunk = 0; chunk < into.storageChunkCount(); chunk++) {
+            final long[] tbl = into.storageChunkOrNull(chunk);
+            if (tbl == null) {
+              continue;
+            }
+            for (int off = 0; off < tbl.length; off += tblStride) {
+              if (tbl[off] != 0L) {
+                final int base = off + 1;
+                if (orderPlan.hasCastAvg()) {
+                  orderPlan.writeCastAvgLanes(tbl, base);
+                }
+                if (having != null && !havingPasses(tbl, base, having)) {
+                  continue;
+                }
+                sel.offer(tbl, base, true, tbl[base + slotWidth], null);
               }
-              if (having != null && !havingPasses(tbl, base, having)) {
-                continue;
-              }
-              sel.offer(tbl, base, true, tbl[base + slotWidth], null);
             }
           }
           if (into.hasZeroKey()) {
@@ -12830,6 +13672,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
           partSelectors[part] = sel;
         });
+        } // hash-range passes
+        final long[] missingMergedFlat = missingMergedFlatHeld != null
+            ? missingMergedFlatHeld
+            : ProjectionIndexByteScan.newGroupAggAcc(aggColsFlat.length, Long.MAX_VALUE);
         int winnerCount = missingMergedFlat[0] > 0
             ? 1
             : 0;
@@ -12896,6 +13742,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                                                                .replaceAll(regexRepl)
                                                                .getBytes(StandardCharsets.UTF_8))
                     : groupSlice.dictHash(dictId);
+              } else if (globalRegexGroup) {
+                // Aux carries the GLOBAL id itself; the winner's group hash rebuilds through the
+                // dictionary in the pass-1 domain (utf8Hash of the transformed value).
+                final GlobalValueDictionary.ReadView rebuildView =
+                    GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader());
+                if (rebuildView == null) {
+                  throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+                }
+                hashScratch[hashCount++] = ProjectionIndexByteScan.utf8Hash(regexKey
+                    .matcher(rebuildView.valueAsString((int) src))
+                    .replaceAll(regexRepl)
+                    .getBytes(StandardCharsets.UTF_8));
               } else {
                 final byte[] payload = armPayloads.get(leaf);
                 int columnBase = leafColumnBase[leaf];
@@ -12933,6 +13791,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final ProjectionColumnStore.ColumnSegmentFetcher dFetcher = columnFetcher();
             dAggCols = new ProjectionColumnStore.ColumnSlice[deferredColsArr.length][];
             for (int a = 0; a < deferredColsArr.length; a++) {
+              // Global operands force the whole-leaf arm above; a global column reaching the sliced
+              // resolver is a routing defect, and the kind check keeps it loud.
               if (groupStore.columnKind(deferredColsArr[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
                 throw new IllegalStateException("stringAggColumn " + deferredColsArr[a] + " is not STRING_DICT");
               }
@@ -12942,6 +13802,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             dAggCols = null;
           }
           final String[][][] perThreadBest = new String[eff][][];
+          final long[] deferredGlobalHeaderKeyArr = deferredGlobalHeaderKeys.toLongArray();
           parallel(eff, idx -> {
             final int from = idx * chunkSize;
             final int to = Math.min(from + chunkSize, rowGroupCount);
@@ -12953,8 +13814,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   sGroupCol, dAggCols, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl,
                   from, to);
             } else {
+              // The dictionary view's slice caches are single-threaded state: one view per worker,
+              // per operand, built against this worker's own reader.
+              GlobalValueDictionary.ReadView[] aggViews = null;
+              for (int a = 0; a < deferredGlobalHeaderKeyArr.length; a++) {
+                if (deferredGlobalHeaderKeyArr[a] > 0L) {
+                  if (aggViews == null) {
+                    aggViews = new GlobalValueDictionary.ReadView[deferredGlobalHeaderKeyArr.length];
+                  }
+                  aggViews[a] = GlobalValueDictionary.readView(deferredGlobalHeaderKeyArr[a],
+                      workerTrx().getStorageEngineReader());
+                  if (aggViews[a] == null) {
+                    throw new IllegalStateException(
+                        "global string extremum dictionary became unreadable mid-query");
+                  }
+                }
+              }
+              final GlobalValueDictionary.ReadView pass2GroupView = globalRegexGroup
+                  ? GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader())
+                  : null;
+              if (globalRegexGroup && pass2GroupView == null) {
+                throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+              }
               ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
-                  deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
+                  deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl,
+                  aggViews, pass2GroupView);
             }
             perThreadBest[idx] = best;
           });
@@ -12982,7 +13866,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final ArrayList<Item> out = new ArrayList<>(finalSel.size());
         for (int i = 0; i < finalSel.size(); i++) {
           final String key;
-          if (finalSel.hasKeyAt(i)) {
+          if (finalSel.hasKeyAt(i) && globalRegexGroup) {
+            final long src = finalSel.keyLongAt(i);
+            final GlobalValueDictionary.ReadView emitView =
+                GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader());
+            if (emitView == null) {
+              throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+            }
+            key = regexKey.matcher(emitView.valueAsString((int) src)).replaceAll(regexRepl);
+          } else if (finalSel.hasKeyAt(i)) {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int dictId = (int) (src & 0xFFFFF);
@@ -13138,10 +14030,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
       // here (unlike a gate decline) means a defect or corruption, and a silent 100%
       // fallback would hide it — log it and count it so drift is observable.
-      GROUP_AGG_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] group-aggregate serving failed, using generic pipeline: " + e);
-      }
+      failSoft(GROUP_AGG_FAILED, "group-aggregate serving", e);
       return null;
     }
   }
@@ -13153,10 +14042,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   public static long groupDistinctServedCount() {
     return GROUP_DISTINCT_SERVED.sum();
   }
-
-  /** Exact-set ceiling for grouped COUNT(DISTINCT); beyond it the route DECLINES (never sketches). */
-  private static final long GROUP_DISTINCT_MAX_VALUES =
-      Long.getLong("sirix.projection.groupDistinct.maxValues", 1L << 24);
 
   /** Constant-key group-bys served in one scalar pass (test oracle, same doctrine as the rest). */
   private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
@@ -13241,27 +14126,33 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] aggCols = new int[distinctFields.size()];
-      boolean anyStrlenAgg = false;
+      boolean anyStringLengthAgg = false;
       for (int i = 0; i < aggCols.length; i++) {
         final String df = distinctFields.get(i);
-        final boolean strlen = df.startsWith("len:");
+        final byte lengthMode = stringLengthMode(df);
         final int col = handle.columnOf(rawAggField(df));
         if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
-        if (strlen) {
+        if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
           // string-length over a dict column: codepoint counts fold as the numeric operand.
           // The sparse gate above is ALSO the null gate — string-length(null) raises where
           // the kernel would fold 0.
           if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
             return null;
           }
-          anyStrlenAgg = true;
+          anyStringLengthAgg = true;
         } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)) {
           return null;
         }
         aggCols[i] = col;
+      }
+      // The constant-group kernels below consume NUMERIC_LONG lanes only. A transformed string
+      // operand must stay on the generic pipeline until that scalar kernel has an explicit length
+      // mode; passing leaf-local dictionary ids as numbers would be a wrong answer.
+      if (anyStringLengthAgg) {
+        return null;
       }
       final ProjectionIndexScan.ColumnPredicate[] preds;
       if (cp == null) {
@@ -13286,7 +14177,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final boolean constPromoteNow =
           GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !handle.payloadsMaterialized()
               && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
-      final boolean constSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !anyStrlenAgg
+      final boolean constSliced = GROUP_SLICED_ENABLED && !wholeLeafOnly && constStore != null && !anyStringLengthAgg
           && !handle.payloadsMaterialized() && predsSliceable(constStore, preds)
           && allColumnsSliceable(constStore, aggCols);
       if (constPromoteNow) {
@@ -13409,10 +14300,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return constGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames, true);
     } catch (final RuntimeException e) {
-      GROUP_AGG_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] const-group-aggregate serving failed, using generic pipeline: " + e);
-      }
+      failSoft(GROUP_AGG_FAILED, "const-group-aggregate serving", e);
       return null;
     }
   }
@@ -13425,7 +14313,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * key and the emitted key type differ.
    */
   /**
-   * The packed-substring arm: a single STRING_DICT key under a bare {@code substring(f, s, 16)}
+   * The packed-substring arm: a single dictionary string key under a bare {@code substring(f, s, 16)}
    * groups and orders on the ISO-minute digit pack (ORD_KEY over longs), the aux lane keeps each
    * group's {@code (leaf, dictId)} first sighting, and the K winners decode their ORIGINAL substring
    * from the dictionary bytes. Any unpackable window referenced by a matching row — including the
@@ -13436,7 +14324,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.PredicateTree tree, final int groupCol, final int subStart, final int subLen,
       final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
-      final GroupOrderPlan orderPlan, final long limit, final long[] having, final long sumExactMask) {
+      final GroupOrderPlan orderPlan, final long limit, final long[] having, final long sumExactMask,
+      final long globalDictionaryHeaderKey) {
     if (orderPlan == null) {
       return declineGroupAgg("packed substring arm without an order plan");
     }
@@ -13450,8 +14339,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final ProjectionColumnStore.ColumnSlice[][] pAggCols;
     if (slicedStore != null) {
       final ProjectionColumnStore.ColumnSegmentFetcher pFetcher = columnFetcher();
-      if (slicedStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-        throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+      final byte groupKind = slicedStore.columnKind(groupCol);
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        throw new IllegalStateException("groupColumn " + groupCol + " is not a dictionary string");
+      }
+      if ((groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL)
+          != (globalDictionaryHeaderKey > 0L)) {
+        throw new IllegalStateException("packed substring column kind disagrees with its global dictionary header");
       }
       pPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, pFetcher);
       pTreeCols = tree != null
@@ -13471,8 +14366,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       pGroupCol = null;
       pAggCols = null;
     }
+    // 32 partitions regardless of the worker count — see the numeric arm.
     int partitions = 1;
-    while (partitions < Math.min(eff, 32)) {
+    while (partitions < 32) {
       partitions <<= 1;
     }
     final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
@@ -13480,23 +14376,67 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final int[][][] partIdx = new int[eff][][];
     final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
     final long[] decline = new long[1];
+    final int slotWidth = 2 + 4 * aggCols.length;
+    final long groupBudget = GroupTableSpill.groupBudget();
+    final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+    final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
+    // HASH-RANGE PASSES — see the composite arm.
+    int passes = 1;
+    for (int pass = 0; pass < passes; pass++) {
+    final int passLo = pass * (partitionsF / passes);
+    final int passHi = passLo + partitionsF / passes;
+    if (passes > 1) {
+      Arrays.fill(tables, null);
+      Arrays.fill(partIdx, null);
+    }
+    final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
+        () -> new NumericGroupAggTable(aggCols.length, 1 << 16, true, sumExactMask), passLo, passHi, groupBudget);
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to)
         return;
-      final NumericGroupAggTable local =
-          new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
-      if (slicedStore != null) {
-        ProjectionColumnGroupScan.aggregateByGroupPackedSubstringFlat(slicedStore, preds, pPredCols, tree, pTreeCols,
-            pGroupCol, pAggCols, from, to, subStart, subLen, local, decline);
-      } else {
-        ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(from, to),
-            preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
+      NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
+      final GlobalValueDictionary.ReadView globalView = globalDictionaryHeaderKey > 0L
+          ? GlobalValueDictionary.readView(globalDictionaryHeaderKey, workerTrx().getStorageEngineReader())
+          : null;
+      if (globalDictionaryHeaderKey > 0L && globalView == null) {
+        decline[0] = 1;
+        return;
+      }
+      final int subChunk = GroupTableSpill.subChunkLeaves();
+      for (int sub = from; sub < to; sub += subChunk) {
+        final int subEnd = Math.min(sub + subChunk, to);
+        if (spill.aborted()) {
+          return; // over the per-pass group budget: the arm restarts with more passes
+        }
+        if (slicedStore != null) {
+          ProjectionColumnGroupScan.aggregateByGroupPackedSubstringFlat(slicedStore, preds, pPredCols, tree, pTreeCols,
+              pGroupCol, pAggCols, sub, subEnd, subStart, subLen, local, decline, globalView);
+        } else {
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(sub, subEnd),
+              preds, groupCol, subStart, subLen, aggCols, local, sub, decline, tree, globalView);
+        }
+        spill.noteLeavesScanned(subEnd - sub);
+        if (subEnd < to && spill.shouldFlush(local)) {
+          spill.flush(local);
+          local = spill.freshLocal();
+        }
       }
       tables[idx] = local;
       partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
     });
+    if (spill.aborted()) {
+      if (passes >= partitionsF) {
+        return declineGroupAgg("packed substring group state exceeds the per-pass budget even at one pass per partition");
+      }
+      passes = spill.recommendedPasses(passes, rowGroupCount);
+      Arrays.fill(partSelectors, null);
+      Arrays.fill(partTables, null);
+      GROUP_PASS_RESTARTS.increment();
+      pass = -1;
+      continue;
+    }
     if (decline[0] != 0) {
       return declineGroupAgg("packed substring key failed validation on a matching row");
     }
@@ -13506,17 +14446,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         scanned += tables[t].sizeIncludingZero();
       }
     }
-    if (scanned == 0) {
-      GROUP_AGG_SERVED.increment();
-      return new ServedGroups(new ItemSequence(), true);
+    if (scanned == 0 && spill.groupsSpilled() == 0) {
+      continue; // nothing in this pass's partitions
     }
-    final int slotWidth = 2 + 4 * aggCols.length;
-    final long perPartitionEstimate = Math.max(16, scanned / partitions);
-    final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
-    final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
+    final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
     parallel(partitions, part -> {
-      final NumericGroupAggTable into =
-          new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+      if (!spill.ownsPartition(part)) {
+        return;
+      }
+      final NumericGroupAggTable into = spill.takeOrCreate(part, () -> new NumericGroupAggTable(aggCols.length,
+          (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask));
       NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
       partTables[part] = into;
       final int candidates = into.sizeIncludingZero();
@@ -13524,24 +14463,30 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return;
       }
       final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
-      final long[] tbl = into.table();
       final int tblStride = into.stride();
-      for (int off = 0; off < tbl.length; off += tblStride) {
-        if (tbl[off] != 0L) {
-          // The key lane carries the PACK — ORD_KEY compares it, and lexicographic order over
-          // validated windows IS numeric order over packs.
-          final int base = off + 1;
-          if (orderPlan.hasCastAvg()) {
-            orderPlan.writeCastAvgLanes(tbl, base);
+      for (int chunk = 0; chunk < into.storageChunkCount(); chunk++) {
+        final long[] tbl = into.storageChunkOrNull(chunk);
+        if (tbl == null) {
+          continue;
+        }
+        for (int off = 0; off < tbl.length; off += tblStride) {
+          if (tbl[off] != 0L) {
+            // The key lane carries the PACK — ORD_KEY compares it, and lexicographic order over
+            // validated windows IS numeric order over packs.
+            final int base = off + 1;
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(tbl, base);
+            }
+            if (having != null && !havingPasses(tbl, base, having)) {
+              continue;
+            }
+            sel.offer(tbl, base, true, tbl[off], null);
           }
-          if (having != null && !havingPasses(tbl, base, having)) {
-            continue;
-          }
-          sel.offer(tbl, base, true, tbl[off], null);
         }
       }
       partSelectors[part] = sel;
     });
+    } // hash-range passes
     int winnerCount = 0;
     for (final GroupTopKSelector sel : partSelectors) {
       if (sel != null) {
@@ -13570,10 +14515,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final int[] leafColumnBase = new int[rowGroupCount];
     Arrays.fill(leafColumnBase, -1);
     final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+    final GlobalValueDictionary.ReadView winnerGlobalView = globalDictionaryHeaderKey > 0L
+        ? GlobalValueDictionary.readView(globalDictionaryHeaderKey, workerTrx().getStorageEngineReader())
+        : null;
+    if (globalDictionaryHeaderKey > 0L && winnerGlobalView == null) {
+      return declineGroupAgg("global packed-substring dictionary became unreadable before winner materialization");
+    }
     for (int i = 0; i < finalSel.size(); i++) {
       final long packed = finalSel.keyLongAt(i);
       final NumericGroupAggTable into = partTables[NumericGroupAggTable.partitionOf(packed, shift)];
       final long src = into.auxAtAccBase(into.acquire(packed, Long.MAX_VALUE));
+      if (winnerGlobalView != null) {
+        final String key = winnerGlobalView.materializeIsoMinuteSubstring(Math.toIntExact(src), subStart, subLen);
+        out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
+        continue;
+      }
       final int leaf = (int) (src >>> 20);
       final int dictId = (int) (src & 0xFFFFF);
       final String entry;
@@ -13603,8 +14559,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
       final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
-      final ProjectionIndexScan.PredicateTree predTree, final long[] having, final boolean[] aggStrlen,
-      final boolean cdStringDict, final long globalKeyDictionary, final long sumExactMask) {
+      final ProjectionIndexScan.PredicateTree predTree, final long[] having, final byte[] stringLengthModes,
+      final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
+      final long sumExactMask) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -13620,7 +14577,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // one shared block-per-id table, the probe, the growth and the whole partition merge go away
       // — see denseGlobalGroupAggregate. Over budget or out of scope, the hash tables below serve.
       if (groupDenseEnabled() && slicedStore != null && globalKeyDictionary > 0L && cdBlockIdx < 0
-          && aggStrlen == null) {
+          && stringLengthModes == null) {
         final DenseGlobalGroupAggTable dense = denseGlobalGroupTable(globalKeyDictionary, aggCols.length, sumExactMask,
             denseCountLaneRead(funcs, orderPlan, having));
         if (dense != null) {
@@ -13630,18 +14587,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
       final long[][] perThreadMissing = new long[eff][];
-      @SuppressWarnings("unchecked")
-      final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlockIdx >= 0
-          ? new Long2ObjectOpenHashMap[eff]
-          : null;
-      final LongOpenHashSet[] cdMissingSets = cdBlockIdx >= 0
-          ? new LongOpenHashSet[eff]
+      final GroupDistinctAccumulator cdAcc = cdBlockIdx >= 0
+          ? new GroupDistinctAccumulator(eff)
           : null;
       final long[][] cdBudgets = cdBlockIdx >= 0
           ? new long[eff][]
           : null;
+      // 32 partitions regardless of the worker count: the hash-range passes split the key space
+      // along these partitions, so a small corpus (few workers) must still be able to pass.
       int partitions = 1;
-      while (partitions < Math.min(eff, 32)) {
+      while (partitions < 32) {
         partitions <<= 1;
       }
       final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
@@ -13663,9 +14618,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         slicedGroupCol = slicedStore.column(groupCol, fetcher);
         slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
         for (int a = 0; a < aggCols.length; a++) {
-          final int expected = (aggStrlen != null && aggStrlen[a]) || (cdStringDict && a == cdBlockIdx)
-              ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-              : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+          final int expected =
+              (stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE)
+                  || (cdStringDict && a == cdBlockIdx)
+                      ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                      : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
           // The distinct operand is the one slot a long-lane STRING_GLOBAL column may fill: it is
           // folded into a set of longs, never summed or compared as a quantity. Every other lane
           // keeps the exact-kind assert, so a global column can still not be summed by accident.
@@ -13684,49 +14641,102 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         slicedGroupCol = null;
         slicedAggCols = null;
       }
+      final int slotWidth = 2 + 4 * aggCols.length;
+      final long groupBudget = GroupTableSpill.groupBudget();
+      final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+      long[] missingMergedHeld = null;
+      // HASH-RANGE PASSES — see the composite arm: past the per-pass group budget the scan restarts
+      // with P passes over partition ranges; the selectors persist, the missing-key rows are taken
+      // from the pass that owns partition 0.
+      int passes = 1;
+      for (int pass = 0; pass < passes; pass++) {
+      final int passLo = pass * (partitionsF / passes);
+      final int passHi = passLo + partitionsF / passes;
+      if (passes > 1) {
+        Arrays.fill(tables, null);
+        Arrays.fill(partIdx, null);
+        Arrays.fill(perThreadMissing, null);
+      }
+      if (cdAcc != null) {
+        cdAcc.reset();
+        if (passes > 1) {
+          cdAcc.setPassRange(shift, passLo, passHi);
+        }
+      }
+      final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
+          () -> new NumericGroupAggTable(aggCols.length, 1 << 16, false, sumExactMask), passLo, passHi, groupBudget);
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to)
           return;
-        final NumericGroupAggTable local =
-            new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), false, sumExactMask);
+        NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
         final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
         if (cdBlockIdx >= 0) {
-          cdMaps[idx] = new Long2ObjectOpenHashMap<>();
-          cdMissingSets[idx] = new LongOpenHashSet();
-          cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+          cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
         }
-        if (slicedStore != null) {
-          ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, predTree,
-              slicedTreeCols, slicedGroupCol, slicedAggCols, aggStrlen, from, to, local, missing, cdBlockIdx,
-              cdBlockIdx >= 0
-                  ? cdMaps[idx]
-                  : null,
-              cdBlockIdx >= 0
-                  ? cdMissingSets[idx]
-                  : null,
-              cdBlockIdx >= 0
-                  ? cdBudgets[idx]
-                  : null,
-              cdStringDict);
-        } else {
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(from, to), preds,
-              groupCol, aggCols, local, missing, from, cdBlockIdx, cdBlockIdx >= 0
-                  ? cdMaps[idx]
-                  : null,
-              cdBlockIdx >= 0
-                  ? cdMissingSets[idx]
-                  : null,
-              cdBlockIdx >= 0
-                  ? cdBudgets[idx]
-                  : null,
-              predTree, aggStrlen, cdStringDict);
+        final int subChunk = GroupTableSpill.subChunkLeaves();
+        for (int sub = from; sub < to; sub += subChunk) {
+          final int subEnd = Math.min(sub + subChunk, to);
+          if (spill.aborted()) {
+            return; // over the per-pass group budget: the arm restarts with more passes
+          }
+          if (slicedStore != null) {
+            ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, predTree,
+                slicedTreeCols, slicedGroupCol, slicedAggCols, stringLengthModes, sub, subEnd, local, missing, cdBlockIdx,
+                cdBlockIdx >= 0
+                    ? cdAcc.worker(idx)
+                    : null,
+                cdBlockIdx >= 0
+                    ? cdAcc.worker(idx).missing()
+                    : null,
+                cdBlockIdx >= 0
+                    ? cdBudgets[idx]
+                    : null,
+                cdStringDict);
+          } else {
+            ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(sub, subEnd), preds,
+                groupCol, aggCols, local, missing, sub, cdBlockIdx, cdBlockIdx >= 0
+                    ? cdAcc.worker(idx)
+                    : null,
+                cdBlockIdx >= 0
+                    ? cdAcc.worker(idx).missing()
+                    : null,
+                cdBlockIdx >= 0
+                    ? cdBudgets[idx]
+                    : null,
+                predTree, stringLengthModes, cdStringDict, globalLengthTables);
+          }
+          spill.noteLeavesScanned(subEnd - sub);
+          if (subEnd < to && spill.shouldFlush(local)) {
+            spill.flush(local);
+            local = spill.freshLocal();
+          }
         }
         tables[idx] = local;
         partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
         perThreadMissing[idx] = missing;
       });
+      if (spill.aborted()) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] groupAgg pass aborted (numeric): passes=" + passes + " range=[" + passLo + ","
+              + passHi + ") spilled=" + spill.groupsSpilled() + " budget=" + groupBudget);
+        }
+        if (passes >= partitionsF) {
+          return declineGroupAgg("numeric group state exceeds the per-pass budget even at one pass per partition");
+        }
+        passes = spill.recommendedPasses(passes, rowGroupCount);
+        Arrays.fill(partSelectors, null);
+        GROUP_PASS_RESTARTS.increment();
+        pass = -1;
+        continue;
+      }
+      if (cdAcc != null) {
+        cdAcc.finish();
+        if (cdAcc.exceeded()) {
+          return declineGroupAgg("count(distinct) exact-set budget exceeded (numeric arm)");
+        }
+      }
       if (cdBudgets != null) {
         for (final long[] b : cdBudgets) {
           if (b != null && b[1] != 0) {
@@ -13744,52 +14754,50 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           scanned += tables[t].sizeIncludingZero();
         }
       }
-      if (cdMissingSets != null && missingMerged[0] > 0) {
-        final LongOpenHashSet mm = new LongOpenHashSet();
-        for (final LongOpenHashSet ms : cdMissingSets) {
-          if (ms != null) {
-            mm.addAll(ms);
-          }
-        }
-        missingMerged[cdBase + 1] = mm.size();
+      if (cdAcc != null && missingMerged[0] > 0) {
+        missingMerged[cdBase + 1] = cdAcc.missingSize();
       }
-      if (scanned == 0 && missingMerged[0] == 0) {
-        GROUP_AGG_SERVED.increment();
-        NUMERIC_GROUPBY_SERVED.increment();
-        if (slicedStore != null) {
-          GROUP_AGG_SLICED_SERVED.increment();
-        }
-        return new ServedGroups(new ItemSequence(), true);
+      if (passLo == 0) {
+        missingMergedHeld = missingMerged; // the missing-key rows belong to the pass owning partition 0
       }
-      final int slotWidth = 2 + 4 * aggCols.length;
-      final long perPartitionEstimate = Math.max(16, scanned / partitions);
-      final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+      if (scanned == 0 && spill.groupsSpilled() == 0) {
+        continue; // nothing in this pass's partitions
+      }
+      final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
       parallel(partitions, part -> {
-        final NumericGroupAggTable into = new NumericGroupAggTable(aggCols.length,
-            (int) Math.min(1 << 20, perPartitionEstimate), false, sumExactMask);
+        if (!spill.ownsPartition(part)) {
+          return;
+        }
+        final NumericGroupAggTable into = spill.takeOrCreate(part, () -> new NumericGroupAggTable(aggCols.length,
+            (int) Math.min(1 << 20, perPartitionEstimate), false, sumExactMask));
         NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
-        if (cdMaps != null) {
+        if (cdAcc != null) {
           // Partition-wise union of the per-thread distinct sets, then the EXACT size lands in
           // the block's sum lane — selection and emission read a plain slot from here on.
-          mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+          mergeDistinctSizesIntoPartition(cdAcc, part, shift, into, cdBase);
         }
         final int candidates = into.sizeIncludingZero();
         if (candidates == 0) {
           return;
         }
         final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
-        final long[] tbl = into.table();
         final int tblStride = into.stride();
-        for (int off = 0; off < tbl.length; off += tblStride) {
-          if (tbl[off] != 0L) {
-            final int base = off + 1;
-            if (orderPlan.hasCastAvg()) {
-              orderPlan.writeCastAvgLanes(tbl, base);
+        for (int chunk = 0; chunk < into.storageChunkCount(); chunk++) {
+          final long[] tbl = into.storageChunkOrNull(chunk);
+          if (tbl == null) {
+            continue;
+          }
+          for (int off = 0; off < tbl.length; off += tblStride) {
+            if (tbl[off] != 0L) {
+              final int base = off + 1;
+              if (orderPlan.hasCastAvg()) {
+                orderPlan.writeCastAvgLanes(tbl, base);
+              }
+              if (having != null && !havingPasses(tbl, base, having)) {
+                continue;
+              }
+              sel.offer(tbl, base, true, tbl[off], null);
             }
-            if (having != null && !havingPasses(tbl, base, having)) {
-              continue;
-            }
-            sel.offer(tbl, base, true, tbl[off], null);
           }
         }
         if (into.hasZeroKey()) {
@@ -13802,8 +14810,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         partSelectors[part] = sel;
       });
-      return emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth, having, keyNames, funcs,
-          aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0);
+      } // hash-range passes
+      final long[] missingMergedFinal = missingMergedHeld != null
+          ? missingMergedHeld
+          : ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      return emitNumericGroupWinners(partSelectors, missingMergedFinal, orderPlan, limit, slotWidth, having, keyNames,
+          funcs, aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0);
     }
     @SuppressWarnings("unchecked")
     final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
@@ -14230,14 +15242,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static Long2ObjectOpenHashMap<long[]> drainNumericGroupTable(final NumericGroupAggTable t,
       final int aggColumns) {
     final Long2ObjectOpenHashMap<long[]> map = new Long2ObjectOpenHashMap<>();
-    final long[] tbl = t.table();
     final int stride = t.stride();
     final int w = t.slotWidth();
     // The drained block is the STANDALONE accumulator shape ([count, firstSeen, aggs...]) the
     // legacy map merge and emission expect — the stripe's key and aux lanes stay behind.
-    for (int off = 0; off < tbl.length; off += stride) {
-      if (tbl[off] != 0L) {
-        map.put(tbl[off], Arrays.copyOfRange(tbl, off + 1, off + 1 + w));
+    for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
+      final long[] tbl = t.storageChunkOrNull(chunk);
+      if (tbl == null) {
+        continue;
+      }
+      for (int off = 0; off < tbl.length; off += stride) {
+        if (tbl[off] != 0L) {
+          map.put(tbl[off], Arrays.copyOfRange(tbl, off + 1, off + 1 + w));
+        }
       }
     }
     if (t.hasZeroKey()) {
@@ -14254,17 +15271,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static Object2ObjectOpenHashMap<String, long[]> drainStringGroupTable(final NumericGroupAggTable t,
       final int aggColumns, final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
     final Object2ObjectOpenHashMap<String, long[]> map = new Object2ObjectOpenHashMap<>();
-    final long[] tbl = t.table();
     final int stride = t.stride();
     final int w = t.slotWidth();
-    for (int off = 0; off < tbl.length; off += stride) {
-      if (tbl[off] == 0L) {
+    for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
+      final long[] tbl = t.storageChunkOrNull(chunk);
+      if (tbl == null) {
         continue;
       }
-      final int base = off + 1;
-      final long src = t.auxAtAccBase(base);
-      final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
-      map.put(key, Arrays.copyOfRange(tbl, base, base + w));
+      for (int off = 0; off < tbl.length; off += stride) {
+        if (tbl[off] == 0L) {
+          continue;
+        }
+        final int base = off + 1;
+        final long src = tbl[base + w];
+        final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
+        map.put(key, Arrays.copyOfRange(tbl, base, base + w));
+      }
     }
     if (t.hasZeroKey()) {
       final long src = t.zeroAux();
@@ -14318,6 +15340,32 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
     }
     return resolved;
+  }
+
+  /** One revision-bound view per global substring component, created once per worker/winner pass. */
+  private GlobalValueDictionary.ReadView @Nullable [] globalSubstringReadViews(final long[] headerKeys) {
+    boolean any = false;
+    for (final long headerKey : headerKeys) {
+      if (headerKey > 0L) {
+        any = true;
+        break;
+      }
+    }
+    if (!any) {
+      return null;
+    }
+    final GlobalValueDictionary.ReadView[] views = new GlobalValueDictionary.ReadView[headerKeys.length];
+    final StorageEngineReader reader = workerTrx().getStorageEngineReader();
+    for (int key = 0; key < headerKeys.length; key++) {
+      if (headerKeys[key] <= 0L) {
+        continue;
+      }
+      views[key] = GlobalValueDictionary.readView(headerKeys[key], reader);
+      if (views[key] == null) {
+        return null;
+      }
+    }
+    return views;
   }
 
   private static ArrayObject groupAggRecordNumeric(final long groupKey, final boolean hasKey, final long[] acc,
@@ -14580,10 +15628,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return null;
     } catch (final RuntimeException e) {
-      PREDICATE_VALUE_EMISSION_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] predicate value emission declined: " + e);
-      }
+      failSoft(PREDICATE_VALUE_EMISSION_FAILED, "predicate value emission", e);
       return null;
     }
   }
@@ -14630,9 +15675,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (!handle.numericColumnIsIntegral(col, fetcher)) {
             return null;
           }
-        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           // Served by the bounded sliced heap only — the tuple-collect fallbacks below are
           // long-only, so a string key without that path declines.
+          if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+              && handle.valueDictionaryHeaderKey(col) <= 0L) {
+            return null;
+          }
           anyStringKey = true;
         } else {
           return null;
@@ -14667,8 +15717,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         final long kBound = Math.min(limit, totalRows);
         if (kBound <= Integer.MAX_VALUE) {
-          final long[] top =
-              ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound, columnFetcher());
+          final GlobalValueDictionary.ReadView[] globalSortViews = new GlobalValueDictionary.ReadView[keyCount];
+          for (int key = 0; key < keyCount; key++) {
+            if (store.columnKind(cols[key]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+              globalSortViews[key] = GlobalValueDictionary.readView(handle.valueDictionaryHeaderKey(cols[key]),
+                  workerTrx().getStorageEngineReader());
+              if (globalSortViews[key] == null) {
+                return null;
+              }
+            }
+          }
+          final long[] top = ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound,
+              columnFetcher(), globalSortViews);
           if (top == null) {
             return null; // a matching row misses an order key — only the interpreter places it
           }
@@ -14765,10 +15825,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit, true);
     } catch (final RuntimeException e) {
-      SORTED_SCAN_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] sorted-scan serving failed, using generic pipeline: " + e);
-      }
+      failSoft(SORTED_SCAN_FAILED, "sorted-scan serving", e);
       return null;
     }
   }
@@ -14981,10 +16038,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /** Failure hook for the sorted-scan expr (counts + optional diagnostics). */
   public static void markSortedScanFailed(final RuntimeException e) {
-    SORTED_SCAN_FAILED.increment();
-    if (PROJ_DIAG) {
-      System.err.println("[proj] sorted-scan materialization failed, using generic pipeline: " + e);
-    }
+    failSoft(SORTED_SCAN_FAILED, "sorted-scan materialization", e);
   }
 
   /** Database name of the bound resource (layout {@code <database>/data/<resource>}). */
@@ -15149,10 +16203,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // to the interpreter's decimal-promoting arithmetic.
       return null;
     } catch (final RuntimeException e) {
-      ROW_MAT_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] covered-row serving failed, using generic pipeline: " + e);
-      }
+      failSoft(ROW_MAT_FAILED, "covered-row serving", e);
       return null;
     }
   }
@@ -15302,10 +16353,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // decimal-promoting arithmetic via the generic expression.
       return null;
     } catch (final RuntimeException e) {
-      COMPUTED_AGG_FAILED.increment();
-      if (PROJ_DIAG) {
-        System.err.println("[proj] computed-aggregate serving failed, using generic: " + e);
-      }
+      failSoft(COMPUTED_AGG_FAILED, "computed-aggregate serving", e);
       return null;
     }
   }
@@ -15406,6 +16454,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Group-aggregate servings that FAILED with an exception (not gate declines). */
   private static final LongAdder GROUP_AGG_FAILED = new LongAdder();
 
+  /** Restarts of a group arm with more hash-range passes (test observability). */
+  private static final LongAdder GROUP_PASS_RESTARTS = new LongAdder();
+
+  /** Test observability for {@link #GROUP_PASS_RESTARTS}. */
+  public static long groupPassRestartsCount() {
+    return GROUP_PASS_RESTARTS.sum();
+  }
+
   /** Test/ops observability for {@link #GROUP_AGG_FAILED}. */
   public static long groupAggFailedCount() {
     return GROUP_AGG_FAILED.sum();
@@ -15441,44 +16497,35 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Partition-wise union of the per-thread COUNT(DISTINCT) sets, writing each group's EXACT merged
-   * size into its accumulator block's sum lane — selection and emission read a plain slot from here
-   * on. Sizes must never be merged directly (values shared between threads would double-count), which
-   * is why the per-thread blocks stay zero until this point. Key {@code 0} is the table's zero side
-   * slot (the numeric arm's group value 0, or the string arm's freak zero hash); every other key has
-   * a live table entry by construction, so {@code acquire} always FINDS rather than creates.
+   * Write each group's EXACT COUNT(DISTINCT) size from the shared accumulator into its accumulator
+   * block's sum lane for partition {@code part} — selection and emission read a plain slot from here
+   * on. The accumulator already holds every {@code (group, value)} pair exactly once across all
+   * workers, so no union runs here. Key {@code 0} is the table's zero side slot (the numeric arm's
+   * group value 0, or the string arm's freak zero hash); every other key has a live table entry by
+   * construction, so {@code acquire} always FINDS rather than creates.
    */
-  private static void mergeDistinctSizesIntoPartition(final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps,
-      final int part, final int shift, final NumericGroupAggTable into, final int cdBase) {
-    final Long2ObjectOpenHashMap<LongOpenHashSet> merged = new Long2ObjectOpenHashMap<>();
-    for (final Long2ObjectOpenHashMap<LongOpenHashSet> m : cdMaps) {
-      if (m == null) {
+  private static void mergeDistinctSizesIntoPartition(final GroupDistinctAccumulator distinct, final int part,
+      final int shift, final NumericGroupAggTable into, final int cdBase) {
+    for (final Long2LongMap.Entry e : distinct.groupSizes().long2LongEntrySet()) {
+      final long key = e.getLongKey();
+      if (NumericGroupAggTable.partitionOf(key, shift) != part) {
         continue;
       }
-      for (final Long2ObjectMap.Entry<LongOpenHashSet> e : m.long2ObjectEntrySet()) {
-        final long key = e.getLongKey();
-        if (NumericGroupAggTable.partitionOf(key, shift) != part) {
-          continue;
-        }
-        final LongOpenHashSet existing = merged.get(key);
-        if (existing == null) {
-          // The thread-local set is dead after this pass; adopting it in place is safe.
-          merged.put(key, e.getValue());
-        } else {
-          existing.addAll(e.getValue());
-        }
-      }
-    }
-    for (final Long2ObjectMap.Entry<LongOpenHashSet> e : merged.long2ObjectEntrySet()) {
-      final long key = e.getLongKey();
-      final int size = e.getValue().size();
+      final int size = (int) e.getLongValue();
       if (key == 0L) {
         if (into.hasZeroKey()) {
           into.zeroSlot()[cdBase + 1] = size;
         }
       } else {
-        final int base = into.acquire(key, Long.MAX_VALUE);
-        into.table()[base + cdBase + 1] = size;
+        // Identity mode: the group already exists (the kernel created it), and its identity lanes
+        // are not reconstructible from this map's key, so LOOK IT UP rather than acquire — an
+        // acquire would insert a second, identity-blank group under the same probe hash. The
+        // caller has already established that the probe key is unambiguous.
+        final int handle = into.idWidth() == 0
+            ? into.acquire(key, Long.MAX_VALUE)
+            : into.handleOfProbeKey(key);
+        final long[] block = into.storageAtAccBase(handle);
+        block[into.offsetAtAccBase(handle) + cdBase + 1] = size;
       }
     }
   }
@@ -15534,8 +16581,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           into.zeroSlot()[cdBase + 1] = size;
         }
       } else {
-        final int base = into.acquire(key, Long.MAX_VALUE);
-        into.table()[base + cdBase + 1] = size;
+        // Identity mode: the group already exists (the kernel created it), and its identity lanes
+        // are not reconstructible from this map's key, so LOOK IT UP rather than acquire — an
+        // acquire would insert a second, identity-blank group under the same probe hash. The
+        // caller has already established that the probe key is unambiguous.
+        final int handle = into.idWidth() == 0
+            ? into.acquire(key, Long.MAX_VALUE)
+            : into.handleOfProbeKey(key);
+        final long[] block = into.storageAtAccBase(handle);
+        block[into.offsetAtAccBase(handle) + cdBase + 1] = size;
       }
     }
   }
@@ -16145,14 +17199,26 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     };
   }
 
-  /**
-   * Strips the {@code len:} operand prefix a detection-level {@code string-length(...)} let adds —
-   * the raw field name, for column resolution and coverage checks.
-   */
+  /** String-length transform mode encoded by the detection stage, or {@code NONE}. */
+  private static byte stringLengthMode(final String field) {
+    if (field != null && field.startsWith("len:")) {
+      return ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS;
+    }
+    if (field != null && field.startsWith("utf8len:")) {
+      return ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES;
+    }
+    return ProjectionIndexByteScan.STRING_LENGTH_NONE;
+  }
+
+  /** Strips a detection-level string-length operand prefix for column resolution. */
   private static String rawAggField(final String field) {
-    return field != null && field.startsWith("len:")
-        ? field.substring(4)
-        : field;
+    if (field != null && field.startsWith("len:")) {
+      return field.substring(4);
+    }
+    if (field != null && field.startsWith("utf8len:")) {
+      return field.substring(8);
+    }
+    return field;
   }
 
   /**
@@ -16307,11 +17373,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Try to answer an unfiltered aggregate ({@code sum | avg | min | max | count}) over a single field
-   * via the PathSummary's per-path statistics. Returns {@code null} to signal the caller should fall
-   * back to a full parallel scan when:
+   * Try to answer an unfiltered aggregate over a single field from its exact PathNode. A field
+   * {@code count} uses the structural reference count and therefore needs only the path summary;
+   * value aggregates use the optional per-path statistics. Returns {@code null} to signal the
+   * caller should fall back to a full parallel scan when:
    * <ul>
-   * <li>the resource doesn't maintain path statistics,</li>
+   * <li>the resource lacks the metadata required by the requested function,</li>
    * <li>no PathNode matches the requested field's local name,</li>
    * <li>the requested min/max bound is marked dirty (a prior delete may have tightened it — a rescan
    * is correct, skip the fast path), or</li>
@@ -16319,7 +17386,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * </ul>
    */
   private Sequence tryPathSummaryStats(final String[] sourcePath, final String field, final String func) {
-    if (!session.getResourceConfig().withPathStatistics) {
+    final boolean fieldCount = "count".equals(func) && field != null;
+    // A field count is structural: the exact named PathNode's reference count is maintained even
+    // when optional value statistics are disabled. Value aggregates still require statistics.
+    if (fieldCount
+        ? !session.getResourceConfig().withPathSummary
+        : !session.getResourceConfig().withPathStatistics) {
       return null;
     }
     switch (func) {
@@ -16332,10 +17404,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (field == null) {
       return null;
     }
-    // Resolve the exact PathNode for sourcePath + field. Ambiguous / unresolved
-    // paths return -1L — we fall back to the full scan rather than produce a
-    // potentially wrong cross-path sum.
-    final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+    // Count retains the named OBJECT_KEY path even for array-valued fields. Value scans cannot use
+    // that key because the fused array slot carries its anonymous child and retain their existing
+    // fail-closed resolver.
+    final CountPathScope countPathScope = fieldCount
+        ? resolveCountPathScope(sourcePath, field)
+        : null;
+    if (countPathScope != null && countPathScope.absent()) {
+      PATH_SUMMARY_STATS_SERVED.increment();
+      return new Int64(0L);
+    }
+    final long targetPathNodeKey = countPathScope == null
+        ? resolveTargetPathNodeKey(sourcePath, field)
+        : countPathScope.namedPathNodeKey();
     if (targetPathNodeKey == -1L) {
       return null;
     }
@@ -16367,14 +17448,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (p == null) {
           return null;
         }
+        if ("count".equals(func)) {
+          // PathNode references count OBJECT_KEY occurrences, not merely primitive observations.
+          // They therefore include null, object and array values while excluding a missing field;
+          // the exact ancestor resolver above excludes same-named fields at other depths.
+          PATH_SUMMARY_STATS_SERVED.increment();
+          return new Int64(p.getReferences());
+        }
         if (("min".equals(func) || "avg".equals(func)) && p.isStatsMinDirty()) {
           return null;
         }
         if ("max".equals(func) && p.isStatsMaxDirty()) {
           return null;
         }
-        // A stale count disqualifies EVERYTHING, count included: a subtree move leaves records
-        // counted under the path they left, so the summary's count is simply not the live one.
+        // A stale observation count disqualifies every VALUE aggregate: a subtree move leaves
+        // statistics attributed to the path the values left. Structural count returned above from
+        // PathNode references, which path-summary maintenance re-attributes with the moved nodes.
         if (p.isStatsCountDirty()) {
           return null;
         }
@@ -16387,8 +17476,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // each step: the interpreter walking the documents and an accumulator maintained per
         // insert do not agree, and the summary's answer is not "the" answer merely because it is
         // arithmetically better. Integers have neither problem, which is the case worth serving.
-        final boolean valueAggregate = !"count".equals(func);
-        if (valueAggregate && (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral())) {
+        if (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral()) {
           return null;
         }
         // avg is left to the scan even for integral columns: XQuery promotes it to xs:decimal
@@ -16406,13 +17494,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long pMax = numeric
             ? p.getStatsMax()
             : Long.MIN_VALUE;
-        // Non-numeric stats cannot answer value aggregates — fall back to the
-        // scan instead of fabricating 0 (count alone is type-agnostic).
-        if (!numeric && !"count".equals(func)) {
+        // Non-numeric stats cannot answer value aggregates — fall back instead of fabricating 0.
+        if (!numeric) {
           return null;
         }
         final Sequence served = switch (func) {
-          case "count" -> new Int64(count);
           // Reached only for an all-integral column (guarded above), so the long accumulator IS
           // the exact sum and its integer type is the right one.
           case "sum" -> new Int64(sum);
@@ -16498,15 +17584,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * does not, or {@link Integer#MIN_VALUE} to signal "couldn't prove — use the walk".
    */
   private int resolveFieldKeyFast(final String field) {
-    // Projection-registry probe: if a projection covers this field, it
-    // exists.
+    // Catalogued projection probe: if a projection definition covers this field, it exists.
     final String resourceKey = projectionRegistryKey;
     if (resourceKey != null) {
-      // Probe all registered handles for this resource — the sourcePath
-      // doesn't matter here; we just need to know if any projection
-      // carries the field.
-      if (ProjectionIndexCatalog.anyDefCoversField(session, resourceKey, revision, field)
-          || ProjectionIndexRegistry.anyHandleCoversField(resourceKey, field)) {
+      // The sourcePath does not matter here; we only need proof that a catalogued projection names
+      // the field.
+      if (ProjectionIndexCatalog.anyDefCoversField(session, resourceKey, revision, field)) {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
           return rtx.keyForName(field);
         }
@@ -16549,9 +17632,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         kv.forEachPopulatedSlot(slot -> {
           // Both legacy OBJECT_KEY and fused OBJECT_NAMED_* carry a field name — scan both.
-          if (!playsObjectKeyRole(kv.getSlotNodeKindId(slot)))
+          final int physicalKindId = kv.getSlotNodeKindId(slot);
+          if (!playsObjectKeyRole(physicalKindId) && physicalKindId != 0)
             return true;
           if (!rtx.moveTo(base + slot))
+            return true;
+          // Kind zero is a legacy inline record or a reference-only overflow carrier. Resolve it
+          // once on this cold fallback; sidecar descriptors retain their physical fused kind and
+          // stay on the ordinary fast path.
+          if (physicalKindId == 0 && !playsObjectKeyRole(rtx.getKind().getId() & 0xFF))
             return true;
           var name = rtx.getName();
           if (name != null && field.equals(name.getLocalName())) {
@@ -16585,8 +17674,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Typed accumulator for non-integral columns (the {@link #parallelAggregate} redo path) and its
-   * result mapping. Per-kind accumulation mirrors the interpreter's numeric promotion:
+   * Typed accumulator for the generic aggregate path. Per-kind accumulation mirrors the interpreter's
+   * numeric promotion:
    * <ul>
    * <li>NO double rows (longs + decimals only): the interpreter folds {@code Int + Dec} EXACTLY in
    * decimal space and divides via {@code Dec#div} — accumulate {@link BigDecimal} exactly and
@@ -16600,7 +17689,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static final class MixedAgg {
     long longCount;
-    long longSum;
+    /** Exact signed 128-bit integer sum, two's-complement high/low limbs. */
+    long longSumHi;
+    long longSumLo;
     long longMin = Long.MAX_VALUE;
     long longMax = Long.MIN_VALUE;
     long decCount;
@@ -16612,47 +17703,52 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     double dblMin = Double.MAX_VALUE;
     double dblMax = -Double.MAX_VALUE;
 
-    /**
-     * Carry for {@link #longSum} once it would overflow; {@code null} while the primitive accumulator
-     * still holds the whole total.
-     *
-     * <p>
-     * {@code xs:integer} is arbitrary precision, and brackit's own {@code AbstractNumeric#addLong}
-     * escalates to {@link BigDecimal} on overflow. A column of 64-bit ids — ClickBench sums
-     * {@code UserID}, whose values run to 1.1e18 — overflows a long accumulator after a few dozen rows
-     * and the wrapped total is silently wrong, so the kernel has to escalate too. The check costs one
-     * branch that never mispredicts in the common case.
-     */
-    BigDecimal longSumCarry;
-
     void addLong(final long v) {
       longCount++;
-      final long sum = longSum + v;
-      if (((longSum ^ sum) & (v ^ sum)) < 0) {
-        carryLong(longSum, v);
-      } else {
-        longSum = sum;
-      }
+      add128(v < 0L
+          ? -1L
+          : 0L, v);
       if (v < longMin)
         longMin = v;
       if (v > longMax)
         longMax = v;
     }
 
-    /** Moves an about-to-overflow running total into the exact carry and restarts the fast lane. */
-    private void carryLong(final long accumulated, final long addend) {
-      longSumCarry = (longSumCarry == null
-          ? BigDecimal.ZERO
-          : longSumCarry).add(BigDecimal.valueOf(accumulated)).add(BigDecimal.valueOf(addend));
-      longSum = 0L;
+    /** Fold a range whose sum was proven to fit a signed long, without touching each value. */
+    void addLongBatch(final long count, final long sum, final long min, final long max) {
+      if (count <= 0L) {
+        return;
+      }
+      longCount = Math.addExact(longCount, count);
+      add128(sum < 0L
+          ? -1L
+          : 0L, sum);
+      if (min < longMin)
+        longMin = min;
+      if (max > longMax)
+        longMax = max;
     }
 
-    /** The long lane's exact total, including anything already escalated. */
+    /** Add one signed 128-bit value. At most {@code Long.MAX_VALUE} longs can never overflow it. */
+    private void add128(final long hi, final long lo) {
+      final long previousLo = longSumLo;
+      final long nextLo = previousLo + lo;
+      longSumHi += hi;
+      if (Long.compareUnsigned(nextLo, previousLo) < 0) {
+        longSumHi++;
+      }
+      longSumLo = nextLo;
+    }
+
+    /** The long lane's exact total, materialized once at result emission. */
     private BigDecimal longTotal() {
-      final BigDecimal fast = BigDecimal.valueOf(longSum);
-      return longSumCarry == null
-          ? fast
-          : longSumCarry.add(fast);
+      final BigInteger exact =
+          BigInteger.valueOf(longSumHi).shiftLeft(64).or(BigInteger.valueOf(longSumLo).and(UNSIGNED_64_MASK));
+      return new BigDecimal(exact);
+    }
+
+    long count() {
+      return longCount + decCount + dblCount;
     }
 
     void addDecimal(final BigDecimal v) {
@@ -16676,18 +17772,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     void merge(final MixedAgg o) {
       if (o == null)
         return;
-      longCount += o.longCount;
-      final long merged = longSum + o.longSum;
-      if (((longSum ^ merged) & (o.longSum ^ merged)) < 0) {
-        carryLong(longSum, o.longSum);
-      } else {
-        longSum = merged;
-      }
-      if (o.longSumCarry != null) {
-        longSumCarry = (longSumCarry == null
-            ? BigDecimal.ZERO
-            : longSumCarry).add(o.longSumCarry);
-      }
+      longCount = Math.addExact(longCount, o.longCount);
+      add128(o.longSumHi, o.longSumLo);
       if (o.longMin < longMin)
         longMin = o.longMin;
       if (o.longMax > longMax)
@@ -16707,7 +17793,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     Sequence result(final String func) {
-      final long count = longCount + decCount + dblCount;
+      final long count = count();
       if ("count".equals(func)) {
         return new Int64(count);
       }
@@ -16717,8 +17803,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             ? new Int64(0L)
             : new ItemSequence();
       }
+      if (dblCount == 0 && decCount == 0) {
+        // Preserve the interpreter's integer dynamic type. The 128-bit accumulator prevents
+        // overflow, but a large exact sum is still xs:integer, not xs:decimal.
+        final Numeric sum = bigSumAtomic(longSumHi, longSumLo);
+        return switch (func) {
+          case "sum" -> sum;
+          case "avg" -> (Sequence) sum.div(new Int64(count));
+          case "min" -> new Int64(longMin);
+          case "max" -> new Int64(longMax);
+          default -> null;
+        };
+      }
       if (dblCount == 0) {
-        // Decimal-exact path — Int + Dec folds are exact; division delegates
+        // Mixed integer/decimal path — Int + Dec folds are exact; division delegates
         // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
         final BigDecimal sum = decSum.add(longTotal());
         final BigDecimal min = minBd(decMin, longCount > 0
@@ -16778,20 +17876,107 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  /** Numeric fold plus the type-agnostic number of present aggregate-field values. */
+  private record AggregateScan(MixedAgg values, long visited) {
+  }
+
   /**
-   * Typed-accumulating aggregate walk — the redo path when {@link #parallelAggregate} flags
-   * non-integral values. Pure slot walk (regions only carry longs, so they cannot serve this column
-   * completely).
+   * First-page diagnostics for region aggregate eligibility; disabled and allocation-free normally.
    */
-  private MixedAgg parallelAggregateMixed(final String field, final long targetPathNodeKey) throws Exception {
+  private static final boolean AGGREGATE_REGION_DIAG = Boolean.getBoolean("sirix.scan.aggregateRegionDiag");
+  private static final AtomicInteger AGGREGATE_REGION_DIAG_LINES = new AtomicInteger();
+
+  private static void aggregateRegionDiag(final String detail) {
+    if (AGGREGATE_REGION_DIAG && AGGREGATE_REGION_DIAG_LINES.getAndIncrement() < 16) {
+      System.err.println("[aggregate-region] " + detail);
+    }
+  }
+
+  /**
+   * Count path-filtered field anchors without reading their values.
+   *
+   * <p>The storage reader reconstructs versioned pages before returning them, so this one metadata
+   * walk has identical semantics for FULL, DIFFERENTIAL, INCREMENTAL and SLIDING_SNAPSHOT. The
+   * worker transaction is used only to obtain its reader; no cursor is moved. Matching-slot arrays
+   * are page-owned and cached, while this method allocates only one primitive result lane and one
+   * reusable lookup key per worker.</p>
+   */
+  private long parallelCountPresentField(final String[] sourcePath, final String field,
+      final CountPathScope countPathScope) throws Exception {
+    if (countPathScope.absent()) {
+      return 0L;
+    }
+    final int fieldKey = resolveFieldKey(field);
+    if (fieldKey == -1) {
+      return 0L;
+    }
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, countPathScope.namedPathNodeKey());
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int effectiveThreads = (int) Math.min(threads, Math.max(1, totalPages));
+    final long pagesPerThread = (totalPages + effectiveThreads - 1) / effectiveThreads;
+    final long[] perThread = new long[effectiveThreads];
+    parallel(effectiveThreads, worker -> {
+      final long fromPage = (long) worker * pagesPerThread;
+      final long toPage = Math.min(fromPage + pagesPerThread, totalPages);
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      long count = 0L;
+      for (long pageKey = fromPage; pageKey < toPage; pageKey++) {
+        final var result = reader.getRecordPage(reusableKey.setRecordPageKey(pageKey));
+        if (result == null || !(result.page() instanceof KeyValueLeafPage page)) {
+          continue;
+        }
+        final int[] matches = page.getObjectKeySlotsForNameKey(fieldKey);
+        if (countPathScope.namedPathNodeKey() < 0L && structuralSourceMatcher == null) {
+          count = Math.addExact(count, matches.length);
+          continue;
+        }
+        final long pageNodeKeyBase = pageKey << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        int pageCount = 0;
+        for (final int slot : matches) {
+          final long nodeKey = pageNodeKeyBase + slot;
+          if (countPathScope.matches(page.getObjectKeyPathNodeKeyFromSlot(slot, nodeKey))
+              && (structuralSourceMatcher == null
+                  || positionOnScopedAnchor(rtx, nodeKey, structuralSourceMatcher))) {
+            pageCount++;
+          }
+        }
+        count = Math.addExact(count, pageCount);
+      }
+      perThread[worker] = count;
+    });
+
+    long count = 0L;
+    for (final long partial : perThread) {
+      count = Math.addExact(count, partial);
+    }
+    return count;
+  }
+
+  /**
+   * One-pass typed aggregate. A complete integral PAX column is folded without decoding the page's
+   * record body; a mixed, legacy, or multi-fragment page falls back to the reconstructed records for
+   * that page only. The fallback makes every versioning strategy correct, while FULL and
+   * single-fragment pages stay on the column path.
+   */
+  private AggregateScan parallelAggregateMixed(final String[] sourcePath, final String field,
+      final long targetPathNodeKey) throws Exception {
     final int fieldKey = resolveFieldKey(field);
     if (fieldKey == -1)
-      return new MixedAgg();
+      return new AggregateScan(new MixedAgg(), 0L);
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, targetPathNodeKey);
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
     final long ppt = (totalPages + eff - 1) / eff;
     final MixedAgg[] perThread = new MixedAgg[eff];
+    final long[] visitedPerThread = new long[eff];
+    final int regionMask =
+        RegionTable.maskOf(RegionTable.KIND_NUMBER) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
@@ -16799,7 +17984,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
       final MixedAgg acc = new MixedAgg();
+      final NumberRegion.Header numberHeader = new NumberRegion.Header();
+      final long[] simdAggOut = new long[3];
+      long visited = 0L;
       for (long pk = s; pk < e; pk++) {
+        if (PAX_FAST_PATH_ENABLED && structuralSourceMatcher == null) {
+          final RegionsOnlyPage columns =
+              reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), regionMask, 0);
+          if (columns != null) {
+            try {
+              final int columnVisited =
+                  aggregateIntegralPageFromRegions(columns, fieldKey, targetPathNodeKey, numberHeader, simdAggOut, acc);
+              if (columnVisited >= 0) {
+                visited = Math.addExact(visited, columnVisited);
+                continue;
+              }
+            } finally {
+              columns.close();
+            }
+          }
+        }
+
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
           continue;
@@ -16811,6 +18016,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
             continue;
           }
+          if (structuralSourceMatcher != null
+              && !positionOnScopedAnchor(rtx, objectKeyNodeKey, structuralSourceMatcher)) {
+            continue;
+          }
+          visited = Math.addExact(visited, 1L);
+
+          // The ordinary fused-integral case is already fully represented in the logical slot
+          // image, including capacity-spilled sidecar images. Read it directly instead of moving a
+          // transaction cursor for every matching row. Long.MIN_VALUE is the accessor's conservative
+          // sentinel (and also a valid stored value); either case takes the authoritative cursor
+          // fallback below, so correctness never depends on distinguishing them here. Intrinsically
+          // large-number overflow descriptors likewise return the sentinel and follow their
+          // same-key OverflowPage reference through the cursor.
+          if (kv.getSlotNodeKindId(slot) == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
+            final long value = kv.getFusedObjectNamedNumberValueLongFromSlot(slot);
+            if (value != Long.MIN_VALUE) {
+              acc.addLong(value);
+              continue;
+            }
+          }
+
           if (!rtx.moveTo(objectKeyNodeKey))
             continue;
           final NodeKind kind = rtx.getKind();
@@ -16836,12 +18062,100 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       perThread[idx] = acc;
+      visitedPerThread[idx] = visited;
     });
     final MixedAgg merged = new MixedAgg();
-    for (final MixedAgg a : perThread) {
-      merged.merge(a);
+    long visited = 0L;
+    for (int i = 0; i < perThread.length; i++) {
+      merged.merge(perThread[i]);
+      visited = Math.addExact(visited, visitedPerThread[i]);
     }
-    return merged;
+    return new AggregateScan(merged, visited);
+  }
+
+  /**
+   * Fold one page from its NUMBER and OBJECT_KEY-nameKey regions.
+   *
+   * @return present field values accounted for, or {@code -1} when records must answer this page
+   */
+  private static int aggregateIntegralPageFromRegions(final RegionsOnlyPage page, final int fieldKey,
+      final long targetPathNodeKey, final NumberRegion.Header numberHeader, final long[] simdAggOut,
+      final MixedAgg acc) {
+    final MemorySegment nameKeys = page.nameKeyPayload();
+    if (nameKeys == null) {
+      if (AGGREGATE_REGION_DIAG) {
+        aggregateRegionDiag("page=" + page.getPageKey() + " decline: no name-key region");
+      }
+      return -1;
+    }
+    final int anchors = ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, fieldKey);
+    if (anchors == 0) {
+      if (AGGREGATE_REGION_DIAG) {
+        aggregateRegionDiag("page=" + page.getPageKey() + " served: no matching anchors");
+      }
+      return 0;
+    }
+    final NumberRegion.Header h = page.numberHeaderInto(numberHeader);
+    if (h == null) {
+      if (AGGREGATE_REGION_DIAG) {
+        aggregateRegionDiag("page=" + page.getPageKey() + " decline: no number region, anchors=" + anchors);
+      }
+      return -1;
+    }
+    final int tag = tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, targetPathNodeKey, fieldKey);
+    if (tag < 0 || h.tagCount[tag] != anchors) {
+      // A missing value, non-integral number, other type, or unprovable path scope. The record page
+      // is the authority for all four cases; never fold a partial column.
+      if (AGGREGATE_REGION_DIAG) {
+        aggregateRegionDiag(
+            "page=" + page.getPageKey() + " decline: tag=" + tag + " anchors=" + anchors + " tagCount=" + (tag < 0
+                ? -1
+                : h.tagCount[tag])
+                + " tagKind=" + h.tagKind + " path=" + targetPathNodeKey + " fieldKey=" + fieldKey + " dict="
+                + Arrays.toString(Arrays.copyOf(h.dict, h.dictSize)));
+      }
+      return -1;
+    }
+    final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
+    if (values == null || values.byteSize() == 0L) {
+      if (AGGREGATE_REGION_DIAG) {
+        aggregateRegionDiag("page=" + page.getPageKey() + " decline: empty number payload");
+      }
+      return -1;
+    }
+    final int start = h.tagStart[tag];
+    final int end = start + anchors;
+    final long min = h.tagMin == null
+        ? h.valueMin
+        : h.tagMin[tag];
+    final long max = h.tagMax == null
+        ? h.valueMax
+        : h.tagMax[tag];
+    // A long SIMD lane may wrap before the 128-bit accumulator sees it. The 9e18 bound leaves a
+    // deliberate margin below Long.MAX_VALUE (and far above realistic narrow columns), so floating
+    // point rounding cannot turn an unsafe page into a safe one.
+    final double magnitude = Math.max(Math.abs((double) min), Math.abs((double) max));
+    if ((double) anchors * magnitude < 9.0e18 && NumberRegionSimd.aggregateRange(values, h, start, end, simdAggOut)) {
+      acc.addLongBatch(anchors, simdAggOut[0], simdAggOut[1], simdAggOut[2]);
+      if (AGGREGATE_REGION_DIAG) {
+        aggregateRegionDiag("page=" + page.getPageKey() + " served SIMD: anchors=" + anchors);
+      }
+      return anchors;
+    }
+
+    // Large-id columns take this path: scalar decode, but still directly from the compact column.
+    // Delta payloads are bulk-decoded once; random access into them would replay the prefix sum for
+    // every value and turn the page into O(n^2).
+    final long[] decodedDelta = deltaDecodedOrNull(values, h);
+    for (int i = start; i < end; i++) {
+      acc.addLong(decodedDelta == null
+          ? NumberRegion.decodeValueAt(values, h, i)
+          : decodedDelta[i]);
+    }
+    if (AGGREGATE_REGION_DIAG) {
+      aggregateRegionDiag("page=" + page.getPageKey() + " served scalar: anchors=" + anchors);
+    }
+    return anchors;
   }
 
   /**
@@ -16868,12 +18182,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *        lane is not authoritative because it would have overflowed; either one means the caller
    *        must redo value aggregates through the exact accumulator
    */
-  private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] flagsOut)
-      throws Exception {
+  private long[] parallelAggregate(final String[] sourcePath, final String field, final long targetPathNodeKey,
+      final boolean[] flagsOut) throws Exception {
     final int fieldKey = resolveFieldKey(field);
     // -1 = MISSING sentinel only — negative hashes are legitimate nameKeys.
     if (fieldKey == -1)
       return new long[] {0, 0, Long.MAX_VALUE, Long.MIN_VALUE, 0};
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, targetPathNodeKey);
 
     final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -16914,13 +18230,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // vector pass — single memory sweep, hardware-pipelined reductions.
         //
         // Two dispatches:
-        // * No path-scope (targetPathNodeKey == -1) — lookup by nameKey.
+        // * No structural matcher (the path summary supplied an exact path key) — use the region
+        //   key space below.
         // * Path-scope + region is pathNodeKey-tagged — lookup by pathNodeKey
         // (correctness-safe: a tag hit implies every value in range belongs
         // to the requested pathNodeKey, so the SIMD kernel cannot over-count).
         // * Path-scope + region is nameKey-tagged — skip the SIMD path, fall
         // through to the slot-walk which filters per-slot by pathNodeKey.
-        if (PAX_FAST_PATH_ENABLED) {
+        if (PAX_FAST_PATH_ENABLED && structuralSourceMatcher == null) {
           final NumberRegion.Header hdr = kv.getNumberRegionHeader();
           if (hdr != null) {
             final int simdLookupTag;
@@ -16998,6 +18315,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // at a different tree depth (e.g. $doc.items[].age vs $doc.age).
           if (targetPathNodeKey != -1L
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
+            continue;
+          }
+          if (structuralSourceMatcher != null
+              && !positionOnScopedAnchor(rtx, objectKeyNodeKey, structuralSourceMatcher)) {
             continue;
           }
           acc[4]++;
@@ -17108,14 +18429,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@code {"groupField": value, "count": N}} record objects (the FLWOR's envelope — see the
    * VectorizedExecutor RESULT ENVELOPE CONTRACT).
    */
-  private Sequence parallelGroupByCount(final String groupField, final long targetPathNodeKey, final long[] statsOut)
-      throws Exception {
+  private Sequence parallelGroupByCount(final String[] sourcePath, final String groupField,
+      final long targetPathNodeKey, final long[] statsOut) throws Exception {
     final int fieldKey = resolveFieldKey(groupField);
     // -1 is the MISSING sentinel; nameKeys are String hashes and may legitimately
     // be negative ('active'.hashCode() < 0) — `< 0` here silently emptied every
     // group-by over a negative-hash field.
     if (fieldKey == -1)
       return new ItemSequence();
+    final SourcePathMatcher structuralSourceMatcher =
+        structuralSourcePathMatcher(sourcePath, targetPathNodeKey);
 
     final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -17188,9 +18511,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // record byte-hash + insert that the slot-walk path pays.
         //
         // Two dispatches:
-        // * No path-scope (targetPathNodeKey == -1): lookup by nameKey. Safe
-        // only when the document has no nested same-name fields — callers
-        // that don't need path scoping accept this.
+        // * A -1 path key may use the name-key region only when no structural source matcher is
+        //   required. No-summary calls always carry that matcher and therefore take the slot walk.
         // * Path-scope AND region is path-tagged: lookup by (int)pathNodeKey.
         // Correctness-safe because the region's tag now encodes the full
         // tree path, not just the local name.
@@ -17202,7 +18524,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int fastLookupTag;
         if (sh == null) {
           fastLookupTag = Integer.MIN_VALUE;
-        } else if (targetPathNodeKey == -1L) {
+        } else if (targetPathNodeKey == -1L && structuralSourceMatcher == null) {
           fastLookupTag = fieldKey;
         } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE && targetPathNodeKey > 0L
             && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
@@ -17296,10 +18618,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             diag.recordsSlowPath++;
 
           final long objectKeyNodeKey = base + slot;
-          // Path-scope filter: reject same-name slots at a different tree
-          // depth. No-op when targetPathNodeKey is -1 (unresolvable path).
+          // Exact path-key scope when available; otherwise the cursor-ancestry matcher below rejects
+          // same-name slots at another source depth.
           if (targetPathNodeKey != -1L
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
+            continue;
+          }
+          if (structuralSourceMatcher != null
+              && !positionOnScopedAnchor(rtx, objectKeyNodeKey, structuralSourceMatcher)) {
             continue;
           }
           visited++;
@@ -17600,25 +18926,76 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   private final AtomicLong regionCacheBytes = new AtomicLong();
 
+  /** Closed on retirement before waiting for calls that may already hold cached wrappers. */
+  private volatile boolean regionCacheAdmissionOpen = true;
+
   private Map<Long, RegionsOnlyPage> regionCacheFor(final int mask) {
-    if (REGION_CACHE_BYTES <= 0) {
+    if (REGION_CACHE_BYTES <= 0 || !regionCacheAdmissionOpen) {
       return null;
     }
     return regionCaches.computeIfAbsent(mask, _ -> new ConcurrentHashMap<>());
   }
 
-  /** Admit a decoded page if the budget allows; silently declines once full. */
-  private void admitToRegionCache(final Map<Long, RegionsOnlyPage> cache, final long pageKey,
+  /**
+   * Admit a decoded page if the budget allows. The CAS reserves bytes before publication so N scan
+   * workers cannot each pass a stale check and overrun the hard ceiling.
+   *
+   * @return whether ownership transferred to the cache; on {@code false} the caller must close it
+   */
+  private boolean admitToRegionCache(final Map<Long, RegionsOnlyPage> cache, final long pageKey,
       final RegionsOnlyPage page) {
-    if (cache == null) {
-      return;
+    if (cache == null || !regionCacheAdmissionOpen) {
+      return false;
     }
-    final int bytes = page.payloadBytes();
-    if (regionCacheBytes.get() + bytes > REGION_CACHE_BYTES) {
-      return;
+    final long bytes = page.payloadBytes();
+    if (bytes < 0L || bytes > REGION_CACHE_BYTES) {
+      return false;
+    }
+    long retained = regionCacheBytes.getAcquire();
+    while (true) {
+      if (retained > REGION_CACHE_BYTES - bytes) {
+        return false;
+      }
+      if (regionCacheBytes.compareAndSet(retained, retained + bytes)) {
+        break;
+      }
+      retained = regionCacheBytes.getAcquire();
     }
     if (cache.putIfAbsent(pageKey, page) == null) {
-      regionCacheBytes.addAndGet(bytes);
+      return true;
+    }
+    regionCacheBytes.addAndGet(-bytes);
+    return false;
+  }
+
+  /** Close every cache-owned wrapper after cache admissions and active users are quiescent. */
+  private void clearRegionCaches() {
+    Throwable first = null;
+    for (final Map<Long, RegionsOnlyPage> cache : regionCaches.values()) {
+      for (final RegionsOnlyPage page : cache.values()) {
+        try {
+          page.close();
+        } catch (final RuntimeException | Error failure) {
+          if (first == null) {
+            first = failure;
+          } else if (first != failure) {
+            first.addSuppressed(failure);
+          }
+        }
+      }
+      cache.clear();
+    }
+    regionCaches.clear();
+    regionCacheBytes.set(0L);
+    rethrowRegionCleanupFailure(first);
+  }
+
+  private static void rethrowRegionCleanupFailure(final @Nullable Throwable failure) {
+    if (failure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (failure instanceof Error error) {
+      throw error;
     }
   }
 
@@ -20841,7 +22218,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     /** The dictionary-id selection kernel refused. */
     SELECT_REFUSED,
     /** A matching value fell past every segment, which the certificate should have caught. */
-    VALUE_PAST_SEGMENTS;
+    VALUE_PAST_SEGMENTS,
+    /** The page's element set was never staged, or its staging was refused: no promise, no tags. */
+    ELEMENTS_NOT_STAGED,
+    /** An anchor whose gap is narrower than its record boundary — a fused OBJECT-valued field. */
+    GAP_NARROWER_THAN_BOUNDARY;
   }
 
   private static long declineArrayContains(final ArrayContainsDecline reason) {
@@ -21476,10 +22857,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     for (final RegionsOnlyPage fragment : fragments) {
       final MemorySegment nameKeys = fragment.nameKeyPayload();
       if (nameKeys == null) {
-        // No field-name column: this fragment contributes no anchor slots, but it still OWNS the
-        // slots in its bitmap — claim them so older fragments cannot supply them.
-        claimSlots(ownedSlots, fragment);
-        continue;
+        // Absence is not evidence that the fragment contains no object keys. The compact name-key
+        // region deliberately declines pages with more than 255 distinct names, while their
+        // NUMBER/STRING regions may still be present. Claiming such a fragment's slots without
+        // attributing its values would suppress older slots and return a confident undercount.
+        // Reconstruct the records whenever any fragment lacks the alignment oracle.
+        return -1L;
       }
       int[] slots = scratch.slotBuf;
       final int upperBound = ObjectKeyNameKeyRegion.count(nameKeys);
@@ -22098,16 +23481,33 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     RegionsOnlyPage regions = regionCache == null
         ? null
         : regionCache.get(pk);
+    boolean closeRegions = false;
     if (regions == null) {
       regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), regionMask, regionDeferMask);
       if (regions != null) {
-        admitToRegionCache(regionCache, pk, regions);
+        closeRegions = !admitToRegionCache(regionCache, pk, regions);
       }
     }
     if (regions == null) {
       return countFragmentedPageColumnar(reader, reusableKey, pk, regionPlan, regionMask, anchorNameKey,
           anchorPathNodeKey, anchorSlotOut, headerScratch);
     }
+
+    try {
+      return countDecodedPageColumnar(reader, reusableKey, pk, regionPlan, dictCache, anchorNameKey, anchorPathNodeKey,
+          anchorSlotOut, headerScratch, regions);
+    } finally {
+      if (closeRegions) {
+        regions.close();
+      }
+    }
+  }
+
+  /** Fold one caller-owned or cache-owned decoded page; ownership stays with the caller. */
+  private long countDecodedPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey, final long pk,
+      final RegionCountPlan regionPlan, final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
+      final long anchorPathNodeKey, final int[] anchorSlotOut, final RegionHeaderScratch headerScratch,
+      final RegionsOnlyPage regions) {
 
     // The page the fold actually read. A string retry re-reads the page WITH the dictionary, and
     // every route below has to see that one — handing the dictionary-less image to the tree route
@@ -22117,17 +23517,34 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         reader);
     if (c == NEED_STRING_DICTIONARY) {
       final RegionsOnlyPage withDict = pageWithDictionary(reader, reusableKey, pk, dictCache);
-      if (withDict != null) {
-        served = withDict;
-      }
-      c = withDict == null
-          ? -1L
-          : countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch,
+      if (withDict == null) {
+        c = -1L;
+      } else {
+        final boolean closeWithDict = dictCache == null || dictCache.get(pk) != withDict;
+        try {
+          served = withDict;
+          c = countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch,
               reader);
-      if (c == NEED_STRING_DICTIONARY) {
-        c = -1L; // page really has no dictionary — the records decide it
+          if (c == NEED_STRING_DICTIONARY) {
+            c = -1L; // page really has no dictionary — the records decide it
+          }
+          return finishDecodedPageColumnar(served, c, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+              headerScratch, reader);
+        } finally {
+          if (closeWithDict) {
+            withDict.close();
+          }
+        }
       }
     }
+    return finishDecodedPageColumnar(served, c, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut,
+        headerScratch, reader);
+  }
+
+  private static long finishDecodedPageColumnar(final RegionsOnlyPage served, final long initialCount,
+      final RegionCountPlan regionPlan, final int anchorNameKey, final long anchorPathNodeKey,
+      final int[] anchorSlotOut, final RegionHeaderScratch headerScratch, final StorageEngineReader reader) {
+    long c = initialCount;
     // LAST RESORT before the record heap: evaluate the predicate TREE into a selection bitmap.
     // Reached only where the shape-specific kernel for this plan already gave up, so a page one
     // serves is untouched — this can only turn a ~18 ms record reconstruction into a column read.
@@ -22177,15 +23594,38 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       REGION_ONLY_UNAVAILABLE.increment();
       return -1L;
     }
-    final long merged = countFragmentedPageFromRegions(fragments, regionPlan, anchorNameKey, anchorPathNodeKey,
-        anchorSlotOut, headerScratch, reader);
-    if (merged >= 0L) {
-      REGION_ONLY_PAGES.increment();
-      REGION_MERGED_PAGES.increment();
-      return merged;
+    try {
+      final long merged = countFragmentedPageFromRegions(fragments, regionPlan, anchorNameKey, anchorPathNodeKey,
+          anchorSlotOut, headerScratch, reader);
+      if (merged >= 0L) {
+        REGION_ONLY_PAGES.increment();
+        REGION_MERGED_PAGES.increment();
+        return merged;
+      }
+      REGION_ONLY_FALLBACKS.increment();
+      return -1L;
+    } finally {
+      closeRegionPages(fragments);
     }
-    REGION_ONLY_FALLBACKS.increment();
-    return -1L;
+  }
+
+  private static void closeRegionPages(final RegionsOnlyPage[] pages) {
+    Throwable first = null;
+    for (final RegionsOnlyPage page : pages) {
+      if (page == null) {
+        continue;
+      }
+      try {
+        page.close();
+      } catch (final RuntimeException | Error failure) {
+        if (first == null) {
+          first = failure;
+        } else if (first != failure) {
+          first.addSuppressed(failure);
+        }
+      }
+    }
+    rethrowRegionCleanupFailure(first);
   }
 
   /** Re-read this page WITH its string dictionary, through the retry cache; {@code null} if none. */
@@ -22286,10 +23726,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Numeric arm of {@link #countPageFromRegions}. */
   private static long countPageFromNumberRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
       final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots, final RegionHeaderScratch scratch) {
-    // Bounds first, column second. The zone-map region is uncompressed and separate, so this call
+    // Bounds first, column second. The zone-map region is independently materialized, so this call
     // does not materialize KIND_NUMBER; on a page the bounds settle, the number column is left on
-    // the wire and never decompressed. Falls through when the page predates the region or its
-    // encoding carries no per-tag bounds.
+    // the wire and never decompressed. A wide map may itself have a bounded per-region envelope, but
+    // decoding only that summary is still cheaper than the number column it can leave deferred.
+    // Falls through when the page predates the region or its encoding carries no per-tag bounds.
     final long fromBounds = countPageFromZoneMap(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
     if (fromBounds != ZONE_MAP_UNDECIDED) {
       return fromBounds;

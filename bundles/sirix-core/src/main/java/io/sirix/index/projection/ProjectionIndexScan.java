@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Stateless conjunctive-predicate scan over a collection of serialised
@@ -60,14 +61,73 @@ public final class ProjectionIndexScan {
     public final boolean boolLit;
     public final byte[] stringLitBytes; // UTF-8
 
+    /**
+     * Per-id verdict bitset over a resource-wide dictionary's id space, or {@code null} for every
+     * ordinary predicate.
+     *
+     * <p>
+     * A {@code STRING_GLOBAL} column stores dictionary IDS in its long lane, so a string question
+     * (containment, ordering) is answered in two phases: the caller evaluates the predicate ONCE per
+     * distinct id against the global dictionary's bytes — the same per-entry authority
+     * {@link ProjectionIndexScan#stringDictEntryMatches} gives the per-leaf dictionaries — and this
+     * bitset carries the verdicts; the kernels then test {@code verdict[id]} per row, pure integer
+     * work. Bit {@code id} (1-based, bit 0 unused) is set iff the value interned under {@code id}
+     * satisfies the predicate.
+     *
+     * <p>
+     * The predicate keeps its STRING op — the ops every numeric kernel THROWS on — so a kernel that
+     * has not been taught this form fails loud instead of comparing ids as numbers. Kernels that
+     * prune by numeric zone maps or exact-value fingerprints must ignore verdict predicates: the
+     * long lane holds ids, and neither an id range nor a value fingerprint says anything about a
+     * substring or ordering verdict.
+     */
+    public final long @Nullable [] globalIdVerdict;
+
+    /** Ids covered by {@link #globalIdVerdict}: valid ids are {@code 1 .. globalIdVerdictCount}. */
+    public final int globalIdVerdictCount;
+
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
         final byte[] stringLitBytes) {
+      this(column, op, longLit, highLit, boolLit, stringLitBytes, null, 0);
+    }
+
+    private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
+        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final int globalIdVerdictCount) {
       this.column = column;
       this.op = op;
       this.longLit = longLit;
       this.highLit = highLit;
       this.boolLit = boolLit;
       this.stringLitBytes = stringLitBytes;
+      this.globalIdVerdict = globalIdVerdict;
+      this.globalIdVerdictCount = globalIdVerdictCount;
+    }
+
+    /**
+     * A string predicate over a {@code STRING_GLOBAL} column, pre-evaluated per dictionary id.
+     *
+     * @param op one of the string ops ({@code STR_*}, {@code EQ}, {@code NE}); the numeric ops make
+     *        no sense against a verdict and are refused
+     * @param verdict bit {@code id} set iff the value interned under {@code id} matches
+     * @param idCount ids the verdict covers; the bitset must span it
+     */
+    public static ColumnPredicate globalStringVerdict(final int column, final Op op, final byte[] literalUtf8,
+        final long[] verdict, final int idCount) {
+      if (verdict == null) {
+        throw new NullPointerException("verdict");
+      }
+      // Ids are 1-BASED (bit 0 unused), so id == idCount lives in word idCount >>> 6 — an idCount
+      // that is a multiple of 64 needs one word more than a 0-based ceil would grant.
+      if (idCount < 0 || idCount >>> 6 >= verdict.length) {
+        throw new IllegalArgumentException("verdict bitset spans " + (verdict.length * 64L - 1) + " ids, needs " + idCount);
+      }
+      switch (op) {
+        case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+        }
+        default -> throw new IllegalArgumentException("not a string op: " + op);
+      }
+      return new ColumnPredicate(column, op, 0L, 0L, false, literalUtf8, verdict, idCount);
     }
 
     public static ColumnPredicate numeric(final int column, final Op op, final long literal) {
@@ -361,6 +421,28 @@ public final class ProjectionIndexScan {
         evalBoolean(leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringDict(leaf, p, rowCount, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> evalStringSetContains(leaf, p, rowCount, out);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
+        // Same dispatch contract as the byte kernel's global arm: a verdict predicate sweeps ids
+        // against the caller-built bitset, an id-resolved EQ/NE evaluates numerically, and a string
+        // literal without a verdict is a routing defect that must throw rather than compare bytes
+        // to ids.
+        if (p.globalIdVerdict != null) {
+          final long[] ids = leaf.numericColumn(p.column);
+          final long[] verdict = p.globalIdVerdict;
+          final int idCount = p.globalIdVerdictCount;
+          for (int i = 0; i < rowCount; i++) {
+            final long id = ids[i];
+            if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+              out[i >>> 6] |= 1L << (i & 63);
+            }
+          }
+        } else if (p.stringLitBytes != null) {
+          throw new IllegalStateException("column " + p.column + " is STRING_GLOBAL, but the " + p.op
+              + " predicate still carries a string literal — it was never resolved to a dictionary id");
+        } else {
+          evalNumeric(leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
+        }
+      }
       default -> throw new IllegalStateException("Unknown column kind " + kind);
     }
   }

@@ -222,8 +222,6 @@ test {
      'sirix.rightSiblingKeyColumn.enable'].each { k -> systemProperty k, System.getProperty(k, "false") }
     // HOT trie flags still referenced in source — forward from Gradle CLI to test JVM.
     systemProperty "hot.strict.validate", System.getProperty("hot.strict.validate", "false")
-    systemProperty "hot.strict.phase7u.lexprimary", System.getProperty("hot.strict.phase7u.lexprimary", "false")
-    systemProperty "hot.strict.phase7u.lexfallback.disable", System.getProperty("hot.strict.phase7u.lexfallback.disable", "false")
     systemProperty "hot.bisect.i8", System.getProperty("hot.bisect.i8", "false")
     systemProperty "hot.bisect.from", System.getProperty("hot.bisect.from", "0")
     systemProperty "hot.bisect.to", System.getProperty("hot.bisect.to", "600")

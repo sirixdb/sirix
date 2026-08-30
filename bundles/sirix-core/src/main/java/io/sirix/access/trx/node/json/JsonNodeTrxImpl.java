@@ -1246,6 +1246,14 @@ final class JsonNodeTrxImpl extends
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
   }
 
+  void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey, final int numericValue) {
+    notifyPrimitiveNumberIndexChange(node, pathNodeKey, numericValue, true);
+  }
+
+  void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey, final long numericValue) {
+    notifyPrimitiveNumberIndexChange(node, pathNodeKey, numericValue, false);
+  }
+
   void bulkAccountRecord(final int mutations) {
     bulkAccountMutations(mutations);
   }
@@ -3437,6 +3445,28 @@ final class JsonNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
+    notifyPrimitiveIndexChange(type, node, pathNodeKey, null, false);
+  }
+
+  private void notifyPrimitiveNumberIndexChange(final ImmutableNode node, final long pathNodeKey,
+      final long numericValue, final boolean intValue) {
+    if (!indexController.hasAnyPrimitiveIndex()) {
+      return;
+    }
+    final NodeKind kind = node.getKind();
+    if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NAMED_NUMBER) {
+      throw new IllegalArgumentException("primitive numeric notification requires a number node, got " + kind);
+    }
+    final Str value = indexController.hasCASIndex() || indexController.hasValidTimeIndex()
+        ? new Str(intValue
+            ? Integer.toString((int) numericValue)
+            : Long.toString(numericValue))
+        : null;
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey, value, true);
+  }
+
+  private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
+      final long pathNodeKey, final @Nullable Str suppliedValue, final boolean valueSupplied) {
     if (!indexController.hasAnyPrimitiveIndex()) {
       return;
     }
@@ -3467,33 +3497,35 @@ final class JsonNodeTrxImpl extends
 
     final Str value;
     if (needValue) {
-      value = switch (kind) {
-        case STRING_VALUE -> node instanceof ValueNode valueNode
-            ? new Str(valueNode.getValue())
-            : null;
-        case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
-            ? (boolNode.getValue()
-                ? STR_TRUE
-                : STR_FALSE)
-            : null;
-        case NUMBER_VALUE -> node instanceof NumberNode numberNode
-            ? new Str(String.valueOf(numberNode.getValue()))
-            : null;
-        // Fused OBJECT_NAMED_* — value is inline on the fused record.
-        case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
-            ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
-            : null;
-        case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
-            ? (namedBool.getValue()
-                ? STR_TRUE
-                : STR_FALSE)
-            : null;
-        case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
-            ? new Str(String.valueOf(namedNum.getValue()))
-            : null;
-        case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> null;
-        default -> null;
-      };
+      value = valueSupplied
+          ? suppliedValue
+          : switch (kind) {
+            case STRING_VALUE -> node instanceof ValueNode valueNode
+                ? new Str(valueNode.getValue())
+                : null;
+            case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
+                ? (boolNode.getValue()
+                    ? STR_TRUE
+                    : STR_FALSE)
+                : null;
+            case NUMBER_VALUE -> node instanceof NumberNode numberNode
+                ? new Str(String.valueOf(numberNode.getValue()))
+                : null;
+            // Fused OBJECT_NAMED_* — value is inline on the fused record.
+            case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
+                ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
+                : null;
+            case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
+                ? (namedBool.getValue()
+                    ? STR_TRUE
+                    : STR_FALSE)
+                : null;
+            case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
+                ? new Str(String.valueOf(namedNum.getValue()))
+                : null;
+            case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> null;
+            default -> null;
+          };
     } else {
       value = null;
     }
@@ -4048,11 +4080,12 @@ final class JsonNodeTrxImpl extends
     node.setPreviousRevision(node.getLastModifiedRevisionNumber());
     node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
-    // setRawValue may have resize-unbound a bound flyweight — re-acquire the current
-    // singleton so the rest of the update path sees the rebound record.
+    // Persist before re-acquiring. If the encoded record crossed the inline ceiling,
+    // setRawValue deliberately unbound it and queued an overflow snapshot. Re-acquiring first
+    // would return that pre-revision snapshot and overwrite this update's revision metadata.
+    persistUpdatedRecord(node);
     node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     nodeReadOnlyTrx.setCurrentNode(node);
-    persistUpdatedRecord(node);
     nodeHashing.adaptHashedWithUpdate(oldHash);
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
@@ -4086,10 +4119,10 @@ final class JsonNodeTrxImpl extends
     node.setPreviousRevision(node.getLastModifiedRevisionNumber());
     node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
-    // Re-acquire in case setValue resize-unbound the flyweight.
+    // Persist before re-acquiring; see setStringValueFused for the inline-to-overflow case.
+    persistUpdatedRecord(node);
     node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     nodeReadOnlyTrx.setCurrentNode(node);
-    persistUpdatedRecord(node);
     nodeHashing.adaptHashedWithUpdate(oldHash);
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
@@ -4125,10 +4158,10 @@ final class JsonNodeTrxImpl extends
     node.setPreviousRevision(node.getLastModifiedRevisionNumber());
     node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
-    // Re-acquire in case setValue resize-unbound the flyweight.
+    // Persist before re-acquiring; see setStringValueFused for the inline-to-overflow case.
+    persistUpdatedRecord(node);
     node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     nodeReadOnlyTrx.setCurrentNode(node);
-    persistUpdatedRecord(node);
     nodeHashing.adaptHashedWithUpdate(oldHash);
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);

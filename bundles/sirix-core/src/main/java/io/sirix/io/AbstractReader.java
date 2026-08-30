@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.LongAdder;
 
 import static io.sirix.page.PageUtils.fixupPageReferenceIds;
@@ -73,8 +74,8 @@ public abstract class AbstractReader implements Reader {
     // All page types use hash computed on compressed data
     final long expectedHash = reference.getHashAsLong();
     final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-    if (!PageHasher.verifyLong(compressedData, expectedHash, hashAlgorithm)) {
-      final long actualHash = PageHasher.computeLong(compressedData, hashAlgorithm);
+    final long actualHash = PageHasher.computeLong(compressedData, hashAlgorithm);
+    if (actualHash != expectedHash) {
       throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expectedHash),
           HashAlgorithm.longToBytes(actualHash));
     }
@@ -102,15 +103,33 @@ public abstract class AbstractReader implements Reader {
       return;
     }
 
-    // All page types use hash computed on compressed data (zero-copy for native segments)
+    // MMFileReader can race a concurrent storage close, so arbitrary MemorySegments stay on the FFM
+    // checked-access API instead of escaping to an unpinned raw address.
     final long expectedHash = reference.getHashAsLong();
     final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-    if (!PageHasher.verifyLong(compressedSegment, expectedHash, hashAlgorithm)) {
-      final long actualHash = PageHasher.computeLong(compressedSegment, hashAlgorithm);
+    final long actualHash = PageHasher.computeLong(compressedSegment, hashAlgorithm);
+    if (actualHash != expectedHash) {
       throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expectedHash),
           HashAlgorithm.longToBytes(actualHash));
     }
 
+    if (LOGGER.isTraceEnabled()) {
+      LOGGER.trace("Checksum verified for page at key {}", reference.getKey());
+    }
+  }
+
+  /** Verify a FileChannel buffer while its borrower retains exclusive ownership. */
+  protected void verifyChecksumIfNeeded(final ByteBuffer compressedBuffer, final PageReference reference,
+      final ResourceConfiguration resourceConfig) {
+    if (resourceConfig == null || !resourceConfig.verifyChecksumsOnRead || !reference.hasHash()) {
+      return;
+    }
+    final long expectedHash = reference.getHashAsLong();
+    final long actualHash = PageHasher.computeLong(compressedBuffer, resourceConfig.hashAlgorithm);
+    if (actualHash != expectedHash) {
+      throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expectedHash),
+          HashAlgorithm.longToBytes(actualHash));
+    }
     if (LOGGER.isTraceEnabled()) {
       LOGGER.trace("Checksum verified for page at key {}", reference.getKey());
     }
@@ -315,14 +334,15 @@ public abstract class AbstractReader implements Reader {
   protected static final int REGION_CHUNK_BYTES = Integer.getInteger("sirix.page.regionChunkBytes", 4096);
 
   /**
-   * Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount, fsstDictId]}.
+   * Per-thread scratch holding the probe's
+   * {@code [pageKey, revision, populatedCount, fsstDictId, hasCompleteColumnCoverage]}.
    *
    * <p>
    * The dictionary id is the reason a bounded read can ever serve an FSST resource: on a monolith
    * page it sits in the tail, behind everything the probe is trying not to read, so those pages have
    * to decline; a chunked page carries it in the body prefix, which the probe passes through anyway.
    */
-  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[4]);
+  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[5]);
 
   /**
    * Per-thread scratch for the probe's slot bitmap.
@@ -391,10 +411,12 @@ public abstract class AbstractReader implements Reader {
    */
   protected RegionsOnlyPage deserializeRegionTableFromChunk(ResourceConfiguration resourceConfiguration,
       MemorySegment regionImage, long pageKey, int revision, int populatedCount, long fsstSymbolTableId,
-      int regionKindMask, int regionDeferMask, final long @Nullable [] slotBitmap) {
+      int regionKindMask, int regionDeferMask, final long @Nullable [] slotBitmap,
+      final boolean hasCompleteColumnCoverage) {
     try {
       return pagePersister.deserializeRegionTableAt(resourceConfiguration, new MemorySegmentBytesIn(regionImage),
-          pageKey, revision, populatedCount, fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
+          pageKey, revision, populatedCount, fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap,
+          hasCompleteColumnCoverage);
     } catch (final IndexOutOfBoundsException | IllegalStateException e) {
       // Ran off the end of the chunk: the caller re-reads with the full page.
       return null;

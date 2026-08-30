@@ -5,7 +5,6 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -871,23 +870,21 @@ class HOTProductionReadinessTest {
   }
 
   // ========================================================================================
-  // createMultiNode(int) overload: no byte sign-extension
+  // Canonical SingleMask MultiNode: no byte sign-extension
   // ========================================================================================
 
   @Nested
-  @DisplayName("createMultiNode byte→int parameter safety")
+  @DisplayName("createMultiNode initial-byte-position safety")
   class CreateMultiNodeParameterSafety {
 
     @Test
     @DisplayName("createMultiNode with value > 127 does not sign-extend to negative initialBytePos")
     void testMultiNodeNoSignExtension() {
-      byte[] childIndex = new byte[256];
-      childIndex[0] = 0;
-      childIndex[1] = 1;
       PageReference[] children = new PageReference[] {new PageReference(), new PageReference()};
 
       // Value 200 would sign-extend to -56 if passed as byte
-      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 200, childIndex, children);
+      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 200, Long.MIN_VALUE,
+          new int[] {0, 1}, children, 0);
       assertEquals(200, multi.getInitialBytePos(),
           "initialBytePos must be 200, not -56 (sign-extended byte)");
     }
@@ -895,11 +892,10 @@ class HOTProductionReadinessTest {
     @Test
     @DisplayName("createMultiNode with value 255 does not sign-extend")
     void testMultiNodeMaxByte() {
-      byte[] childIndex = new byte[256];
-      childIndex[0] = 0;
-      PageReference[] children = new PageReference[] {new PageReference()};
+      PageReference[] children = new PageReference[] {new PageReference(), new PageReference()};
 
-      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 255, childIndex, children);
+      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 255, Long.MIN_VALUE,
+          new int[] {0, 1}, children, 0);
       assertEquals(255, multi.getInitialBytePos(),
           "initialBytePos must be 255, not -1 (sign-extended byte)");
     }

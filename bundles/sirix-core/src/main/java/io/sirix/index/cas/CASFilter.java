@@ -1,12 +1,8 @@
 package io.sirix.index.cas;
 
-import io.sirix.index.Filter;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
-import io.sirix.index.redblacktree.RBNodeKey;
-import io.sirix.index.AtomicUtil;
-import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
@@ -21,7 +17,7 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class CASFilter implements Filter {
+public final class CASFilter {
 
   /** {@link PathFilter} instance to filter specific paths. */
   private final PathFilter pathFilter;
@@ -63,33 +59,4 @@ public final class CASFilter implements Filter {
     return key;
   }
 
-  /**
-   * Filter the node.
-   *
-   * @param node node to filter
-   * @return {@code true} if the node has been filtered, {@code false} otherwise
-   */
-  @Override
-  public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
-    final K key = node.getKey();
-    if (key instanceof final CASValue casValue) {
-      // Convert the stored atomic to the index's content type ONLY when it differs: committed
-      // entries round-trip through AtomicUtil and are already typed (zero-conversion hot path);
-      // LISTENER-inserted entries (read-your-own-writes inside the writing trx) hold the raw
-      // Str — comparing a typed search key against a raw Str fell back to brackit's cross-type
-      // total order. Mirrors CASFilterRange semantically without its per-node allocation.
-      if (!pathFilter.filter(node)) {
-        return false;
-      }
-      if (this.key == null) {
-        return true;
-      }
-      Atomic stored = casValue.getAtomicValue();
-      if (stored != null && stored.type() != casValue.getType()) {
-        stored = AtomicUtil.toType(stored, casValue.getType());
-      }
-      return mode.compare(this.key, stored) == 0;
-    }
-    return true;
-  }
 }

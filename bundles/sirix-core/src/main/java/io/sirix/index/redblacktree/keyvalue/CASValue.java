@@ -59,8 +59,8 @@ public final class CASValue implements Comparable<CASValue> {
     try {
       return AtomicUtil.toBytes(value, type);
     } catch (final SirixException e) {
-      // Do NOT swallow and return byte[]{0}: a 1-byte zero key would be silently persisted by
-      // NodeKind.CASRB.serialize, corrupting the index key. Fail loudly.
+      // Do NOT swallow and return byte[]{0}: a 1-byte zero key would be persisted as a different
+      // HOT index key. Fail loudly.
       throw new IllegalStateException("Failed to serialize CAS index value " + value + " as " + type, e);
     }
   }

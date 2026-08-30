@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -97,6 +98,35 @@ class FsstAwareSlotCopierTest {
     final byte[] symbolTable = buildSymbolTableFromSimilarStrings();
     final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
     assertNull(copier.decompressSlot(null, NodeKind.STRING_VALUE.getId()));
+  }
+
+  @Test
+  void malformedCompressedFlyweightFailsClosed() {
+    final byte[] symbolTable = buildSymbolTableFromSimilarStrings();
+    final byte[] malformed = new byte[1 + STRING_VALUE_FIELDS + 3];
+    malformed[0] = (byte) NodeKind.STRING_VALUE.getId();
+    malformed[1 + STRING_VALUE_FIELDS] = 1;
+    // Signed-varint encoding of 100 bytes, without the promised payload.
+    malformed[1 + STRING_VALUE_FIELDS + 1] = (byte) 0xC8;
+    malformed[1 + STRING_VALUE_FIELDS + 2] = 0x01;
+
+    final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> copier.decompressSlot(MemorySegment.ofArray(malformed), NodeKind.STRING_VALUE.getId()));
+    assertTrue(failure.getMessage().contains("compressed payload exceeds slot length"));
+  }
+
+  @Test
+  void malformedCompressedLegacySlotFailsClosed() {
+    final byte[] symbolTable = buildSymbolTableFromSimilarStrings();
+    // kind + five zero-valued structural/revision varints + compressed flag + length(100), no data.
+    final byte[] malformed = new byte[] {(byte) NodeKind.STRING_VALUE.getId(), 0, 0, 0, 0, 0, 1,
+        (byte) 0xC8, 0x01};
+
+    final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> copier.decompressSlot(MemorySegment.ofArray(malformed), 0));
+    assertTrue(failure.getMessage().contains("compressed payload exceeds slot length"));
   }
 
   @Test

@@ -5,11 +5,8 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Allocators;
-import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.index.IndexType;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -24,8 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * Tests for HOT leaf page splitting and HOTIndirectPage creation.
@@ -116,55 +111,6 @@ class HOTLeafPageSplitTest {
 
       assertEquals("aaa", new String(page.getFirstKey()));
       assertEquals("zzz", new String(page.getLastKey()));
-    }
-  }
-
-  @Nested
-  @DisplayName("HOTTrieWriter.handleLeafSplitAndInsert()")
-  class HandleLeafSplitAndInsert {
-
-    @Test
-    @DisplayName("handleLeafSplitAndInsert splits full page and inserts new key atomically")
-    void testHandleLeafSplitAndInsertCreatesIndirectPage() {
-      // Create a full page
-      HOTLeafPage fullPage = new HOTLeafPage(1L, 1, IndexType.PATH);
-      for (int i = 0; i < HOTLeafPage.MAX_ENTRIES; i++) {
-        byte[] key = String.format("key%04d", i).getBytes();
-        byte[] value = ("value" + i).getBytes();
-        if (!fullPage.mergeWithNodeRefs(key, key.length, value, value.length)) {
-          break; // Page is full
-        }
-      }
-      assertTrue(fullPage.needsSplit(), "Page should need split");
-
-      // Mock dependencies
-      StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
-      TransactionIntentLog log = mock(TransactionIntentLog.class);
-      when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
-      when(storageEngineWriter.getLog()).thenReturn(log);
-
-      // Create references
-      PageReference pageRef = new PageReference();
-      pageRef.setKey(1L);
-      PageReference rootRef = new PageReference();
-      rootRef.setKey(1L);
-
-      // Atomic split+insert: use a key that sorts BETWEEN existing keys
-      // so the MSDB produces a non-degenerate split (entries on both sides)
-      byte[] newKey = "key0256x".getBytes();
-      byte[] newValue = "new_value".getBytes();
-      final int originalCount = fullPage.getEntryCount();
-      HOTTrieWriter trieWriter = new HOTTrieWriter();
-      int outcome = trieWriter.handleLeafSplitAndInsert(storageEngineWriter, log, fullPage, pageRef, rootRef,
-          new HOTIndirectPage[0], new PageReference[0], new int[0], 0,
-          newKey, newKey.length, newValue, newValue.length);
-
-      // Verify: split+insert succeeded and the root reference was updated to a BiNode
-      assertEquals(HOTLeafPage.SPLIT_WITH_INSERT, outcome, "Split+insert should succeed");
-      assertTrue(rootRef.getPage() instanceof HOTIndirectPage,
-          "Root should now be an HOTIndirectPage (BiNode) after split");
-      assertTrue(fullPage.getEntryCount() < originalCount,
-          "Original page should have fewer entries after split");
     }
   }
 
@@ -409,4 +355,3 @@ class HOTLeafPageSplitTest {
     }
   }
 }
-

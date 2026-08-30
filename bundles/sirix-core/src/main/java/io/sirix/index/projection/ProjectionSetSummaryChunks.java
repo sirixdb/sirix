@@ -35,28 +35,6 @@ final class ProjectionSetSummaryChunks {
     return new Accessor(storage, capabilities);
   }
 
-  static Map<Integer, Map<String, Long>> writeAll(final ProjectionIndexHOTStorage storage, final byte[] columnKinds,
-      final @Nullable Map<Integer, Map<String, Long>> summaries) {
-    final Map<Integer, Map<String, Long>> capabilities = new LinkedHashMap<>();
-    if (summaries == null) {
-      return capabilities;
-    }
-    for (int column = 0; column < columnKinds.length; column++) {
-      if (columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET || !summaries.containsKey(column)) {
-        continue;
-      }
-      final Map<String, Long> values = summaries.get(column);
-      final byte[] encoded = encode(values);
-      if (encoded == null) {
-        storage.tombstoneRowGroup(slotKey(column));
-        continue;
-      }
-      storage.putBlob(slotKey(column), encoded);
-      capabilities.put(column, values);
-    }
-    return capabilities;
-  }
-
   /**
    * Owner-confined full-build collector whose retained state is bounded by the persisted summary
    * capability itself. A set column is useful only while its complete distinct-value map fits in one
@@ -152,7 +130,7 @@ final class ProjectionSetSummaryChunks {
           continue;
         }
         if (disabled[column]) {
-          storage.tombstoneRowGroup(slotKey(column));
+          storage.tombstoneBlob(slotKey(column));
           continue;
         }
         final Object2LongLinkedOpenHashMap<String> values = existingValues(column);
@@ -382,7 +360,7 @@ final class ProjectionSetSummaryChunks {
       for (final int column : changed) {
         final byte[] encoded = encode(loaded.get(column));
         if (encoded == null) {
-          storage.tombstoneRowGroup(slotKey(column));
+          storage.tombstoneBlob(slotKey(column));
           persisted.remove(column);
         } else {
           storage.putBlob(slotKey(column), encoded);

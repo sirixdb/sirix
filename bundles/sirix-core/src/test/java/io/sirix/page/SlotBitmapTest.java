@@ -16,6 +16,7 @@ import java.util.Set;
 import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -189,6 +190,9 @@ class SlotBitmapTest {
 
     assertEquals(3, page.populatedSlotCount());
 
+    page.setCompressedSegment(MemorySegment.ofArray(new byte[19]), 47);
+    assertEquals(47, page.getByteHandlerInputLength());
+
     // Reset the page
     page.reset();
 
@@ -197,6 +201,9 @@ class SlotBitmapTest {
     assertFalse(page.hasSlot(10));
     assertFalse(page.hasSlot(100));
     assertFalse(page.hasSlot(500));
+    assertNull(page.getCompressedSegment(), "a reused frame must not retain the prior page's wire image");
+    assertNull(page.getBytes());
+    assertEquals(KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH, page.getByteHandlerInputLength());
 
     page.close();
   }
@@ -255,4 +262,3 @@ class SlotBitmapTest {
     page.close();
   }
 }
-

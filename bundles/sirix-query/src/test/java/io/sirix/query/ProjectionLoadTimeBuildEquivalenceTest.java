@@ -8,6 +8,7 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -22,10 +23,13 @@ import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ProjectionSpec;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -146,11 +150,18 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
   }
 
   private BasicJsonDBStore openStore(final String dbName) {
+    return openStore(dbName, VersioningType.FULL);
+  }
+
+  private BasicJsonDBStore openStore(final String dbName, final VersioningType versioningType) {
     return BasicJsonDBStore.newBuilder()
                            .location(root.resolve(dbName))
                            .numberOfNodesBeforeAutoCommit(AUTO_COMMIT_NODES)
                            .buildPathSummary(true)
                            .buildPathStatistics(false)
+                           .hashType(HashType.NONE)
+                           .storeNodeHistory(false)
+                           .versioningType(versioningType)
                            .build();
   }
 
@@ -160,6 +171,20 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
         final JsonReader reader = new JsonReader(new StringReader(dataset()))) {
       store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES));
     }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  public void parallelBulkLoadPublishesTheOnePassProjectionForEveryVersioningType(final VersioningType versioningType)
+      throws IOException {
+    final String dbName = "parallel-" + versioningType.name().toLowerCase();
+    try (BasicJsonDBStore store = openStore(dbName, versioningType); StringReader input = new StringReader(dataset())) {
+      store.createParallel("coll", "res.jn", input, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES));
+    }
+
+    final Snapshot snapshot = snapshot(dbName);
+    Assertions.assertEquals((RECORDS + 1023) / 1024, snapshot.rowGroupCount());
+    Assertions.assertEquals(String.valueOf(RECORDS), queryOne(dbName, "count($d[])"));
   }
 
   /** Load, then derive the projection by walking the finished resource — two passes. */

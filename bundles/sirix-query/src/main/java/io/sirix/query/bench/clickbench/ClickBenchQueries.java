@@ -423,7 +423,7 @@ public final class ClickBenchQueries {
             subsequence(
               for $h in $hits[]
               where $h.URL != ""
-              let $k := $h.CounterID, $len := string-length($h.URL)
+              let $k := $h.CounterID, $len := jn:utf8-length($h.URL)
               group by $k
               let $c := count($h)
               where $c > 100000
@@ -442,7 +442,7 @@ public final class ClickBenchQueries {
             subsequence(
               for $h in $hits[]
               where $h.Referer != ""
-              let $k := replace($h.Referer, '^https?://(www\\.)?([^/]+)/.*$', '$2'), $len := string-length($h.Referer)
+              let $k := replace($h.Referer, '^https?://(www\\.)?([^/]+)/.*$', '$2'), $len := jn:utf8-length($h.Referer)
               group by $k
               let $c := count($h)
               where $c > 100000

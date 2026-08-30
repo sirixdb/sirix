@@ -7,20 +7,16 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.JsonTestHelper;
+import io.sirix.index.hot.HOTLongIndexReader;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.redblacktree.RBTreeReader;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -72,7 +68,7 @@ class IndexIntegrationTest {
     @DisplayName("Create path index, shred JSON, verify results for a specific path")
     void testPathIndexCreationAndQuery() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -99,13 +95,11 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToName);
         assertEquals(1, pathNodeKeys.size(), "Should have exactly one PCR for /name");
 
-        final RBTreeReader<Long, NodeReferences> reader = RBTreeReader.getInstance(
-            session.getIndexCache(), trx.getStorageEngineReader(),
-            indexDef.getType(), indexDef.getID());
-
+        final HOTLongIndexReader reader = HOTLongIndexReader.create(
+            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var references = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
-        assertTrue(references.isPresent(), "Should find references for /name");
-        assertEquals(1, references.get().getNodeKeys().getLongCardinality(),
+        assertNotNull(references, "Should find references for /name");
+        assertEquals(1, references.getNodeKeys().getLongCardinality(),
             "Should have exactly 1 node indexed under /name");
       }
     }
@@ -114,7 +108,7 @@ class IndexIntegrationTest {
     @DisplayName("Path index for nested path returns correct count")
     void testPathIndexNestedPath() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -139,13 +133,11 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToCity);
         assertEquals(1, pathNodeKeys.size(), "Should have exactly one PCR for /address/city");
 
-        final RBTreeReader<Long, NodeReferences> reader = RBTreeReader.getInstance(
-            session.getIndexCache(), trx.getStorageEngineReader(),
-            indexDef.getType(), indexDef.getID());
-
+        final HOTLongIndexReader reader = HOTLongIndexReader.create(
+            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var references = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
-        assertTrue(references.isPresent(), "Should find references for /address/city");
-        assertEquals(1, references.get().getNodeKeys().getLongCardinality(),
+        assertNotNull(references, "Should find references for /address/city");
+        assertEquals(1, references.getNodeKeys().getLongCardinality(),
             "Should have exactly 1 node indexed under /address/city");
       }
     }
@@ -154,7 +146,7 @@ class IndexIntegrationTest {
     @DisplayName("Path index for multiple paths indexes all matching nodes")
     void testPathIndexMultiplePaths() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -200,7 +192,7 @@ class IndexIntegrationTest {
     @DisplayName("Path index updates after node deletion")
     void testPathIndexAfterDeletion() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -228,13 +220,11 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToName);
         assertEquals(1, pathNodeKeys.size(), "Should have exactly one PCR for /[]/name");
 
-        final RBTreeReader<Long, NodeReferences> reader = RBTreeReader.getInstance(
-            session.getIndexCache(), trx.getStorageEngineReader(),
-            indexDef.getType(), indexDef.getID());
-
+        final HOTLongIndexReader reader = HOTLongIndexReader.create(
+            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var refsBefore = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
-        assertTrue(refsBefore.isPresent());
-        assertEquals(2, refsBefore.get().getNodeKeys().getLongCardinality(),
+        assertNotNull(refsBefore);
+        assertEquals(2, refsBefore.getNodeKeys().getLongCardinality(),
             "Should have 2 name nodes before deletion");
 
         // Navigate to first object and remove it (removing its "name" key too)
@@ -251,13 +241,11 @@ class IndexIntegrationTest {
 
         final var pathNodeKeysAfter = trx.getPathSummary().getPCRsForPath(pathToName);
         if (!pathNodeKeysAfter.isEmpty()) {
-          final RBTreeReader<Long, NodeReferences> readerAfter = RBTreeReader.getInstance(
-              session.getIndexCache(), trx.getStorageEngineReader(),
-              updatedDef.getType(), updatedDef.getID());
-
+          final HOTLongIndexReader readerAfter = HOTLongIndexReader.create(
+              trx.getStorageEngineReader(), updatedDef.getType(), updatedDef.getID());
           final var refsAfter = readerAfter.get(pathNodeKeysAfter.iterator().nextLong(), SearchMode.EQUAL);
-          assertTrue(refsAfter.isPresent());
-          assertEquals(1, refsAfter.get().getNodeKeys().getLongCardinality(),
+          assertNotNull(refsAfter);
+          assertEquals(1, refsAfter.getNodeKeys().getLongCardinality(),
               "Should have 1 name node after deletion");
         }
       }
@@ -267,7 +255,7 @@ class IndexIntegrationTest {
     @DisplayName("Path index returns correct counts across revisions via write transaction")
     void testPathIndexAcrossRevisions() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -294,13 +282,11 @@ class IndexIntegrationTest {
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToName);
         assertEquals(1, pathNodeKeys.size());
 
-        final RBTreeReader<Long, NodeReferences> reader = RBTreeReader.getInstance(
-            session.getIndexCache(), trx.getStorageEngineReader(),
-            indexDef.getType(), indexDef.getID());
-
+        final HOTLongIndexReader reader = HOTLongIndexReader.create(
+            trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
         final var refsR1 = reader.get(pathNodeKeys.iterator().nextLong(), SearchMode.EQUAL);
-        assertTrue(refsR1.isPresent(), "Should find /name in path index at revision 1");
-        assertEquals(1, refsR1.get().getNodeKeys().getLongCardinality(),
+        assertNotNull(refsR1, "Should find /name in path index at revision 1");
+        assertEquals(1, refsR1.getNodeKeys().getLongCardinality(),
             "Should have 1 name node at revision 1");
 
         // Delete the "name" key node -> revision 2
@@ -321,13 +307,11 @@ class IndexIntegrationTest {
 
         final var pathNodeKeysR2 = trx.getPathSummary().getPCRsForPath(pathToName);
         if (!pathNodeKeysR2.isEmpty()) {
-          final RBTreeReader<Long, NodeReferences> readerR2 = RBTreeReader.getInstance(
-              session.getIndexCache(), trx.getStorageEngineReader(),
-              updatedDef.getType(), updatedDef.getID());
-
+          final HOTLongIndexReader readerR2 = HOTLongIndexReader.create(
+              trx.getStorageEngineReader(), updatedDef.getType(), updatedDef.getID());
           final var refsR2 = readerR2.get(pathNodeKeysR2.iterator().nextLong(), SearchMode.EQUAL);
-          if (refsR2.isPresent()) {
-            assertEquals(0, refsR2.get().getNodeKeys().getLongCardinality(),
+          if (refsR2 != null) {
+            assertEquals(0, refsR2.getNodeKeys().getLongCardinality(),
                 "Revision 2 should have 0 name entries after deletion");
           }
         }
@@ -339,7 +323,7 @@ class IndexIntegrationTest {
     @DisplayName("openPathIndex with null filter returns all indexed entries")
     void testOpenPathIndexWithNullFilter() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -385,7 +369,7 @@ class IndexIntegrationTest {
     @DisplayName("findPathIndex finds registered path index definitions")
     void testFindPathIndex() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -427,7 +411,7 @@ class IndexIntegrationTest {
     @DisplayName("Create name index on all object keys and query specific names")
     void testNameIndexAllKeys() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -469,7 +453,7 @@ class IndexIntegrationTest {
     @DisplayName("Name index query for multiple names returns all matching entries")
     void testNameIndexMultipleNames() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -504,7 +488,7 @@ class IndexIntegrationTest {
     @DisplayName("Selective name index only includes specified names")
     void testSelectiveNameIndex() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -543,7 +527,7 @@ class IndexIntegrationTest {
     @DisplayName("Filtered name index excludes specified names")
     void testFilteredNameIndex() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -584,7 +568,7 @@ class IndexIntegrationTest {
     @DisplayName("Name index count updates after node deletion")
     void testNameIndexAfterDeletion() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -639,7 +623,7 @@ class IndexIntegrationTest {
     @DisplayName("findNameIndex finds registered name index")
     void testFindNameIndex() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -677,7 +661,7 @@ class IndexIntegrationTest {
     @DisplayName("Create CAS index on /name, query for exact string match")
     void testCASIndexExactStringMatch() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -723,7 +707,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index query for non-existent value returns no results")
     void testCASIndexNoMatch() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -758,7 +742,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index on /address/city with exact match")
     void testCASIndexNestedPath() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -794,7 +778,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index with GREATER search mode on string values")
     void testCASIndexGreaterSearchMode() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -837,7 +821,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index with range filter (CASFilterRange)")
     void testCASIndexRangeFilter() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -882,7 +866,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index with empty path set returns all indexed entries")
     void testCASIndexAllEntries() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -925,7 +909,7 @@ class IndexIntegrationTest {
     @DisplayName("findCASIndex finds registered CAS index definition")
     void testFindCASIndex() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -957,7 +941,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index on multiple paths indexes entries from all paths")
     void testCASIndexMultiplePaths() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var trx = session.beginNodeTrx()) {
@@ -1011,7 +995,7 @@ class IndexIntegrationTest {
     @DisplayName("CAS index with read-only transaction queries after commit")
     void testCASIndexWithReadOnlyTrx() {
       final var database =
-          JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+          JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       // Write phase: create index and data
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -1067,25 +1051,7 @@ class IndexIntegrationTest {
 
   @Nested
   @DisplayName("HOT Index Tests")
-  @TestInstance(TestInstance.Lifecycle.PER_CLASS)
   class HOTIndexTests {
-
-    private String originalHOTSetting;
-
-    @BeforeAll
-    void enableHOT() {
-      originalHOTSetting = System.getProperty("sirix.index.useHOT");
-      System.setProperty("sirix.index.useHOT", "true");
-    }
-
-    @AfterAll
-    void restoreHOT() {
-      if (originalHOTSetting != null) {
-        System.setProperty("sirix.index.useHOT", originalHOTSetting);
-      } else {
-        System.clearProperty("sirix.index.useHOT");
-      }
-    }
 
     @Test
     @DisplayName("HOT path index: create, shred JSON, verify results for /name")

@@ -44,9 +44,8 @@ import java.util.Set;
  * The resource MUST be configured with valid-time paths (see
  * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}); the index
  * always indexes those two fields. {@code $paths}, when omitted, defaults to {@code /[]/<validFrom>}
- * and {@code /[]/<validTo>} built from the resource's valid-time field names. The backend is always
- * HOT regardless of the global {@code sirix.index.useHOT} setting, because the interval engine needs
- * the HOT trie's order-preserving range scans.
+ * and {@code /[]/<validTo>} built from the resource's valid-time field names. The index uses the
+ * canonical HOT trie and its order-preserving range scans.
  * </p>
  *
  * @author Johannes Lichtenberger

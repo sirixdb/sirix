@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.node.interfaces.Node;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
@@ -25,7 +24,7 @@ import java.util.function.Predicate;
  * <li><b>Record page cache:</b> Full KeyValueLeafPages for data access</li>
  * <li><b>Fragment cache:</b> Page fragments for versioning reconstruction</li>
  * <li><b>Page cache:</b> Other page types (NamePage, RevisionRootPage, etc.)</li>
- * <li><b>Specialized caches:</b> RevisionRootPages, RBTree nodes, Names, PathSummary</li>
+ * <li><b>Specialized caches:</b> RevisionRootPages, HOT lookups, Names, PathSummary</li>
  * </ul>
  * <p>
  * The buffer manager coordinates with background ClockSweeper threads for eviction, following the
@@ -223,8 +222,6 @@ public final class BufferManagerImpl implements BufferManager {
   private final PageCache pageCache;
 
   private final RevisionRootPageCache revisionRootPageCache;
-  private final RedBlackTreeNodeCache redBlackTreeNodeCache;
-
   // Memoized HOT point-lookup answers. Sized independently of the page caches: entries are a key
   // plus a bounded long[], so this is kilobytes where the page caches are megabytes.
   private final HOTLookupCache hotLookupCache;
@@ -247,13 +244,12 @@ public final class BufferManagerImpl implements BufferManager {
    * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment
    *        cache
    * @param maxRevisionRootPageCache maximum number of revision root pages to cache
-   * @param maxRBTreeNodeCache maximum number of RB-tree nodes to cache
    * @param maxNamesCacheSize maximum number of name entries to cache
    * @param maxPathSummaryCacheSize maximum number of path summary entries to cache
    */
   public BufferManagerImpl(long maxPageCacheWeight, long maxRecordPageCacheWeight,
-      long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache,
-      int maxNamesCacheSize, int maxPathSummaryCacheSize) {
+      long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxNamesCacheSize,
+      int maxPathSummaryCacheSize) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
     // ShardedPageCache uses long for maxWeightBytes - supports > 2GB caches
     recordPageCache = new ShardedPageCache<>(maxRecordPageCacheWeight);
@@ -312,7 +308,6 @@ public final class BufferManagerImpl implements BufferManager {
     LinuxMemorySegmentAllocator.setPressureListener(pressureListener);
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
-    redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     final String configuredHotLookupEntries = System.getProperty(HOT_LOOKUP_CACHE_ENTRIES_PROPERTY);
     final HotLookupSize hotLookupSize = hotLookupCacheEntries(maxRecordPageCacheWeight, configuredHotLookupEntries);
     final int hotLookupEntries = hotLookupSize.entries();
@@ -363,11 +358,6 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache() {
     return revisionRootPageCache;
-  }
-
-  @Override
-  public Cache<RBIndexKey, Node> getIndexCache() {
-    return redBlackTreeNodeCache;
   }
 
   @Override
@@ -514,7 +504,6 @@ public final class BufferManagerImpl implements BufferManager {
       hotLeafPageCache.clear();
       hotLeafFragmentCache.clear();
       revisionRootPageCache.clear();
-      redBlackTreeNodeCache.clear();
       namesCache.clear();
       pathSummaryCache.clear();
     } finally {

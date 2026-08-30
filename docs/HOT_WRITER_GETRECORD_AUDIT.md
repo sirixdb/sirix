@@ -8,7 +8,11 @@
 **Goal:** Document the identity-lifetime expectation at each site so a future per-tx kind-keyed shell pool (replacing the current "fresh shell per call" model) can be designed without silently breaking move / copy / index flows.
 **Companion:** `MEMORY.md → writer-side-flyweight-pool-analysis.md`.
 
-> **Revision history.** First pass (2026-05-27 AM) caught only the 11 direct `storageEngineWriter.getRecord(...)` call-sites and gave a *wrong* justification for the 2-slots-per-kind requirement (premised on cursor competition that doesn't actually exist on the common write-path). Independent review surfaced indirect callers through `RBTreeReader`, `PathSummaryReader`, `Names`, `DeweyIDPage`, `JsonVectorIndexImpl`, and `AbstractNodeReadOnlyTrx.moveToLegacy`, plus a critical `records[]`-caching invariant. This revision rebuilds the analysis from the verified dispatch model.
+> **Current architecture note (2026-08-29).** This is a historical audit of the branch named above.
+> PATH, CAS, and NAME secondary indexes now have one canonical HOT route; their former
+> `RBTreeReader`/`RBTreeWriter` call paths described below are no longer active production paths.
+
+> **Revision history.** First pass (2026-05-27 AM) caught only the 11 direct `storageEngineWriter.getRecord(...)` call-sites and gave a *wrong* justification for the 2-slots-per-kind requirement (premised on cursor competition that doesn't actually exist on the common write-path). Independent review surfaced indirect callers through the then-active secondary-index `RBTreeReader`, `PathSummaryReader`, `Names`, `DeweyIDPage`, `JsonVectorIndexImpl`, and `AbstractNodeReadOnlyTrx.moveToLegacy`, plus a critical `records[]`-caching invariant. This revision rebuilds the analysis from the verified dispatch model.
 
 ## 1. Dispatch model (the actual call paths into `NodeStorageEngineWriter.getRecord`)
 
@@ -22,7 +26,7 @@ Three classes of caller reach `NodeStorageEngineWriter.getRecord(...)`:
 
 **Indirect calls on a `StorageEngineReader`-typed reference** that *is* the writer at runtime (because `NodeStorageEngineWriter` extends `AbstractForwardingStorageEngineReader implements StorageEngineWriter`, and `StorageEngineWriter extends StorageEngineReader`). Sites where the reader-field was constructed with `storageEngineWriter`:
 
-- `RBTreeReader.java:136, 529` — held in `storageEngineReader` field; `RBTreeWriter.java:124` passes the writer into the constructor. Active on every CAS / PATH / NAME index modify.
+- `RBTreeReader.java:136, 529` — held in `storageEngineReader` field; `RBTreeWriter.java:124` passed the writer into the constructor on the audited historical branch. This secondary-index route has since been removed.
 - `PathSummaryReader.java:159, 620` — held in `storageEngineReader` field; `PathSummaryWriter.java` constructs with writer. Active on every `adaptPathForChangedNode` (called from move flows at `JsonNodeTrxImpl:2337, 2411`, `XmlNodeTrxImpl:210, 376`).
 - `Names.java:95, 105, 141, 152` — `storageEngineReader` parameter; reached from `NamePage` reconstruction during read of any name dictionary in the write tx.
 - `DeweyIDPage.java:145` — `storageEngineReader` parameter to `getDeweyIdForNodeKey(...)`. Reached during DeweyID-bearing flows.

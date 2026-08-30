@@ -132,12 +132,8 @@ public final class ScaleBenchMain {
       pathSummary = true;
       System.out.println("# buildPathStatistics=true implies buildPathSummary=true");
     }
-    // When the projection index is requested but we're shredding a fresh DB
-    // (not reusing one), the slow-path builder in ScaleBenchProjectionSetup
-    // walks the PathSummary to resolve the projected paths. Without a
-    // pathSummary the whole projection=true run dies with an opaque
-    // `openPathSummary failed` error during install. Auto-force pathSummary
-    // on just like we do for pathStatistics so the common combo Just Works.
+    // Production projection creation resolves its declared paths through the PathSummary. Auto-force
+    // it for a fresh benchmark resource, just as path statistics do.
     if (Boolean.getBoolean("projection") && !pathSummary) {
       pathSummary = true;
       System.out.println("# projection=true implies buildPathSummary=true");
@@ -212,7 +208,7 @@ public final class ScaleBenchMain {
     // generic pipeline (~200 s filterCount at 10 M instead of ms).
     if (Boolean.getBoolean("projection") && session != null && iters > 0) {
       final long tBuild = System.nanoTime();
-      final int leafCount = ScaleBenchProjectionSetup.installWildcard(session);
+      final int leafCount = ScaleBenchProjectionSetup.ensureProjection(session);
       System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
           leafCount, (System.nanoTime() - tBuild) / 1_000_000L);
       if (phaseTiming) tPhase = System.nanoTime();

@@ -10,6 +10,7 @@ import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.IndexType;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
@@ -77,6 +78,8 @@ final class ProjectionBulkLoadFailureTest {
         assertSame(first, ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER),
             "a failed putIfAbsent must not resolve and abort the winning ACTIVE owner");
         assertFalse(first.isFinished(), "the preexisting load was poisoned by somebody else's failed arm");
+        assertNotNull(controller.getIndexes().getIndexDef(indexDef.getID(), indexDef.getType()),
+            "duplicate-arm rollback removed the preexisting catalogue definition");
       } finally {
         first.abort();
       }
@@ -264,6 +267,12 @@ final class ProjectionBulkLoadFailureTest {
           "mutating a transaction after partial index publication must be rejected");
 
       wtx.rollback();
+      final JsonIndexController rolledBackController =
+          (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
+      assertNull(rolledBackController.getIndexes().getIndexDef(INDEX_NUMBER, IndexType.PROJECTION),
+          "rollback retained an uncommitted projection definition");
+      assertFalse(rolledBackController.hasProjectionIndex(),
+          "rollback retained the uncommitted projection capability flag");
       assertTrue(wtx.moveToDocumentRoot());
       wtx.insertArrayAsFirstChild();
       wtx.rollback();

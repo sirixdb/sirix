@@ -12,9 +12,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,23 +54,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("HOT microbenchmarks")
 final class HOTMicrobenchmark {
-
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   @BeforeEach
   void setUp() {
@@ -127,7 +108,7 @@ final class HOTMicrobenchmark {
         scratchValue.getNodeKeys().clear();
         scratchValue.getNodeKeys().add(i);
         final CASValue key = new CASValue(new Int32(i), Type.INR, pathNodeKey);
-        writer.index(key, scratchValue, null);
+        writer.index(key, scratchValue);
       }
 
       // Timed loop
@@ -136,7 +117,7 @@ final class HOTMicrobenchmark {
         scratchValue.getNodeKeys().clear();
         scratchValue.getNodeKeys().add(i);
         final CASValue key = new CASValue(new Int32(i), Type.INR, pathNodeKey);
-        writer.index(key, scratchValue, null);
+        writer.index(key, scratchValue);
       }
       final long elapsedNs = System.nanoTime() - start;
       trx.commit();
@@ -187,7 +168,7 @@ final class HOTMicrobenchmark {
       for (int i = 0; i < n; i++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add(i);
-        writer.index(new CASValue(new Int32(i), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new CASValue(new Int32(i), Type.INR, pathNodeKey), scratch);
       }
       trx.commit();
 
@@ -269,14 +250,14 @@ final class HOTMicrobenchmark {
       for (int i = 0; i < 5_000; i++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add(warmupBase + i);
-        writer.index(new CASValue(new Int32(warmupBase + i), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new CASValue(new Int32(warmupBase + i), Type.INR, pathNodeKey), scratch);
       }
 
       final long writeStart = System.nanoTime();
       for (int i = 0; i < n; i++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add(i);
-        writer.index(new CASValue(new Int32(i), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new CASValue(new Int32(i), Type.INR, pathNodeKey), scratch);
       }
       writeNs = System.nanoTime() - writeStart;
       trx.commit();
@@ -386,7 +367,7 @@ final class HOTMicrobenchmark {
       for (int i = 0; i < n; i++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add(i);
-        writer.index(new CASValue(new Int32(i), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new CASValue(new Int32(i), Type.INR, pathNodeKey), scratch);
       }
       trx.commit();
     }

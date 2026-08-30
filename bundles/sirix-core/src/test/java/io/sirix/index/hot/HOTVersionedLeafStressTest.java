@@ -21,9 +21,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -56,23 +54,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("HOT versioned leaf stress tests")
 final class HOTVersionedLeafStressTest {
-
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   private Path tempDir;
 
@@ -843,9 +824,10 @@ final class HOTVersionedLeafStressTest {
 
         // Validate structural integrity at all 3 revisions from fresh rtx
         try (JsonResourceSession session = database.beginResourceSession("res")) {
+          final int nameIndexNumber = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID();
           for (int rev = 1; rev <= 3; rev++) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
-              assertNoViolations(rtx, IndexType.NAME, 0, "name-rev" + rev + "-cold");
+              assertNoViolations(rtx, IndexType.NAME, nameIndexNumber, "name-rev" + rev + "-cold");
             }
           }
 
@@ -1402,13 +1384,13 @@ final class HOTVersionedLeafStressTest {
             + " totalInserted=" + ((long) committed * perRev) + " readerIters=" + readerIterations.get()
             + " readerValids=" + readerValidations.get() + " readerErrors=" + readerErrors.size()
             + " elapsed=" + ((System.currentTimeMillis() - startMs) / 1000) + "s");
-        System.out.println("[soak] rebuilds BRANCH_I8_UNSAFE_REBUILD="
-            + AbstractHOTIndexWriter.BRANCH_I8_UNSAFE_REBUILD.get()
-            + " STRUCTURAL_SELFHEAL_REBUILD=" + AbstractHOTIndexWriter.STRUCTURAL_SELFHEAL_REBUILD.get()
-            + " REBUILD_SUBTREE_CALLED=" + AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get()
-            + " STRAND_LEAF_REBUILD=" + AbstractHOTIndexWriter.STRAND_LEAF_REBUILD.get()
+        System.out.println("[soak] structural BRANCH_COMPLETE_FRONTIER="
+            + AbstractHOTIndexWriter.BRANCH_COMPLETE_FRONTIER.get()
+            + " STRUCTURAL_VALIDATION_FAILURE=" + AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE.get()
+            + " COMPLETE_STRUCTURAL_FRONTIER_SPLICE="
+            + AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get()
             + " STRAND_TWO_LEAF_MIGRATE=" + AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get()
-            + " STRAND_FULL_FALLBACK=" + AbstractHOTIndexWriter.STRAND_FULL_FALLBACK.get()
+            + " STRAND_COMPLETE_FRONTIER=" + AbstractHOTIndexWriter.STRAND_COMPLETE_FRONTIER.get()
             + " DIRECTION_ONE_FALLBACK=" + AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get()
             + " totalInserts=" + ((long) committed * perRev));
       }

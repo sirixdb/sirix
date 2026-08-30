@@ -299,7 +299,11 @@ public final class PINode extends AbstractFlyweightNode implements StructNode, N
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
+    return estimateSerializedSize(payloadLen);
+  }
+
+  static int estimateSerializedSize(final int payloadLength) {
+    return FlyweightNode.saturatingSerializedSize((long) SERIALIZED_METADATA_UPPER_BOUND + payloadLength);
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================

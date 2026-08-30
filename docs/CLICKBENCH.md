@@ -102,10 +102,12 @@ Elasticsearch maps `long` and `date`, Druid keeps three of the four timestamps a
 JSON encoding here is:
 
 * one object per hit, **all 105 columns always present**, in `create.sql` order;
-* the whole file is **one JSON array** of those objects, shredded through a Jackson streaming
-  parser; the loader also accepts newline-delimited JSON — the shape of the official
-  `hits.json.gz` — which it ingests in the transaction's native LDJSON mode rather than
-  reframing it as an array;
+* the whole file is **one JSON array** of those objects. The loader also accepts newline-delimited
+  JSON — the shape of the official `hits.json.gz`. File sources default to the general chunked
+  parallel importer: a streaming delimiter adapter frames LDJSON as an array, while an
+  allocation-stable byte filter exposes quoted signed `BIGINT` values as exact numeric tokens and
+  changes only the timestamp separator from a space to `T`. Neither adapter buffers a record or
+  writes a converted source file. `-Dclickbench.parallelImport=false` retains the Jackson cursor;
 * integers as JSON numbers, **exact int64, never quoted** — `UserID` and the two hashes are 18-digit
   values that Q19/Q40/Q41 filter on by literal;
 * text as JSON strings, with `NULL` coalesced to `""` (ClickBench's own missing marker);
@@ -119,11 +121,13 @@ lexicographically, so `ORDER BY EventTime` and the `EventDate BETWEEN …` predi
 comparisons, `extract(minute FROM EventTime)` is `xs:integer(substring($t, 15, 2))`, and
 `DATE_TRUNC('minute', EventTime)` is `substring($t, 1, 16)`.
 
-`ClickBenchLoadMain` re-reads the first record after ingest and **fails the load** if a 64-bit id
-arrived as a string or a timestamp did not. This is not ceremony: ClickHouse's `JSONEachRow` quotes
-64-bit integers by default, so the official `hits.json.gz` may well carry `"UserID":"435090932899640449"`.
-That shreds as a string node, and then exactly three queries quietly return nothing while the other
-forty look perfectly plausible.
+`ClickBenchLoadMain` validates the first source record **before opening the target store**, then
+checks the first stored record after ingest. This is not ceremony: ClickHouse's `JSONEachRow` quotes
+64-bit integers by default, so the official `hits.json.gz` carries values such as
+`"UserID":"435090932899640449"`. With the default `clickbench.normalizeSource=true`, the streaming
+parser exposes that token as an exact signed long. Strict mode rejects the quoted token before the
+target can be replaced. Without either guard it would shred as a string node, and several queries
+would quietly return wrong results while the rest still looked plausible.
 
 ## Translating the SQL
 
@@ -226,6 +230,14 @@ of the SQL. A harness detail that matters more than it looks: the runner must *n
 vectorized executor when the kill switch is off, or leg 2 measures the fast path twice and the
 comparison proves nothing. That bug hid defect 1 for a full differential cycle.
 
+The differential now proves that separation per query. Its fast leg uses
+`--require-vectorized-serving`: each fully serialized query must move at least one outcome-level
+serving counter, and the runner prints the exact route delta. Attempts, catalogue lookups, declines,
+and page reads do not count. Its interpreter leg uses `--require-generic-serving` and fails if any
+of those counters moves. For campaigns claiming the AUTO resource-wide dictionary, set
+`REQUIRE_AUTO_GLOBAL_DICT=1`; this forces `sirix.projection.globalDict=auto` and rejects a missing or
+zero `globalDictColumns` completion banner before query execution.
+
 Result at 200 000 rows, after the fixes:
 
 | leg | match | tie-ambiguous (of which unverifiable) | mismatch |
@@ -277,9 +289,9 @@ Other things to keep in mind when reading the numbers:
   resource and the shred's own change notifications feed the projection builder, so the corpus is
   walked once. At 1 M rows that is `Load time` 95.8 s against 121.7 s for shred-then-build (71.5 s +
   50.2 s), and the saving grows with the corpus because the second pass it removes is a full walk.
-  Pass `-Dclickbench.projection.incremental=false` for the two-pass route, which is also the only
-  route available for a projection over an already-loaded resource. Both routes produce byte-identical
-  row groups and the same `# served` counters;
+  The ClickBench loader now rejects `-Dclickbench.projection.incremental=false`; it never repairs a
+  failed load by walking the completed corpus. Explicit projection DDL remains available for an
+  already-loaded non-benchmark resource, but it is not a ClickBench ingestion mode;
 
 ### Numbers
 
@@ -403,8 +415,9 @@ warm **1.318 s -> 0.032 s**, a 41x improvement, once NE stopped forcing it onto 
 Correctness is checked by running the same corpus with `-Dsirix.query.autoVectorize=false` and
 diffing all 43 result sets: **42 of 43 byte-identical**. The exception is Q17, which is
 `GROUP BY UserID, SearchPhrase LIMIT 10` with no `ORDER BY` — the two outputs are a permutation of
-the same ten rows, it is served by brackit's own `VectorizedGroupByExpr` rather than by a projection
-route, and group emission order is implementation-defined for that shape.
+the same ten rows because group emission order is implementation-defined for that shape. The current
+group-aggregate detector does recognize this order-free form and serves Q17 from the projection; the
+permutation is not evidence of a Brackit-only fallback.
 
 ### What still declines, and why
 

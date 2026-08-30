@@ -629,8 +629,14 @@ public final class ElementNode extends AbstractFlyweightNode implements StructNo
 
   @Override
   public int estimateSerializedSize() {
-    return 128 + (attributeKeys != null ? attributeKeys.size() * 10 : 0)
-        + (namespaceKeys != null ? namespaceKeys.size() * 10 : 0);
+    final int attributeCount = attributeKeys != null ? attributeKeys.size() : 0;
+    final int namespaceCount = namespaceKeys != null ? namespaceKeys.size() : 0;
+    return estimateSerializedSize(attributeCount, namespaceCount);
+  }
+
+  static int estimateSerializedSize(final int attributeCount, final int namespaceCount) {
+    final long estimatedSize = 128L + (long) attributeCount * 10L + (long) namespaceCount * 10L;
+    return FlyweightNode.saturatingSerializedSize(estimatedSize);
   }
 
   @Override

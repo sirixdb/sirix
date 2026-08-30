@@ -11,12 +11,9 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,23 +42,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("HOT DIFFERENTIAL Fragment Chain Regression")
 final class HOTDifferentialVersioningFragmentChainTest {
 
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
-
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
@@ -75,8 +55,6 @@ final class HOTDifferentialVersioningFragmentChainTest {
   @Test
   @DisplayName("sparse per-revision deltas: keys older than the read window survive at HEAD")
   void differentialSparseDeltasPreserveOldKeys() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     // DIFFERENTIAL with a window of 3 revisions -> a HEAD read combines two on-disk fragments.
     final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
         ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
@@ -120,8 +98,6 @@ final class HOTDifferentialVersioningFragmentChainTest {
   @Test
   @DisplayName("read at every intermediate revision is cumulative-up-to-that-revision under DIFFERENTIAL")
   void differentialIntermediateRevisionsAreCumulative() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
         ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                              .versioningApproach(VersioningType.DIFFERENTIAL)

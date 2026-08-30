@@ -48,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * END-TO-END test for the valid-time interval index using the user-facing JSONiq function
- * {@code jn:create-valid-time-index}, under DEFAULT JVM settings (NO {@code -Dsirix.index.useHOT}).
+ * {@code jn:create-valid-time-index}.
  *
  * <p>The flow mirrors a real user: create a resource with valid-time config, shred data, create the
  * interval index from a query ({@code jn:create-valid-time-index($doc)} + {@code sdb:commit}), then
@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * @author Johannes Lichtenberger
  */
-@DisplayName("Valid-Time Interval Index End-to-End Test (jn:create-valid-time-index, no -D flags)")
+@DisplayName("Valid-Time Interval Index End-to-End Test (jn:create-valid-time-index)")
 public final class ValidTimeIndexEndToEndTest {
 
   private static final Path sirixPath = PATHS.PATH1.getFile();
@@ -93,12 +93,6 @@ public final class ValidTimeIndexEndToEndTest {
   @Test
   @DisplayName("create-valid-time-index from a query, then jn:valid-at == brute force for all t")
   void createIndexViaQueryThenValidAt() throws IOException {
-    // Assert NO -Dsirix.index.useHOT is in effect — this test must pass with default settings.
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "This end-to-end test must run WITHOUT -Dsirix.index.useHOT (got: "
-            + System.getProperty("sirix.index.useHOT") + ")");
-
     final List<Record> records = buildDataset();
     final String json = toJson(records);
 
@@ -211,12 +205,8 @@ public final class ValidTimeIndexEndToEndTest {
   }
 
   @Test
-  @DisplayName("RBTree CAS index + HOT VALIDTIME index coexist on one resource (no -D flags)")
-  void rbtreeCasAndHotValidTimeCoexist() throws IOException {
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "This coexistence test must run WITHOUT -Dsirix.index.useHOT");
-
+  @DisplayName("CAS and VALIDTIME indexes coexist on one resource")
+  void casAndValidTimeCoexist() throws IOException {
     // A small, deterministic dataset so we can assert an exact CAS hit.
     final List<Record> records = new ArrayList<>();
     final Instant uFrom = Instant.parse("2021-01-15T00:00:00Z");
@@ -228,12 +218,10 @@ public final class ValidTimeIndexEndToEndTest {
     final var dbPath = sirixPath.resolve(DB_NAME);
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
 
-    // Resource with the RBTree backend selected for secondary indexes (CAS/PATH/NAME) AND valid-time
-    // config. The VALIDTIME index will still force HOT internally.
+    // Create one resource configured for both the CAS and valid-time indexes.
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE)
                                                       .validTimePaths(VALID_FROM, VALID_TO)
-                                                      .indexBackendType(io.sirix.access.IndexBackendType.RBTREE)
                                                       .buildPathSummary(true)
                                                       .build();
       database.createResource(resourceConfig);
@@ -251,7 +239,7 @@ public final class ValidTimeIndexEndToEndTest {
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-        // Create an RBTree CAS index on /[]/validFrom, then the HOT VALIDTIME index, then commit.
+        // Create a CAS index on /[]/validFrom, then the VALIDTIME index, then commit.
         final String createBoth =
             "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
                 + "let $cas := jn:create-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
@@ -276,22 +264,22 @@ public final class ValidTimeIndexEndToEndTest {
         final var controller = doc.getTrx().getResourceSession()
                                   .getRtxIndexController(doc.getTrx().getRevisionNumber());
         assertTrue(controller.getIndexes().getNrOfIndexDefsWithType(io.sirix.index.IndexType.CAS) >= 1,
-            "resource must have the RBTree CAS index");
+            "resource must have the CAS index");
         assertTrue(controller.getIndexes().getNrOfIndexDefsWithType(io.sirix.index.IndexType.VALIDTIME) >= 1,
-            "resource must have the HOT VALIDTIME index");
+            "resource must have the VALIDTIME index");
 
-        // (2) The HOT VALIDTIME index must answer jn:valid-at correctly via its fast path.
+        // (2) The VALIDTIME index must answer jn:valid-at correctly via its fast path.
         for (final Instant t : List.of(uFrom, Instant.parse("2021-06-01T12:00:00Z"),
             Instant.parse("2019-01-01T00:00:00Z"))) {
           final Set<Integer> brute = bruteForce(records, t);
           final ValidTimeIntervalIndex.Result fast =
               ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
-          assertNotNull(fast, "interval-index fast path must be taken alongside an RBTree CAS index at t=" + t);
+          assertNotNull(fast, "interval-index fast path must be taken alongside a CAS index at t=" + t);
           assertEquals(brute, idsOfItems(fast.items()), "interval index must be correct at t=" + t);
           assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must be correct at t=" + t);
         }
 
-        // (3) The RBTree CAS index must independently still work (scan it for a known validFrom).
+        // (3) The CAS index must independently still work (scan it for a known validFrom).
         final String casScan =
             "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
                 + "let $n := jn:find-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
@@ -310,7 +298,7 @@ public final class ValidTimeIndexEndToEndTest {
           }
         }
         assertTrue(casHits >= 1,
-            "the RBTree CAS index must return the validFrom='" + uFrom + "' node (record 0)");
+            "the CAS index must return the validFrom='" + uFrom + "' node (record 0)");
       }
     }
   }

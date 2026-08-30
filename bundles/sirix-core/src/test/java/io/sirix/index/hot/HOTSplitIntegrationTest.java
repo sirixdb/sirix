@@ -37,13 +37,11 @@ class HOTSplitIntegrationTest {
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
-    System.setProperty("sirix.index.useHOT", "true");
   }
 
   @AfterEach
   void tearDown() {
     JsonTestHelper.deleteEverything();
-    System.clearProperty("sirix.index.useHOT");
   }
 
   @Nested
@@ -326,4 +324,3 @@ class HOTSplitIntegrationTest {
     }
   }
 }
-

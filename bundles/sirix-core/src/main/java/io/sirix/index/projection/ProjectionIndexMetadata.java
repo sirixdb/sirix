@@ -38,15 +38,16 @@ import java.util.Objects;
  * only) and a commit rewrites only the fence chunks it actually changed.
  *
  * <p>
- * The <b>stale</b> flag is the fail-closed marker used by abandoned builds and legacy listeners
- * that cannot maintain a live snapshot. Ordinary update-time maintenance never installs it. The
- * live leaf count is cross-checked with the fence/order header, whose explicit physical order
- * prevents recycled holes or unrelated higher physical ids from being interpreted as live.
+ * The <b>stale</b> flag is the fail-closed marker used when the virgin-tree initializer cannot
+ * finish. Ordinary update-time maintenance never installs it: live trees are maintained only by
+ * the incremental change listener. The live leaf count is cross-checked with the fence/order
+ * header, whose explicit physical order prevents recycled holes or unrelated higher physical ids
+ * from being interpreted as live.
  *
  * <p>
- * {@link #parse} returns {@code null} for payloads without the magic, so hydrate paths can probe
- * slot 0 and fall back to metadata-less handling for stores written by the bench setups (which
- * persist leaves only).
+ * {@link #parse} returns {@code null} for payloads without the magic or with an unsupported version.
+ * Production hydrate paths treat that result as unusable; there is no metadata-less persisted
+ * projection format.
  */
 public final class ProjectionIndexMetadata {
 
@@ -88,11 +89,11 @@ public final class ProjectionIndexMetadata {
      * The indexed record set changed and the projection has resource-wide value dictionaries, which
      * commit-time maintenance cannot extend: it holds no dictionary writer, so it can neither mint an
      * id for a new value nor rewrite every leaf to a per-leaf encoding without paying O(corpus) on a
-     * single commit. Refusing keeps the store CONSISTENT; {@code jn:create-projection-index} rebuilds
-     * it.
+     * single commit. This is a reserved historical wire reason; current dictionary maintenance
+     * extends the persistent keyed trie incrementally and never emits it.
      */
     GLOBAL_DICTIONARY_NOT_MAINTAINABLE,
-    /** Both the incremental patch and the full rebuild failed — the corruption valve. */
+    /** Reserved wire value from the retired rebuild fallback; current maintenance never emits it. */
     MAINTENANCE_FAILED,
     /** Leaf descriptors disagreed with this metadata about a column's encoding. */
     KIND_INCONSISTENT_STORE,
@@ -104,21 +105,16 @@ public final class ProjectionIndexMetadata {
      */
     GLOBAL_DICTIONARY_BUDGET_EXCEEDED,
     /**
-     * NOT PRODUCED BY ANYTHING YET — reserved for task #52.
+     * Reserved wire value. Current maintenance never schedules or performs a whole-index rebuild.
      *
      * <p>
-     * A projection that needs a full rebuild but must not pay for it inside the committing transaction.
-     * Today a refused incremental patch calls {@code rebuildFully()} on the commit thread,
-     * re-extracting every record of the resource: unbounded by corpus size, reached from its refusal
-     * sites, and on a large resource a multi-minute commit. The fix is to record the need HERE, let the
-     * commit finish, and rebuild on request or in the background.
+     * A future implementation could use this value to request an explicit external repair without
+     * paying O(corpus) on the committing thread. It must not become an implicit second mutation path.
      * </p>
      *
      * <p>
-     * Declared now so #52 need not change this wire format later — it is one of the eight values the
-     * flag bits can carry, and adding it costs nothing while renumbering would cost a migration. It
-     * differs semantically from every value above: those mean "retired until someone acts", this one
-     * means "still wanted, known incomplete".
+     * It remains declared because the ordinal is a wire value and renumbering later entries would be
+     * unsafe. No current writer emits it.
      * </p>
      */
     REBUILD_PENDING;
@@ -135,12 +131,12 @@ public final class ProjectionIndexMetadata {
     public String remedy() {
       return switch (this) {
         case GLOBAL_DICTIONARY_BUDGET_EXCEEDED ->
-          "Either give the loader an expected-row-count hint, so the election declines the oversized"
+          "Give the loader an expected-row-count hint, so the election declines the oversized"
               + " column up front and the rest of the projection still builds, or raise"
-              + " -Dsirix.projection.globalDict.budgetBytes; then rebuild with"
-              + " jn:create-projection-index($doc, '<root-path>', '<fields>').";
-        default -> "Rebuild the projection with jn:create-projection-index($doc, '<root-path>', '<fields>')"
-            + " — the same call that created it; it re-elects encodings from the current data.";
+              + " -Dsirix.projection.globalDict.budgetBytes. Then drop the stale definition, commit,"
+              + " and call jn:create-projection-index again; the replacement receives a new tree id.";
+        default -> "Drop the unusable projection definition, commit, and call"
+            + " jn:create-projection-index again; the replacement receives a new tree id.";
       };
     }
   }
@@ -528,8 +524,7 @@ public final class ProjectionIndexMetadata {
       final int[] pos = {4};
       final byte version = payload[pos[0]++];
       if (version != VERSION) {
-        // Older/newer wire format — treated like "no metadata" so callers decline instead of
-        // misparsing bytes at shifted offsets.
+        // Unsupported format version: callers decline instead of interpreting shifted fields.
         return null;
       }
       final byte flags = payload[pos[0]++];

@@ -69,8 +69,8 @@ public final class ProjectionIndexMetadataTest {
     assertNull(ProjectionIndexMetadata.parse(null));
     assertNull(ProjectionIndexMetadata.parse(new byte[0]));
     assertNull(ProjectionIndexMetadata.parse(new byte[] {1, 2, 3, 4, 5, 6}));
-    // A compact leaf payload starts with the PIXC magic — must not parse.
-    assertNull(ProjectionIndexMetadata.parse(new byte[] {0x49, 0x50, 0x58, 0x43, 0, 0, 0, 0}));
+    // A non-PIXM payload must not parse as projection metadata.
+    assertNull(ProjectionIndexMetadata.parse(new byte[] {'N', 'O', 'P', 'E', 0, 0, 0, 0}));
   }
 
   @Test

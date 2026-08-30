@@ -87,9 +87,9 @@ public final class FullReferencesPage implements Page {
       final PageReference pageReferenceToClone = pageToClone.referenceAt(index);
       // Route through the PageReference copy constructor (copies hashInBytes + fragments, nulls a
       // resolvable swizzle) — a manual copy dropped the hash, disabling checksum verification.
-      references[index] = pageReferenceToClone != null
-          ? new PageReference(pageReferenceToClone)
-          : new PageReference();
+      references[index] = pageReferenceToClone == null
+          ? null
+          : new PageReference(pageReferenceToClone);
     }
   }
 

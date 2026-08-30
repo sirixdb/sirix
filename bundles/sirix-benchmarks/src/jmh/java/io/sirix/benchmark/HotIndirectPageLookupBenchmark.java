@@ -45,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * JMH benchmark for {@link HOTIndirectPage#findChildIndex(byte[])} on a SpanNode-style
  * compound node with SparsePartialKeys (the equality-preferred routing path at
- * {@code HOTIndirectPage.findChildSpanNode}).
+ * {@code HOTIndirectPage.findChildByPartialKey}).
  *
  * <p>Goal: isolate the cost of the {@code (denseKey & sparseKey) == sparseKey} SIMD
  * subset search plus the scalar equality-preferred follow-up scan so we can measure
@@ -120,9 +120,8 @@ public class HotIndirectPageLookupBenchmark {
       children[i] = new PageReference();
     }
 
-    // createMultiNode supports 1..32 children and installs SparsePartialKeys
-    // → both findChildMultiNode and findChildSpanNode converge on the same
-    // equality-preferred routing path we want to benchmark.
+    // createMultiNode supports 1..32 children and installs SparsePartialKeys. SpanNode and
+    // MultiNode both use the canonical equality-preferred partial-key route benchmarked here.
     page = HOTIndirectPage.createMultiNode(
         /* pageKey */ 1L,
         /* revision */ 1,

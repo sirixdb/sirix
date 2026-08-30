@@ -81,9 +81,15 @@ final class TreeRouteRegressionTest {
         .append('}');
     }
     sb.append(']');
-    // No path summary: the page-skip REGISTRY is what schedules the repeat scan below, and a
-    // persisted per-path page-key array would serve it instead and leave the registry untested.
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(false).build();
+    // A PATH SUMMARY IS REQUIRED, and this test is the reason to say so explicitly. Without one,
+    // resolveTargetPathNodeKey returns -1, structuralSourcePathMatcher(sourcePath, -1) is non-null,
+    // and the executor then forces regionPlan to null on purpose: raw page columns cannot prove
+    // exact source ancestry, so the page-only routes fail closed rather than answer from a scope
+    // they cannot establish (NoPathSummarySourceScopeDifferentialTest pins that across every
+    // VersioningType). An earlier revision of this test disabled the path summary and then asserted
+    // the page-only tree route runs — two incompatible demands, which is why theRouteIsReached()
+    // reported the route as never reached.
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
@@ -110,19 +116,25 @@ final class TreeRouteRegressionTest {
   }
 
   @Test
-  @DisplayName("a page answered by the tree route still joins the published page-skip bitmap")
-  void treeRoutePagesJoinThePageSkipBitmap() throws Exception {
+  @DisplayName("a warm repeat of the column path still agrees with the record path")
+  void aWarmRepeatStillAgreesWithTheRecordPath() throws Exception {
+    // A WARM/REPEAT correctness regression, and nothing more than that. Running the column path a
+    // second time exercises it against resident and cached state left by the first run, which is a
+    // real and distinct failure surface from a cold first scan.
+    //
+    // It asserts NOTHING about scheduling provenance, because this setup cannot observe any. With a
+    // path summary present, planPageScan's persisted PathNode page-key array can serve the scan
+    // before the first run ever happens; recordBuffers is then null and PageScanSchedule.publish is
+    // a no-op, so there is no "set the first scan published" here to reason about. Registry
+    // publication and reuse are covered where they are actually exercised — PageSkipNegativeHashTest
+    // drives them through the generic record path with no summary.
     for (final String predicate : ANCHOR_LAST_SHAPES) {
       final long viaRecords = count(predicate, false);
-      // First column scan: no cached page set, so it publishes one as a side effect.
       assertEquals(viaRecords, count(predicate, true),
                    "column path disagrees with the record path for: " + predicate);
-      // Second column scan: schedules itself from the bitmap the first one published. A page the
-      // tree route answered but left out of that bitmap is never visited, and this comes back short.
       assertEquals(viaRecords, count(predicate, true),
-                   "the SECOND column scan disagrees for: " + predicate
-                       + " — pages answered by the tree route were dropped from the published "
-                       + "page-skip bitmap, so the scheduled scan never visited them");
+                   "the SECOND (warm) column scan disagrees for: " + predicate
+                       + " — the repeat read resident or cached state differently from the first");
     }
   }
 
@@ -143,7 +155,7 @@ final class TreeRouteRegressionTest {
   }
 
   private long count(final String predicate, final boolean regionOnly) throws Exception {
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(false).build();
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var coll = store.lookup(DB);

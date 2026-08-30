@@ -1,26 +1,31 @@
 package io.sirix.node.json;
 
+import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
-import io.sirix.node.Bytes;
-import io.sirix.node.BytesOut;
-import io.sirix.node.NodeKind;
-import net.openhft.hashing.LongHashFunction;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import io.sirix.JsonTestHelper;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.NodeKind;
+import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Constants;
+import net.openhft.hashing.LongHashFunction;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -211,6 +216,20 @@ public class ObjectNamedNodesTest {
     testNamedStringRoundTripBytes(payload);
   }
 
+  @Test
+  public void namedStringRawValueUpdateClearsFsstState() {
+    final byte[] replacement = new byte[] {1, 'r', 'a', 'w'};
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(13L, 14L, 15L, 16L, 42, 101L,
+        Constants.NULL_REVISION_NUMBER, 0, 0L, new byte[] {1, 0}, LongHashFunction.xx3(), (byte[]) null, true,
+        new byte[] {1});
+
+    node.setRawValue(replacement);
+
+    assertFalse(node.isCompressed());
+    assertNull(node.getFsstSymbolTable());
+    assertArrayEquals(replacement, node.getRawValue());
+  }
+
   private void testNamedStringRoundTripBytes(final byte[] value) throws IOException {
     final LongHashFunction hashFunction = LongHashFunction.xx3();
     final ObjectNamedStringNode node = new ObjectNamedStringNode(
@@ -262,8 +281,9 @@ public class ObjectNamedNodesTest {
   public void testNamedStringSnapshotIndependence() {
     final LongHashFunction hashFunction = LongHashFunction.xx3();
     final byte[] v = "hi".getBytes(Constants.DEFAULT_ENCODING);
+    final byte[] fsstSymbolTable = new byte[] {1, 2, 3};
     final ObjectNamedStringNode a = new ObjectNamedStringNode(
-        1L, 2L, 3L, 4L, 5, 6L, 0, 0, 0L, v, hashFunction, (byte[]) null);
+        1L, 2L, 3L, 4L, 5, 6L, 0, 0, 0L, v, hashFunction, (byte[]) null, true, fsstSymbolTable);
     final ObjectNamedStringNode snap = a.toSnapshot();
     assertEquals(a, snap);
     // ensure value array was cloned (independent mutation does not leak)
@@ -272,6 +292,34 @@ public class ObjectNamedNodesTest {
     snapRaw[0] = (byte) 'X';
     final byte[] origRaw = a.getRawValueWithoutDecompression();
     assertEquals((byte) 'h', origRaw[0]);
+
+    final byte[] snapshotTable = snap.getFsstSymbolTable();
+    assertNotNull(snapshotTable);
+    assertNotSame(fsstSymbolTable, snapshotTable);
+    snapshotTable[0] = 99;
+    assertEquals(1, a.getFsstSymbolTable()[0]);
+  }
+
+  @Test
+  public void testBoundNamedStringSnapshotOwnsFsstTable() {
+    final long nodeKey = 7L;
+    final byte[] storedValue = new byte[] {1, 0};
+    final MemorySegment page = MemorySegment.ofArray(new byte[512]);
+    ObjectNamedStringNode.writeNewRecord(page, 0L,
+        new int[NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT], nodeKey, 2L, 3L, 4L, 5, 6L, 0, 0, 0L,
+        storedValue, true);
+    final ObjectNamedStringNode bound = new ObjectNamedStringNode(nodeKey, LongHashFunction.xx3());
+    final byte[] fsstSymbolTable = new byte[] {7, 8, 9};
+    bound.bind(page, 0L, nodeKey, 0);
+    bound.setFsstSymbolTable(fsstSymbolTable);
+
+    final ObjectNamedStringNode snapshot = bound.toSnapshot();
+
+    final byte[] snapshotTable = snapshot.getFsstSymbolTable();
+    assertNotNull(snapshotTable);
+    assertNotSame(fsstSymbolTable, snapshotTable);
+    snapshotTable[0] = 42;
+    assertEquals(7, bound.getFsstSymbolTable()[0]);
   }
 
   // ==================== NodeKind registry ====================

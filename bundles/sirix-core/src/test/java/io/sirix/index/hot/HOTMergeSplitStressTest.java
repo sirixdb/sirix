@@ -742,7 +742,7 @@ class HOTMergeSplitStressTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
 
-          var nameIdx = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
+          var nameIdx = indexController.getIndexes().getIndexDef(nameIndexDef.getID(), IndexType.NAME);
           assertNotNull(nameIdx, "NAME index should exist");
         }
       }
@@ -844,4 +844,3 @@ class HOTMergeSplitStressTest {
     }
   }
 }
-

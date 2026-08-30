@@ -110,20 +110,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   @Test
   @DisplayName("interval index == scan == brute force for all t (incl. boundaries) + incremental + persistence")
   void intervalIndexEqualsScanEqualsBruteForce() throws IOException {
-    // The VALIDTIME index forces the HOT backend INTERNALLY (ValidTimeIntervalIndexFactory always
-    // builds HOT readers/writers), so NO -Dsirix.index.useHOT flag is required. Explicitly clear it
-    // for the duration of this test to prove the index works under default settings.
-    final String prevUseHot = System.getProperty("sirix.index.useHOT");
-    System.clearProperty("sirix.index.useHOT");
-    try {
-      runGate();
-    } finally {
-      if (prevUseHot == null) {
-        System.clearProperty("sirix.index.useHOT");
-      } else {
-        System.setProperty("sirix.index.useHOT", prevUseHot);
-      }
-    }
+    runGate();
   }
 
   private void runGate() throws IOException {

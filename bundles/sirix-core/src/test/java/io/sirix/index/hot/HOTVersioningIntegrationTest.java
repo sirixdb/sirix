@@ -48,13 +48,10 @@ class HOTVersioningIntegrationTest {
     }
 
     tempDir = Files.createTempDirectory("sirix-hot-versioning-test");
-    System.setProperty("sirix.index.useHOT", "true");
   }
 
   @AfterEach
   void tearDown() throws IOException {
-    System.clearProperty("sirix.index.useHOT");
-
     if (tempDir != null) {
       deleteRecursively(tempDir);
     }
@@ -333,4 +330,3 @@ class HOTVersioningIntegrationTest {
     }
   }
 }
-

@@ -32,15 +32,11 @@ import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
-import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
-import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
-
-import java.util.Arrays;
 
 import static java.util.Objects.requireNonNull;
 
@@ -119,32 +115,11 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   }
 
   /**
-   * Chunked-bitmap variant of {@link HOTIndexWriter#index} for primitive long keys (PATH). Splits the
-   * input bitmap by {@code chunkIdx = (int)(nodeKey >>> 16)} and ORs each bit16 into its
-   * {@code (longKeyBE ‖ chunkIdx_be4)} chunk slot.
-   */
-  public NodeReferences index(long key, NodeReferences value, RBTreeReader.MoveCursor move) {
-    requireNonNull(value);
-    final Roaring64Bitmap bitmap = value.getNodeKeys();
-    if (bitmap.isEmpty()) {
-      return value;
-    }
-    final LongIterator it = bitmap.getLongIterator();
-    while (it.hasNext()) {
-      addNodeKeyToChunk(key, it.next());
-    }
-    return value;
-  }
-
-  /**
    * Add a single nodeKey to {@code key}'s chunked bitmap.
    *
    * <p>
-   * Equivalent to {@link #index(long, NodeReferences, RBTreeReader.MoveCursor)} with a one-element
-   * {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write is an
-   * OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
-   * reference never has to materialise — let alone read back — the references already stored under
-   * {@code key}.
+   * The slot write is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so callers never have to
+   * materialise — let alone read back — the references already stored under {@code key}.
    * </p>
    *
    * @param key the logical index key (a path-class record)
@@ -245,43 +220,7 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
 
     final byte[] keyBuf = KEY_BUFFER.get();
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    final byte[] keySlice = compLen == keyBuf.length
-        ? keyBuf
-        : Arrays.copyOf(keyBuf, compLen);
-
-    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
-    final HOTLeafPage leaf = navResult.leaf();
-    if (leaf == null) {
-      return false;
-    }
-    final int index = leaf.findEntry(keySlice);
-    if (index < 0) {
-      return false;
-    }
-    final byte[] valueBytes = leaf.getValue(index);
-    if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
-      return false;
-    }
-    final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(valueBytes);
-    final boolean removed = chunkRefs.removeNodeKey(bit16);
-    if (!removed) {
-      return false;
-    }
-
-    if (!chunkRefs.hasNodeKeys()) {
-      leaf.deleteAt(index);
-      return true;
-    }
-
-    byte[] valueBuf = VALUE_BUFFER.get();
-    final int requiredSize = NodeReferencesSerializer.computeSerializedSize(chunkRefs);
-    if (requiredSize > valueBuf.length) {
-      valueBuf = new byte[requiredSize];
-      VALUE_BUFFER.set(valueBuf);
-    }
-    final int valueLen = NodeReferencesSerializer.serialize(chunkRefs, valueBuf, 0);
-    leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
-    return true;
+    return doRemovePostingBit(keyBuf, compLen, bit16);
   }
 
   @Override

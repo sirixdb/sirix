@@ -975,7 +975,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     updateOperationsUnordered.clear();
     updateOperationsOrdered.clear();
 
-    reInstantiateIndexes();
+    reInstantiateIndexes(true);
 
     // Re-read the current node from the new page transaction.
     // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
@@ -1000,7 +1000,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   protected abstract NF reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter);
 
-  private void reInstantiateIndexes() {
+  private void reInstantiateIndexes(final boolean preserveCurrentDefinitions) {
     // Get a new path summary instance.
     if (buildPathSummary) {
       pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
@@ -1012,11 +1012,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // writer / path summary — re-adding without clearing would either
     // duplicate listeners or (for listener types that dedup per definition)
     // keep a stale, possibly spent listener in place of a fresh one.
-    final var indexDefs = indexController.getIndexes().getIndexDefs();
+    final var indexDefs = preserveCurrentDefinitions
+        ? indexController.getIndexes().getIndexDefs()
+        : null;
     indexController =
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     indexController.clearChangeListeners();
-    indexController.createIndexListeners(indexDefs, self());
+    indexController.createIndexListeners(preserveCurrentDefinitions
+        ? indexDefs
+        : indexController.getIndexes().getIndexDefs(), self());
 
     nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);
   }
@@ -1075,7 +1079,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
       nodeHashing.setBulkInsert(isBulkInsert);
 
-      reInstantiateIndexes();
+      reInstantiateIndexes(false);
 
       rollbackOnlyCause = null;
 
@@ -1141,7 +1145,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
       // New index instances.
-      reInstantiateIndexes();
+      reInstantiateIndexes(false);
 
       // Discard update-operation tuples recorded against the reverted-from revision.
       updateOperationsUnordered.clear();

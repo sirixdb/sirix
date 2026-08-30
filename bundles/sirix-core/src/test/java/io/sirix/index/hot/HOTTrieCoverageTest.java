@@ -54,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Targets:
  * </p>
  * <ul>
- * <li>{@code HOTTrieWriter} - split logic, path updates</li>
+ * <li>canonical HOT writer - split logic and path updates</li>
  * <li>{@code HOTTrieReader} - navigation, loading</li>
  * <li>{@code SparsePartialKeys} - all key types</li>
  * </ul>
@@ -72,13 +72,11 @@ class HOTTrieCoverageTest {
   void setUp() throws IOException {
     DATABASE_PATH = tempDir.resolve("hot-trie-db");
     Files.createDirectories(DATABASE_PATH);
-    System.setProperty("sirix.index.useHOT", "true");
     Allocators.getInstance();
   }
 
   @AfterEach
   void tearDown() {
-    System.clearProperty("sirix.index.useHOT");
     try {
       Databases.removeDatabase(DATABASE_PATH);
     } catch (Exception ignored) {
@@ -803,7 +801,7 @@ class HOTTrieCoverageTest {
 
       // key[1] = 0x80 (bit 0 = MSB set) → pk = (1<<5)|0 = 32. Subset of {0..7}? 32 has no
       // bits matching any small partial key, so subset search returns -1 (NOT_FOUND).
-      // (See findChildSpanNode: when no partial key is a subset, return NOT_FOUND.)
+      // (See findChildByPartialKey: when no partial key is a subset, return NOT_FOUND.)
       // Switch to a more interesting pattern: set both bits in key[1] →
       // key[1] = 0xC0 → pk = (1<<5)|(1<<4) = 48. Still doesn't match any small pk.
       // The original test exercised LE PEXT result mappings; under BE they're permuted. Test
@@ -1275,4 +1273,3 @@ class HOTTrieCoverageTest {
 
   }
 }
-

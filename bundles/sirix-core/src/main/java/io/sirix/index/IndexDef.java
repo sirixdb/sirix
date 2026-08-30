@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -550,6 +551,74 @@ public final class IndexDef implements Materializable {
 
   public Type getContentType() {
     return contentType;
+  }
+
+  /**
+   * Compare the complete persisted meaning of two index definitions.
+   *
+   * <p>{@link #equals(Object)} deliberately identifies the catalogue slot by {@code (id,type)}.
+   * Creation and listener binding need a stronger check: silently accepting the same physical slot
+   * with different paths, filters, value types, projection columns, or vector parameters would make
+   * the catalogue describe one index while the writer maintained another.</p>
+   *
+   * <p>Paths are compared in their PERSISTED form. {@link #materialize()} stores every path as
+   * {@link Path#toString()} and {@link #init(Node)} parses that text back, and the parser does not
+   * reproduce the internal step representation for every spelling it accepts: a relative JSON name
+   * such as {@code foo} parses with a CHILD step, prints as {@code ./foo}, and re-parses as
+   * CHILD_OBJECT_FIELD, so {@link Path#equals(Object)} reports a definition as different from its own
+   * persisted copy. The catalogue re-binds listeners from that copy on every commit; comparing the
+   * printed form is what makes a definition equal to what the catalogue will hand back.</p>
+   *
+   * @param other definition to compare
+   * @return {@code true} only when every persisted semantic field is equal
+   */
+  public boolean hasSameDefinition(final IndexDef other) {
+    requireNonNull(other);
+    return id == other.id
+        && type == other.type
+        && dbType == other.dbType
+        && unique == other.unique
+        && Objects.equals(contentType, other.contentType)
+        && samePersistedPaths(paths, other.paths)
+        && included.equals(other.included)
+        && excluded.equals(other.excluded)
+        && samePersistedPaths(projectionFields, other.projectionFields)
+        && projectionFieldTypes.equals(other.projectionFieldTypes)
+        && dimension == other.dimension
+        && Objects.equals(distanceType, other.distanceType)
+        && hnswM == other.hnswM
+        && hnswEfConstruction == other.hnswEfConstruction
+        && hnswEfSearch == other.hnswEfSearch;
+  }
+
+  /**
+   * Set equality of paths by their persisted text; see {@link #hasSameDefinition(IndexDef)}.
+   * Definition validation is a catalogue operation, never a per-record path, so the transient set is
+   * acceptable here.
+   */
+  private static boolean samePersistedPaths(final Set<Path<QNm>> left, final Set<Path<QNm>> right) {
+    final Set<String> leftPrinted = new HashSet<>(left.size() * 2);
+    for (final Path<QNm> path : left) {
+      leftPrinted.add(path.toString());
+    }
+    final Set<String> rightPrinted = new HashSet<>(right.size() * 2);
+    for (final Path<QNm> path : right) {
+      rightPrinted.add(path.toString());
+    }
+    return leftPrinted.equals(rightPrinted);
+  }
+
+  /** Positional equality of projection field paths by their persisted text. */
+  private static boolean samePersistedPaths(final List<Path<QNm>> left, final List<Path<QNm>> right) {
+    if (left.size() != right.size()) {
+      return false;
+    }
+    for (int i = 0, n = left.size(); i < n; i++) {
+      if (!left.get(i).toString().equals(right.get(i).toString())) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override

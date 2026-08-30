@@ -8,28 +8,29 @@ import io.sirix.page.pax.RegionTable;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Diagnostic byte-count aggregator for the per-section serialized size of
- * a {@link KeyValueLeafPage}. Activated via {@code -Dsirix.pageSectionDiag=true}
- * from {@link PageKind}; off by default.
+ * Diagnostic byte-count aggregator for the per-section serialized size of a
+ * {@link KeyValueLeafPage}. Activated via {@code -Dsirix.pageSectionDiag=true} from
+ * {@link PageKind}; off by default.
  *
- * <p>Sections tracked:
+ * <p>
+ * Sections tracked:
  * <ul>
- *   <li>{@code headerBitmap}: fixed 160-byte page header + bitmap prefix.</li>
- *   <li>{@code encodedBody}: the compact-dir + template pool + slotIds +
- *       compressed-heap body.</li>
- *   <li>{@code regionTable}: PAX region table (number/string/struct/DeweyID
- *       payloads). This is where NumberRegion / StringRegion dictionaries and
- *       value arrays live, so expect it to dominate for columnar workloads.</li>
- *   <li>{@code overlong}: overlong-entries bitmap + references.</li>
- *   <li>{@code fsst}: FSST symbol table (small).</li>
+ * <li>{@code headerBitmap}: fixed 160-byte page header + bitmap prefix.</li>
+ * <li>{@code encodedBody}: the compact-dir + template pool + slotIds + compressed-heap body.</li>
+ * <li>{@code regionTable}: PAX region table (number/string/struct/DeweyID payloads). This is where
+ * NumberRegion / StringRegion dictionaries and value arrays live, so expect it to dominate for
+ * columnar workloads.</li>
+ * <li>{@code overlong}: overlong-entries bitmap + references.</li>
+ * <li>{@code fsst}: FSST symbol table (small).</li>
  * </ul>
  *
- * <p>A shutdown hook prints a cumulative summary ordered by absolute bytes.
- * The summary is printed to {@code System.out} so it's captured by stdout
- * logging from the bench runner.
+ * <p>
+ * A shutdown hook prints a cumulative summary ordered by absolute bytes. The summary is printed to
+ * {@code System.out} so it's captured by stdout logging from the bench runner.
  *
- * <p>HFT-grade: per-record path uses only {@link LongAdder} additions and one
- * pageCount increment. No allocation on the hot path.
+ * <p>
+ * HFT-grade: per-record path uses only {@link LongAdder} additions and one pageCount increment. No
+ * allocation on the hot path.
  */
 public final class PageSectionDiag {
 
@@ -57,11 +58,11 @@ public final class PageSectionDiag {
 
   /**
    * Region-table bytes per region kind, indexed by {@link io.sirix.page.pax.RegionTable}'s kind
-   * ordinal. Counted before compression, so this reports what each region actually holds; the
-   * on-disk figure is the {@code regionTable} total in the section line above. The region table
-   * is the larger half of a page on record-shaped JSON and holds a columnar copy of data the
-   * record heap also carries, so knowing which kind spends the bytes is the difference between
-   * shrinking the database and guessing at it.
+   * ordinal. Counted before compression, so this reports what each region actually holds; the on-disk
+   * figure is the {@code regionTable} total in the section line above. The region table is the larger
+   * half of a page on record-shaped JSON and holds a columnar copy of data the record heap also
+   * carries, so knowing which kind spends the bytes is the difference between shrinking the database
+   * and guessing at it.
    */
   private static final LongAdder[] REGION_BYTES_BY_KIND = newAdders(RegionTable.KIND_COUNT);
 
@@ -91,8 +92,8 @@ public final class PageSectionDiag {
   }
 
   /**
-   * Record activation of value elision — the lever that drops a fused primitive's payload from
-   * the heap because the region can reconstruct it. Without it the value is stored twice.
+   * Record activation of value elision — the lever that drops a fused primitive's payload from the
+   * heap because the region can reconstruct it. Without it the value is stored twice.
    */
   public static void recordValueElision(final long bytesSaved) {
     VALUE_ELISION_PAGES.increment();
@@ -116,26 +117,26 @@ public final class PageSectionDiag {
   private static final LongAdder CODEC_LZ77_BYTES = new LongAdder();
 
   static {
-    Runtime.getRuntime().addShutdownHook(new Thread(PageSectionDiag::dumpStats,
-        "page-section-diag-dump"));
+    Runtime.getRuntime().addShutdownHook(new Thread(PageSectionDiag::dumpStats, "page-section-diag-dump"));
   }
 
-  private PageSectionDiag() { throw new AssertionError(); }
+  private PageSectionDiag() {
+    throw new AssertionError();
+  }
 
   /**
-   * Accumulate per-section byte counts for the encodedBody breakdown
-   * (compactDir, templatePool + slotIds, compressedHeap incl. length+codec).
+   * Accumulate per-section byte counts for the encodedBody breakdown (compactDir, templatePool +
+   * slotIds, compressedHeap incl. length+codec).
    */
-  public static void recordEncodedBody(final long compactDir, final long templatePool,
-      final long compressedHeap) {
+  public static void recordEncodedBody(final long compactDir, final long templatePool, final long compressedHeap) {
     COMPACT_DIR_BYTES.add(compactDir);
     TEMPLATE_POOL_BYTES.add(templatePool);
     COMPRESSED_HEAP_BYTES.add(compressedHeap);
   }
 
   /**
-   * Record activation of the hash-elision structural encoder on a single
-   * page along with the number of pre-compression bytes stripped.
+   * Record activation of the hash-elision structural encoder on a single page along with the number
+   * of pre-compression bytes stripped.
    */
   public static void recordHashElision(final long bytesSaved) {
     HASH_ELISION_PAGES.increment();
@@ -143,9 +144,8 @@ public final class PageSectionDiag {
   }
 
   /**
-   * Record activation of the parent-key column extractor on a single page
-   * along with the number of pre-compression bytes it displaced from the
-   * heap body.
+   * Record activation of the parent-key column extractor on a single page along with the number of
+   * pre-compression bytes it displaced from the heap body.
    */
   public static void recordParentKeyColumn(final long bytesSaved) {
     PARENT_KEY_COLUMN_PAGES.increment();
@@ -153,20 +153,19 @@ public final class PageSectionDiag {
   }
 
   /**
-   * Record a parent-key column candidate (a page with at least one slot
-   * whose kind has a parent-key field) regardless of whether the column
-   * ultimately paid off. Used to diagnose why the column fails to activate.
+   * Record a parent-key column candidate (a page with at least one slot whose kind has a parent-key
+   * field) regardless of whether the column ultimately paid off. Used to diagnose why the column
+   * fails to activate.
    */
-  public static void recordParentKeyColumnCandidate(final long rawStrippedBytes,
-      final long encodedColumnBytes) {
+  public static void recordParentKeyColumnCandidate(final long rawStrippedBytes, final long encodedColumnBytes) {
     PARENT_KEY_COLUMN_CANDIDATE_PAGES.increment();
     PARENT_KEY_COLUMN_RAW_BYTES.add(rawStrippedBytes);
     PARENT_KEY_COLUMN_ENCODED_BYTES.add(encodedColumnBytes);
   }
 
   /**
-   * Record activation of the right-sibling-key column extractor on a single page
-   * along with the number of pre-compression bytes it displaced from the heap body.
+   * Record activation of the right-sibling-key column extractor on a single page along with the
+   * number of pre-compression bytes it displaced from the heap body.
    */
   public static void recordRightSibKeyColumn(final long bytesSaved) {
     RIGHT_SIB_KEY_COLUMN_PAGES.increment();
@@ -174,12 +173,11 @@ public final class PageSectionDiag {
   }
 
   /**
-   * Record a right-sibling-key column candidate (a page with at least one slot whose
-   * kind has a right-sibling-key field) regardless of whether the column ultimately
-   * paid off. Used to diagnose why the column fails to activate.
+   * Record a right-sibling-key column candidate (a page with at least one slot whose kind has a
+   * right-sibling-key field) regardless of whether the column ultimately paid off. Used to diagnose
+   * why the column fails to activate.
    */
-  public static void recordRightSibKeyColumnCandidate(final long rawStrippedBytes,
-      final long encodedColumnBytes) {
+  public static void recordRightSibKeyColumnCandidate(final long rawStrippedBytes, final long encodedColumnBytes) {
     RIGHT_SIB_KEY_COLUMN_CANDIDATE_PAGES.increment();
     RIGHT_SIB_KEY_COLUMN_RAW_BYTES.add(rawStrippedBytes);
     RIGHT_SIB_KEY_COLUMN_ENCODED_BYTES.add(encodedColumnBytes);
@@ -212,8 +210,8 @@ public final class PageSectionDiag {
    * @param overlong bytes written for the overlong-entries bitmap + references
    * @param fsst bytes written for the FSST symbol table
    */
-  public static void record(final long headerBitmap, final long encodedBody,
-      final long regionTable, final long overlong, final long fsst) {
+  public static void record(final long headerBitmap, final long encodedBody, final long regionTable,
+      final long overlong, final long fsst) {
     PAGE_COUNT.increment();
     HEADER_BITMAP_BYTES.add(headerBitmap);
     ENCODED_BODY_BYTES.add(encodedBody);
@@ -223,25 +221,27 @@ public final class PageSectionDiag {
   }
 
   private static void dumpStats() {
+    // StorageProfile has a separate shutdown hook. Serialize their complete reports rather than
+    // relying on PrintStream's per-call lock, which permits line-level interleaving.
+    synchronized (System.out) {
+      dumpStatsLocked();
+    }
+  }
+
+  private static void dumpStatsLocked() {
     final long pages = PAGE_COUNT.sum();
-    if (pages == 0) return;
+    if (pages == 0)
+      return;
     final long hb = HEADER_BITMAP_BYTES.sum();
     final long eb = ENCODED_BODY_BYTES.sum();
     final long rt = REGION_TABLE_BYTES.sum();
     final long ov = OVERLONG_BYTES.sum();
     final long fsst = FSST_BYTES.sum();
     final long total = hb + eb + rt + ov + fsst;
-    final String fmt =
-        "[PageSectionDiag] pages=%,d total=%,d B (%.1f MB)  headerBitmap=%,d (%.1f%%)"
-            + "  encodedBody=%,d (%.1f%%)  regionTable=%,d (%.1f%%)"
-            + "  overlong=%,d (%.1f%%)  fsst=%,d (%.1f%%)%n";
-    System.out.printf(fmt,
-        pages, total, total / (1024.0 * 1024.0),
-        hb, pct(hb, total),
-        eb, pct(eb, total),
-        rt, pct(rt, total),
-        ov, pct(ov, total),
-        fsst, pct(fsst, total));
+    final String fmt = "[PageSectionDiag] pages=%,d total=%,d B (%.1f MB)  headerBitmap=%,d (%.1f%%)"
+        + "  encodedBody=%,d (%.1f%%)  regionTable=%,d (%.1f%%)" + "  overlong=%,d (%.1f%%)  fsst=%,d (%.1f%%)%n";
+    System.out.printf(fmt, pages, total, total / (1024.0 * 1024.0), hb, pct(hb, total), eb, pct(eb, total), rt,
+        pct(rt, total), ov, pct(ov, total), fsst, pct(fsst, total));
     final long cd = COMPACT_DIR_BYTES.sum();
     final long tp = TEMPLATE_POOL_BYTES.sum();
     final long ch = COMPRESSED_HEAP_BYTES.sum();
@@ -249,47 +249,43 @@ public final class PageSectionDiag {
     System.out.printf(
         "[PageSectionDiag] encodedBody breakdown: compactDir=%,d (%.1f%%)  "
             + "templatePool+slotIds=%,d (%.1f%%)  compressedHeap=%,d (%.1f%%)%n",
-        cd, pct(cd, ebTotal),
-        tp, pct(tp, ebTotal),
-        ch, pct(ch, ebTotal));
+        cd, pct(cd, ebTotal), tp, pct(tp, ebTotal), ch, pct(ch, ebTotal));
     final long hePages = HASH_ELISION_PAGES.sum();
     final long heBytes = HASH_ELISION_BYTES_SAVED.sum();
     final long pkPages = PARENT_KEY_COLUMN_PAGES.sum();
     final long pkBytes = PARENT_KEY_COLUMN_BYTES_SAVED.sum();
-    System.out.printf(
-        "[PageSectionDiag] encoders: hashElision pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n",
-        hePages, pct(hePages, pages),
-        heBytes, heBytes / (1024.0 * 1024.0));
-    System.out.printf(
-        "[PageSectionDiag] encoders: parentKeyColumn pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n",
-        pkPages, pct(pkPages, pages),
-        pkBytes, pkBytes / (1024.0 * 1024.0));
+    System.out.printf("[PageSectionDiag] encoders: hashElision pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n", hePages,
+        pct(hePages, pages), heBytes, heBytes / (1024.0 * 1024.0));
+    System.out.printf("[PageSectionDiag] encoders: parentKeyColumn pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n",
+        pkPages, pct(pkPages, pages), pkBytes, pkBytes / (1024.0 * 1024.0));
     final long pkCandidates = PARENT_KEY_COLUMN_CANDIDATE_PAGES.sum();
     final long pkRaw = PARENT_KEY_COLUMN_RAW_BYTES.sum();
     final long pkEncoded = PARENT_KEY_COLUMN_ENCODED_BYTES.sum();
     System.out.printf(
         "[PageSectionDiag] parentKeyColumn candidates=%,d rawBytes=%,d (%.1f MB)"
             + "  encodedBytes=%,d (%.1f MB)  avgRaw/page=%.1f  avgEncoded/page=%.1f%n",
-        pkCandidates, pkRaw, pkRaw / (1024.0 * 1024.0),
-        pkEncoded, pkEncoded / (1024.0 * 1024.0),
-        pkCandidates == 0 ? 0 : (double) pkRaw / pkCandidates,
-        pkCandidates == 0 ? 0 : (double) pkEncoded / pkCandidates);
+        pkCandidates, pkRaw, pkRaw / (1024.0 * 1024.0), pkEncoded, pkEncoded / (1024.0 * 1024.0), pkCandidates == 0
+            ? 0
+            : (double) pkRaw / pkCandidates,
+        pkCandidates == 0
+            ? 0
+            : (double) pkEncoded / pkCandidates);
     final long rsPages = RIGHT_SIB_KEY_COLUMN_PAGES.sum();
     final long rsBytes = RIGHT_SIB_KEY_COLUMN_BYTES_SAVED.sum();
-    System.out.printf(
-        "[PageSectionDiag] encoders: rightSibKeyColumn pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n",
-        rsPages, pct(rsPages, pages),
-        rsBytes, rsBytes / (1024.0 * 1024.0));
+    System.out.printf("[PageSectionDiag] encoders: rightSibKeyColumn pages=%,d (%.1f%%)  bytesSaved=%,d (%.1f MB)%n",
+        rsPages, pct(rsPages, pages), rsBytes, rsBytes / (1024.0 * 1024.0));
     final long rsCandidates = RIGHT_SIB_KEY_COLUMN_CANDIDATE_PAGES.sum();
     final long rsRaw = RIGHT_SIB_KEY_COLUMN_RAW_BYTES.sum();
     final long rsEncoded = RIGHT_SIB_KEY_COLUMN_ENCODED_BYTES.sum();
     System.out.printf(
         "[PageSectionDiag] rightSibKeyColumn candidates=%,d rawBytes=%,d (%.1f MB)"
             + "  encodedBytes=%,d (%.1f MB)  avgRaw/page=%.1f  avgEncoded/page=%.1f%n",
-        rsCandidates, rsRaw, rsRaw / (1024.0 * 1024.0),
-        rsEncoded, rsEncoded / (1024.0 * 1024.0),
-        rsCandidates == 0 ? 0 : (double) rsRaw / rsCandidates,
-        rsCandidates == 0 ? 0 : (double) rsEncoded / rsCandidates);
+        rsCandidates, rsRaw, rsRaw / (1024.0 * 1024.0), rsEncoded, rsEncoded / (1024.0 * 1024.0), rsCandidates == 0
+            ? 0
+            : (double) rsRaw / rsCandidates,
+        rsCandidates == 0
+            ? 0
+            : (double) rsEncoded / rsCandidates);
     final long veP = VALUE_ELISION_PAGES.sum();
     final long veB = VALUE_ELISION_BYTES_SAVED.sum();
     final long nkP = NAME_KEY_ELISION_PAGES.sum();
@@ -297,13 +293,7 @@ public final class PageSectionDiag {
     System.out.printf(
         "[PageSectionDiag] encoders: valueElision pages=%,d (%.1f%%) bytesSaved=%,d (%.1f MB)"
             + "   nameKeyElision pages=%,d (%.1f%%) bytesSaved=%,d (%.1f MB)%n",
-        veP, pct(veP, pages), veB, veB / (1024.0 * 1024.0),
-        nkP, pct(nkP, pages), nkB, nkB / (1024.0 * 1024.0));
-    // One entry per RegionTable kind ordinal; the loops below index this by kind, so a kind added
-    // without a name here is an out-of-bounds dump rather than a missing label.
-    final String[] regionNames = {
-        "number", "string", "struct", "deweyId", "objKeyNameKey", "boolean", "hash", "structPtrs",
-        "stringDictSketch", "numberZoneMap" };
+        veP, pct(veP, pages), veB, veB / (1024.0 * 1024.0), nkP, pct(nkP, pages), nkB, nkB / (1024.0 * 1024.0));
     long regionTotal = 0;
     for (int kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
       regionTotal += REGION_BYTES_BY_KIND[kind].sum();
@@ -316,8 +306,8 @@ public final class PageSectionDiag {
       final long regionPages = REGION_PAGES_BY_KIND[kind].sum();
       System.out.printf(
           "[PageSectionDiag] region %-14s pages=%,d (%.1f%%)  rawBytes=%,d (%.1f MB)  %.1f%% of raw regions%n",
-          regionNames[kind], regionPages, pct(regionPages, pages),
-          bytes, bytes / (1024.0 * 1024.0), pct(bytes, regionTotal));
+          RegionTable.kindName(kind), regionPages, pct(regionPages, pages), bytes, bytes / (1024.0 * 1024.0),
+          pct(bytes, regionTotal));
     }
     final long cZero = CODEC_ZERORUN_PAGES.sum();
     final long cByte = CODEC_BYTERUN_PAGES.sum();
@@ -330,21 +320,19 @@ public final class PageSectionDiag {
     if (cTotalPages > 0) {
       System.out.printf(
           "[PageSectionDiag] codec wins: zeroRun=%,d (%.1f%%) bytes=%,d (%.1f MB)"
-              + "  byteRun=%,d (%.1f%%) bytes=%,d (%.1f MB)"
-              + "  lz77=%,d (%.1f%%) bytes=%,d (%.1f MB)%n",
-          cZero, pct(cZero, cTotalPages), cZeroB, cZeroB / (1024.0 * 1024.0),
-          cByte, pct(cByte, cTotalPages), cByteB, cByteB / (1024.0 * 1024.0),
-          cLz77, pct(cLz77, cTotalPages), cLz77B, cLz77B / (1024.0 * 1024.0));
+              + "  byteRun=%,d (%.1f%%) bytes=%,d (%.1f MB)" + "  lz77=%,d (%.1f%%) bytes=%,d (%.1f MB)%n",
+          cZero, pct(cZero, cTotalPages), cZeroB, cZeroB / (1024.0 * 1024.0), cByte, pct(cByte, cTotalPages), cByteB,
+          cByteB / (1024.0 * 1024.0), cLz77, pct(cLz77, cTotalPages), cLz77B, cLz77B / (1024.0 * 1024.0));
       if (cTotalBytes > 0) {
-        System.out.printf(
-            "[PageSectionDiag] codec total encoded bytes: %,d (%.1f MB) avg=%.1f/page%n",
-            cTotalBytes, cTotalBytes / (1024.0 * 1024.0),
-            (double) cTotalBytes / cTotalPages);
+        System.out.printf("[PageSectionDiag] codec total encoded bytes: %,d (%.1f MB) avg=%.1f/page%n", cTotalBytes,
+            cTotalBytes / (1024.0 * 1024.0), (double) cTotalBytes / cTotalPages);
       }
     }
   }
 
   private static double pct(final long part, final long total) {
-    return total == 0 ? 0.0 : 100.0 * part / total;
+    return total == 0
+        ? 0.0
+        : 100.0 * part / total;
   }
 }

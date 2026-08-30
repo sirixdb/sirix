@@ -180,7 +180,7 @@ final class ProjectionParallelDirectoryWalkTest {
       for (int id = 1; id <= ROW_GROUPS; id++) {
         final byte[] raw = rawRowGroup(id);
         storage.putRowGroupAsColumnSegmentSlots(id, id % 5 == 0
-            ? ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw)
+            ? ProjectionIndexColumnSegmentCodec.encode(raw)
             : ProjectionIndexColumnSegmentCodec.encode(raw));
       }
       wtx.commit();

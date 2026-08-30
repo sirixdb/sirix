@@ -557,7 +557,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     PageReference reference = getIndirectDocumentIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.DOCUMENT, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.DOCUMENT, storageEngineReader, log);
       incrementAndGetMaxNodeKeyInDocumentIndex();
     }
   }
@@ -574,7 +574,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.CHANGED_NODES, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.CHANGED_NODES, storageEngineReader, log);
       incrementAndGetMaxNodeKeyInChangedNodesIndex();
     }
   }
@@ -591,7 +591,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.RECORD_TO_REVISIONS, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.RECORD_TO_REVISIONS, storageEngineReader, log);
       incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
     }
   }

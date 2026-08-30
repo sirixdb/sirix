@@ -7,7 +7,10 @@ import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.HashAccesses;
+import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
+import io.sirix.node.ValueDictionaryValueBlockNode;
+import io.sirix.node.ValueDictionaryValueBucketNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
 import io.sirix.settings.Constants;
@@ -75,9 +78,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <h2>Cost model</h2>
  *
- * Every method here is a per-LITERAL or per-WINNER cost, never per-row. Rows carry ids and are
- * compared as integers; the only things that cross into this class are the literals a predicate
- * mentions and the values of the groups a query actually returns.
+ * Ordinary materialising methods here are a per-LITERAL or per-WINNER cost. The explicitly created
+ * {@link ReadView} is the exception for operators that must interpret global ids while scanning: it
+ * binds the header and name page to one revision and exposes allocation-free comparisons and the two
+ * admitted substring transforms. It never exposes or copies an entry's byte array.
  */
 public final class GlobalValueDictionary {
 
@@ -98,8 +102,424 @@ public final class GlobalValueDictionary {
    */
   public static final int ID_UNKNOWN = -1;
 
+  private static final int READ_VIEW_CACHE_SIZE = 256;
+
+  /**
+   * Reverse BUCKETS a read view retains, each covering 256 consecutive ids.
+   *
+   * <p>
+   * A read-only transaction's dictionary record memo is a no-op, so a probe that walks from the
+   * reverse root materialises three radix nodes plus the bucket before it reaches the entry — five
+   * record decodes for one id. Retaining the bucket collapses that to one decode per id for any
+   * scan with locality. Sixteen buckets span 4096 consecutive ids and cost sixteen references, so
+   * this is bounded by the VIEW, never by the dictionary's cardinality.
+   */
+  private static final int READ_VIEW_BUCKET_CACHE_SIZE = 16;
+
+  /** Decoded sub-blocks a read view retains; each covers many consecutive ids. */
+  private static final int READ_VIEW_BLOCK_CACHE_SIZE = 16;
+
   private GlobalValueDictionary() {
     throw new AssertionError("no instances");
+  }
+
+  /**
+   * Open a bounded reverse-dictionary view tied to the reader's current revision.
+   *
+   * <p>The fixed direct-mapped caches retain immutable entry-node and reverse-bucket references
+   * only — never a value, so the view's footprint is fixed whatever the dictionary's cardinality.
+   * A hot-loop HIT performs neither a radix traversal nor an allocation. A MISS resolves through a
+   * retained bucket when one is held, which removes the three radix-node decodes a walk from the
+   * root would repeat for all 256 ids the bucket covers; it still decodes the entry record itself,
+   * so a miss is NOT allocation-free. The view refuses an incomplete/unknown dictionary
+   * up front and checks the revision before every operation, so it can never reinterpret a row id
+   * against another revision's dictionary.</p>
+   *
+   * @param headerNodeKey dictionary header key recorded by the projection column
+   * @param reader reader positioned at the revision that owns the projection rows
+   * @return a readable view, or {@code null} when the dictionary is absent, incomplete, or changed
+   *         revision while the view was being opened
+   */
+  public static @Nullable ReadView readView(final long headerNodeKey, final StorageEngineReader reader) {
+    Objects.requireNonNull(reader, "reader must not be null");
+    final int revision = reader.getRevisionNumber();
+    final ValueDictionaryHeaderNode header = header(headerNodeKey, reader);
+    if (header == null || !header.isDirectoryComplete()) {
+      return null;
+    }
+    final DatabaseType databaseType = databaseTypeOf(reader);
+    final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
+    if (reader.getRevisionNumber() != revision) {
+      return null;
+    }
+    return new ReadView(headerNodeKey, header.getReverseRootKey(), header.getEntryCount(), revision, namePage,
+        databaseType, reader);
+  }
+
+  /** Revision-bound, fixed-memory reverse-dictionary access for scan kernels. */
+  public static final class ReadView {
+
+    private final long headerNodeKey;
+    private final long reverseRootKey;
+    private final int entryCount;
+    private final int revision;
+    private final NamePage namePage;
+    private final DatabaseType databaseType;
+    private final StorageEngineReader reader;
+    /**
+     * Per-id SLICE cache: the backing array a value lives in, plus its offset and length. No entry
+     * node and no copied {@code byte[]} — a scan compares far more values than it emits, so a
+     * wrapper or a copy per compared id is precisely the per-row garbage the packed layout removes.
+     */
+    private final int[] cachedIds = new int[READ_VIEW_CACHE_SIZE];
+    private final byte[][] cachedBacking = new byte[READ_VIEW_CACHE_SIZE][];
+    private final int[] cachedOffsets = new int[READ_VIEW_CACHE_SIZE];
+    private final int[] cachedLengths = new int[READ_VIEW_CACHE_SIZE];
+    /**
+     * SPILL lane, same slot indexing. A spilled value stays behind its record rather than having its
+     * array handed out: a record owns its bytes, and exposing them to keep one cache uniform would
+     * trade the node's immutability for a convenience. Exactly one of {@code cachedBacking[slot]}
+     * and {@code cachedSpills[slot]} is non-null for a resolved slot.
+     */
+    private final ValueDictionaryEntryNode[] cachedSpills = new ValueDictionaryEntryNode[READ_VIEW_CACHE_SIZE];
+    /** Direct-mapped reverse-bucket retention; {@code -1} marks an unused slot. */
+    private final int[] cachedBuckets = new int[READ_VIEW_BUCKET_CACHE_SIZE];
+    private final ValueDictionaryValueBucketNode[] cachedBucketNodes =
+        new ValueDictionaryValueBucketNode[READ_VIEW_BUCKET_CACHE_SIZE];
+    /**
+     * Direct-mapped retention of decoded SUB-BLOCKS, keyed by record key. A block is up to 64 KiB
+     * and packs many consecutive ids, so decoding one per probe dominated the miss path; holding a
+     * few costs a fixed number of references and no per-id state.
+     */
+    private final long[] cachedBlockKeys = new long[READ_VIEW_BLOCK_CACHE_SIZE];
+    private final ValueDictionaryValueBlockNode[] cachedBlocks =
+        new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_CACHE_SIZE];
+    private int @Nullable [] transformedIds;
+    private int @Nullable [] transformedStarts;
+    private int @Nullable [] transformedLengths;
+    private byte @Nullable [] transformedModes;
+    private long @Nullable [] transformedValues;
+
+    private ReadView(final long headerNodeKey, final long reverseRootKey, final int entryCount, final int revision,
+        final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+      this.headerNodeKey = headerNodeKey;
+      this.reverseRootKey = reverseRootKey;
+      this.entryCount = entryCount;
+      this.revision = revision;
+      this.namePage = namePage;
+      this.databaseType = databaseType;
+      this.reader = reader;
+      java.util.Arrays.fill(cachedBuckets, -1);
+    }
+
+    /** Dictionary header key this view was opened for. */
+    public long headerNodeKey() {
+      return headerNodeKey;
+    }
+
+    /** Resource revision whose dictionary roots and pages this view retains. */
+    public int revision() {
+      return revision;
+    }
+
+    /** Number of ids readable in this revision. */
+    public int entryCount() {
+      return entryCount;
+    }
+
+    /**
+     * Per-id string lengths for the whole dictionary, indexed by id (slot 0 unused).
+     *
+     * <p>
+     * Mode {@code STRING_LENGTH_UTF8_BYTES} is each value's stored byte length;
+     * {@code STRING_LENGTH_CODE_POINTS} counts non-continuation bytes — the same derivations the
+     * per-leaf dictionary kernels apply per entry, lifted to once per distinct value per query. The
+     * returned table is immutable by convention and safe to share across scan workers.
+     */
+    public int[] lengthTable(final byte lengthMode) {
+      if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+          && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+        throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+      }
+      final int[] table = new int[entryCount + 1];
+      for (int id = 1; id <= entryCount; id++) {
+        final int slot = sliceSlot(id);
+        final ValueDictionaryEntryNode spill = cachedSpills[slot];
+        if (spill != null) {
+          table[id] = lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES
+              ? spill.getValueLength()
+              : spill.codePointLength();
+          continue;
+        }
+        final int len = cachedLengths[slot];
+        if (lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+          table[id] = len;
+        } else {
+          final byte[] backing = cachedBacking[slot];
+          final int off = cachedOffsets[slot];
+          int codePoints = 0;
+          for (int b = off; b < off + len; b++) {
+            if ((backing[b] & 0xC0) != 0x80) {
+              codePoints++;
+            }
+          }
+          table[id] = codePoints;
+        }
+      }
+      return table;
+    }
+
+    /**
+     * Materialize the value interned under {@code id} as a {@link String}.
+     *
+     * <p>
+     * For WINNERS only — group emission, deferred-extremum results — never for per-row work: the
+     * whole point of the id lanes is that rows stay integers. Packed ids decode straight off their
+     * slice; spilled ids go through the record's defensive copy, which is fine at winner cardinality.
+     */
+    public String valueAsString(final int id) {
+      final int slot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+      if (spill != null) {
+        return new String(spill.getValue(), StandardCharsets.UTF_8);
+      }
+      return new String(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot],
+          StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Evaluate one string predicate against EVERY value in this revision's dictionary, returning a
+     * verdict bitset over id space: bit {@code id} (1-based, bit 0 unused) is set iff the value
+     * interned under {@code id} satisfies {@code op} against {@code literalUtf8}.
+     *
+     * <p>
+     * This is the global half of the two-phase pattern the per-leaf dictionaries already use
+     * ({@code evalStringDict}): the string work runs once per DISTINCT value here, and every row
+     * group afterwards answers each row with one bit test against the id it already stores. Packed
+     * ids evaluate over their zero-copy {@code (backing, offset, length)} slices through the same
+     * per-entry authority the leaf kernels use ({@code ProjectionIndexScan.stringDictEntryMatches}),
+     * so op semantics — including the UTF-16 collation contract for the ordering ops — cannot drift
+     * between the two dictionary tiers. Spilled ids evaluate through their record's own entry
+     * points, which exist so the record's array never escapes.
+     *
+     * <p>
+     * Sequential ids share sub-blocks, so the sweep runs at block-cache speed; the returned bitset
+     * is immutable by convention and safe to share across scan workers.
+     *
+     * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
+     * @param literalUtf8 the literal, UTF-8 encoded
+     * @return the verdict bitset, sized {@code (entryCount + 64) >> 6} words
+     */
+    public long[] stringOpVerdict(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
+      Objects.requireNonNull(op, "op must not be null");
+      Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      switch (op) {
+        case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+        }
+        default -> throw new IllegalArgumentException("not a per-value string op: " + op);
+      }
+      final long[] verdict = new long[entryCount + 64 >>> 6];
+      final boolean litHasSupplementary =
+          ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+      for (int id = 1; id <= entryCount; id++) {
+        final int slot = sliceSlot(id);
+        final ValueDictionaryEntryNode spill = cachedSpills[slot];
+        final boolean match = spill != null
+            ? spillMatches(spill, op, literalUtf8)
+            : ProjectionIndexScan.stringDictEntryMatches(cachedBacking[slot], cachedOffsets[slot],
+                cachedLengths[slot], op, literalUtf8, litHasSupplementary);
+        if (match) {
+          verdict[id >>> 6] |= 1L << (id & 63);
+        }
+      }
+      return verdict;
+    }
+
+    /**
+     * Op dispatch for a SPILLED value, through the record's no-escape entry points. Semantics mirror
+     * {@code stringDictEntryMatches} arm for arm; ordering uses {@code compareToRange}, which is
+     * UTF-16 collation unconditionally — the same order the byte-path arm reaches via its
+     * supplementary-character fallback.
+     */
+    private static boolean spillMatches(final ValueDictionaryEntryNode spill, final ProjectionIndexScan.Op op,
+        final byte[] literalUtf8) {
+      return switch (op) {
+        case EQ -> spill.valueEquals(literalUtf8, 0, literalUtf8.length);
+        case NE -> !spill.valueEquals(literalUtf8, 0, literalUtf8.length);
+        case STR_CONTAINS -> spill.containsNeedle(literalUtf8, 0, literalUtf8.length);
+        case STR_LT -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) < 0;
+        case STR_LE -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) <= 0;
+        case STR_GT -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) > 0;
+        case STR_GE -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) >= 0;
+        default -> throw new IllegalStateException("not a per-value string op: " + op);
+      };
+    }
+
+    /** Compare two ids under the query engine's UTF-16 string collation without materialisation. */
+    public int compareIds(final int leftId, final int rightId) {
+      if (leftId == rightId) {
+        return 0;
+      }
+      // Both slices are resolved BEFORE either is read: the two ids may share a cache slot, and
+      // reading through a slot the second resolution has already overwritten would compare the wrong
+      // value. Copying the left operand out would fix that too — and reintroduce the per-compare
+      // allocation this path exists to remove — so the left triple is lifted into locals instead.
+      final int leftSlot = sliceSlot(leftId);
+      final byte[] leftBacking = cachedBacking[leftSlot];
+      final int leftOffset = cachedOffsets[leftSlot];
+      final int leftLength = cachedLengths[leftSlot];
+      final ValueDictionaryEntryNode leftSpill = cachedSpills[leftSlot];
+      final int rightSlot = sliceSlot(rightId);
+      final byte[] rightBacking = cachedBacking[rightSlot];
+      final ValueDictionaryEntryNode rightSpill = cachedSpills[rightSlot];
+      if (leftSpill == null) {
+        return rightSpill == null
+            ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength, rightBacking,
+                cachedOffsets[rightSlot], cachedLengths[rightSlot])
+            : -rightSpill.compareToRange(leftBacking, leftOffset, leftLength);
+      }
+      return rightSpill == null
+          ? leftSpill.compareToRange(rightBacking, cachedOffsets[rightSlot], cachedLengths[rightSlot])
+          : leftSpill.compareValueUtf16(rightSpill);
+    }
+
+    /** Allocation-free {@code xs:integer(substring(value, start, length))}. */
+    public long xsIntegerOfSubstring(final int id, final int start, final int length) {
+      return transformed(id, start, length, (byte) 1);
+    }
+
+    /** Allocation-free order-preserving pack of a 16-byte ISO-minute substring. */
+    public long packIsoMinuteSubstring(final int id, final int start, final int length) {
+      return transformed(id, start, length, (byte) 2);
+    }
+
+    /** Materialise a validated ISO-minute substring for one emitted winner. */
+    public String materializeIsoMinuteSubstring(final int id, final int start, final int length) {
+      // The ONE place a value becomes a String: an emitted winner. Validated on exactly the terms
+      // packIsoMinuteSubstring uses, so an inadmissible substring is refused here as it is there.
+      final int slot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+      if (spill != null) {
+        return spill.materializeAsciiSubstring(start, length);
+      }
+      final byte[] backing = cachedBacking[slot];
+      final int offset = cachedOffsets[slot];
+      final int valueLength = cachedLengths[slot];
+      if (ProjectionIndexByteScan.packIsoMinuteSubstring(backing, offset, valueLength, start, length)
+          == Long.MIN_VALUE) {
+        throw new IllegalArgumentException("dictionary value is not an admissible ISO-minute substring");
+      }
+      return new String(backing, offset + start - 1, length, java.nio.charset.StandardCharsets.US_ASCII);
+    }
+
+    /**
+     * Resolve {@code id} to a cache slot holding its slice, returning the slot index.
+     *
+     * <p>
+     * A packed id yields the sub-block's own backing array with an offset and length — nothing is
+     * copied and no record wrapper is built. A spilled id yields its entry record's bytes, which the
+     * record already owns. Either way the cached triple is a VIEW, never a copy.
+     */
+    private int sliceSlot(final int id) {
+      ensureRevision();
+      if (id < 1 || id > entryCount) {
+        throw new IllegalStateException(
+            "global value dictionary id " + id + " is outside revision " + revision + " cardinality " + entryCount);
+      }
+      final int slot = id & (READ_VIEW_CACHE_SIZE - 1);
+      if (cachedIds[slot] == id && (cachedBacking[slot] != null || cachedSpills[slot] != null)) {
+        return slot;
+      }
+      final int bucket = (id - 1) >>> 8;
+      final int bucketSlot = bucket & (READ_VIEW_BUCKET_CACHE_SIZE - 1);
+      ValueDictionaryValueBucketNode bucketNode = cachedBuckets[bucketSlot] == bucket
+          ? cachedBucketNodes[bucketSlot]
+          : null;
+      if (bucketNode == null) {
+        bucketNode = GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
+        if (bucketNode == null) {
+          throw new IllegalStateException(
+              "global value dictionary id " + id + " is missing from revision " + revision);
+        }
+        cachedBucketNodes[bucketSlot] = bucketNode;
+        cachedBuckets[bucketSlot] = bucket;
+      }
+      final long blockKey = bucketNode.blockKeyCovering(id);
+      if (blockKey != 0L) {
+        final int blockSlot = (int) (blockKey ^ blockKey >>> 32) & (READ_VIEW_BLOCK_CACHE_SIZE - 1);
+        ValueDictionaryValueBlockNode block = cachedBlockKeys[blockSlot] == blockKey
+            ? cachedBlocks[blockSlot]
+            : null;
+        if (block == null) {
+          block = GlobalValueDictionaryRadix.blockNode(blockKey, id, namePage, databaseType, reader);
+          cachedBlocks[blockSlot] = block;
+          cachedBlockKeys[blockSlot] = blockKey;
+        }
+        cachedBacking[slot] = block.rawBytes();
+        cachedOffsets[slot] = block.valueOffset(id);
+        cachedLengths[slot] = block.valueLength(id);
+        cachedSpills[slot] = null;
+      } else {
+        final long spillKey = bucketNode.spillKeyCovering(id);
+        if (spillKey == 0L) {
+          throw new IllegalStateException(
+              "global value dictionary id " + id + " is missing from revision " + revision);
+        }
+        cachedSpills[slot] = GlobalValueDictionaryRadix.spillEntry(spillKey, namePage, databaseType, reader);
+        cachedBacking[slot] = null;
+      }
+      cachedIds[slot] = id;
+      return slot;
+    }
+
+    private long transformed(final int id, final int start, final int length, final byte mode) {
+      ensureRevision();
+      if (transformedIds == null) {
+        transformedIds = new int[READ_VIEW_CACHE_SIZE];
+        transformedStarts = new int[READ_VIEW_CACHE_SIZE];
+        transformedLengths = new int[READ_VIEW_CACHE_SIZE];
+        transformedModes = new byte[READ_VIEW_CACHE_SIZE];
+        transformedValues = new long[READ_VIEW_CACHE_SIZE];
+      }
+      final int slot = (id * 31 + start * 17 + length * 7 + mode) & (READ_VIEW_CACHE_SIZE - 1);
+      if (transformedIds[slot] == id && transformedStarts[slot] == start && transformedLengths[slot] == length
+          && transformedModes[slot] == mode) {
+        return transformedValues[slot];
+      }
+      final int valueSlot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[valueSlot];
+      // Packed values use the SAME range functions the column kernels use, so validation — including
+      // start < 1 and a negative length — is identical on both paths by construction rather than by
+      // agreement. A spilled value transforms through its own record for the same reason it compares
+      // through it: a record owns its bytes and does not hand them out.
+      final long transformed;
+      if (spill != null) {
+        transformed = mode == 1
+            ? spill.xsIntegerOfSubstring(start, length)
+            : spill.packIsoMinuteSubstring(start, length);
+      } else {
+        final byte[] backing = cachedBacking[valueSlot];
+        final int offset = cachedOffsets[valueSlot];
+        final int valueLength = cachedLengths[valueSlot];
+        transformed = mode == 1
+            ? ProjectionIndexByteScan.xsIntegerOfSubstring(backing, offset, valueLength, start, length)
+            : ProjectionIndexByteScan.packIsoMinuteSubstring(backing, offset, valueLength, start, length);
+      }
+      transformedIds[slot] = id;
+      transformedStarts[slot] = start;
+      transformedLengths[slot] = length;
+      transformedModes[slot] = mode;
+      transformedValues[slot] = transformed;
+      return transformed;
+    }
+
+    private void ensureRevision() {
+      final int actualRevision = reader.getRevisionNumber();
+      if (actualRevision != revision) {
+        throw new IllegalStateException("global value dictionary read view for revision " + revision
+            + " cannot serve reader revision " + actualRevision);
+      }
+    }
   }
 
   public static long maximumKeysToReserve(final int entryCount) {

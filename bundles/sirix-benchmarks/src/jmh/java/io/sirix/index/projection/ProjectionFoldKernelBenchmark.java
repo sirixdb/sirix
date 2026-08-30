@@ -330,13 +330,13 @@ public class ProjectionFoldKernelBenchmark {
         final int[] ids = new int[n];
         final long[] offsets = new long[n];
         for (int i = 0; i < n; i++) {
-          ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
+          ids[i] = encoded.columnSegmentIds()[i];
           offsets[i] = nextOffset;
           segmentsByOffset.put(nextOffset, encoded.segments()[i]);
           nextOffset += 1 + encoded.segments()[i].length;
         }
         directories.add(new ProjectionIndexHOTStorage.RowGroupDirectory(leaf + 1,
-            encoded.descriptor(), ids, offsets));
+            encoded.descriptor(), ids, offsets, new byte[ids.length][]));
       }
       fetcher = wanted -> {
         final byte[][] out = new byte[wanted.length][];

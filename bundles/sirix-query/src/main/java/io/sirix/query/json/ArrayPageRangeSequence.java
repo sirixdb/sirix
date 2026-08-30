@@ -107,7 +107,6 @@ final class ArrayPageRangeSequence extends LazySequence {
     private long pageBaseNodeKey;
     private int wordIndex;
     private long word;
-    private int remainingInPage;
     private Iter nested;
     private boolean closed;
 
@@ -155,29 +154,39 @@ final class ArrayPageRangeSequence extends LazySequence {
 
     /** @return the next slot in the current page belonging to this array, or -1 when exhausted. */
     private int nextMatchingSlot() {
-      while (remainingInPage > 0) {
+      while (true) {
         while (word == 0) {
           if (++wordIndex >= PageLayout.BITMAP_WORDS) {
             return -1;
           }
-          word = bitmap[wordIndex];
+          word = page.logicalSlotBitmapWord(wordIndex);
         }
         final int slot = (wordIndex << 6) | Long.numberOfTrailingZeros(word);
         word &= word - 1;
-        remainingInPage--;
         // Kind first, parent second, and the order is the difference between a viable scan and an
         // unusable one. The kind is a directory byte; the parent is a varint that has to be located
         // through the record's offset table and delta-decoded against the node key. On this corpus
         // the kind test rejects the roughly 14-in-15 slots that are object FIELDS rather than array
         // members, so the expensive test runs on a small fraction of what the loop visits.
-        if (ELEMENT_KIND[page.getSlotNodeKindId(slot) & 0xFF] && page.getSlotParentKey(slot) == arrayNodeKey) {
+        final int kindId = page.getSlotNodeKindId(slot) & 0xFF;
+        if (kindId == 0) {
+          // Legacy and reference-only overflow carriers have no directory kind/parent bytes. They
+          // are rare, so resolve only that cold case through the point-read path; current flyweight
+          // and sidecar records retain the directory-only filter above.
+          if (!rtx.moveTo(pageBaseNodeKey | slot)) {
+            continue;
+          }
+          final int resolvedKindId = rtx.getKind().getId() & 0xFF;
+          if (ELEMENT_KIND[resolvedKindId] && rtx.getParentKey() == arrayNodeKey) {
+            return slot;
+          }
+          continue;
+        }
+        if (ELEMENT_KIND[kindId] && page.getSlotParentKey(slot) == arrayNodeKey) {
           return slot;
         }
       }
-      return -1;
     }
-
-    private final long[] bitmap = new long[PageLayout.BITMAP_WORDS];
 
     /** @return {@code false} once the range is exhausted. */
     private boolean advancePage() {
@@ -187,21 +196,19 @@ final class ArrayPageRangeSequence extends LazySequence {
         if (result == null || !(result.page() instanceof KeyValueLeafPage leaf)) {
           continue;
         }
-        final var image = leaf.getSlottedPage();
-        if (image == null) {
-          continue;
+        // Read bitmap words directly from the page: no 128-byte copy per page. The method is one
+        // inline bitmap load on ordinary pages and merges cold overflow carriers only when present.
+        for (int firstWord = 0; firstWord < PageLayout.BITMAP_WORDS; firstWord++) {
+          final long logicalWord = leaf.logicalSlotBitmapWord(firstWord);
+          if (logicalWord == 0L) {
+            continue;
+          }
+          page = leaf;
+          pageBaseNodeKey = leaf.getPageKey() << PageLayout.SLOT_COUNT_EXPONENT;
+          wordIndex = firstWord;
+          word = logicalWord;
+          return true;
         }
-        final int populated = PageLayout.getPopulatedCount(image);
-        if (populated == 0) {
-          continue;
-        }
-        page = leaf;
-        pageBaseNodeKey = PageLayout.getRecordPageKey(image) << PageLayout.SLOT_COUNT_EXPONENT;
-        PageLayout.copyBitmapTo(image, bitmap);
-        wordIndex = 0;
-        word = bitmap[0];
-        remainingInPage = populated;
-        return true;
       }
       return false;
     }

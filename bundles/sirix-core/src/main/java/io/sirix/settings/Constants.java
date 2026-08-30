@@ -40,7 +40,7 @@ public final class Constants {
   // --- Varia
   // ------------------------------------------------------------------
 
-  public static final int MAX_RECORD_SIZE = 500;
+  public static final int MAX_RECORD_SIZE = 512;
 
   public static final int MAX_DEWEYID_SIZE = 100;
 

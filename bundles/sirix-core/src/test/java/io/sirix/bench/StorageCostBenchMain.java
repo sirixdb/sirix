@@ -95,7 +95,7 @@ public final class StorageCostBenchMain {
     KIND_NAMES[11] = "DeweyIDPage";
     KIND_NAMES[12] = "HOTLeafPage";
     KIND_NAMES[13] = "HOTIndirectPage";
-    KIND_NAMES[14] = "BitmapChunkPage";
+    KIND_NAMES[14] = "ReservedPageKind14";
     KIND_NAMES[15] = "VectorPage";
     KIND_NAMES[16] = "ProjectionIndexPage";
   }

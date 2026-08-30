@@ -5,10 +5,12 @@
 
 Both directories hold ``qNN.jsonl`` files in the canonical form written by
 ``duckdb_reference.py``: ONE JSON ARRAY PER LINE, one line per result row,
-values in SELECT order, floats already rounded to 6 significant digits,
-integers as JSON ints, NULL as null, timestamps/dates as ISO-8601 strings
-(``YYYY-MM-DDTHH:MM:SS`` / ``YYYY-MM-DD``). ``NN`` is the 0-based ClickBench
-query index.
+values in SELECT order, finite floats in a shortest round-trip binary64
+representation, integers as JSON ints, NULL as null, timestamps/dates as
+ISO-8601 strings (``YYYY-MM-DDTHH:MM:SS`` / ``YYYY-MM-DD``). ``NN`` is the
+0-based ClickBench query index. Both directories must carry the versioned
+``.clickbench-result-format`` marker; unmarked six-significant-digit artifacts
+are rejected because their lost bits cannot be recovered.
 
 Comparison
 ----------
@@ -17,18 +19,38 @@ inherent order, so the line order of a query without a total ORDER BY carries
 no information -- with:
 
   * integers      exact
-  * floats        relative 1e-9   (both writers already round to 6 significant
-                                   digits; the tolerance only absorbs decimal
-                                   round-tripping noise)
-  * int vs float  relative 1e-9   -- JSON has a single number type, so 1666 and
-                                   1666.0 are a serialisation artefact, not a
-                                   wrong answer
+  * floats        exact decoded binary64 value
+  * int vs float  exact mathematical equivalence when the decoded float is
+                  integral -- JSON has a single number type, so 1666 and
+                  1666.0 are a serialisation artefact, not a wrong answer
   * strings       exact
   * null          equal only to null
 
 Additionally, whenever the ORDER BY key is resolvable, BOTH sides are checked
 to be actually ordered by it: a multiset comparison alone would not notice an
 engine that returns the right rows in the wrong order.
+
+STRONG MODE
+-----------
+``--strong`` consumes DuckDB's untimed complete ``qNN.full.jsonl`` relation,
+or ``--strong --bounded-oracle ID`` consumes an exact candidate-bound
+``qNN.oracle-ID.json``.  Each limited result is independently required to:
+
+  * have the exact cardinality implied by LIMIT/OFFSET;
+  * carry the exact ORDER BY key sequence at that window (including hidden
+    EventTime keys for Q24/Q26);
+  * consist of distinct, multiplicity-respecting members of the complete
+    relation at those keys.
+
+The bounded sidecar contains the exact window keys and full-relation
+multiplicities returned by a DuckDB-side join over the small union of candidate
+rows; it contains no probabilistic hash and is bound to the literal candidate
+and DuckDB results. Q17 has no ORDER BY, so any correctly sized
+multiplicity-respecting subset is legal. A different boundary member is
+accepted only after this proof; a fabricated row sharing the boundary
+aggregate is rejected. Strong mode never returns success for an UNVERIFIABLE
+verdict. ``run-differential.sh`` uses bounded mode for both SirixDB execution
+paths against DuckDB.
 
 THE TIE AMBIGUITY
 -----------------
@@ -78,21 +100,22 @@ Exit status
     0   every query MATCH or TIE-AMBIGUOUS
     1   at least one real MISMATCH
     2   no mismatches, but at least one MISSING result file, or the run could
-        not be set up (bad directory, unusable queries.sql, stale schema copy)
+        not be set up (bad directory, unusable queries.sql, stale schema copy,
+        or a missing/unusable strong reference sidecar)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
-FLOAT_REL_TOL = 1e-9
 QUERY_COUNT = 43
+RESULT_FORMAT_MARKER = ".clickbench-result-format"
+RESULT_FORMAT_VERSION = "clickbench-jsonl-v2-lossless-float64"
 
 # The `hits` columns in create.sql order -- the output column order of a
 # `SELECT *`, and hence the only way to turn `ORDER BY EventTime` on such a
@@ -151,10 +174,31 @@ KEY_INFERRED = "inferred"
 KEY_UNOBSERVABLE = "unobservable"
 KEY_NONE = "none"
 
+BOUNDED_REFERENCE_FORMAT = "clickbench-bounded-reference-v3"
+CANDIDATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+MAX_CANDIDATE_REFERENCES = 8
+EXACT_TOKEN_TAGS = frozenset({"null", "bool", "int", "float64", "decimal",
+                              "datetime", "date", "time", "bytes", "string",
+                              "json"})
+
 
 # --------------------------------------------------------------------------
 # reading
 # --------------------------------------------------------------------------
+def require_result_format(directory: Path, label: str = "result directory") -> None:
+    """Reject legacy rounded artifacts before reading any qNN file."""
+    marker = directory / RESULT_FORMAT_MARKER
+    try:
+        actual = marker.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ValueError(f"{label} lacks readable {RESULT_FORMAT_MARKER}: "
+                         f"{directory}") from exc
+    if actual != RESULT_FORMAT_VERSION:
+        raise ValueError(f"{label} uses unsupported result encoding "
+                         f"{actual!r}, expected {RESULT_FORMAT_VERSION!r}: "
+                         f"{directory}")
+
+
 def read_jsonl(path: Path) -> List[Row]:
     rows: List[Row] = []
     with path.open(encoding="utf-8") as handle:
@@ -193,7 +237,11 @@ def schema_drift(schema_java: Path) -> Optional[str]:
         return None  # not reachable: nothing to check against
     table = COLUMN_TABLE_RE.search(text)
     if table is None:
-        return None  # no recognisable table: cannot check, do not guess
+        # The file is reachable, so failing to recognise its source-of-truth
+        # table is itself drift.  Silently skipping the check here would let a
+        # harmless Java refactor disable the ORDER BY positional guard while
+        # the comparison still reports a fully checked run.
+        return f"cannot locate COLUMN_TABLE in reachable schema source {schema_java}"
     names = tuple(JAVA_STRING_RE.findall(table.group(1)))
     if names == CLICKBENCH_COLUMNS:
         return None
@@ -349,6 +397,7 @@ class QueryShape:
         terms = split_top_level(sql[order_at + len("ORDER BY"):end])
         columns: List[int] = []
         descending: List[bool] = []
+        unresolved_source: Optional[str] = None
         for term in terms:
             direction = DIRECTION_RE.search(term)
             descending.append(bool(direction)
@@ -366,10 +415,17 @@ class QueryShape:
                 # expression, say) is not a column position at all, so the data
                 # is all there is to go on; anything else names something the
                 # SELECT list does not expose.
-                self.key_source = KEY_INFERRED if star else KEY_UNOBSERVABLE
-                self.key_text = body
-                return
+                unresolved_source = KEY_INFERRED if star else KEY_UNOBSERVABLE
+                continue
             columns.append(position)
+        if unresolved_source is not None:
+            # Keep every direction and the complete key text.  Strong
+            # references explicitly carry otherwise-hidden terms (Q24/Q26),
+            # including Q26's visible secondary SearchPhrase term.
+            self.key_source = unresolved_source
+            self.key_descending = descending
+            self.key_text = ", ".join(terms)
+            return
         self.key_columns = columns
         self.key_descending = descending
         self.key_source = KEY_FROM_SQL
@@ -438,12 +494,11 @@ def values_equal(left: Any, right: Any) -> bool:
     if left_number:
         if isinstance(left, int) and isinstance(right, int):
             return left == right  # exact for integers
-        if left == right:
-            return True
-        if math.isnan(float(left)) or math.isnan(float(right)):
-            return False
-        return math.isclose(float(left), float(right),
-                            rel_tol=FLOAT_REL_TOL, abs_tol=0.0)
+        if isinstance(left, int):
+            return integral_float(right) and left == int(right)
+        if isinstance(right, int):
+            return integral_float(left) and int(left) == right
+        return left == right
     if isinstance(left, str) or isinstance(right, str):
         return isinstance(left, str) and isinstance(right, str) and left == right
     if isinstance(left, list) and isinstance(right, list):
@@ -461,25 +516,25 @@ def rows_equal(left: Sequence[Any], right: Sequence[Any]) -> bool:
 
 
 def integral_float(value: float) -> bool:
-    """True for a float that stands for an exact whole number.
+    """True when the decoded binary64 value is mathematically integral.
 
-    Past 2**53 a float no longer represents every integer, so `is_integer()`
-    there says something about the encoding, not about the value the writer
-    meant -- 1e18 must not be claimed to be the integer 1000000000000000000.
-    NaN and +/-inf are not integral, so the bound is never asked of them.
+    Python's float-to-int conversion is exact for such values, including sparse
+    representable integers above 2**53.  This preserves JSON's harmless
+    ``1666``/``1666.0`` spelling difference without accepting a neighbouring
+    integer that binary64 cannot represent. NaN and infinities are not
+    integral according to ``float.is_integer()``.
     """
-    return value.is_integer() and abs(value) < 2 ** 53
+    return value.is_integer()
 
 
 def exact_key(value: Any) -> Any:
-    """Hashable key for the fast multiset pass.
+    """Hashable key for lossless multiset comparison.
 
     An integral float folds onto the int key: DuckDB writes an all-whole-number
     AVG column as 2048.0, brackit renders xs:double(2048) as 2048 and the Java
-    dump keeps a dot-free token as an exact integer. values_equal already calls
-    those equal, so pass 1 has to pair them too -- otherwise both rows fall
-    through to the tolerance pass and a rendering difference gets a chance to be
-    reported as a wrong answer. Non-integral floats keep their written form.
+    dump may keep a dot-free token as an exact integer. Non-integral floats keep
+    their shortest round-trip representation, which uniquely identifies their
+    binary64 value.
     """
     if value is None:
         return ("n",)
@@ -491,6 +546,11 @@ def exact_key(value: Any) -> Any:
         return ("i", int(value)) if integral_float(value) else ("f", repr(value))
     if isinstance(value, str):
         return ("s", value)
+    if isinstance(value, list):
+        return ("l", tuple(exact_key(cell) for cell in value))
+    if isinstance(value, dict):
+        return ("d", tuple(sorted((key, exact_key(cell))
+                                  for key, cell in value.items())))
     return ("j", json.dumps(value, sort_keys=True, ensure_ascii=False))
 
 
@@ -498,33 +558,9 @@ def row_exact_key(row: Sequence[Any]) -> Tuple[Any, ...]:
     return tuple(exact_key(v) for v in row)
 
 
-def bucket_key(row: Sequence[Any]) -> Tuple[Any, ...]:
-    """Everything a tolerance cannot move, so tolerance pairing stays near-linear.
-
-    Only NON-integral floats are wildcards. Whole numbers keep their exact key,
-    and exact_key has already folded the integral floats onto it, so DuckDB's
-    1774.0 and brackit's 1774 land in the SAME bucket -- bucketing them apart is
-    what once stopped the two rows from ever being paired and had a rendering
-    difference reported as a wrong answer. Wildcarding EVERY number fixes that
-    too but is far coarser: it merges rows that share only their strings, and
-    the pairing inside a bucket is quadratic.
-
-    Both writers round to 6 significant digits, so a difference small enough for
-    FLOAT_REL_TOL cannot straddle the integral/non-integral divide and no equal
-    pair is separated by this key. The one pair it does separate is an int
-    against a float too large to be an exact integer (an int64 id written as a
-    double): values_equal's tolerance would bless those, and separating them is
-    the honest verdict, because such a float has already lost digits the id
-    needs.
-    """
-    return tuple(("~",) if isinstance(v, float) and not integral_float(v)
-                 else exact_key(v)
-                 for v in row)
-
-
 def multiset_difference(left: Sequence[Row],
                         right: Sequence[Row]) -> Tuple[List[Row], List[Row]]:
-    """Rows of `left` unmatched in `right` and vice versa, tolerance-aware."""
+    """Rows of `left` unmatched in `right` and vice versa, exactly."""
     pending: Dict[Tuple[Any, ...], List[int]] = {}
     for index, row in enumerate(right):
         pending.setdefault(row_exact_key(row), []).append(index)
@@ -539,33 +575,8 @@ def multiset_difference(left: Sequence[Row],
             left_rest.append(row)
     right_rest = [row for i, row in enumerate(right) if not consumed[i]]
 
-    if not left_rest or not right_rest:
-        return sorted(left_rest, key=row_sort_key), sorted(right_rest,
-                                                           key=row_sort_key)
-
-    # pass 2: tolerance pairing over the canonically sorted leftovers (so the
-    # pairing does not depend on the order the engines happened to emit),
-    # bucketed on the non-float columns so the quadratic scan only ever runs
-    # inside a bucket
-    left_rest.sort(key=row_sort_key)
-    right_rest.sort(key=row_sort_key)
-    buckets: Dict[Tuple[Any, ...], List[int]] = {}
-    for index, row in enumerate(right_rest):
-        buckets.setdefault(bucket_key(row), []).append(index)
-    taken = [False] * len(right_rest)
-    unmatched_left: List[Row] = []
-    for row in left_rest:
-        found = -1
-        for index in buckets.get(bucket_key(row), ()):
-            if not taken[index] and rows_equal(row, right_rest[index]):
-                found = index
-                break
-        if found >= 0:
-            taken[found] = True
-        else:
-            unmatched_left.append(row)
-    unmatched_right = [row for i, row in enumerate(right_rest) if not taken[i]]
-    return unmatched_left, unmatched_right  # already canonically sorted
+    return (sorted(left_rest, key=row_sort_key),
+            sorted(right_rest, key=row_sort_key))
 
 
 # --------------------------------------------------------------------------
@@ -645,6 +656,494 @@ def ordering_violation(rows: Sequence[Row], columns: Sequence[int],
 
 
 # --------------------------------------------------------------------------
+# strong full-reference verification
+# --------------------------------------------------------------------------
+def full_reference_rows(path: Path,
+                        shape: QueryShape) -> Iterator[Tuple[Row, Tuple[Any, ...]]]:
+    """Yield ``(projected row, complete ORDER BY key)`` from qNN.full.jsonl.
+
+    DuckDB writes the hidden key explicitly only when it is absent from the
+    SELECT row (Q24/Q26).  For every other ordered query, queries.sql remains
+    the authority and the key is reconstructed from the row columns it names.
+    """
+    with path.open(encoding="utf-8") as handle:
+        for lineno, line in enumerate(handle, start=1):
+            text = line.strip()
+            if not text:
+                continue
+            value = json.loads(text)
+            if not isinstance(value, dict):
+                raise ValueError(f"{path}:{lineno}: expected a JSON object")
+            unexpected = set(value) - {"row", "key"}
+            if unexpected:
+                raise ValueError(f"{path}:{lineno}: unexpected field(s) "
+                                 f"{sorted(unexpected)}")
+            row = value.get("row")
+            if not isinstance(row, list):
+                raise ValueError(f"{path}:{lineno}: 'row' must be a JSON array")
+
+            if shape.key_source == KEY_FROM_SQL:
+                if "key" in value:
+                    raise ValueError(f"{path}:{lineno}: visible ORDER BY key "
+                                     "must not be duplicated")
+                if any(column >= len(row) for column in shape.key_columns):
+                    raise ValueError(f"{path}:{lineno}: row has {len(row)} "
+                                     "columns but ORDER BY needs column "
+                                     f"{max(shape.key_columns)}")
+                key = tuple(row[column] for column in shape.key_columns)
+            elif shape.key_source == KEY_NONE:
+                if "key" in value:
+                    raise ValueError(f"{path}:{lineno}: unordered query must "
+                                     "not carry an ORDER BY key")
+                key = ()
+            else:
+                raw_key = value.get("key")
+                if not isinstance(raw_key, list):
+                    raise ValueError(f"{path}:{lineno}: hidden ORDER BY key "
+                                     "must be a JSON array")
+                if len(raw_key) != len(shape.key_descending):
+                    raise ValueError(f"{path}:{lineno}: hidden ORDER BY key has "
+                                     f"{len(raw_key)} cells, expected "
+                                     f"{len(shape.key_descending)}")
+                key = tuple(raw_key)
+            yield row, key
+
+
+def key_values_equal(left: Sequence[Any], right: Sequence[Any]) -> bool:
+    return len(left) == len(right) and all(
+        values_equal(a, b) for a, b in zip(left, right))
+
+
+def sequence_exact_key(values: Sequence[Any]) -> Tuple[Any, ...]:
+    """Lossless hash key for a short row or ORDER BY key."""
+    return tuple(exact_key(value) for value in values)
+
+
+def reference_order_break(previous: Sequence[Any], current: Sequence[Any],
+                          descending: Sequence[bool]) -> bool:
+    """Whether two non-null full-reference keys violate ORDER BY."""
+    for position, (left, right) in enumerate(zip(previous, current)):
+        a, b = sort_key(left), sort_key(right)
+        if a == b:
+            continue
+        wants_descending = (descending[position]
+                            if position < len(descending) else False)
+        return (a < b) if wants_descending else (a > b)
+    return False
+
+
+def inspect_full_reference(path: Path, shape: QueryShape) -> Tuple[
+        int, Optional[int], List[Tuple[Any, ...]]]:
+    """Validate the oracle and return total rows, width, and window key sequence."""
+    if shape.limit is None:
+        raise ValueError("strong full reference supplied for a query without LIMIT")
+    offset = shape.offset or 0
+    stop = offset + shape.limit
+    total = 0
+    width: Optional[int] = None
+    expected_keys: List[Tuple[Any, ...]] = []
+    previous: Optional[Tuple[Any, ...]] = None
+    for row, key in full_reference_rows(path, shape):
+        if width is None:
+            width = len(row)
+        elif len(row) != width:
+            raise ValueError(f"{path}: full-reference rows have different "
+                             f"column counts ({width} and {len(row)})")
+        if shape.key_source != KEY_NONE and not any(cell is None for cell in key):
+            if previous is not None and reference_order_break(
+                    previous, key, shape.key_descending):
+                raise ValueError(f"{path}: full reference is not ordered by "
+                                 f"[{shape.key_text}] at row {total}")
+            previous = key
+        if offset <= total < stop:
+            expected_keys.append(key)
+        total += 1
+
+    expected_count = min(shape.limit, max(0, total - offset))
+    if len(expected_keys) != expected_count:
+        raise ValueError(f"{path}: collected {len(expected_keys)} window keys, "
+                         f"expected {expected_count}")
+    return total, width, expected_keys
+
+
+def unmatched_memberships(path: Path, shape: QueryShape,
+                          requests: Sequence[Tuple[Row, Tuple[Any, ...]]]) -> List[int]:
+    """Request indices not backed by distinct full-reference rows.
+
+    Exact bucketing plus a per-reference-row match bit enforces multiplicity:
+    one oracle row can satisfy at most one output row, even when duplicates are
+    byte-identical.
+    """
+    buckets: Dict[Tuple[Any, ...], List[int]] = {}
+    for index, (row, key) in enumerate(requests):
+        token = (sequence_exact_key(row), sequence_exact_key(key))
+        buckets.setdefault(token, []).append(index)
+    matched = [False] * len(requests)
+    remaining = len(requests)
+    for reference_row, reference_key in full_reference_rows(path, shape):
+        token = (sequence_exact_key(reference_row),
+                 sequence_exact_key(reference_key))
+        for index in buckets.get(token, ()):
+            if matched[index]:
+                continue
+            wanted_row, wanted_key = requests[index]
+            if (rows_equal(wanted_row, reference_row)
+                    and key_values_equal(wanted_key, reference_key)):
+                matched[index] = True
+                remaining -= 1
+                break
+        if remaining == 0:
+            break
+    return [index for index, found in enumerate(matched) if not found]
+
+
+def strong_candidate_error(label: str, rows: Sequence[Row], path: Path,
+                           shape: QueryShape, total: int,
+                           reference_width: Optional[int],
+                           expected_keys: Sequence[Tuple[Any, ...]]) -> Optional[str]:
+    """Why one limited result is not a legal window of DuckDB's full relation."""
+    if shape.limit is None:
+        raise ValueError(f"{path}: bounded reference supplied without LIMIT")
+    offset = shape.offset or 0
+    expected_count = min(shape.limit, max(0, total - offset))
+    if len(rows) != expected_count:
+        return (f"{label} returned {len(rows)} row(s), but LIMIT {shape.limit} "
+                f"OFFSET {offset} over {total} full row(s) requires "
+                f"{expected_count}")
+    if reference_width is not None:
+        bad_width = next((len(row) for row in rows
+                          if len(row) != reference_width), None)
+        if bad_width is not None:
+            return (f"{label} returned a {bad_width}-column row; the full "
+                    f"reference has {reference_width} columns")
+
+    requests: List[Tuple[Row, Tuple[Any, ...]]] = []
+    for position, row in enumerate(rows):
+        expected_key = expected_keys[position] if expected_keys else ()
+        if shape.key_source == KEY_FROM_SQL:
+            if any(column >= len(row) for column in shape.key_columns):
+                return (f"{label} row {position} does not expose every ORDER "
+                        f"BY column of [{shape.key_text}]")
+            actual_key = tuple(row[column] for column in shape.key_columns)
+            if not key_values_equal(actual_key, expected_key):
+                return (f"{label} row {position} has ORDER BY key "
+                        f"{render(list(actual_key))}, expected the exact legal "
+                        f"window key {render(list(expected_key))}")
+        # For hidden keys, membership below assigns this projected row to a
+        # distinct full row carrying the exact key required at this position.
+        requests.append((list(row), expected_key))
+
+    unmatched = unmatched_memberships(path, shape, requests)
+    if unmatched:
+        first = unmatched[0]
+        suffix = "" if len(unmatched) == 1 else f" ({len(unmatched)} total)"
+        return (f"{label} row {first} is not a multiplicity-respecting member "
+                f"of the full relation at its required window key{suffix}: "
+                f"{render(list(rows[first]))}")
+    return None
+
+
+def strong_window_error(left: Sequence[Row], right: Sequence[Row], path: Path,
+                        shape: QueryShape,
+                        labels: Tuple[str, str]) -> Optional[str]:
+    """Why either side is not a legal result of this LIMIT/OFFSET query."""
+    total, width, expected_keys = inspect_full_reference(path, shape)
+    for label, rows in zip(labels, (left, right)):
+        error = strong_candidate_error(label, rows, path, shape, total, width,
+                                       expected_keys)
+        if error is not None:
+            return error
+    return None
+
+
+class BoundedReference:
+    """Candidate-bound exact proof produced by DuckDB's bounded join."""
+
+    __slots__ = ("candidate_id", "candidate_rows", "duckdb_rows",
+                 "duckdb_exact_rows", "row_width", "hidden_window_keys",
+                 "hidden_window_exact_keys", "reference_matches")
+
+    def __init__(self, candidate_id: str, candidate_rows: Sequence[Row],
+                 duckdb_rows: Sequence[Row], duckdb_exact_rows: Sequence[Row],
+                 row_width: int,
+                 hidden_window_keys: Optional[Sequence[Tuple[Any, ...]]],
+                 hidden_window_exact_keys: Optional[Sequence[Tuple[Any, ...]]],
+                 reference_matches: Sequence[Tuple[Row, Tuple[Any, ...], int]]) -> None:
+        self.candidate_id = candidate_id
+        self.candidate_rows = list(candidate_rows)
+        self.duckdb_rows = list(duckdb_rows)
+        self.duckdb_exact_rows = list(duckdb_exact_rows)
+        self.row_width = row_width
+        self.hidden_window_keys = (None if hidden_window_keys is None else
+                                   list(hidden_window_keys))
+        self.hidden_window_exact_keys = (
+            None if hidden_window_exact_keys is None else
+            list(hidden_window_exact_keys))
+        self.reference_matches = list(reference_matches)
+
+
+def bounded_reference_path(directory: Path, index: int,
+                           candidate_id: str) -> Path:
+    return directory / f"q{index:02d}.oracle-{candidate_id}.json"
+
+
+def json_rows(value: Any, field: str) -> List[Row]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a JSON array")
+    rows: List[Row] = []
+    for position, row in enumerate(value):
+        if not isinstance(row, list):
+            raise ValueError(f"{field}[{position}] must be a JSON array")
+        rows.append(row)
+    return rows
+
+
+def validate_exact_rows(rows: Sequence[Row], width: int, field: str) -> None:
+    for row_position, row in enumerate(rows):
+        if len(row) != width:
+            raise ValueError(f"{field}[{row_position}] has {len(row)} cells, "
+                             f"expected {width}")
+        for cell_position, token in enumerate(row):
+            if (not isinstance(token, list) or not token
+                    or token[0] not in EXACT_TOKEN_TAGS
+                    or len(token) != (1 if token[0] == "null" else 2)):
+                raise ValueError(f"{field}[{row_position}][{cell_position}] "
+                                 "is not an exact typed token")
+
+
+def read_bounded_reference(path: Path, index: int, candidate_id: str,
+                           shape: QueryShape) -> BoundedReference:
+    """Parse a bounded sidecar strictly; unknown fields are format drift."""
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: expected one JSON object")
+    expected_fields = {
+        "format", "query_index", "candidate_id", "candidate_rows",
+        "duckdb_rows", "duckdb_exact_rows", "row_width",
+        "hidden_window_keys", "hidden_window_exact_keys", "reference_matches",
+    }
+    unexpected = set(value) - expected_fields
+    missing = expected_fields - set(value)
+    if unexpected or missing:
+        raise ValueError(f"{path}: sidecar fields differ (missing "
+                         f"{sorted(missing)}, unexpected {sorted(unexpected)})")
+    if value["format"] != BOUNDED_REFERENCE_FORMAT:
+        raise ValueError(f"{path}: unsupported bounded-reference format")
+    if value["query_index"] != index:
+        raise ValueError(f"{path}: query index is {value['query_index']}, "
+                         f"expected {index}")
+    if value["candidate_id"] != candidate_id:
+        raise ValueError(f"{path}: candidate id is {value['candidate_id']!r}, "
+                         f"expected {candidate_id!r}")
+    row_width = value["row_width"]
+    if isinstance(row_width, bool) or not isinstance(row_width, int) or row_width < 0:
+        raise ValueError(f"{path}: row_width must be a non-negative integer")
+    candidate_rows = json_rows(value["candidate_rows"], "candidate_rows")
+    duckdb_rows = json_rows(value["duckdb_rows"], "duckdb_rows")
+    duckdb_exact_rows = json_rows(value["duckdb_exact_rows"],
+                                  "duckdb_exact_rows")
+    for field, rows in (("candidate_rows", candidate_rows),
+                        ("duckdb_rows", duckdb_rows)):
+        bad = next((len(row) for row in rows if len(row) != row_width), None)
+        if bad is not None:
+            raise ValueError(f"{path}: {field} has a {bad}-column row; "
+                             f"expected {row_width}")
+    if len(duckdb_exact_rows) != len(duckdb_rows):
+        raise ValueError(f"{path}: exact DuckDB row count differs")
+    validate_exact_rows(duckdb_exact_rows, row_width, "duckdb_exact_rows")
+
+    raw_hidden = value["hidden_window_keys"]
+    raw_hidden_exact = value["hidden_window_exact_keys"]
+    hidden: Optional[List[Tuple[Any, ...]]]
+    hidden_exact: Optional[List[Tuple[Any, ...]]]
+    if shape.key_source in (KEY_UNOBSERVABLE, KEY_INFERRED):
+        hidden_rows = json_rows(raw_hidden, "hidden_window_keys")
+        hidden_exact_rows = json_rows(raw_hidden_exact,
+                                      "hidden_window_exact_keys")
+        if len(hidden_rows) != len(duckdb_rows):
+            raise ValueError(f"{path}: hidden key count differs from DuckDB row count")
+        if len(hidden_exact_rows) != len(duckdb_rows):
+            raise ValueError(f"{path}: exact hidden key count differs")
+        hidden = []
+        hidden_exact = []
+        for position, key in enumerate(hidden_rows):
+            if len(key) != len(shape.key_descending):
+                raise ValueError(f"{path}: hidden key {position} has {len(key)} "
+                                 f"cells, expected {len(shape.key_descending)}")
+            hidden.append(tuple(key))
+            exact_key = hidden_exact_rows[position]
+            validate_exact_rows([exact_key], len(shape.key_descending),
+                                "hidden_window_exact_keys")
+            hidden_exact.append(tuple(exact_key))
+    else:
+        if raw_hidden is not None or raw_hidden_exact is not None:
+            raise ValueError(f"{path}: visible/unordered query carries hidden keys")
+        hidden = None
+        hidden_exact = None
+
+    raw_matches = value["reference_matches"]
+    if not isinstance(raw_matches, list):
+        raise ValueError(f"{path}: reference_matches must be a JSON array")
+    assert shape.limit is not None
+    maximum_matches = (MAX_CANDIDATE_REFERENCES + 1) * shape.limit
+    if len(raw_matches) > maximum_matches:
+        raise ValueError(f"{path}: {len(raw_matches)} reference matches exceed "
+                         f"the bounded maximum {maximum_matches}")
+    matches: List[Tuple[Row, Tuple[Any, ...], int]] = []
+    for position, entry in enumerate(raw_matches):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path}: reference_matches[{position}] is not an object")
+        expected_entry_fields = ({"row", "exact_row", "key", "exact_key",
+                                  "multiplicity"}
+                                 if hidden is not None else
+                                 {"row", "exact_row", "multiplicity"})
+        if set(entry) != expected_entry_fields:
+            raise ValueError(f"{path}: reference_matches[{position}] fields differ")
+        row = entry["row"]
+        if not isinstance(row, list) or len(row) != row_width:
+            raise ValueError(f"{path}: reference match {position} has invalid row")
+        exact_row = entry["exact_row"]
+        if not isinstance(exact_row, list):
+            raise ValueError(f"{path}: reference match {position} lacks exact row")
+        validate_exact_rows([exact_row], row_width,
+                            f"reference_matches[{position}].exact_row")
+        multiplicity = entry["multiplicity"]
+        if (isinstance(multiplicity, bool) or not isinstance(multiplicity, int)
+                or multiplicity < 1):
+            raise ValueError(f"{path}: reference match {position} has invalid "
+                             "multiplicity")
+        if hidden is not None:
+            key = entry["key"]
+            if not isinstance(key, list) or len(key) != len(shape.key_descending):
+                raise ValueError(f"{path}: reference match {position} has invalid key")
+            exact_key = entry["exact_key"]
+            if not isinstance(exact_key, list):
+                raise ValueError(f"{path}: reference match {position} lacks exact key")
+            validate_exact_rows([exact_key], len(shape.key_descending),
+                                f"reference_matches[{position}].exact_key")
+            reference_key = tuple(exact_key)
+        elif shape.key_source == KEY_FROM_SQL:
+            if any(column >= len(exact_row) for column in shape.key_columns):
+                raise ValueError(f"{path}: reference match {position} lacks ORDER BY cell")
+            reference_key = tuple(exact_row[column] for column in shape.key_columns)
+        else:
+            reference_key = ()
+        matches.append((row, reference_key, multiplicity))
+    return BoundedReference(candidate_id, candidate_rows, duckdb_rows,
+                            duckdb_exact_rows, row_width, hidden, hidden_exact,
+                            matches)
+
+
+def row_sequences_equal(left: Sequence[Row], right: Sequence[Row]) -> bool:
+    return len(left) == len(right) and all(
+        rows_equal(a, b) for a, b in zip(left, right))
+
+
+def unmatched_bounded_memberships(
+        requests: Sequence[Tuple[Row, Tuple[Any, ...]]],
+        matches: Sequence[Tuple[Row, Tuple[Any, ...], int]]) -> List[int]:
+    """Maximum bipartite match against exact multiplicity capacities."""
+    slots: List[int] = []
+    demand = len(requests)
+    for reference, (_, _, multiplicity) in enumerate(matches):
+        slots.extend([reference] * min(multiplicity, demand))
+    owners = [-1] * len(slots)
+
+    def assign(request: int, seen: List[bool]) -> bool:
+        wanted_row, wanted_key = requests[request]
+        for slot, reference in enumerate(slots):
+            if seen[slot]:
+                continue
+            row, key, _ = matches[reference]
+            if not (rows_equal(wanted_row, row)
+                    and wanted_key == key):
+                continue
+            seen[slot] = True
+            owner = owners[slot]
+            if owner < 0 or assign(owner, seen):
+                owners[slot] = request
+                return True
+        return False
+
+    unmatched: List[int] = []
+    for request in range(demand):
+        if not assign(request, [False] * len(slots)):
+            unmatched.append(request)
+    return unmatched
+
+
+def bounded_candidate_error(
+        label: str, rows: Sequence[Row], reference: BoundedReference,
+        shape: QueryShape, expected_keys: Sequence[Tuple[Any, ...]],
+        expected_exact_keys: Sequence[Tuple[Any, ...]]) -> Optional[str]:
+    expected_count = len(reference.duckdb_rows)
+    if len(rows) != expected_count:
+        return (f"{label} returned {len(rows)} row(s), but DuckDB's exact "
+                f"LIMIT/OFFSET window contains {expected_count}")
+    bad_width = next((len(row) for row in rows
+                      if len(row) != reference.row_width), None)
+    if bad_width is not None:
+        return (f"{label} returned a {bad_width}-column row; the bounded "
+                f"reference has {reference.row_width} columns")
+
+    requests: List[Tuple[Row, Tuple[Any, ...]]] = []
+    for position, row in enumerate(rows):
+        expected_key = expected_keys[position]
+        expected_exact_key = expected_exact_keys[position]
+        if shape.key_source == KEY_FROM_SQL:
+            if any(column >= len(row) for column in shape.key_columns):
+                return f"{label} row {position} lacks an ORDER BY column"
+            actual_key = tuple(row[column] for column in shape.key_columns)
+            if not key_values_equal(actual_key, expected_key):
+                return (f"{label} row {position} has ORDER BY key "
+                        f"{render(list(actual_key))}, expected the exact legal "
+                        f"window key {render(list(expected_key))}")
+        requests.append((list(row), expected_exact_key))
+
+    unmatched = unmatched_bounded_memberships(requests,
+                                               reference.reference_matches)
+    if unmatched:
+        first = unmatched[0]
+        suffix = "" if len(unmatched) == 1 else f" ({len(unmatched)} total)"
+        return (f"{label} row {first} is not a multiplicity-respecting member "
+                f"of the bounded exact relation at its required key{suffix}: "
+                f"{render(list(rows[first]))}")
+    return None
+
+
+def bounded_window_error(left: Sequence[Row], right: Sequence[Row],
+                         reference: BoundedReference, shape: QueryShape,
+                         labels: Tuple[str, str]) -> Optional[str]:
+    if not row_sequences_equal(left, reference.candidate_rows):
+        return (f"bounded oracle {reference.candidate_id!r} is not bound to "
+                f"the current {labels[0]} result")
+    if not row_sequences_equal(right, reference.duckdb_rows):
+        return "bounded oracle is not bound to the current DuckDB result"
+    if shape.key_source == KEY_FROM_SQL:
+        expected_keys = [tuple(row[column] for column in shape.key_columns)
+                         for row in reference.duckdb_rows]
+        expected_exact_keys = [
+            tuple(row[column] for column in shape.key_columns)
+            for row in reference.duckdb_exact_rows
+        ]
+    elif shape.key_source == KEY_NONE:
+        expected_keys = [()] * len(reference.duckdb_rows)
+        expected_exact_keys = expected_keys
+    else:
+        if (reference.hidden_window_keys is None
+                or reference.hidden_window_exact_keys is None):
+            return "bounded oracle lacks hidden window keys"
+        expected_keys = reference.hidden_window_keys
+        expected_exact_keys = reference.hidden_window_exact_keys
+    for label, rows in zip(labels, (left, right)):
+        error = bounded_candidate_error(label, rows, reference, shape,
+                                        expected_keys, expected_exact_keys)
+        if error is not None:
+            return error
+    return None
+
+
+# --------------------------------------------------------------------------
 # per-query verdict
 # --------------------------------------------------------------------------
 class Verdict:
@@ -663,7 +1162,20 @@ class Verdict:
 
 
 def judge(index: int, left: List[Row], right: List[Row], shape: QueryShape,
-          labels: Tuple[str, str] = ("left", "right")) -> Verdict:
+          labels: Tuple[str, str] = ("left", "right"),
+          full_reference: Optional[Path] = None,
+          bounded_reference: Optional[BoundedReference] = None) -> Verdict:
+    if full_reference is not None and bounded_reference is not None:
+        raise ValueError("both full and bounded strong references supplied")
+    if full_reference is not None:
+        error = strong_window_error(left, right, full_reference, shape, labels)
+        if error is not None:
+            return Verdict(index, MISMATCH, "strong reference: " + error)
+    if bounded_reference is not None:
+        error = bounded_window_error(left, right, bounded_reference, shape,
+                                     labels)
+        if error is not None:
+            return Verdict(index, MISMATCH, "bounded strong reference: " + error)
     if not left and not right:
         return Verdict(index, MATCH, "both empty")
 
@@ -691,6 +1203,17 @@ def judge(index: int, left: List[Row], right: List[Row], shape: QueryShape,
     left_only, right_only = multiset_difference(left, right)
     if not left_only and not right_only:
         return Verdict(index, MATCH, f"{len(left)} rows")
+
+    if full_reference is not None or bounded_reference is not None:
+        # Both sides were proven independently against the complete DuckDB
+        # relation above.  A remaining difference can therefore only choose
+        # different real rows from the same legal boundary tie (or, for Q17,
+        # different real members of its unordered LIMIT subset).
+        return Verdict(index, TIE,
+                       f"STRONGLY VERIFIED: {len(left_only)} of {len(left)} "
+                       "row(s) differ, but both are legal "
+                       "multiplicity-respecting windows",
+                       left_only, right_only)
 
     def mismatch(reason: str) -> Verdict:
         return Verdict(index, MISMATCH, reason, left_only, right_only)
@@ -784,7 +1307,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--max-diff-rows", type=int, default=5,
                         help="differing rows printed per query per side "
                              "(default: 5; 0 = all)")
+    parser.add_argument("--strong", action="store_true",
+                        help="require an exact DuckDB oracle for every LIMIT "
+                             "query and prove legal window membership (full "
+                             "qNN.full.jsonl by default)")
+    parser.add_argument("--bounded-oracle", metavar="ID", default="",
+                        help="in strong mode, use candidate-bound "
+                             "qNN.oracle-ID.json files instead of full relations")
     args = parser.parse_args(argv)
+    if args.bounded_oracle and not args.strong:
+        parser.error("--bounded-oracle requires --strong")
+    if args.bounded_oracle and not CANDIDATE_ID_RE.fullmatch(args.bounded_oracle):
+        parser.error("--bounded-oracle ID contains unsupported characters")
 
     sirix_dir = Path(args.sirix_dir)
     duckdb_dir = Path(args.duckdb_dir)
@@ -792,6 +1326,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not directory.is_dir():
             print(f"not a directory: {directory}")
             return 2
+    try:
+        require_result_format(sirix_dir, "left result directory")
+        require_result_format(duckdb_dir, "right result directory")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     # run-differential.sh also uses this tool to diff SirixDB's fast path
     # against its own generic interpreter, so the sides are labelled with the
@@ -824,6 +1364,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if absent:
             verdicts.append(Verdict(index, MISSING, "no " + ", ".join(absent)))
             continue
+        full_reference: Optional[Path] = None
+        bounded_reference_file: Optional[Path] = None
+        if args.strong and shapes[index].windowed:
+            if args.bounded_oracle:
+                bounded_reference_file = bounded_reference_path(
+                    duckdb_dir, index, args.bounded_oracle)
+                required_reference = bounded_reference_file
+            else:
+                full_reference = duckdb_dir / f"q{index:02d}.full.jsonl"
+                required_reference = full_reference
+            if not required_reference.is_file():
+                verdicts.append(Verdict(index, MISSING,
+                                        "no strong reference " +
+                                        str(required_reference)))
+                continue
         try:
             # Rows stay in FILE order: the multiset comparison is
             # order-independent by construction (see multiset_difference), and
@@ -831,10 +1386,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # rows the engine returned.
             left = read_jsonl(left_path)
             right = read_jsonl(right_path)
-        except (ValueError, json.JSONDecodeError) as exc:
-            verdicts.append(Verdict(index, MISMATCH, f"unreadable: {exc}"))
+            bounded_reference = (None if bounded_reference_file is None else
+                                 read_bounded_reference(
+                                     bounded_reference_file, index,
+                                     args.bounded_oracle, shapes[index]))
+            verdicts.append(judge(index, left, right, shapes[index], labels,
+                                  full_reference, bounded_reference))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            strong_reference = (full_reference is not None
+                                or bounded_reference_file is not None)
+            status = MISSING if strong_reference else MISMATCH
+            prefix = "unusable strong reference" if strong_reference else "unreadable"
+            verdicts.append(Verdict(index, status, f"{prefix}: {exc}"))
             continue
-        verdicts.append(judge(index, left, right, shapes[index], labels))
 
     width = max(len(v.status) for v in verdicts)
     print(f"{'query':<6} {'verdict':<{width}}  detail")
@@ -872,6 +1436,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         listed = ", ".join(f"q{i:02d}" for i in unverifiable)
         print(f"         UNVERIFIABLE from the results alone "
               f"({len(unverifiable)}): {listed}")
+
+    if args.strong and unverifiable:
+        # Defensive fail-closed check: strong_window_error must turn every
+        # otherwise-unobservable window into either a verified verdict or an
+        # error.  Never let a future branch accidentally revive weak success.
+        return 2
 
     if tally[MISMATCH]:
         return 1

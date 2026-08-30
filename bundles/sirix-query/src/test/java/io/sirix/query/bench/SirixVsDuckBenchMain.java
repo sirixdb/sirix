@@ -28,9 +28,9 @@ import java.util.Map;
  *
  * Usage: SirixVsDuckBenchMain &lt;dbDir&gt; [iters=3] [threads=cores] [projection=true|false]
  *
- * <p>projection=false runs the region/scan fast paths only. It must run in a
- * process that never installed the projection (the registry is static per
- * resource), i.e. before — or instead of — a projection=true run.
+ * <p>projection=false skips projection creation. To measure only region/scan
+ * paths, use a database that has no catalogued projection definition; the flag
+ * does not hide a persisted production index.
  */
 public final class SirixVsDuckBenchMain {
 
@@ -66,16 +66,15 @@ public final class SirixVsDuckBenchMain {
       final JsonDBItem docItem = (JsonDBItem) coll.getDocument();
       ctx.bind(new QNm("doc"), (Sequence) docItem);
       final var session = docItem.getTrx().getResourceSession();
-      final int rev = session.getMostRecentRevisionNumber();
-
       if (projection) {
         final long tProj = System.nanoTime();
-        final int leaves = ScaleBenchProjectionSetup.installWildcard(session);
+        final int leaves = ScaleBenchProjectionSetup.ensureProjection(session);
         System.out.printf("# projection: %,d leaves in %,d ms; threads=%d, iters=%d%n",
                           leaves, (System.nanoTime() - tProj) / 1_000_000, threads, iters);
       } else {
         System.out.printf("# projection: DISABLED (region/scan paths); threads=%d, iters=%d%n", threads, iters);
       }
+      final int rev = session.getMostRecentRevisionNumber();
 
       System.out.printf("%-26s | %10s | %10s | %12s%n", "query", "min(ms)", "avg(ms)", "result_bytes");
       for (final var e : QUERIES.entrySet()) {

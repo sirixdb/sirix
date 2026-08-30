@@ -108,11 +108,45 @@ final class WtxBulkRecordSink implements BulkRecordSink {
   }
 
   @Override
+  public long createNumberNode(final long parentKey, final long leftSibKey, final long rightSibKey, final int value,
+      final long notifyPcr) {
+    final var node = factory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value, null);
+    notifyInsert(node, notifyPcr, value);
+    return node.getNodeKey();
+  }
+
+  @Override
+  public long createNumberNode(final long parentKey, final long leftSibKey, final long rightSibKey, final long value,
+      final long notifyPcr) {
+    final var node = factory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value, null);
+    notifyInsert(node, notifyPcr, value);
+    return node.getNodeKey();
+  }
+
+  @Override
   public long createObjectNamedNumberNode(final long parentKey, final long leftSibKey, final long rightSibKey,
       final long pathNodeKey, final String name, final Number value) {
     final var node =
         factory.createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, value, null);
     notifyInsert(node, pathNodeKey);
+    return node.getNodeKey();
+  }
+
+  @Override
+  public long createObjectNamedNumberNode(final long parentKey, final long leftSibKey, final long rightSibKey,
+      final long pathNodeKey, final String name, final int value) {
+    final var node =
+        factory.createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, value, null);
+    notifyInsert(node, pathNodeKey, value);
+    return node.getNodeKey();
+  }
+
+  @Override
+  public long createObjectNamedNumberNode(final long parentKey, final long leftSibKey, final long rightSibKey,
+      final long pathNodeKey, final String name, final long value) {
+    final var node =
+        factory.createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, value, null);
+    notifyInsert(node, pathNodeKey, value);
     return node.getNodeKey();
   }
 
@@ -184,6 +218,18 @@ final class WtxBulkRecordSink implements BulkRecordSink {
   private void notifyInsert(final ImmutableNode node, final long pathNodeKey) {
     if (notifyIndexes) {
       wtx.bulkNotifyInsert(node, pathNodeKey);
+    }
+  }
+
+  private void notifyInsert(final ImmutableNode node, final long pathNodeKey, final int numericValue) {
+    if (notifyIndexes) {
+      wtx.bulkNotifyInsert(node, pathNodeKey, numericValue);
+    }
+  }
+
+  private void notifyInsert(final ImmutableNode node, final long pathNodeKey, final long numericValue) {
+    if (notifyIndexes) {
+      wtx.bulkNotifyInsert(node, pathNodeKey, numericValue);
     }
   }
 }

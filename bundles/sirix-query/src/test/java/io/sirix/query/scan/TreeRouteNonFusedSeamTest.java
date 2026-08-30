@@ -88,7 +88,12 @@ final class TreeRouteNonFusedSeamTest {
         .append('}');
     }
     sb.append(']');
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(false).build();
+    // A path summary is REQUIRED: without one resolveTargetPathNodeKey returns -1, the structural
+    // source matcher becomes non-null, and the executor forces regionPlan to null on purpose,
+    // because raw page columns cannot prove exact source ancestry. The page-only routes this test
+    // is about then never run at all — which is exactly what an earlier revision, built with
+    // buildPathSummary(false), was unknowingly asserting against.
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
@@ -116,14 +121,15 @@ final class TreeRouteNonFusedSeamTest {
   }
 
   @Test
-  @DisplayName("a repeat scan, scheduled from the published page-skip bitmap, still agrees")
+  @DisplayName("a warm repeat of the column path still agrees")
   void repeatScanAgrees() throws Exception {
     for (final String predicate : NON_FUSED_SHAPES) {
       final long viaRecords = count(predicate, false);
       assertEquals(viaRecords, count(predicate, true), "first column scan disagrees: " + predicate);
-      // The second scan schedules itself from the bitmap the first published, and reads pages the
-      // first one left resident — the arrangement under which a plan whose mask never asked for the
-      // record linkage is nonetheless handed a page that carries it.
+      // The second scan reads pages the first left RESIDENT — the arrangement under which a plan
+      // whose mask never asked for the record linkage is nonetheless handed a page that carries it.
+      // No claim is made about what scheduled the repeat: with a path summary the persisted
+      // page-key array can serve the scan outright, leaving nothing published to schedule from.
       assertEquals(viaRecords, count(predicate, true),
                    "the SECOND column scan disagrees for: " + predicate);
     }
@@ -151,7 +157,7 @@ final class TreeRouteNonFusedSeamTest {
   }
 
   private long count(final String predicate, final boolean regionOnly) throws Exception {
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(false).build();
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var coll = store.lookup(DB);

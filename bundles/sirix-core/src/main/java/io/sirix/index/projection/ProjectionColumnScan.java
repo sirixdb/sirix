@@ -79,9 +79,36 @@ public final class ProjectionColumnScan {
   /** Sort-key kind: as {@link #KEY_STRING_BYTES}, but a supplementary character forces decoding. */
   private static final byte KEY_STRING_COLLATED = 2;
 
+  /** Sort-key kind: a resource-wide dictionary id resolved through a revision-bound read view. */
+  private static final byte KEY_STRING_GLOBAL = 3;
+
+  private static final GlobalValueDictionary.ReadView[] NO_GLOBAL_SORT_VIEWS = {};
+
   private static final int MASK_WORDS = (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6;
 
   private static final class Scratch {
+    private ColumnSlice[] leafPredicateSlices;
+    private ColumnSlice[] leafSortSlices;
+
+    /** Scratch for the per-leaf predicate slices (one per predicate), reused across leaves. */
+    ColumnSlice[] leafPredicateSlices(final int predicates) {
+      ColumnSlice[] a = leafPredicateSlices;
+      if (a == null || a.length < predicates) {
+        a = new ColumnSlice[Math.max(predicates, 4)];
+        leafPredicateSlices = a;
+      }
+      return a;
+    }
+
+    /** Scratch for the per-leaf sort-key slices (one per key), reused across leaves. */
+    ColumnSlice[] leafSortSlices(final int keys) {
+      ColumnSlice[] a = leafSortSlices;
+      if (a == null || a.length < keys) {
+        a = new ColumnSlice[Math.max(keys, 4)];
+        leafSortSlices = a;
+      }
+      return a;
+    }
     final long[] mask = new long[MASK_WORDS];
   }
 
@@ -499,6 +526,20 @@ public final class ProjectionColumnScan {
     return true;
   }
 
+  private static boolean topKSortColumnsOrderable(final ProjectionColumnStore store, final int[] sortColumns,
+      final GlobalValueDictionary.ReadView[] globalSortViews) {
+    if (globalSortViews.length != sortColumns.length && globalSortViews.length != 0) {
+      return false;
+    }
+    for (int key = 0; key < sortColumns.length; key++) {
+      if (store.columnKind(sortColumns[key]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+          && (globalSortViews.length == 0 || globalSortViews[key] == null)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * Bounded top-{@code k} sorted scan, fused with collection — the R2 "heap over zone-map-pruned
    * leaves" shape: once the heap is full, a leaf whose FIRST order key's zone bounds cannot beat the
@@ -533,25 +574,44 @@ public final class ProjectionColumnScan {
    */
   public static long @Nullable [] topKRecordKeys(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int[] sortColumns, final boolean[] descending, final int k, final ColumnSegmentFetcher fetcher) {
+    return topKRecordKeys(store, predicates, sortColumns, descending, k, fetcher, NO_GLOBAL_SORT_VIEWS);
+  }
+
+  /**
+   * Global-string-capable twin of {@link #topKRecordKeys(ProjectionColumnStore, ColumnPredicate[], int[], boolean[],
+   * int, ColumnSegmentFetcher)}. {@code globalSortViews} is aligned to {@code sortColumns}; only
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} positions require a non-null view.
+   */
+  public static long @Nullable [] topKRecordKeys(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final int[] sortColumns, final boolean[] descending, final int k, final ColumnSegmentFetcher fetcher,
+      final GlobalValueDictionary.ReadView[] globalSortViews) {
     checkPredicates(store, predicates);
-    if (!sortColumnsOrderable(store, sortColumns)) {
+    if (!topKSortColumnsOrderable(store, sortColumns, globalSortViews)) {
       return null; // the generic pipeline knows the values; this heap would only know their ids
     }
     final long tPhase0 = DIAG
         ? System.nanoTime()
         : 0L;
-    final ColumnSlice[][] sortCols = resolveSortColumns(store, sortColumns, fetcher);
+    validateSortColumns(store, sortColumns);
     if (k <= 0) {
       return new long[0];
     }
     final long tPhase1 = DIAG
         ? System.nanoTime()
         : 0L;
-    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
+    // Zone-map pruning from the descriptors alone; then ONE leaf at a time through the access —
+    // resident slices when every column fits the fill budget, decoded per window otherwise, so a
+    // fat string column at 100M rows serves this exact kernel without a whole-column residency.
+    final long[] keep = computeKeepMask(store, predicates, fetcher);
+    final int[] needed = new int[sortColumns.length + predicates.length];
+    System.arraycopy(sortColumns, 0, needed, 0, sortColumns.length);
+    for (int i = 0; i < predicates.length; i++) {
+      needed[sortColumns.length + i] = predicates[i].column;
+    }
+    final ProjectionColumnStore.LeafColumnAccess access = store.leafAccess(fetcher, keep, needed, true);
     final long tPhase2 = DIAG
         ? System.nanoTime()
         : 0L;
-    final long[][] keySlices = store.recordKeys(fetcher);
     final long tPhase3 = DIAG
         ? System.nanoTime()
         : 0L;
@@ -586,9 +646,13 @@ public final class ProjectionColumnScan {
     // Best-possible first key per leaf, or null when no admissible best-first plan exists. Built
     // BEFORE keyKind: its walk over the first key's dictionaries is what establishes that column's
     // collation verdict, and paying a separate sweep for it costs more than the verdict saves.
-    long[] leafBestOrNull = TOPK_DOC_ORDER
+    // A windowed access visits leaves in DOCUMENT order: the best-first plan would hop across the
+    // whole store and re-decode a window per hop, while the sequential walk decodes each window once
+    // and the per-leaf zone prune still skips what the heap has already beaten.
+    long[] leafBestOrNull = TOPK_DOC_ORDER || access.windowed()
+        || store.columnKind(sortColumns[0]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
         ? null
-        : leafBestFirstKeys(store, sortCols, sortColumns, leafRows, descending[0], fetcher);
+        : leafBestFirstKeys(store, access, sortColumns, leafRows, descending[0], fetcher);
     // A string key's heap value is the PACKED (leaf << 32) | dictId — never comparable as a
     // long (the same value in two leaves packs differently), so every comparison resolves the
     // entry bytes through sortCols. Numeric keys stay raw longs. The string kinds split on
@@ -596,13 +660,15 @@ public final class ProjectionColumnScan {
     // exact per-pair path, which is what the scan did before the split existed.
     final byte[] keyKind = new byte[keyCount];
     for (int kk = 0; kk < keyCount; kk++) {
-      if (store.columnKind(sortColumns[kk]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-        keyKind[kk] = KEY_NUMERIC;
-      } else {
-        keyKind[kk] = store.stringDictSupplementaryMemo(sortColumns[kk]) == ProjectionColumnStore.SUPPLEMENTARY_NONE
-            ? KEY_STRING_BYTES
-            : KEY_STRING_COLLATED;
-      }
+      final byte columnKind = store.columnKind(sortColumns[kk]);
+      keyKind[kk] = switch (columnKind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+          store.stringDictSupplementaryMemo(sortColumns[kk]) == ProjectionColumnStore.SUPPLEMENTARY_NONE
+              ? KEY_STRING_BYTES
+              : KEY_STRING_COLLATED;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> KEY_STRING_GLOBAL;
+        default -> KEY_NUMERIC;
+      };
     }
     // Rowless leaves are dropped from the plan rather than ordered: they contribute nothing, and a
     // sort would have to resolve an extremum they do not have (their slice carries no dictionary).
@@ -613,7 +679,8 @@ public final class ProjectionColumnScan {
         visit[visitCount++] = leaf;
       }
     }
-    if (leafBestOrNull != null && allLeafExtremaTie(leafBestOrNull, visit, visitCount, keyKind, sortCols)) {
+    if (leafBestOrNull != null
+        && allLeafExtremaTie(leafBestOrNull, visit, visitCount, keyKind, access, sortColumns, globalSortViews)) {
       // Every leaf offers the same best key, so the worst kept row can never be beaten by it and the
       // stop can never fire — the reordering would buy nothing and cost the sequential slice access
       // the document-order walk enjoys. (Q25's shape: `WHERE SearchPhrase <> ''` excludes the empty
@@ -625,7 +692,7 @@ public final class ProjectionColumnScan {
     final long[] leafBest = leafBestOrNull;
     if (leafBest != null) {
       IntArrays.mergeSort(visit, 0, visitCount, (a, b) -> {
-        final int cmp = compareKeyAt(leafBest[a], leafBest[b], 0, keyKind, sortCols);
+        final int cmp = compareKeyAt(leafBest[a], leafBest[b], 0, keyKind, access, sortColumns, globalSortViews);
         if (cmp != 0) {
           return descending[0]
               ? -cmp
@@ -644,7 +711,7 @@ public final class ProjectionColumnScan {
         if (leafBest != null) {
           // Leaves are ordered best-first on key 0, so the first one whose BEST possible key is
           // strictly worse than the worst kept row proves the same of every leaf after it.
-          final int cmp = compareKeyAt(leafBest[leaf], heapTuple[0], 0, keyKind, sortCols);
+          final int cmp = compareKeyAt(leafBest[leaf], heapTuple[0], 0, keyKind, access, sortColumns, globalSortViews);
           if ((descending[0]
               ? -cmp
               : cmp) > 0) {
@@ -652,7 +719,7 @@ public final class ProjectionColumnScan {
             TOPK_LEAVES_SKIPPED.add(visitCount - v);
             break;
           }
-        } else if (keyKind[0] == KEY_NUMERIC && leafZonePrunable(sortCols, leaf, rows, descending[0], heapTuple)) {
+        } else if (keyKind[0] == KEY_NUMERIC && leafZonePrunable(access, sortColumns, leaf, rows, descending[0], heapTuple)) {
           // NEVER zone-prune on a string first key without the value extrema above:
           // ColumnSlice.min()/max() of a STRING_DICT column are dict IDS, meaningless for value
           // order — pruning on them drops matching leaves silently (the exact hazard the STR_*
@@ -666,7 +733,7 @@ public final class ProjectionColumnScan {
       final long tm0 = DIAG
           ? System.nanoTime()
           : 0L;
-      final int rowCount = evaluateMask(predicates, cols, leaf, rows, s.mask);
+      final int rowCount = evaluateMask(predicates, access, leaf, rows, s.mask, s.leafPredicateSlices(predicates.length));
       if (DIAG) {
         tMask += System.nanoTime() - tm0;
       }
@@ -676,7 +743,11 @@ public final class ProjectionColumnScan {
       final long th0 = DIAG
           ? System.nanoTime()
           : 0L;
-      final long[] keys = keySlices[leaf];
+      final long[] keys = access.recordKeys(leaf);
+      final ColumnSlice[] leafSort = s.leafSortSlices(keyCount);
+      for (int kk = 0; kk < keyCount; kk++) {
+        leafSort[kk] = access.slice(sortColumns[kk], leaf);
+      }
       final int stride = (rowCount + 63) >>> 6;
       for (int w = 0; w < stride; w++) {
         long word = s.mask[w];
@@ -685,7 +756,7 @@ public final class ProjectionColumnScan {
         }
         long presAll = -1L;
         for (int kk = 0; kk < keyCount; kk++) {
-          presAll &= sortCols[kk][leaf].presenceWords()[w];
+          presAll &= leafSort[kk].presenceWords()[w];
         }
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
@@ -698,9 +769,11 @@ public final class ProjectionColumnScan {
             return null; // a matching row without an order key — the interpreter places it
           }
           for (int kk = 0; kk < keyCount; kk++) {
-            candidate[kk] = keyKind[kk] != KEY_NUMERIC
-                ? (long) leaf << 32 | sortCols[kk][leaf].stringDictIds()[rowIdx]
-                : sortCols[kk][leaf].numericValues()[rowIdx];
+            candidate[kk] = switch (keyKind[kk]) {
+              case KEY_STRING_BYTES, KEY_STRING_COLLATED ->
+                (long) leaf << 32 | leafSort[kk].stringDictIds()[rowIdx];
+              default -> leafSort[kk].numericValues()[rowIdx];
+            };
           }
           final long rowRank = rank + rowIdx;
           if (size < k) {
@@ -710,15 +783,17 @@ public final class ProjectionColumnScan {
             heapRank[slot] = rowRank;
             if (size == k) {
               for (int i = (k >>> 1) - 1; i >= 0; i--) {
-                siftDownWorst(heapTuple, heapKey, heapRank, i, k, keyCount, descending, sortCols, keyKind);
+                siftDownWorst(heapTuple, heapKey, heapRank, i, k, keyCount, descending, access, sortColumns, keyKind,
+                    globalSortViews);
               }
             }
-          } else if (compareCandidate(candidate, rowRank, heapTuple, heapRank, 0, keyCount, descending, sortCols,
-              keyKind) < 0) {
+          } else if (compareCandidate(candidate, rowRank, heapTuple, heapRank, 0, keyCount, descending, access,
+              sortColumns, keyKind, globalSortViews) < 0) {
             System.arraycopy(candidate, 0, heapTuple, 0, keyCount);
             heapKey[0] = keys[rowIdx];
             heapRank[0] = rowRank;
-            siftDownWorst(heapTuple, heapKey, heapRank, 0, k, keyCount, descending, sortCols, keyKind);
+            siftDownWorst(heapTuple, heapKey, heapRank, 0, k, keyCount, descending, access, sortColumns, keyKind,
+                globalSortViews);
           }
           if (DIAG) {
             nCand++;
@@ -741,8 +816,8 @@ public final class ProjectionColumnScan {
     for (int i = 0; i < kept; i++) {
       order[i] = i;
     }
-    IntArrays.mergeSort(order,
-        (a, b) -> compareHeapRows(heapTuple, heapRank, a, b, keyCount, descending, sortCols, keyKind));
+    IntArrays.mergeSort(order, (a, b) ->
+        compareHeapRows(heapTuple, heapRank, a, b, keyCount, descending, access, sortColumns, keyKind, globalSortViews));
     final long[] out = new long[kept];
     for (int i = 0; i < kept; i++) {
       out[i] = heapKey[order[i]];
@@ -870,28 +945,19 @@ public final class ProjectionColumnScan {
     // ONE keep mask for predicate and value columns alike: a leaf the fingerprint/zone evidence
     // already proved empty must not have its VALUE segments fetched either.
     final long[] keep = computeKeepMask(store, predicates, fetcher);
-    final ColumnSlice[][] cols = new ColumnSlice[predicates.length][];
+    // Predicate and value columns through ONE per-leaf access: resident slices when they fit the
+    // fill budget together, windowed otherwise — a fat value or predicate column at 100M rows no
+    // longer declines this route to the record path. The point-lookup shape that filters and emits
+    // the SAME column (Q20) reads one decoded slice per leaf either way; the keep mask applies to
+    // the value column too, so a leaf the evidence proved empty never has its value segments fetched.
+    final int[] needed = new int[predicates.length + 1];
     for (int i = 0; i < predicates.length; i++) {
-      cols[i] = keep == null
-          ? store.column(predicates[i].column, fetcher)
-          : store.columnMasked(predicates[i].column, fetcher, keep);
+      needed[i] = predicates[i].column;
     }
-    // The point-lookup shape filters and emits the SAME column (Q20): reuse the predicate's
-    // already-decoded slices instead of paying a second masked fetch of the same segments —
-    // columnMasked is predicate-specific and deliberately never published to the column cache.
-    ColumnSlice[] reused = null;
-    for (int i = 0; i < predicates.length; i++) {
-      if (predicates[i].column == valueColumn) {
-        reused = cols[i];
-        break;
-      }
-    }
-    final ColumnSlice[] valueSlices = reused != null
-        ? reused
-        : keep == null
-            ? store.column(valueColumn, fetcher)
-            : store.columnMasked(valueColumn, fetcher, keep);
+    needed[predicates.length] = valueColumn;
+    final ProjectionColumnStore.LeafColumnAccess access = store.leafAccess(fetcher, keep, needed, false);
     final Scratch s = SCRATCH.get();
+    final ColumnSlice[] leafPredicateSlices = s.leafPredicateSlices(predicates.length);
     // Row budget vs item budget: the cap prefix is exact only because document order makes the
     // first `limit` SURVIVING ROWS the window, and a hole inside it already declined.
     final long rowCap = limit >= 0
@@ -904,11 +970,11 @@ public final class ProjectionColumnScan {
       if (leafRows <= 0) {
         continue;
       }
-      final int rowCount = evaluateMask(predicates, cols, leaf, leafRows, s.mask);
+      final int rowCount = evaluateMask(predicates, access, leaf, leafRows, s.mask, leafPredicateSlices);
       if (rowCount <= 0) {
         continue;
       }
-      final ColumnSlice value = valueSlices[leaf];
+      final ColumnSlice value = access.predicateSlice(valueColumn, leaf);
       if (value.rowCount() < rowCount) {
         // The predicate columns say this leaf has rows the value column does not — mismatched
         // segment truth, never a benign skip. Fail loud into the caller's fail-soft catch.
@@ -986,12 +1052,13 @@ public final class ProjectionColumnScan {
    * document-order walk (which reaches every leaf) has to run. A string leaf without a value extremum
    * has nothing sound to order or stop on.
    */
-  private static long @Nullable [] leafBestFirstKeys(final ProjectionColumnStore store, final ColumnSlice[][] sortCols,
+  private static long @Nullable [] leafBestFirstKeys(final ProjectionColumnStore store,
+      final ProjectionColumnStore.LeafColumnAccess access,
       final int[] sortColumns, final int[] leafRows, final boolean descendingFirst,
       final ColumnSegmentFetcher fetcher) {
     final int leafCount = leafRows.length;
     final int[] extrema = store.columnKind(sortColumns[0]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-        ? store.stringValueExtrema(sortColumns[0], fetcher)
+        ? store.stringValueExtrema(sortColumns[0], access)
         : null;
     final long[] best = new long[leafCount];
     for (int leaf = 0; leaf < leafCount; leaf++) {
@@ -999,7 +1066,7 @@ public final class ProjectionColumnScan {
       if (rows <= 0) {
         continue; // rowless leaves are skipped by the walk itself; any order key sorts them first
       }
-      if (!orderColumnsAllPresent(sortCols, leaf, rows)) {
+      if (!orderColumnsAllPresent(access, sortColumns, leaf, rows)) {
         return null;
       }
       if (extrema != null) {
@@ -1011,7 +1078,7 @@ public final class ProjectionColumnScan {
         }
         best[leaf] = (long) leaf << 32 | id;
       } else {
-        final ColumnSlice slice = sortCols[0][leaf];
+        final ColumnSlice slice = access.slice(sortColumns[0], leaf);
         best[leaf] = descendingFirst
             ? slice.max()
             : slice.min();
@@ -1027,13 +1094,14 @@ public final class ProjectionColumnScan {
    * Direction-independent: equality does not depend on which end of the range is "best".
    */
   private static boolean allLeafExtremaTie(final long[] leafBest, final int[] visit, final int visitCount,
-      final byte[] keyKind, final ColumnSlice[][] sortCols) {
+      final byte[] keyKind, final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns,
+      final GlobalValueDictionary.ReadView[] globalSortViews) {
     if (visitCount < 2) {
       return true; // one leaf orders itself; skip the sort entirely
     }
     final long first = leafBest[visit[0]];
     for (int v = 1; v < visitCount; v++) {
-      if (compareKeyAt(first, leafBest[visit[v]], 0, keyKind, sortCols) != 0) {
+      if (compareKeyAt(first, leafBest[visit[v]], 0, keyKind, access, sortColumns, globalSortViews) != 0) {
         return false;
       }
     }
@@ -1041,10 +1109,11 @@ public final class ProjectionColumnScan {
   }
 
   /** Every order column of {@code leaf} carries a value in every one of its {@code leafRows} rows. */
-  private static boolean orderColumnsAllPresent(final ColumnSlice[][] sortCols, final int leaf, final int leafRows) {
+  private static boolean orderColumnsAllPresent(final ProjectionColumnStore.LeafColumnAccess access,
+      final int[] sortColumns, final int leaf, final int leafRows) {
     final int presWords = (leafRows + 63) >>> 6;
-    for (final ColumnSlice[] col : sortCols) {
-      final long[] presence = col[leaf].presenceWords();
+    for (final int sortCol : sortColumns) {
+      final long[] presence = access.slice(sortCol, leaf).presenceWords();
       if (presence == null || presence.length < presWords) {
         return false;
       }
@@ -1066,11 +1135,12 @@ public final class ProjectionColumnScan {
    * key, with the leaf's order columns provably all-present. Zone truth: a slice's min/max fold only
    * present values, and the all-present check makes them row-complete.
    */
-  private static boolean leafZonePrunable(final ColumnSlice[][] sortCols, final int leaf, final int leafRows,
-      final boolean descendingFirst, final long[] heapTuple) {
+  private static boolean leafZonePrunable(final ProjectionColumnStore.LeafColumnAccess access,
+      final int[] sortColumns, final int leaf, final int leafRows, final boolean descendingFirst,
+      final long[] heapTuple) {
     final int presWords = (leafRows + 63) >>> 6;
-    for (final ColumnSlice[] col : sortCols) {
-      final long[] presence = col[leaf].presenceWords();
+    for (final int sortCol : sortColumns) {
+      final long[] presence = access.slice(sortCol, leaf).presenceWords();
       for (int w = 0; w < presWords; w++) {
         final int width = Math.min(64, leafRows - (w << 6));
         final long full = width >= 64
@@ -1081,7 +1151,7 @@ public final class ProjectionColumnScan {
         }
       }
     }
-    final ColumnSlice first = sortCols[0][leaf];
+    final ColumnSlice first = access.slice(sortColumns[0], leaf);
     final long worstFirstKey = heapTuple[0]; // root row's first key sits at tuple offset 0
     return descendingFirst
         ? first.max() < worstFirstKey
@@ -1098,16 +1168,19 @@ public final class ProjectionColumnScan {
    * top-k selection makes.
    */
   private static int compareKeyAt(final long a, final long b, final int k, final byte[] keyKind,
-      final ColumnSlice[][] sortCols) {
+      final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns, final GlobalValueDictionary.ReadView[] globalSortViews) {
     final byte kind = keyKind[k];
     if (kind == KEY_NUMERIC) {
       return Long.compare(a, b);
     }
+    if (kind == KEY_STRING_GLOBAL) {
+      return globalSortViews[k].compareIds(Math.toIntExact(a), Math.toIntExact(b));
+    }
     if (a == b) {
       return 0; // same leaf, same dict id — same value, no byte walk needed
     }
-    final ColumnSlice sa = sortCols[k][(int) (a >>> 32)];
-    final ColumnSlice sb = sortCols[k][(int) (b >>> 32)];
+    final ColumnSlice sa = access.slice(sortColumns[k], (int) (a >>> 32));
+    final ColumnSlice sb = access.slice(sortColumns[k], (int) (b >>> 32));
     final byte[] ea = sa.dictBytes();
     final byte[] eb = sb.dictBytes();
     final int aOff = sa.dictOffset((int) a);
@@ -1128,10 +1201,11 @@ public final class ProjectionColumnScan {
   /** Compare a candidate row against heap slot {@code slot} under the sort's total order. */
   private static int compareCandidate(final long[] candidate, final long candidateRank, final long[] heapTuple,
       final long[] heapRank, final int slot, final int keyCount, final boolean[] descending,
-      final ColumnSlice[][] sortCols, final byte[] keyKind) {
+      final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns, final byte[] keyKind,
+      final GlobalValueDictionary.ReadView[] globalSortViews) {
     final int base = slot * keyCount;
     for (int k = 0; k < keyCount; k++) {
-      final int cmp = compareKeyAt(candidate[k], heapTuple[base + k], k, keyKind, sortCols);
+      final int cmp = compareKeyAt(candidate[k], heapTuple[base + k], k, keyKind, access, sortColumns, globalSortViews);
       if (cmp != 0) {
         return descending[k]
             ? -cmp
@@ -1143,11 +1217,12 @@ public final class ProjectionColumnScan {
 
   /** Compare two heap slots under the sort's total order (per-key direction, rank tiebreak). */
   private static int compareHeapRows(final long[] heapTuple, final long[] heapRank, final int a, final int b,
-      final int keyCount, final boolean[] descending, final ColumnSlice[][] sortCols, final byte[] keyKind) {
+      final int keyCount, final boolean[] descending, final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns, final byte[] keyKind,
+      final GlobalValueDictionary.ReadView[] globalSortViews) {
     final int ba = a * keyCount;
     final int bb = b * keyCount;
     for (int k = 0; k < keyCount; k++) {
-      final int cmp = compareKeyAt(heapTuple[ba + k], heapTuple[bb + k], k, keyKind, sortCols);
+      final int cmp = compareKeyAt(heapTuple[ba + k], heapTuple[bb + k], k, keyKind, access, sortColumns, globalSortViews);
       if (cmp != 0) {
         return descending[k]
             ? -cmp
@@ -1159,18 +1234,20 @@ public final class ProjectionColumnScan {
 
   /** Max-heap sift-down (root = WORST kept row) over the parallel heap arrays. */
   private static void siftDownWorst(final long[] heapTuple, final long[] heapKey, final long[] heapRank,
-      final int start, final int size, final int keyCount, final boolean[] descending, final ColumnSlice[][] sortCols,
-      final byte[] keyKind) {
+      final int start, final int size, final int keyCount, final boolean[] descending, final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns,
+      final byte[] keyKind, final GlobalValueDictionary.ReadView[] globalSortViews) {
     int i = start;
     final int half = size >>> 1;
     while (i < half) {
       int child = (i << 1) + 1;
       final int right = child + 1;
       if (right < size
-          && compareHeapRows(heapTuple, heapRank, right, child, keyCount, descending, sortCols, keyKind) > 0) {
+          && compareHeapRows(heapTuple, heapRank, right, child, keyCount, descending, access, sortColumns, keyKind,
+              globalSortViews) > 0) {
         child = right;
       }
-      if (compareHeapRows(heapTuple, heapRank, child, i, keyCount, descending, sortCols, keyKind) <= 0) {
+      if (compareHeapRows(heapTuple, heapRank, child, i, keyCount, descending, access, sortColumns, keyKind,
+          globalSortViews) <= 0) {
         return;
       }
       swapHeapRows(heapTuple, heapKey, heapRank, i, child, keyCount);
@@ -1195,22 +1272,36 @@ public final class ProjectionColumnScan {
     heapRank[b] = tmp;
   }
 
-  /** Resolve + validate the order columns: NUMERIC_LONG or STRING_DICT slices, one per key. */
+  /**
+   * Resolve + validate the order columns: NUMERIC_LONG, STRING_DICT, or STRING_GLOBAL slices, one
+   * per key. A global string's numeric lane carries its dictionary id; the bounded top-K caller
+   * supplies the revision-bound read view that turns that id into an order in
+   * {@link #topKSortColumnsOrderable(ProjectionColumnStore, int[], GlobalValueDictionary.ReadView[])}.
+   */
   private static ColumnSlice[][] resolveSortColumns(final ProjectionColumnStore store, final int[] sortColumns,
       final ColumnSegmentFetcher fetcher) {
-    if (sortColumns == null || sortColumns.length < 1) {
-      throw new IllegalArgumentException("sortColumns must not be empty");
-    }
+    validateSortColumns(store, sortColumns);
     final ColumnSlice[][] cols = new ColumnSlice[sortColumns.length][];
     for (int k = 0; k < sortColumns.length; k++) {
-      final byte kind = store.columnKind(sortColumns[k]);
-      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-        throw new IllegalStateException("sortColumn " + sortColumns[k] + " is not NUMERIC_LONG or STRING_DICT");
-      }
       cols[k] = store.column(sortColumns[k], fetcher);
     }
     return cols;
+  }
+
+  /** The sort columns' kind check, shared by the resident resolve and the per-leaf access path. */
+  private static void validateSortColumns(final ProjectionColumnStore store, final int[] sortColumns) {
+    if (sortColumns == null || sortColumns.length < 1) {
+      throw new IllegalArgumentException("sortColumns must not be empty");
+    }
+    for (int k = 0; k < sortColumns.length; k++) {
+      final byte kind = store.columnKind(sortColumns[k]);
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        throw new IllegalStateException(
+            "sortColumn " + sortColumns[k] + " is not NUMERIC_LONG, STRING_DICT, or STRING_GLOBAL");
+      }
+    }
   }
 
   // ==================== shared evaluation ====================
@@ -1243,6 +1334,16 @@ public final class ProjectionColumnScan {
         // Membership only: ordering/substring over a SEQUENCE is a different question.
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
           throw new IllegalStateException("String-set column " + p.column + " only serves EQ membership");
+        }
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+          && p.globalIdVerdict != null) {
+        // A pre-evaluated verdict over the resource-wide dictionary: the slice evaluator answers
+        // each row with one bit test against its id — servable for every per-value string op.
+        switch (p.op) {
+          case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+            /* servable */ }
+          default -> throw new IllegalStateException(
+              "String-global column " + p.column + " cannot serve op " + p.op + " by verdict");
         }
       } else if (p.stringLitBytes != null) {
         throw new IllegalStateException("String literal against non-string column " + p.column);
@@ -1340,8 +1441,33 @@ public final class ProjectionColumnScan {
    * AND. Returns the leaf's rowCount (0 = pruned/empty; the mask may still be all-zero for a live
    * rowCount).
    */
+  /** {@link #evaluateMask(ColumnPredicate[], ColumnSlice[][], int, int, long[])} over a per-leaf access. */
+  static int evaluateMask(final ColumnPredicate[] predicates, final ProjectionColumnStore.LeafColumnAccess access,
+      final int leaf, final int rowCount, final long[] mask, final ColumnSlice[] leafSlices) {
+    if (rowCount <= 0) {
+      return 0;
+    }
+    for (int i = 0; i < predicates.length; i++) {
+      leafSlices[i] = access.predicateSlice(predicates[i].column, leaf);
+    }
+    return evaluateMaskOnSlices(predicates, leafSlices, leaf, rowCount, mask);
+  }
+
   static int evaluateMask(final ColumnPredicate[] predicates, final ColumnSlice[][] cols, final int leaf,
       final int rowCount, final long[] mask) {
+    if (rowCount <= 0) {
+      return 0;
+    }
+    final ColumnSlice[] leafSlices = new ColumnSlice[predicates.length];
+    for (int i = 0; i < predicates.length; i++) {
+      leafSlices[i] = cols[i][leaf];
+    }
+    return evaluateMaskOnSlices(predicates, leafSlices, leaf, rowCount, mask);
+  }
+
+  /** The mask kernel proper: {@code slices[i]} is predicate {@code i}'s slice on {@code leaf}. */
+  private static int evaluateMaskOnSlices(final ColumnPredicate[] predicates, final ColumnSlice[] slices,
+      final int leaf, final int rowCount, final long[] mask) {
     if (rowCount <= 0) {
       return 0;
     }
@@ -1350,13 +1476,13 @@ public final class ProjectionColumnScan {
     // false for the whole leaf. Checked before any evaluator so the pruned sentinel's absent
     // typed arrays are never touched.
     for (int i = 0; i < predicates.length; i++) {
-      if (cols[i][leaf].rowCount() <= 0) {
+      if (slices[i].rowCount() <= 0) {
         return 0;
       }
     }
     // Zone-map prune — numeric predicate columns only (byte-kernel policy).
     for (int i = 0; i < predicates.length; i++) {
-      final ColumnSlice slice = cols[i][leaf];
+      final ColumnSlice slice = slices[i];
       requireTranslatedLiteral(predicates[i], slice);
       if (slice.numericValues() == null) {
         continue;
@@ -1373,7 +1499,7 @@ public final class ProjectionColumnScan {
     fillAllTrue(mask, rows, stride);
     for (int i = 0; i < predicates.length; i++) {
       final ColumnPredicate p = predicates[i];
-      final ColumnSlice slice = cols[i][leaf];
+      final ColumnSlice slice = slices[i];
       final long[] presence = slice.presenceWords();
       final long[] values = slice.numericValues();
       if (values != null) {
@@ -1410,6 +1536,31 @@ public final class ProjectionColumnScan {
   private static void evalNumeric(final long[] values, final int rowCount, final ColumnPredicate p,
       final long[] presence, final long[] mask) {
     final int stride = (rowCount + 63) >>> 6;
+    if (p.globalIdVerdict != null) {
+      // Pre-evaluated global verdict: one bit test per present row. Ids outside 1..count — the
+      // missing-cell 0 included — never match, the leaf contract's missing ⇒ false.
+      final long[] verdict = p.globalIdVerdict;
+      final int idCount = p.globalIdVerdictCount;
+      for (int w = 0; w < stride; w++) {
+        long candidates = mask[w] & presence[w];
+        long out = 0L;
+        final int rowBase = w << 6;
+        while (candidates != 0L) {
+          final int bit = Long.numberOfTrailingZeros(candidates);
+          candidates &= candidates - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long id = values[rowIdx];
+          if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+            out |= 1L << bit;
+          }
+        }
+        mask[w] = out;
+      }
+      return;
+    }
     final long lit = p.longLit;
     final long high = p.highLit;
     for (int w = 0; w < stride; w++) {
@@ -1980,7 +2131,9 @@ public final class ProjectionColumnScan {
    * caught by every caller as a decline.
    */
   private static void requireTranslatedLiteral(final ColumnPredicate p, final ColumnSlice slice) {
-    if (p.stringLitBytes != null && slice.numericValues() != null) {
+    if (p.stringLitBytes != null && slice.numericValues() != null && p.globalIdVerdict == null) {
+      // A VERDICT predicate keeps its literal by design (it also keys the zone-skip exemption);
+      // only a literal with neither an id translation nor a verdict marks a routing defect.
       throw new IllegalStateException("column " + p.column + " stores values in the long lane, but the " + p.op
           + " predicate still carries a string literal — it was never resolved to a dictionary id");
     }

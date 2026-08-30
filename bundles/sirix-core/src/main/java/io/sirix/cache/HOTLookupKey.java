@@ -19,8 +19,8 @@ import java.util.Objects;
  * The revision is part of the identity rather than a validity check, which is what lets
  * {@link HOTLookupCache} run WITHOUT an invalidation protocol: a committed revision's index content
  * is immutable, so an entry can never go stale — a write produces a new revision and therefore new
- * keys, and the old entries simply age out. The database and resource ids are carried for the same
- * reason {@link RBIndexKey} carries them: one buffer manager serves more than one resource.
+ * keys, and the old entries simply age out. The database and resource ids prevent collisions
+ * because one buffer manager serves more than one resource.
  * </p>
  *
  * <h2>Probing without copying</h2>

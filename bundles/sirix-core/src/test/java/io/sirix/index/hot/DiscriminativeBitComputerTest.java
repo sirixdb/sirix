@@ -134,6 +134,7 @@ class DiscriminativeBitComputerTest {
       // 7 bytes * 8 bits + 7 (LSB of 8th byte) = 63
       assertEquals(63, result);
     }
+
   }
 
   @Nested
@@ -189,6 +190,14 @@ class DiscriminativeBitComputerTest {
     void testNegativeBitIndex() {
       byte[] key = {(byte) 0xFF};
       assertFalse(DiscriminativeBitComputer.isBitSet(key, -1));
+    }
+
+    @Test
+    @DisplayName("Valid length treats stale tail bits as zero")
+    void testValidLengthTreatsTailBitsAsZero() {
+      final byte[] key = {0x00, (byte) 0xFF};
+      assertFalse(DiscriminativeBitComputer.isBitSet(key, 1, 8));
+      assertTrue(DiscriminativeBitComputer.isBitSet(key, 2, 8));
     }
   }
 
@@ -308,4 +317,3 @@ class DiscriminativeBitComputerTest {
     }
   }
 }
-

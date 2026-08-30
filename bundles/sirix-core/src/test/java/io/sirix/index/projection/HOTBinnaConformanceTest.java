@@ -32,8 +32,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Binna-conformance gate for the HOT trie under the projection index's key shape — the shape that
@@ -156,18 +154,7 @@ final class HOTBinnaConformanceTest {
 
         // (3) The validator, including I12 (subtree-ranges-disjoint).
         final HOTInvariantValidator.Result result = HOTInvariantValidator.validate(root, reader);
-        final StringBuilder report = new StringBuilder();
-        boolean anyI12 = false;
-        for (final HOTInvariantValidator.Violation violation : result.violations()) {
-          report.append('\n').append(violation);
-          anyI12 |= violation.invariant().startsWith("I12");
-        }
-        if (anyI12) {
-          fail("I12 subtree-ranges-disjoint violated — a node's mask is missing a discriminating "
-              + "bit or a key was absorbed into a leaf outside its R(S)-subtree:" + report);
-        }
-        assertTrue(result.hardViolations().isEmpty(),
-            "hard invariant violations on the projection key shape:" + report);
+        result.assertOk();
       }
     }
   }

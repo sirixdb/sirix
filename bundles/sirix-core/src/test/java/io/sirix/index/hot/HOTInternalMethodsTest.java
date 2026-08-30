@@ -819,64 +819,6 @@ class HOTInternalMethodsTest {
   }
 
   @Nested
-  @DisplayName("ChunkDirectory Direct Tests")
-  class ChunkDirectoryDirectTests {
-
-    @Test
-    @DisplayName("Full lifecycle")
-    void testFullLifecycle() {
-      ChunkDirectory dir = new ChunkDirectory();
-
-      assertTrue(dir.isEmpty());
-      assertFalse(dir.isModified());
-
-      for (int i = 0; i < 50; i++) {
-        PageReference ref = dir.getOrCreateChunkRef(i);
-        ref.setKey(1000 + i);
-      }
-
-      assertEquals(50, dir.chunkCount());
-      assertFalse(dir.isEmpty());
-      assertTrue(dir.isModified());
-
-      dir.clearModified();
-      assertFalse(dir.isModified());
-
-      ChunkDirectory copy = dir.copy();
-      assertEquals(50, copy.chunkCount());
-
-      int[] indices = dir.getChunkIndices();
-      assertEquals(50, indices.length);
-    }
-
-    @Test
-    @DisplayName("setChunkRef and getChunkRef")
-    void testSetGetChunkRef() {
-      ChunkDirectory dir = new ChunkDirectory();
-
-      for (int idx = 0; idx < 20; idx++) {
-        PageReference ref = new PageReference();
-        ref.setKey(1000 + idx);
-        dir.setChunkRef(idx, ref);
-
-        PageReference retrieved = dir.getChunkRef(idx);
-        assertNotNull(retrieved);
-        assertEquals(1000 + idx, retrieved.getKey());
-      }
-    }
-
-    @Test
-    @DisplayName("chunkIndexFor boundary cases")
-    void testChunkIndexFor() {
-      long[] values = {0L, 65535L, 65536L, 131071L, 131072L};
-      for (long value : values) {
-        int idx = ChunkDirectory.chunkIndexFor(value);
-        assertTrue(idx >= 0);
-      }
-    }
-  }
-
-  @Nested
   @DisplayName("HOTLeafPage Direct Tests")
   class HOTLeafPageDirectTests {
 

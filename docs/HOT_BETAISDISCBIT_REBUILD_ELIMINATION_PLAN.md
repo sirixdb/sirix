@@ -81,8 +81,7 @@ and **all 134 route correctly** under strict, no-fallback root-to-leaf descent
 (`misroutes=0`). Highest-index subset-match is exactly the right rule: a strict-subset
 stored partial still subset-matches, and no higher-index sibling shadows K's combo-child
 (`HOT_FORMAL_FOUNDATION.md` Theorem 2 — the LCA block-bit argument). End-to-end: 500 K
-CAS keys, **both** reader fallbacks disabled (`-Dhot.cas.leftmostfallback.disable=true
--Dhot.strict.phase7u.lexfallback.disable=true`) → `hits=500000/500000`. So
+CAS keys through the canonical routed lookup → `hits=500000/500000`. So
 `addChildAtCombination` does **not** rely on a reader fallback. It is genuinely correct.
 
 ### §3.2 The full-node decomposition — and the β-survival dispatch
@@ -418,8 +417,9 @@ leaf-overflow rebuild and the `HOTStraddleException` catch arms; this plan then 
 what remains).
 
 **Out of scope.** `consolidateSubtree` (incremental leaf consolidation, not a rebuild —
-retained). The reader-side lower-bound / lex fallbacks — once every insert is verified
-routing-correct they become dead, but their removal is a separate read-path cleanup.
+retained). Reader cleanup subsequently removed the lower-bound lex re-descent: seeks now use
+the canonical PEXT route and Binna search-stack walk exclusively, so writer routing invariants
+are mandatory rather than masked on reads.
 
 **Result.** With both plans landed, a HOT insert is a composition of verified incremental
 primitives — `splitLeafPage`, `splitIndirect`, `addEntry`, `addChildAtCombination`,

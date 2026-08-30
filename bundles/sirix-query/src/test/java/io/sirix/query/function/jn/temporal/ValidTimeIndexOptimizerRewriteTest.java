@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * HARD CORRECTNESS GATE for the optimizer auto-selection of the VALIDTIME interval index for a plain
  * FLWOR stabbing predicate ({@code JsonValidTimeStep} → {@code jn:scan-valid-time-index}).
  *
- * <p>No {@code -D} flags. For many instants (incl. boundaries):</p>
+ * <p>For many instants (incl. boundaries):</p>
  * <ul>
  *   <li>the plain FLWOR {@code for $x in jn:doc(...)[] where $x.validFrom <= $t and $t <= $x.validTo
  *       return $x} — and its operator/operand-order variants — returns exactly the brute-force set,
@@ -93,10 +93,6 @@ public final class ValidTimeIndexOptimizerRewriteTest {
   @Test
   @DisplayName("plain FLWOR stabbing predicate == brute force == jn:valid-at; rewrite fires; negatives correct")
   void flworStabbingRewriteGate() throws IOException {
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "must run WITHOUT -Dsirix.index.useHOT");
-
     records = buildDataset();
     final String json = toJson(records);
 

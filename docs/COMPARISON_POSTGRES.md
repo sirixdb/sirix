@@ -385,7 +385,7 @@ client-driven PostgreSQL number is measured in.
 Every remaining cache was then audited for the same defect. `PathSummaryCache` had it (no live
 caller yet, fixed as a trap); the `Cache` interface default had a variant of it — it wrote the
 computed value twice on a miss, and reached it through `asMap()`, whose own default throws, which
-made the method unusable on `LRUCache`, `RedBlackTreeNodeCache` and `EmptyCache`. `ShardedPageCache`
+made the method unusable on `LRUCache` and `EmptyCache`. `ShardedPageCache`
 and `PerResourceRevisionFileDataCache` were already correct.
 
 Taken together, across the session and on one box: an owning-transaction full-document read went

@@ -12,7 +12,6 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.IndexBackendType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.Database;
@@ -156,7 +155,7 @@ public class CASDecimalEqualityBenchmark {
     Files.delete(databaseDirectory.toPath());
     Databases.createJsonDatabase(new DatabaseConfiguration(databaseDirectory.toPath()));
     database = Databases.openJsonDatabase(databaseDirectory.toPath());
-    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).indexBackendType(IndexBackendType.HOT).build());
+    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
 
     queriedPaths = Set.of(VALUE_PATH);
     indexDef = buildIndex(values, encoding);

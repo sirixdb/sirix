@@ -3,8 +3,6 @@
  */
 package io.sirix.index.projection;
 
-import org.jspecify.annotations.Nullable;
-
 import java.io.ByteArrayOutputStream;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -12,75 +10,17 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /**
- * Storage codec for projection leaves: converts between the flat scan-friendly byte layout the
- * {@link ProjectionIndexByteScan} kernels operate on (the "raw" form — see
- * {@link ProjectionIndexRowGroupPage}'s class javadoc) and a compact persisted form. The raw form
- * trades space for branch-free fixed-stride access (raw 8-byte numerics, 4-byte dict-ids, full
- * presence words); persisting it verbatim roughly doubles the store. The compact form applies:
+ * Shared primitive encoders and decoders for the canonical segmented projection format.
  *
- * <ul>
- * <li><b>record keys</b> — delta + frame-of-reference bit-packing when ascending (the builder's
- * document-order walk), absolute FOR otherwise;</li>
- * <li><b>NUMERIC_LONG columns</b> — frame-of-reference base + minimal bit-width packing
- * ({@code width == 0} collapses a constant column, including the all-default body of an all-missing
- * column, to 9 bytes);</li>
- * <li><b>STRING_DICT columns</b> — dictionary verbatim (tiny), dict-ids bit-packed to
- * {@code ceil(log2(dictSize))} bits;</li>
- * <li><b>BOOLEAN columns</b> — packed words verbatim (already 1 bit/row);</li>
- * <li><b>presence bitmaps</b> — one marker byte for the all-present / all-missing cases, literal
- * words otherwise.</li>
- * </ul>
- *
- * <p>
- * {@link #decode} reconstructs the raw payload <b>byte-identically</b> (it re-assembles a
- * {@link ProjectionIndexRowGroupPage} and re-serialises it), so hydrated leaves are
- * indistinguishable from freshly built ones — presence, unrepresentable and integrality provenance
- * included. Encode → decode is a strict identity on any valid raw leaf.
- *
- * <p>
- * Compact payloads are recognised by a leading {@link #COMPACT_MAGIC}; {@link #decode} passes
- * non-compact payloads through unchanged (a raw leaf's first int is its row count {@code <= 1024},
- * which can never collide with the magic).
+ * <p>This class is deliberately package-private and is <b>not</b> a persisted row-group codec.
+ * {@link ProjectionIndexColumnSegmentCodec} owns the only supported row-group persistence format;
+ * this helper merely centralizes its little-endian access, frame-of-reference bit packing,
+ * dictionaries, presence bitmaps, record keys, and order-label primitives so writers and readers
+ * cannot drift.
  */
-public final class ProjectionIndexRowGroupCodec {
-
-  /** Leading magic of a compact payload ("PIXC" little-endian). */
-  public static final int COMPACT_MAGIC = 0x43585049;
-
-  /**
-   * Version byte written immediately after {@link #COMPACT_MAGIC}. A future layout change bumps this
-   * instead of minting a new magic; {@link #decode} fails fast on an unknown value (a version
-   * mismatch can only mean a newer writer or corruption — the metadata's own version gate triggers a
-   * rebuild before hydration ever reaches an incompatible leaf).
-   */
-  public static final byte COMPACT_VERSION = 0;
+final class ProjectionIndexRowGroupCodec {
 
   private ProjectionIndexRowGroupCodec() {}
-
-  /**
-   * Record-key zone map {@code [firstRecordKey, lastRecordKey]} of a persisted leaf payload, read
-   * from its HEAD bytes without materialising the leaf — the single canonical header-range reader for
-   * BOTH persisted forms (compact: keys at offsets 13/21 after magic + version byte; raw serialised:
-   * offsets 8/16 — see {@link ProjectionIndexRowGroupPage#columnCountOf} for the raw header's
-   * canonical column reader). Callers may pass just the head chunk of a chunked store; returns
-   * {@code null} when the bytes are too short to carry the range (caller falls back to the full
-   * payload).
-   */
-  public static long @Nullable [] recordKeyRange(final byte @Nullable [] head) {
-    if (head == null) {
-      return null;
-    }
-    if (head.length >= 4 && getIntLE(head, 0) == COMPACT_MAGIC) {
-      if (head.length < 29) {
-        return null;
-      }
-      return new long[] {getLongLE(head, 13), getLongLE(head, 21)};
-    }
-    if (head.length < 24) {
-      return null;
-    }
-    return new long[] {getLongLE(head, 8), getLongLE(head, 16)};
-  }
 
   /**
    * Byte-array view handles for little-endian loads — HotSpot intrinsifies {@code get} on
@@ -119,106 +59,6 @@ public final class ProjectionIndexRowGroupCodec {
           | (b[off + 7] & 0xFFL) << 56;
     }
     return (long) LONG_LE.get(b, off);
-  }
-
-  // ==================== encode ====================
-
-  /**
-   * Encode a raw leaf payload into the compact persisted form.
-   *
-   * @throws IllegalStateException when {@code rawPayload} is not a valid raw leaf (propagated from
-   *         {@link ProjectionIndexRowGroupPage#deserialize}).
-   */
-  public static byte[] encode(final byte[] rawPayload) {
-    if (rawPayload == null) {
-      return null;
-    }
-    final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(rawPayload);
-    final int rowCount = page.getRowCount();
-    final int columnCount = page.getColumnCount();
-    final ByteArrayOutputStream out = new ByteArrayOutputStream(1024);
-    putIntLE(out, COMPACT_MAGIC);
-    out.write(COMPACT_VERSION);
-    putIntLE(out, rowCount);
-    putIntLE(out, columnCount);
-    putLongLE(out, page.firstRecordKey());
-    putLongLE(out, page.lastRecordKey());
-    for (int c = 0; c < columnCount; c++) {
-      out.write(page.columnKind(c));
-    }
-    if (rowCount > 0) {
-      encodeRecordKeys(out, page.recordKeys(), rowCount);
-    }
-    final long[] orderExceptionBits = page.orderExceptionBits();
-    if (orderExceptionBits == null) {
-      out.write(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE);
-    } else {
-      out.write(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE);
-      final int orderWords = (rowCount + 63) >>> 6;
-      for (int word = 0; word < orderWords; word++) {
-        putLongLE(out, orderExceptionBits[word]);
-      }
-    }
-    encodeOrderLabels(out, page);
-    if (rowCount > 0) {
-      for (int c = 0; c < columnCount; c++) {
-        putLongLE(out, page.columnMin(c));
-        putLongLE(out, page.columnMax(c));
-        switch (page.columnKind(c)) {
-          // STRING_GLOBAL cells are dictionary ids: dense small integers, which is precisely
-          // what frame-of-reference bit packing is best at. Same encoder, no special case.
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
-            encodeForBitPacked(out, page.numericColumn(c), rowCount);
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-            encodeForBitPackedDouble(out, page.numericColumn(c), rowCount);
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
-            final long[] bits = page.booleanColumnBits(c);
-            final int words = (rowCount + 63) >>> 6;
-            for (int w = 0; w < words; w++) {
-              putLongLE(out, bits[w]);
-            }
-          }
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
-            encodeStringDict(out, page, c, page.stringDictIdColumn(c), rowCount);
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
-            // Dictionary, then per-row counts, then the flat element run — the same order every
-            // other encoder of this column uses. A whole-leaf codec has to handle EVERY column on
-            // the leaf, so omitting this would throw for a query that never touches the set.
-            encodeDictEntries(out, page, c);
-            final int[] counts = page.stringSetCountColumn(c);
-            int maxCount = 0;
-            for (int r = 0; r < rowCount; r++) {
-              if (counts[r] > maxCount) {
-                maxCount = counts[r];
-              }
-            }
-            encodePackedIds(out, counts, rowCount, maxCount);
-            encodeDictIds(out, page.stringDictionarySize(c), page.stringSetIdColumn(c), page.stringSetLength(c));
-          }
-          default -> throw new IllegalStateException("Unknown column kind " + page.columnKind(c));
-        }
-      }
-    }
-    // Tail: flags verbatim, presence per column as marker byte or literal words.
-    for (int c = 0; c < columnCount; c++) {
-      byte flags = page.columnUnrepresentable(c)
-          ? ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE
-          : 0;
-      if (page.columnNumericNonIntegral(c)) {
-        flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL;
-      }
-      if (page.columnPureDoubleSource(c)) {
-        flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
-      }
-      out.write(flags);
-    }
-    if (rowCount > 0) {
-      for (int c = 0; c < columnCount; c++) {
-        encodePresence(out, page.presenceColumnBits(c), rowCount);
-      }
-    }
-    return out.toByteArray();
   }
 
   static void encodeRecordKeys(final ByteArrayOutputStream out, final long[] keys, final int rowCount) {
@@ -329,12 +169,6 @@ public final class ProjectionIndexRowGroupCodec {
     return 8 + 1 + ((rowCount * width + 7) >>> 3);
   }
 
-  private static void encodeStringDict(final ByteArrayOutputStream out, final ProjectionIndexRowGroupPage page,
-      final int column, final int[] ids, final int rowCount) {
-    encodeDictEntries(out, page, column);
-    encodeDictIds(out, page.stringDictionarySize(column), ids, rowCount);
-  }
-
   /** Number of populated (null-terminated) dictionary slots. Shared dict-size authority. */
   static int dictSizeOf(final byte[][] dict) {
     int dictSize = 0;
@@ -342,18 +176,6 @@ public final class ProjectionIndexRowGroupCodec {
       dictSize++;
     }
     return dictSize;
-  }
-
-  /** Dictionary half of the string-dict wire form: count, lengths, concatenated bytes. */
-  static void encodeDictEntries(final ByteArrayOutputStream out, final byte[][] dict) {
-    final int dictSize = dictSizeOf(dict);
-    putIntLE(out, dictSize);
-    for (int i = 0; i < dictSize; i++) {
-      putIntLE(out, dict[i].length);
-    }
-    for (int i = 0; i < dictSize; i++) {
-      out.write(dict[i], 0, dict[i].length);
-    }
   }
 
   /** Range-backed dictionary encoder used by live pages without materialising {@code byte[][]}. */
@@ -368,11 +190,6 @@ public final class ProjectionIndexRowGroupCodec {
       out.write(page.stringDictionaryEntryBacking(column, i), page.stringDictionaryEntryOffset(column, i),
           page.stringDictionaryEntryLength(column, i));
     }
-  }
-
-  /** Id-stream half of the string-dict wire form: width byte, packed ids. */
-  static void encodeDictIds(final ByteArrayOutputStream out, final byte[][] dict, final int[] ids, final int rowCount) {
-    encodeDictIds(out, dictSizeOf(dict), ids, rowCount);
   }
 
   /** Id-stream encoder when the caller already has the representation-independent live size. */
@@ -411,104 +228,6 @@ public final class ProjectionIndexRowGroupCodec {
         putLongLE(out, bits[w]);
       }
     }
-  }
-
-  // ==================== decode ====================
-
-  /**
-   * Decode a compact payload back to the raw scan form; non-compact payloads (no leading
-   * {@link #COMPACT_MAGIC}) pass through unchanged.
-   */
-  public static byte[] decode(final byte[] payload) {
-    if (payload == null || payload.length < 4 || getIntLE(payload, 0) != COMPACT_MAGIC) {
-      return payload;
-    }
-    if (payload.length < 5 || payload[4] != COMPACT_VERSION) {
-      throw new IllegalStateException("Unknown compact projection-leaf version " + (payload.length < 5
-          ? "<missing>"
-          : payload[4]) + " (expected " + COMPACT_VERSION + ") — written by a newer version or corrupt");
-    }
-    final Cursor in = new Cursor(payload, 5);
-    final int rowCount = in.readInt();
-    final int columnCount = in.readInt();
-    final long firstRecordKey = in.readLong();
-    final long lastRecordKey = in.readLong();
-    final byte[] kinds = new byte[columnCount];
-    for (int c = 0; c < columnCount; c++) {
-      kinds[c] = in.readByte();
-    }
-    final long[] recordKeys = rowCount > 0
-        ? decodeRecordKeys(in, rowCount)
-        : new long[0];
-    final byte orderKind = in.readByte();
-    final long[] orderExceptionBits;
-    if (orderKind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE) {
-      orderExceptionBits = null;
-    } else if (orderKind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE && rowCount > 0) {
-      orderExceptionBits = new long[(rowCount + 63) >>> 6];
-      for (int word = 0; word < orderExceptionBits.length; word++) {
-        orderExceptionBits[word] = in.readLong();
-      }
-    } else {
-      throw new IllegalStateException("unknown projection order-exception kind " + orderKind);
-    }
-    final OrderLabels orderLabels = decodeOrderLabels(in, rowCount);
-    final long[] columnMin = new long[columnCount];
-    final long[] columnMax = new long[columnCount];
-    final long[][] numericCols = new long[columnCount][];
-    final long[][] booleanCols = new long[columnCount][];
-    final int[][] dictIdCols = new int[columnCount][];
-    final int[][] setCountCols = new int[columnCount][];
-    final int[][] setElemCols = new int[columnCount][];
-    final byte[][][] dicts = new byte[columnCount][][];
-    final int presWords = rowCount > 0
-        ? (rowCount + 63) >>> 6
-        : 0;
-    if (rowCount > 0) {
-      for (int c = 0; c < columnCount; c++) {
-        columnMin[c] = in.readLong();
-        columnMax[c] = in.readLong();
-        switch (kinds[c]) {
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
-            numericCols[c] = decodeForBitPackedColumn(in, rowCount);
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> booleanCols[c] = decodeBooleanWords(in, presWords);
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
-            dicts[c] = decodeDictEntries(in);
-            dictIdCols[c] = decodePackedIds(in, rowCount);
-          }
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
-            dicts[c] = decodeDictEntries(in);
-            final int[] counts = decodePackedIds(in, rowCount);
-            int total = 0;
-            for (int r = 0; r < rowCount; r++) {
-              total += counts[r];
-            }
-            setCountCols[c] = counts;
-            setElemCols[c] = decodePackedIds(in, total);
-          }
-          default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
-        }
-      }
-    }
-    final byte[] columnFlags = new byte[columnCount];
-    for (int c = 0; c < columnCount; c++) {
-      columnFlags[c] = in.readByte();
-    }
-    final long[][] presence = new long[columnCount][];
-    for (int c = 0; c < columnCount; c++) {
-      final long[] bits = new long[Math.max(presWords, (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6)];
-      presence[c] = bits;
-      if (rowCount == 0)
-        continue;
-      decodePresenceInto(in, bits, presWords, rowCount);
-    }
-    final ProjectionIndexRowGroupPage page =
-        ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
-            orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), orderLabels.bytes().length, columnMin,
-            columnMax, numericCols, booleanCols, dictIdCols, dicts, setCountCols, setElemCols, presence, columnFlags);
-    return page.serialize();
   }
 
   static long[] decodeRecordKeys(final Cursor in, final int rowCount) {
@@ -740,7 +459,7 @@ public final class ProjectionIndexRowGroupCodec {
   }
 
   /**
-   * The byte-at-a-time {@link BitReader} accumulates at most 63 usable bits (a byte shifted by
+   * A byte-at-a-time accumulator holds at most 63 usable bits (a byte shifted by
    * {@code avail > 56} loses its top bits past bit 63), so packed runs are capped at 56 bits;
    * anything wider uses the aligned raw 64-bit path. Wider-than-56-bit ranges are pathological for
    * FOR packing anyway — the raw path costs at most 1 byte/value more.
@@ -884,12 +603,11 @@ public final class ProjectionIndexRowGroupCodec {
     }
   }
 
-  /** LSB-first bit reader mirroring {@link BitWriter}. */
   /**
    * Bulk bit-unpacker — the decode hot path (hydrate assembles ~10k packed runs per projection load;
-   * the {@link BitReader} per-byte accumulator with its per-byte {@link Cursor} call was the dominant
+   * the former per-byte accumulator with its per-byte {@link Cursor} call was the dominant
    * cost). Reads {@code count} {@code width}-bit little-endian values (exactly
-   * {@code ceil(count·width / 8)} bytes, byte-identical consumption to {@link BitReader}), adds
+   * {@code ceil(count·width / 8)} bytes, adds
    * {@code base}, writes {@code out[0..count)}.
    *
    * <p>
@@ -1019,38 +737,4 @@ public final class ProjectionIndexRowGroupCodec {
     in.pos = end;
   }
 
-  static final class BitReader {
-    private final Cursor in;
-    private long acc;
-    private int avail;
-
-    BitReader(final Cursor in) {
-      this.in = in;
-    }
-
-    long read(final int width) {
-      if (width == 0)
-        return 0L;
-      if (width == 64) {
-        if (avail != 0) {
-          throw new IllegalStateException("64-bit read on unaligned stream");
-        }
-        return in.readLong();
-      }
-      while (avail < width) {
-        acc |= (long) (in.readByte() & 0xFF) << avail;
-        avail += 8;
-      }
-      final long v = acc & ((1L << width) - 1);
-      acc >>>= width;
-      avail -= width;
-      return v;
-    }
-
-    /** Drop any partial-byte state at the end of a packed run. */
-    void align() {
-      acc = 0L;
-      avail = 0;
-    }
-  }
 }

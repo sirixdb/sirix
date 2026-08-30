@@ -65,7 +65,7 @@ public final class ProjectionIndexFences {
    * bounds, so a nonempty exception-only leaf legitimately carries MAX/MIN sentinels.
    */
   public static void write(final ProjectionIndexHOTStorage storage, final int rowGroupCount, final long[] first,
-      final long[] last, final int priorRowGroupCount) {
+      final long[] last) {
     if (storage == null) {
       throw new NullPointerException("storage is required");
     }
@@ -78,7 +78,7 @@ public final class ProjectionIndexFences {
     for (int index = 0; index < rowGroupCount; index++) {
       writer.append(storage, first[index], last[index]);
     }
-    writer.finish(storage, priorRowGroupCount);
+    writer.finish(storage);
   }
 
   /** Read physical-slot-aligned normal fence arrays, or {@code null} for malformed/missing chunks. */
@@ -328,9 +328,8 @@ public final class ProjectionIndexFences {
       }
     }
 
-    void finish(final ProjectionIndexHOTStorage storage, final int priorRowGroupCount) {
+    void finish(final ProjectionIndexHOTStorage storage) {
       Objects.requireNonNull(storage, "storage must not be null");
-      checkRowGroupCount(priorRowGroupCount);
       if (finished) {
         throw new IllegalStateException("projection fence build writer is already finished");
       }
@@ -348,9 +347,6 @@ public final class ProjectionIndexFences {
         final byte[] finalChunk = persistedFinalChunk.clone();
         ProjectionIndexRowGroupCodec.putIntLEAt(finalChunk, (CHUNK_LEAVES - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, 0);
         storage.putBlob(finalChunkSlot, finalChunk);
-      }
-      for (int chunkId = chunkCount(rowGroupCount); chunkId < chunkCount(priorRowGroupCount); chunkId++) {
-        storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
       }
       storage.putBlob(ORDER_HEADER_SLOT, orderHeader(rowGroupCount, rowGroupCount, rowGroupCount, 0, rowGroupCount == 0
           ? 0
@@ -675,10 +671,6 @@ public final class ProjectionIndexFences {
       return slot > baseRowGroupCount && slot <= currentPhysicalRowGroupCount;
     }
 
-    public void recycle(final int slot) {
-      recycle(slot, legacyPositionAfter(slot));
-    }
-
     void recycle(final int slot, final DocumentPosition positionAfterSlot) {
       if (!canRecycle(slot) || !isLivePhysicalSlot(slot)) {
         throw new IllegalArgumentException("projection row group is not a live recyclable split leaf: " + slot);
@@ -768,11 +760,7 @@ public final class ProjectionIndexFences {
       }
     }
 
-    /** Splice a freshly allocated local split after {@code slot} in explicit document order. */
-    public void linkAfter(final int slot, final int newSlot) {
-      linkAfter(slot, newSlot, legacyPositionAfter(slot));
-    }
-
+    /** Splice a freshly allocated local split at its explicitly located document position. */
     void linkAfter(final int slot, final int newSlot, final DocumentPosition position) {
       if (!isLivePhysicalSlot(slot) || !allocatedSlots.contains(newSlot) || ownerBase(newSlot) != 0) {
         throw new IllegalArgumentException("invalid projection row-group link " + slot + " -> " + newSlot);
@@ -895,7 +883,7 @@ public final class ProjectionIndexFences {
       for (final int chunkId : changedChunkIds) {
         final int start = chunkId * CHUNK_LEAVES;
         if (start >= currentPhysicalRowGroupCount) {
-          storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+          storage.tombstoneBlob(CHUNK_SLOT_BASE + chunkId);
           chunksWritten++;
           continue;
         }
@@ -907,7 +895,7 @@ public final class ProjectionIndexFences {
       }
       for (int chunkId =
           chunkCount(currentPhysicalRowGroupCount); chunkId < chunkCount(priorPhysicalRowGroupCount); chunkId++) {
-        storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+        storage.tombstoneBlob(CHUNK_SLOT_BASE + chunkId);
         chunksWritten++;
       }
       if (baseRowGroupCount != priorBaseRowGroupCount || currentPhysicalRowGroupCount != priorPhysicalRowGroupCount
@@ -1030,23 +1018,6 @@ public final class ProjectionIndexFences {
           setInt(successor, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, predecessor);
         }
       }
-    }
-
-    private DocumentPosition legacyPositionAfter(final int slot) {
-      final int[] predecessors = new int[SKIP_LEVELS];
-      final int[] successors = new int[SKIP_LEVELS];
-      final int height = documentSkipHeight(slot);
-      for (int level = 0; level < SKIP_LEVELS; level++) {
-        predecessors[level] = level < height
-            ? slot
-            : documentBack(slot, level);
-        int candidate = next(slot);
-        while (candidate != 0 && documentSkipHeight(candidate) <= level) {
-          candidate = next(candidate);
-        }
-        successors[level] = candidate;
-      }
-      return new DocumentPosition(predecessors, successors);
     }
 
     private void insertNumeric(final int slot) {

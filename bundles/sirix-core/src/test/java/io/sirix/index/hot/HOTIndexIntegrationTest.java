@@ -14,16 +14,9 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.path.PathIndexListenerFactory;
-import io.sirix.index.cas.CASIndexListenerFactory;
-import io.sirix.index.name.NameIndexListenerFactory;
-import io.sirix.access.IndexBackendType;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -42,147 +35,32 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for HOT (Height Optimized Trie) index infrastructure.
- *
- * <p>
- * These tests verify both RBTree (default) and HOT backends work correctly.
- * </p>
+ * Integration tests for the canonical HOT (Height Optimized Trie) secondary-index infrastructure.
  */
 class HOTIndexIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOTByDefault() {
-    // Save original setting and enable HOT by default for all tests
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOTSetting() {
-    // Restore original setting
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
-
-  // ===== Configuration Tests =====
-
-  @Test
-  @DisplayName("HOT configuration property enables/disables HOT indexes")
-  void testHOTConfigurationProperty() {
-    // Disable first
-    System.clearProperty("sirix.index.useHOT");
-
-    // Test that HOT can be enabled/disabled via system property
-    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-    assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-    assertFalse(NameIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-
-    // Enable HOT
-    System.setProperty("sirix.index.useHOT", "true");
-    assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-
-    // Disable HOT
-    System.clearProperty("sirix.index.useHOT");
-    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled");
-
-    // Re-enable HOT for subsequent tests (class default)
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @Test
-  @DisplayName("Per-resource IndexBackendType configuration works correctly")
-  void testPerResourceIndexBackendConfiguration() {
-    // This test verifies that:
-    // 1. ResourceConfiguration.indexBackendType defaults to HOT
-    // 2. ResourceConfiguration.indexBackendType can be explicitly set to RBTREE
-    // 3. Configuration is properly stored and accessible
-
-    System.clearProperty("sirix.index.useHOT");
-
-    // Test 1: Default configuration should be HOT
-    JsonTestHelper.deleteEverything();
-    try {
-      final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build()); // No explicit index backend - should
-                                                                              // default to HOT
-
-      try (final var manager = databaseWithDefault.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        // Verify default is HOT
-        assertEquals(IndexBackendType.HOT, manager.getResourceConfig().indexBackendType,
-            "Default index backend should be HOT");
-      }
-    } finally {
-      JsonTestHelper.closeEverything();
-    }
-
-    // Test 2: Explicit HOT configuration
-    JsonTestHelper.deleteEverything();
-    try {
-      final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                               .useHOTIndexes() // Explicitly set HOT
-                               .build());
-
-      try (final var manager = databaseWithHOT.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.HOT, manager.getResourceConfig().indexBackendType,
-            "Resource should be configured for HOT");
-      }
-    } finally {
-      JsonTestHelper.closeEverything();
-    }
-
-    // Test 3: Explicit RBTREE configuration (opt-out of HOT)
-    JsonTestHelper.deleteEverything();
-    try {
-      final var databaseWithRBTree = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                               .useRBTreeIndexes() // Explicitly use RBTREE
-                               .build());
-
-      try (final var manager = databaseWithRBTree.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.RBTREE, manager.getResourceConfig().indexBackendType,
-            "Resource should be configured for RBTREE");
-      }
-    } finally {
-      JsonTestHelper.closeEverything();
-    }
-
-    // Re-enable HOT for subsequent tests
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  // ===== RBTree Backend Tests =====
+  // The initial bulk builder and subsequent insert/update/delete listeners target this same format.
 
   @Nested
-  @DisplayName("RBTree Backend Tests")
-  class RBTreeBackendTests {
+  @DisplayName("Canonical secondary-index tests")
+  class SecondaryIndexTests {
 
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
-      // Explicitly disable HOT for RBTree tests (overrides class-level default)
-      System.clearProperty("sirix.index.useHOT");
     }
 
     @AfterEach
     void tearDown() {
       JsonTestHelper.deleteEverything();
-      // Re-enable HOT for subsequent tests
-      System.setProperty("sirix.index.useHOT", "true");
       JsonTestHelper.deleteEverything();
     }
 
     @Test
-    @DisplayName("PATH index with RBTree backend returns 53 type nodes")
-    void testPathIndexWithRBTreeBackend() {
+    @DisplayName("PATH index creation and query")
+    void testPathIndex() {
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -190,7 +68,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create PATH index
+        // Create the PATH index.
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
         final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
 
@@ -201,94 +79,7 @@ class HOTIndexIntegrationTest {
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        // Query index
-        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
-        final var index = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
-
-        assertTrue(index.hasNext(), "Index should have results");
-        var refs = index.next();
-        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes");
-      }
-    }
-
-    @Test
-    @DisplayName("CAS index with RBTree backend finds all 53 'Feature' values")
-    void testCASIndexWithRBTreeBackend() {
-      final var jsonPath = JSON.resolve("abc-location-stations.json");
-      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-
-      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-          final var trx = manager.beginNodeTrx()) {
-        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
-
-        // Create CAS index for /features/[]/type
-        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-        final var idxDefOfType =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
-
-        indexController.createIndexes(Set.of(idxDefOfType), trx);
-
-        // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-
-        // Query for "Feature" value
-        final var casIndex =
-            indexController.openCASIndex(trx.getStorageEngineReader(), idxDefOfType, indexController.createCASFilter(
-                Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
-
-        assertTrue(casIndex.hasNext(), "CAS query should find results");
-
-        var refs = casIndex.next();
-        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'Feature' values");
-      }
-    }
-  }
-
-  // ===== HOT Backend Tests =====
-  // Note: HOT is enabled by default at class level (@BeforeAll)
-
-  @Nested
-  @DisplayName("HOT Backend Tests")
-  class HOTBackendTests {
-
-    @BeforeEach
-    void setUp() {
-      JsonTestHelper.deleteEverything();
-      // HOT is already enabled by default - no need to set it
-    }
-
-    @AfterEach
-    void tearDown() {
-      JsonTestHelper.deleteEverything();
-      JsonTestHelper.deleteEverything();
-    }
-
-    @Test
-    @DisplayName("PATH index with HOT backend creation and query")
-    void testPathIndexWithHOTBackend() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-
-      final var jsonPath = JSON.resolve("abc-location-stations.json");
-      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-
-      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-          final var trx = manager.beginNodeTrx()) {
-        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
-
-        // Create PATH index with HOT backend
-        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
-
-        indexController.createIndexes(Set.of(pathIndexDef), trx);
-
-        // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-
-        // Query index using HOT reader
+        // Query through the canonical index reader.
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         final var index = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
 
@@ -299,9 +90,8 @@ class HOTIndexIntegrationTest {
     }
 
     @Test
-    @DisplayName("NAME index with HOT backend creation and query")
-    void testNameIndexWithHOTBackend() {
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+    @DisplayName("NAME index creation and query")
+    void testNameIndex() {
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -310,7 +100,7 @@ class HOTIndexIntegrationTest {
           final var trx = session.beginNodeTrx()) {
         var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create NAME index with HOT backend
+        // Create the NAME index.
         final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
@@ -319,7 +109,7 @@ class HOTIndexIntegrationTest {
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        // Query for specific name using HOT reader
+        // Query for a specific name.
         final var nameIndex = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("type")));
 
@@ -331,9 +121,8 @@ class HOTIndexIntegrationTest {
     }
 
     @Test
-    @DisplayName("CAS index with HOT backend creation and query")
-    void testCASIndexWithHOTBackend() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+    @DisplayName("CAS index creation and query")
+    void testCASIndex() {
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -342,7 +131,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create CAS index with HOT backend
+        // Create the CAS index.
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
         final var idxDefOfType =
             IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
@@ -369,7 +158,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT listener writes to HOTLeafPage correctly")
     void testHOTListenerWritesToHOTLeafPage() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -403,7 +191,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index works before commit (uncommitted data)")
     void testHOTPathIndexBeforeCommit() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -438,7 +225,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index works across multiple commits in same transaction")
     void testHOTPathIndexMultipleCommits() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -482,7 +268,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index deletion works in same transaction")
     void testHOTPathIndexDeleteInSameTransaction() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -529,7 +314,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index deletion works across transactions")
     void testHOTPathIndexDeleteAcrossTransactions() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -587,7 +371,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index persists across session close/reopen")
     void testHOTPathIndexPersistence() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -637,7 +420,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT CAS index works with array-based document")
     void testHOTCASIndexWithArray() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -685,7 +467,6 @@ class HOTIndexIntegrationTest {
     // @Disabled("Cross-transaction HOT modifications need further work on page persistence")
     @DisplayName("HOT PATH index with 6+ revisions: insert and delete operations")
     void testHOTPathIndexMultiRevisionVersioning() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -765,7 +546,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT CAS index with 6+ revisions: insert, query, delete operations")
     void testHOTCASIndexMultiRevisionVersioning() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -849,7 +629,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT NAME index with 6+ revisions: insert and delete operations")
     void testHOTNameIndexMultiRevisionVersioning() {
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -862,7 +641,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create NAME index for all keys (ID will be JSON_NAME_INDEX_OFFSET + 0 = 1)
+        // Create the first NAME index after JSON's three reserved NamePage slots.
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         savedNameIndexDef = nameIndexDef;
 
@@ -933,7 +712,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index: verify cross-transaction read after commit")
     void testHOTPathIndexCrossTransactionRead() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       IndexDef savedPathIndexDef;
@@ -975,7 +753,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index: verify cross-transaction write after commit")
     void testHOTPathIndexCrossTransactionWrite() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       IndexDef savedPathIndexDef;
@@ -1047,7 +824,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index with multiple paths across revisions")
     void testHOTPathIndexMultiplePaths() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1172,7 +948,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT NAME index with multiple names and revisions")
     void testHOTNameIndexMultipleNames() {
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1288,7 +1063,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT CAS index with multiple values and revisions")
     void testHOTCASIndexMultipleValues() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1428,9 +1202,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT combined index test with insertions, updates, and deletions across revisions")
     void testHOTCombinedIndexOperations() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1447,7 +1218,7 @@ class HOTIndexIntegrationTest {
         final var pathToStatus = parse("/orders/[]/status", PathParser.Type.JSON);
         pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToStatus), 0, IndexDef.DbType.JSON);
 
-        // NAME index for all keys (uses separate NamePage, so ID 0 is fine)
+        // NAME index for all keys; IndexDefs maps logical definition 0 past reserved NamePage slots.
         nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
 
         // CAS index for /orders/[]/status values (uses separate CASPage, so ID 0 is fine)
@@ -1550,7 +1321,6 @@ class HOTIndexIntegrationTest {
 
   // ===== CAS Index Deletion Corner Cases =====
   // Formal proof of correctness: systematically test all deletion scenarios
-  // Note: HOT is enabled by default at class level (@BeforeAll)
 
   @Nested
   @DisplayName("CAS Index Deletion Corner Cases")
@@ -2191,7 +1961,6 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== PATH Index Corner Cases =====
-  // Note: HOT is enabled by default at class level (@BeforeAll)
 
   @Nested
   @DisplayName("PATH Index Corner Cases")
@@ -2563,7 +2332,6 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== NAME Index Corner Cases =====
-  // Note: HOT is enabled by default at class level (@BeforeAll)
 
   @Nested
   @DisplayName("NAME Index Corner Cases")

@@ -12,6 +12,7 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
+import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
@@ -158,6 +159,18 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param page a fully built page for a contiguous pre-reserved key range
    */
   default void adoptDocumentLeafPage(KeyValueLeafPage page) {
+    throw new UnsupportedOperationException("bulk page adoption is not supported by this writer");
+  }
+
+  /**
+   * Serialize the heap records a bulk merge left on a LIVE log leaf (the prologue page the importer
+   * blits into rather than adopts) and stage every resulting overflow carrier as an immutable side
+   * page, exactly as {@link #adoptDocumentLeafPage} does for an adopted leaf — so the background
+   * flush defers the leaf one epoch instead of pinning it until final commit.
+   *
+   * @param page a leaf already owned by this writer's transaction intent log
+   */
+  default void stageOverflowCarriersOfLiveLeaf(KeyValueLeafPage page) {
     throw new UnsupportedOperationException("bulk page adoption is not supported by this writer");
   }
 
@@ -352,6 +365,22 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Implementations must report the original structural cause.
    */
   void assertTransactionWritable();
+
+  /**
+   * Resolve the current revision's transaction-private secondary-index container page.
+   *
+   * <p>The first call for an exact revision-root slot fully copies the persisted page before it is
+   * published to the transaction-intent log. Later calls return that same modified page. This is the
+   * only supported mutation gateway for the PATH, CAS, NAME, PROJECTION, and VALIDTIME container
+   * pages; callers must never mutate a page obtained from the underlying reader.</p>
+   *
+   * @param indexType one of PATH, CAS, NAME, PROJECTION, or VALIDTIME
+   * @param <P> the concrete container-page type selected by {@code indexType}
+   * @return the transaction-private page which may be mutated by this writer
+   * @throws IllegalArgumentException if {@code indexType} is not a secondary HOT index type
+   * @throws IllegalStateException if the revision-root slot or TIL entry has the wrong page type
+   */
+  <P extends Page> P prepareSecondaryIndexPage(IndexType indexType);
 
   /**
    * Allocate a record key and resolve the KVL page for direct-to-heap creation. After this call, read

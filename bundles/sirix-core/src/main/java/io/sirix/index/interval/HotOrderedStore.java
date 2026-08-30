@@ -7,7 +7,6 @@ package io.sirix.index.interval;
 
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTIndexWriter;
-import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
@@ -61,7 +60,7 @@ public final class HotOrderedStore implements OrderedStore {
   public void insert(final long forkNode, final long endpoint, final long ref) {
     final HOTIndexWriter<ValidTimeKey> w = requireNonNull(writer, "writer-only operation on a read-only store");
     final ValidTimeKey key = new ValidTimeKey(store, forkNode, endpoint);
-    w.index(key, new NodeReferences().addNodeKey(ref), RBTreeReader.MoveCursor.NO_MOVE);
+    w.indexNodeKey(key, ref);
   }
 
   @Override

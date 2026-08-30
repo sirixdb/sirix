@@ -286,11 +286,11 @@ public final class ClickBenchCompositeQueries {
           List.of(new Agg("min_URL", Kind.MIN, "$h.URL"), new Agg("min_Title", Kind.MIN, "$h.Title"),
               new Agg("c", Kind.COUNT, null), new Agg("uniq_UserID", Kind.COUNT_DISTINCT, "$h.UserID")),
           -1, "c", true, 1, 10, List.of("SearchPhrase", "min_URL", "min_Title", "c", "uniq_UserID"));
-      case 27 -> new GroupSpec(q, "$h.URL != \"\"", "$len := string-length($h.URL)",
+      case 27 -> new GroupSpec(q, "$h.URL != \"\"", "$len := jn:utf8-length($h.URL)",
           List.of(new Key("CounterID", "$h.CounterID")),
           List.of(new Agg("l", Kind.AVG, "$len"), new Agg("c", Kind.COUNT, null)), 100000, "l", true, 1, 25,
           List.of("CounterID", "l", "c"));
-      case 28 -> new GroupSpec(q, "$h.Referer != \"\"", "$len := string-length($h.Referer)",
+      case 28 -> new GroupSpec(q, "$h.Referer != \"\"", "$len := jn:utf8-length($h.Referer)",
           List.of(new Key("k", "replace($h.Referer, '^https?://(www\\.)?([^/]+)/.*$', '$2')")),
           List.of(new Agg("l", Kind.AVG, "$len"), new Agg("c", Kind.COUNT, null),
               new Agg("min_Referer", Kind.MIN, "$h.Referer")),

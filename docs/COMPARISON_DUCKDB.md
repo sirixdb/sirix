@@ -136,9 +136,14 @@ python3 bundles/sirix-query/bench/duck_bench.py 100000000 3 /tmp/duck-100m.db 20
     -Pscale.jvmArgs="-DbuildPathSummary=true -Dsirix.shredDbPath=/tmp/sirix-100m"
 
 # ... then run the 9-query matrix against the shredded store
-./gradlew :sirix-query:duckBench -Pduck.args="/tmp/sirix-100m 3 20 true" \
-    -Pduck.jvmArgs="-Dsirix.projection.forceRebuild=true -Dsirix.projection.persist=false"
+./gradlew :sirix-query:duckBench -Pduck.args="/tmp/sirix-100m 3 20 true"
 ```
+
+With the final argument `true`, the benchmark hydrates the one persisted
+projection definition or initializes it once in a physically virgin projection
+tree. It does not rebuild, rewrite, or substitute an in-memory projection.
+Unsupported or stale metadata is a hard setup failure; replace the definition
+explicitly with drop + commit + create if needed.
 
 Smaller record counts (e.g. `10000000`) reproduce the relative shape of the
 results on laptop-class hardware; the published numbers are 100M on the

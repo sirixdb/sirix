@@ -128,19 +128,18 @@ public class PaxVsProjectionAggregateBenchmark {
 
     final var coll = store.lookup(JSON_DB);
     resourceSession = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
-    final int latestRev = resourceSession.getMostRecentRevisionNumber();
-
     if (projectionIndex) {
       final ProjectionIndexBenchSetup.BuildResult built =
-          ProjectionIndexBenchSetup.installWildcard(resourceSession);
+          ProjectionIndexBenchSetup.ensureProjection(resourceSession);
       if (built.totalRows() != recordCount) {
         throw new IllegalStateException("projection rows " + built.totalRows()
             + " != records " + recordCount);
       }
-      System.out.printf("# projection installed: %d row groups, %d rows%n",
+      System.out.printf("# projection catalogued: %d row groups, %d rows%n",
           built.rowGroupCount(), built.totalRows());
     }
 
+    final int latestRev = resourceSession.getMostRecentRevisionNumber();
     vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev);
     SequentialPipelineStrategy.setVectorizedExecutor(vecExecutor);
 

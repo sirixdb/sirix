@@ -103,7 +103,7 @@ else falls back to the generic (always correct) pipeline.
   record set's path, so path-scoped scans attributed it to the wrong root
   (reference counts were right, node attribution wasn't). The merge branch
   now resets the root's `pathNodeKey` like the create branch. Caught by the
-  `ProjectionIndexStressTest` tombstone→rebuild cycles (cycle 1's fallback
+  `ProjectionIndexStressTest` drop/recreate fresh-id cycles (cycle 1's fallback
   answered 54 instead of 52).
 - **Unscoped name sweep after re-open (generic aggregate path).** The
   path-scoped aggregate resolves its target path node by matching named
@@ -115,7 +115,7 @@ else falls back to the generic (always correct) pipeline.
   Names now resolve through the positioned `PathSummaryReader` (nameKey
   lookup), with the `__array__` sentinel treated as anonymous so fresh and
   re-opened summaries walk identically. Caught by the
-  `ProjectionIndexStressTest` tombstone→rebuild cycle (post-tombstone fallback
+  `ProjectionIndexStressTest` drop/recreate cycle (post-drop fallback
   answered 55 instead of 54).
 - **Stale in-process registry serving after invalidation (projection paths).**
   The committed lookup fell back from the revision-scoped catalog to the
@@ -123,11 +123,12 @@ else falls back to the generic (always correct) pipeline.
   `validFromRevision` — so after an invalidating commit (e.g. a subtree move
   out of the record set) a warm registry handle installed at create time kept
   serving the PRE-tombstone snapshot to every later revision in the same
-  process. The catalog is now authoritative whenever the resource carries
+  process. The catalog is authoritative whenever the resource carries
   catalogued projection definitions at the executor's revision: a catalog miss
-  there means "not usable here" and the registry may not answer (it remains
-  only for bench/test wiring without catalogued definitions). Caught by the
-  `ProjectionIndexStressTest` tombstone→rebuild cycle soak.
+  there means "not usable here" and a registry handle may not answer. Direct
+  registry handles are isolated kernel-test fixtures, not a benchmark or
+  production discovery route. Caught by the `ProjectionIndexStressTest`
+  drop/recreate fresh-id cycle soak.
 - **Sparse fields (projection paths).** Projection leaves now carry per-column
   presence bitmaps + per-column "unrepresentable value" flags (leaf format v2,
   self-describing tail — see `ProjectionIndexLeafPage`). Predicates over a
@@ -182,17 +183,11 @@ else falls back to the generic (always correct) pipeline.
   escape 65: decimal scale pair + FOR-packed digits + verbatim exceptions, every cell
   verified bit-exact at encode time); non-decimal data falls back to plain FOR over the
   transformed bits byte-identically to before. Width bytes 66–255 remain reserved escapes.
-- **Legacy (pre-descriptor and pre-segment-slot) projection stores.** The segment-directory
-  layout replaced chunked storage, and the **segment ⇔ slot** layout (one HOT slot per segment)
-  then replaced the descriptor layout — both without a metadata version bump (no deployed
-  databases). A rebuild detects either structurally — slot-0 payload is not a blob marker
-  (chunked), or a row group sits at a RAW slot id the segment-slot layout never writes
-  (descriptor) — and swaps in a fresh sub-tree. That reset is mandatory rather than tidy:
-  writing composite-keyed row groups into a raw-keyed sub-tree aliases raw slot 65536 onto
-  composite key `(rowGroupId=1, slotKind=0)` at scale, which is unrepairable. Old pages remain
-  on disk (append-only store) but are unreachable from new revisions; a resource copy/re-import
-  sheds them. There is now exactly one layout and no code path that can produce another, so no
-  future store can land in either legacy state.
+- **Development-only projection prototypes are unsupported bytes.** Chunked,
+  one-slot-per-row-group, and descriptor-inline proposals never define a
+  compatibility format. Current readers do not sniff them and writers do not
+  reset or migrate them. Any such payload fails closed. The sole persisted
+  layout is one zone-map descriptor slot plus one HOT slot per segment.
 - **Mixed int/double columns under predicates.** Document doubles are no
   longer truncated to longs during predicate evaluation (the `rating` 3 vs
   3.7 family), and the NumberRegion zone-map page prune now requires the tag
@@ -286,10 +281,11 @@ else falls back to the generic (always correct) pipeline.
   interpreter compares xs:float operands in FLOAT space (`Float.compare`),
   which double-space evaluation cannot reproduce. JSON ingestion has not
   produced floats since the alpha13 narrowing removal.
-- **Legacy (pre-presence) projection leaves** carry no presence information;
-  every projection fast path declines them (scan kernels answer instead).
-  Rebuild persisted projections with `-Dsirix.projection.forceRebuild=true`
-  to migrate to the v2 leaf format.
+- **Unsupported projection payloads are not migrated.** There is one supported
+  projection format. Unknown metadata or non-canonical row-group descriptors
+  make serving decline and make incremental maintenance fail closed. Replacement
+  is explicit: drop the catalog definition, commit, then create it again so a
+  fresh physical index id is initialized. There is no force-rebuild property.
 
 The `TypedGroupByDifferentialTest` suite (89 cases) pins vectorized ≡
 interpreted for the supported shapes, including typed (numeric/boolean/double)

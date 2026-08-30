@@ -3,7 +3,6 @@ package io.sirix.benchmark;
 import ch.qos.logback.classic.Logger;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.IndexBackendType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Axis;
@@ -119,9 +118,6 @@ public class ChicagoShredderBenchmark {
     @Param({"NONE"})
     public StringCompressionType stringCompressionType;
 
-    @Param({"HOT"})
-    public IndexBackendType indexBackendType;
-
     @Param({"FFI_LZ4"})
     public CompressionPipeline compressionPipeline;
 
@@ -172,7 +168,6 @@ public class ChicagoShredderBenchmark {
                                   .useDeweyIDs(useDeweyIDs)
                                   .deweyIdSiblingDistance(deweyIdSiblingDistance)
                                   .stringCompressionType(stringCompressionType)
-                                  .indexBackendType(indexBackendType)
                                   .byteHandlerPipeline(newByteHandlerPipeline());
     }
   }

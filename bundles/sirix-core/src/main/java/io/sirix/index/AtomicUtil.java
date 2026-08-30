@@ -98,9 +98,7 @@ public final class AtomicUtil {
         return Calc.fromBigDecimal(((Numeric) atomic).decimalValue());
       }
     }
-    // The instant family, through the same order-preserving codec the HOT backend uses: without it
-    // this method threw "Unsupported type", so a red-black-tree CAS index simply could not be built
-    // over xs:dateTime at all.
+    // The instant family uses the same order-preserving codec as the canonical CAS key encoding.
     if (InstantKeyCodec.isInstantType(type)) {
       return InstantKeyCodec.toBytes(atomic, type);
     }

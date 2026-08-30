@@ -44,7 +44,7 @@ cost.) Measured on this campaign's probe: **76 + 62 folds rejected → 76 + 62
 A HOT compound node `N` has discriminative bits `D(N)` (absolute MSB-first positions) and
 children `c₀…cₙ₋₁`, each with a stored sparse partial `pᵢ`. Routing extracts
 `densePK(K, M_N) = PEXT(K, D(N))` and picks the highest-index child with `pᵢ ⊆ densePK`
-(`HOTIndirectPage.findChildSpanNode`, `HOTIndirectPage.java:493`; Sirix additionally
+(`HOTIndirectPage.findChildByPartialKey`; Sirix additionally
 prefers an exact match `pᵢ == densePK`, `:509`–`:525`).
 
 Structural invariants (`HOT_FORMAL_FOUNDATION.md` §2): **I1** leaves key-disjoint, **I3**

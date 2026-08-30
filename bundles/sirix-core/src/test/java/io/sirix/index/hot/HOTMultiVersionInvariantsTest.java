@@ -8,7 +8,6 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.JsonTestHelper;
-import io.sirix.access.IndexBackendType;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -17,13 +16,9 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.SearchMode;
-import io.sirix.index.cas.CASIndexListenerFactory;
-import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * the comment block above the test names the invariant explicitly so a future regression points
  * at the right structural property to inspect.</p>
  *
- * <p>All tests run with HOT enabled (the resource config default) so the eager Names dictionary
+ * <p>All tests run against the canonical HOT secondary-index format, so the eager Names dictionary
  * load in {@link io.sirix.page.NamePage}'s deep-copy constructor fires, and the factory-level
  * NamePage / CASPage / PathPage / ProjectionIndexPage CoW (analogous to the document trie's
  * {@code KeyedTrieWriter.prepareIndirectPage}) installs a private deep-copy as the modified
@@ -58,23 +53,6 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 @DisplayName("HOT Multi-Version Invariants")
 final class HOTMultiVersionInvariantsTest {
-
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   @BeforeEach
   void setUp() {
@@ -94,7 +72,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("NAME index: every committed revision is independently readable")
   void nameIndexEveryRevisionIndependentlyReadable() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
     final List<Integer> revisions = new ArrayList<>();
@@ -134,7 +111,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("CAS index: per-rev value distribution is monotone-cumulative")
   void casIndexPerRevisionValueDistribution() {
-    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef casIndexDef;
     final List<Integer> revisions = new ArrayList<>();
@@ -245,7 +221,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("chain rotation: per-rev view stays correct across window rotation (carry-forward)")
   void chainRotationPerRevisionStillCorrect() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
     final List<Integer> revisions = new ArrayList<>();
@@ -287,7 +262,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("multi-key commit: sparse fragment + chain reconstruction is complete")
   void multiKeySparseFragmentCompleteness() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
     final int rev1, rev2;
@@ -407,7 +381,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("rtx pinned before writer commits: read view stays at its bound rev")
   void readerPinnedBeforeWriterStaysAtBoundRev() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
     final int rev1;
@@ -451,26 +424,6 @@ final class HOTMultiVersionInvariantsTest {
   }
 
   /**
-   * Invariant 8 (Names dictionary post-CoW): under the HOT backend the
-   * {@link io.sirix.page.NamePage} copy constructor eager-loads every {@link
-   * io.sirix.index.name.Names} dictionary so cached and CoW'd pages share populated instances.
-   * This pins the gating: HOT-configured resources should observe non-null dictionaries on the
-   * CoW'd page after the first write touches it.
-   */
-  @Test
-  @DisplayName("dictionary: HOT-configured CoW shares populated Names instances")
-  void hotConfiguredCowSharesPopulatedNames() {
-    // Sanity: default config is HOT. If this regresses, this whole suite needs to re-evaluate
-    // its assumptions, so fail loudly with a clear pointer rather than silently testing the
-    // wrong backend.
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-      assertEquals(IndexBackendType.HOT, session.getResourceConfig().indexBackendType,
-          "test suite assumes HOT — JsonTestHelper.getDatabase must default to HOT");
-    }
-  }
-
-  /**
    * Invariant 9 (CAS payload reachability per revision): not just <em>cardinality</em> but the
    * exact set of indexed values at each historical revision must match what was committed at
    * that point. The assertion here probes for value PRESENCE — at rev N we must find the
@@ -480,7 +433,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("CAS index: exact value membership at every historical revision")
   void casIndexExactValueMembershipPerRevision() {
-    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef casIndexDef;
     final List<Integer> revisions = new ArrayList<>();
@@ -652,7 +604,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("NAME index: 100-rev single-key inserts have bounded per-rev storage growth")
   void nameIndexBoundedPerRevStorageGrowth() throws IOException {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     // Pin the legacy grow-per-commit path: this test measures LOGICAL storage growth through
     // physical file-size deltas, which preallocated commits (the default) decouple — in-place
     // commits report a delta of 0 (hiding the O(N^2) rewrite regression this test exists to
@@ -771,7 +722,6 @@ final class HOTMultiVersionInvariantsTest {
   @Test
   @DisplayName("NAME index: 100-rev same-name inserts have bounded per-rev growth (chunk isolation)")
   void nameIndexSameNameBoundedPerRevGrowth() throws IOException {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
     // Pin the legacy grow-per-commit path — same reasoning as nameIndexBoundedPerRevStorageGrowth:
     // preallocated commits (the default) decouple physical size deltas from logical growth.
     System.setProperty("sirix.commit.preallocated", "false");

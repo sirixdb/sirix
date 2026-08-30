@@ -8,7 +8,7 @@ decisions log), and the byte-level contract is pinned by golden tests
 change to any pinned structure fails CI. From here, ANY change to the bytes in this document is
 a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
-byte (PIXM/PIXC/PIX1, per-record versions) — accompanied by an update to the golden constants
+byte (PIXM/PIXD/PIXS/PIX1, per-record versions) — accompanied by an update to the golden constants
 and a migration note here. Nothing has been bumped under that rule yet: SirixDB has no released
 consumers, so structures still evolve IN PLACE and the golden pins alone make each change
 deliberate (see §2, "PathStats trailer").
@@ -151,10 +151,10 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 - `BytesOut`/`BytesIn` payload primitives, the KVLP header+bitmap block, PAX regions,
   flyweight field access, and the FFILz4 frame header: pinned LE via `io.sirix.node.LE`
   layouts (`ByteArrayBytesIn` already decoded LE byte-shifts).
-- Deliberate exceptions (byte-shift-encoded, endian-independent): `compactDir` and in-blob
-  column length prefixes use big-endian *byte layout* via explicit shifts; HOT discriminative
-  keys use BE loads for lexicographic `compareUnsigned` — both are defined byte sequences, not
-  host-order dependent.
+- Deliberate big-endian defined byte sequences: `compactDir` uses explicit byte composition on
+  stream reads and a byte-swapped LE-short access on `MemorySegment`; in-blob column length
+  prefixes use explicit shifts. HOT discriminative keys use BE loads for lexicographic
+  `compareUnsigned`. These are defined wire byte sequences, not host-order dependent.
 - The superblock's endianness check remains as a fail-fast guard for headers written by
   pre-pin dev builds on BE hosts (none exist in practice).
 - The legacy big-endian FILE backend is removed; `StorageType.FILE` fails fast.
@@ -166,8 +166,8 @@ Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
 extension space for **every** page kind — all bits zero in V0, and a reader rejects nonzero
 flags as "written by a newer version" instead of misparsing. Kind ids: 1 KVLP, 2 NAME,
 3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
-12 HOT_LEAF, 13 HOT_INDIRECT, 14 BITMAP_CHUNK, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
-(7 retired/reserved).
+12 HOT_LEAF, 13 HOT_INDIRECT, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
+(7 and 14 retired/reserved; readers reject both ids).
 
 **Format evolution mechanism (decided):** the unit of node-record/page-body evolution is a
 `BinaryEncodingVersion` bump — every node/page (de)serializer receives the
@@ -175,13 +175,23 @@ flags as "written by a newer version" instead of misparsing. Kind ids: 1 KVLP, 2
 per-page version byte fails fast on unknown values. Node kinds that need to evolve
 independently of the global version carry a per-record version byte (the VECTOR_NODE /
 VECTOR_INDEX_METADATA pattern); sub-structures with their own magic carry their own version
-byte (PIXC/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
+byte (PIXD/PIXS/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
 fail-fast lookups, never ordinals.
 
 - **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
+- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage**: reference-container delegate
+  followed by one sparse HOT allocator map `[i32 count][count × (i32 indexId, i64 maxHotPageKey)]`.
+  Entries are emitted in ascending `indexId` order. These secondary-index containers have one
+  representation only: their references root HOT trees; no keyed-trie node-key or indirect-level
+  counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
+  draft in place; there are no persisted databases requiring a compatibility branch.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
+  compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
+  inline length (0..512; zero is legal only for the raw-slot kind), and 6 low bits encode the
+  persisted slotted kind (`0` raw sentinel or a supported flyweight kind). Unsupported/retired
+  kind ids and lengths above 512 are corruption. The directory is followed by a
   smallest-of-three body codec (`ZeroRunByteCodec` 0 / `ByteRunCodec` 2 / `SirixLZ77Codec` 3 —
   an LZ4-block-format clone, little-endian) over either the offset-table-template dedup layout
   (≤255 templates/page, 1-byte slot ids, hash/value/nameKey elision bitmaps, predictor-coded
@@ -260,8 +270,8 @@ revision records** (little-endian) plus their **checksummed 16-entry tail log in
 slots** (salvage + self-heal, eviction guarded by a per-resource durability watermark);
 **legacy FILE backend removed** (`StorageType.FILE` fails
 fast — it wrote an incompatible layout under the same version); u8 fragment-count guards;
-BITMAP_CHUNK honors its version byte; PATH_SUMMARY writes its delegate byte via the shared
-helper; PageReference hashes as `[u8 flag][8 B]` instead of `[i32 len][8 B]`; the `+8`
+PATH_SUMMARY writes its delegate byte via the shared helper; PageReference hashes as
+`[u8 flag][8 B]` instead of `[i32 len][8 B]`; the `+8`
 first-offset quirk and the 256-byte RevisionRootPage alignment are gone (8-byte alignment for
 all data pages, data starts exactly at `DATA_REGION_START`).
 
@@ -269,12 +279,12 @@ Done since the audit (see `docs/BINARY_ENCODING_FUTURE_PROOFING_AUDIT.md` for th
 **full little-endian pin** (was item 1 — all scalar IO via `io.sirix.node.LE`); **reserved
 flags byte in every page envelope** (additive changes no longer force a global version bump);
 **revisions record stride persisted in the superblock** and validated at open; **stable id
-bytes replace every enum-ordinal on disk** (HOT node/layout types, BitmapChunkPage index
-type); **fail-fast unknown node-kind/page-flags/version errors**; **pure-Java LZ4 block
+bytes replace every enum-ordinal on disk** (including HOT node/layout types); **fail-fast unknown
+node-kind/page-flags/version errors**; **pure-Java LZ4 block
 decoder** (`JavaLz4BlockDecoder` — LZ4-bodied pages and FFILz4-pipeline resources are readable
 without `liblz4`; writes fall back to stored-uncompressed frames); **hash-function identity
 persisted + validated** (`ressetting.obj` `hashFunction` = "XX3"); **config field validation
-throws in production** (was `assert`); **PIXC/PIX1 carry version bytes**; **DeweyID framing
+throws in production** (was `assert`); **projection substructures carry version bytes**; **DeweyID framing
 and record offset-table guards throw instead of truncating**; **long child/descendant counts**;
 **golden byte-pinning tests** (`io.sirix.format.GoldenFormatTest` — superblocks, page
 envelope, node record, varints, Roaring64 coupling, id registries).
@@ -380,10 +390,11 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                   segCount × { u16 columnSegmentId; int byteLen;
                                                u64 xxh3; u8 colFlags; i64 min; i64 max } }
                ZONE MAP ONLY — no trailing inline region: a segment's bytes live in the
-               segment's own slot, never also here. (byteLen's SEG_INLINE high bit and the
-               inline region are vestigial from the descriptor layout; the write path strips
-               them via toZoneMapOnly.) ver=0 is the ONLY supported version: validate() refuses
-               any other value, so a future shape change is rejected rather than misread.
+               segment's own slot, never also here. The encoder emits only this form and
+               every storage/read boundary rejects a byteLen inline marker or trailing
+               payload; there is no normalization or compatibility reader. ver=0 is the
+               ONLY supported version: validation refuses any other value, so a future
+               shape change is rejected rather than misread.
                zero-length value = tombstone; rowCount==0 descriptor = live empty row group
     slotKind ≥ 1: BARE segment slot — { u8 kind } [+ raw segment bytes]
                kind 0 = INLINE (bytes follow, used when ≤ 512 B); kind 1 = REFERENCED

@@ -22,9 +22,11 @@ import java.util.Arrays;
  * {@code Object[]}, no per-row allocation on the scan hot path. This flat layout deliberately
  * favors fixed-stride, branch-free kernel access (raw 8-byte numerics, raw 4-byte dict-ids) over
  * density: it is what {@link ProjectionIndexByteScan} scans and what the registry holds in memory.
- * <b>Persistence uses {@link ProjectionIndexRowGroupCodec}</b>, which bit-packs this form
- * (frame-of-reference numerics, delta record keys, packed dict-ids, marker-byte presence) to a
- * fraction of its size and decodes back byte-identically on hydrate.
+ * <b>Persistence uses the one segmented format owned by
+ * {@link ProjectionIndexColumnSegmentCodec}</b>: a zone-map descriptor names separate KEYS, BODY,
+ * dictionary, Bloom, and summary segments. Those segments bit-pack this form (frame-of-reference
+ * numerics, delta record keys, packed dict-ids, marker-byte presence) and assemble it
+ * byte-identically on hydrate.
  *
  * <pre>
  *   int    rowCount              // number of active rows (0..MAX_ROWS)
@@ -647,7 +649,7 @@ public final class ProjectionIndexRowGroupPage {
    * <p>
    * A slab-backed scalar dictionary is materialised at most once per live page generation. Each entry
    * is detached from the page-owned slab, so retaining or mutating the returned compatibility view
-   * cannot corrupt codecs, scans, a later builder reset, or already-emitted output. Production
+   * cannot corrupt codecs, scans, later reuse of the page builder, or already-emitted output. Production
    * consumers use the range accessors below and never invoke this method.
    */
   public synchronized byte[][] stringDictionary(final int column) {
@@ -783,10 +785,10 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * Reassemble a page from decoded components — the inverse half of
-   * {@link ProjectionIndexRowGroupCodec}. Arrays are adopted (not copied): the codec hands over
-   * freshly built arrays sized for {@code rowCount}, which is all {@link #serialize()} ever reads.
-   * Package-private on purpose — the only legitimate caller is the codec.
+   * Reassemble a page from decoded canonical segments. Arrays are adopted (not copied): the
+   * segment assembler hands over freshly built arrays sized for {@code rowCount}, which is all
+   * {@link #serialize()} ever reads. Package-private on purpose — the only legitimate caller is the
+   * canonical segment codec.
    */
   static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount, final long firstRecordKey,
       final long lastRecordKey, final long[] recordKeys, final long[] columnMin, final long[] columnMax,

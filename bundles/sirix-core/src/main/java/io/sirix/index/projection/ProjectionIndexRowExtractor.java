@@ -254,7 +254,7 @@ public final class ProjectionIndexRowExtractor {
                   : scratch.length, Math.max(1, length))];
               rowStringUtf8Scratch[column] = scratch;
             }
-            System.arraycopy(batch.stringArena(column), batch.stringOffset(column, row), scratch, 0, length);
+            batch.copyStringTo(column, row, scratch);
             rowStringUtf8[column] = scratch;
             rowStringUtf8Lengths[column] = length;
           }

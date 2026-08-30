@@ -197,58 +197,6 @@ public final class StringDistinctGroupServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void aProjectionWithoutDictEntryHashesServesTheSameCounts() throws IOException {
-    // The distinct operand is filled from the per-leaf DICT_HASHES segment: ids plus a precomputed
-    // dictId -> content hash table, with no dictionary bytes fetched at all. A projection written
-    // before that segment kind existed has no such chain, and the readers must fall back to hashing
-    // decoded entries — SLOWER, never different. Build one deliberately without the segment (the
-    // property is the only way to reproduce an old store's shape) and demand identical counts, which
-    // is what proves the two identity domains are the same function over the same bytes.
-    System.setProperty("sirix.projection.dictEntryHashes", "false");
-    try {
-      query(STORE);
-      query(INDEX);
-    } finally {
-      System.clearProperty("sirix.projection.dictEntryHashes");
-    }
-    ProjectionIndexRegistry.clear();
-    ProjectionIndexCatalog.clearCache();
-
-    final String q = """
-          for $e in jn:doc('json-path1','dids.jn')[]
-          where $e.kind eq 'commit'
-          let $k := $e.commit.collection
-          group by $k
-          let $c := count($e)
-          let $u := count(distinct-values($e.did))
-          order by $c descending
-          return {"event": $k, "count": $c, "users": $u}
-        """;
-    try (
-        final BasicJsonDBStore store =
-            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
-      final JsonResourceSession session = collection.getDatabase().beginResourceSession("dids.jn");
-      final String generic = evaluateQuery(chain, ctx, q);
-      final SirixVectorizedExecutor executor =
-          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
-      SequentialPipelineStrategy.setVectorizedExecutor(executor);
-      try {
-        assertDistinctServed(chain, ctx, q, generic, "a projection built WITHOUT dict-entry hashes");
-      } finally {
-        SequentialPipelineStrategy.setVectorizedExecutor(null);
-        executor.close();
-      }
-      // The same counts the hash-segment corpus pins in the Q2 case above — the fallback is a
-      // performance path, so a differing number here would mean the two hashes disagree.
-      Assertions.assertEquals("{\"event\":\"app.bsky.feed.post\",\"count\":4,\"users\":3}"
-          + " {\"event\":\"app.bsky.feed.like\",\"count\":3,\"users\":3}", generic);
-    }
-  }
-
-  @Test
   public void stringDistinctOverANumericGroupKeyServes() throws IOException {
     // The NUMERIC single-key flat arm's twin of the same extension: a long group key with a
     // string distinct operand. Cardinality is swept across the three groups (1 / 2 / 3 distinct).

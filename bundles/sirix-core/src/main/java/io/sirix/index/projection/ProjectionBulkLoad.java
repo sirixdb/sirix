@@ -234,7 +234,7 @@ public final class ProjectionBulkLoad {
         setSummaries.append(leaf);
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
+          ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
       checkedPublisher.publish(currentStorage, physicalSlot, encoded);
       fenceWriter.append(currentStorage, leaf.firstRecordKey(), leaf.lastRecordKey());
@@ -306,16 +306,21 @@ public final class ProjectionBulkLoad {
       throw new IllegalStateException(
           "A projection bulk load is already active for " + key + " — finish or abort it before starting another");
     }
+    boolean persistentMutationStarted = false;
     try {
       final ProjectionIndexHOTStorage storage =
           ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
-      // begin() is an explicit full build boundary. Clear every prior positive storage slot and
-      // sparse negative record locator before publishing the fail-closed tombstone for the load.
-      storage.resetTree();
+      // The load-time builder is legal only as a virgin-tree initializer. Existing definitions have
+      // exactly one update path: incremental listener maintenance.
+      storage.requireVirginTreeForInitialBuild();
+      persistentMutationStarted = true;
       ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       return load;
     } catch (final Throwable failure) {
+      if (persistentMutationStarted) {
+        poisonOwningTransaction(storageEngineWriter, failure);
+      }
       // The registry entry is already visible. A failure to establish the tombstone must retire it
       // before escaping, or a retry sees a phantom "already loading" build with no fail-closed slot.
       load.poisonAfterFailure(failure);
@@ -348,6 +353,43 @@ public final class ProjectionBulkLoad {
    * Drop the load without finishing it; slot 0 keeps the tombstone, so readers stay on the generic
    * path.
    */
+  /**
+   * Mid-feed abandonment: the unconditional operator notice (same sentence shape as the listener's
+   * drain-lane arm, for the same reason — a silent degradation reads as a healthy load), then
+   * {@link #abort()}. Subsequent feed calls no-op via {@link #isFinished()}.
+   */
+  /**
+   * Test seam: {@code false} restores the pre-fix coordinator-lane behaviour in which a dictionary
+   * budget breach propagated out of the feed and poisoned the whole load. Only
+   * {@code CoordinatorFeedBudgetAbandonTest} flips it.
+   */
+  static volatile boolean ABANDON_ON_FEED_BUDGET_BREACH = true;
+
+  private synchronized void abandonDuringFeed(final GlobalDictionaryBudgetExceededException tooBig,
+      final StorageEngineWriter storageEngineWriter) {
+    if (finished) {
+      return;
+    }
+    final String breach = tooBig.breachingTerm() == null
+        ? "declined an unsafe allocation over " + tooBig.entryCount() + " distinct values (" + tooBig.retainedBytes()
+            + " B retained): " + tooBig.admissionDetail()
+        : "needed " + tooBig.breachingBytes() + " B (" + tooBig.breachingTerm() + ") over " + tooBig.entryCount()
+            + " distinct values, past its " + tooBig.budgetBytes() + " B budget (" + tooBig.retainedBytes()
+            + " B retained)";
+    System.err.println("[proj] PROJECTION ABANDONED during the load: index " + indexDef.getID() + ", column "
+        + tooBig.column() + " " + breach + ". The load completes; the projection is STALE and every query will take"
+        + " the generic pipeline. After the load, drop and commit this stale definition before creating a"
+        + " replacement in a new projection tree.");
+    abort();
+    // Same tombstone the listener lane leaves: the machine-readable reason rides the write
+    // transaction (invisible until commit, gone on rollback) so an operator or a guard can tell
+    // "abandoned for its dictionary budget" from an unspecified failure. Never overwritten later; a
+    // replacement goes under a fresh tree id.
+    new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID()).putBlob(0,
+        ProjectionIndexMetadata.staleTombstone(ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED)
+                               .serialize());
+  }
+
   public synchronized void abort() {
     if (finished) {
       return;
@@ -433,6 +475,11 @@ public final class ProjectionBulkLoad {
     return builder.newChunkBatch(pathSummary, expectedRows, recordSetKey);
   }
 
+  /** Maximum rows whose row-indexed arrays stay at or below the 256 KiB HFT payload ceiling. */
+  public int maxHftChunkRows() {
+    return ProjectionChunkRowBatch.maxHftChunkRows(builder.columnKinds().length);
+  }
+
   /**
    * Append one worker-extracted row, in document order — the coordinator-fed replacement for the
    * {@link #observeRecord}/{@link #drain} pair: the row's values come from the batch instead of a
@@ -444,6 +491,9 @@ public final class ProjectionBulkLoad {
   public void appendCoordinatorRow(final StorageEngineWriter storageEngineWriter, final ProjectionChunkRowBatch batch,
       final int row, final long recordKey, final long containerKey, final long documentRootKey) {
     if (finished) {
+      return; // abandoned mid-load — the load continues, the projection does not
+    }
+    if (finished) {
       throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " was fed record "
           + recordKey + " after its load-time build was finished.");
     }
@@ -452,6 +502,7 @@ public final class ProjectionBulkLoad {
           + " is coordinator-fed in document order, which is append-only: record " + recordKey
           + " arrived after record " + lastClosedRecordKey + " had already been appended.");
     }
+    boolean persistentMutationStarted = false;
     try {
       coordinatorFeed = true;
       ProjectionStructuralOrderDirectory.Accessor directory = feedDirectory;
@@ -463,6 +514,7 @@ public final class ProjectionBulkLoad {
         this.feedDirectory = directory;
         builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       }
+      persistentMutationStarted = true;
       final SirixDeweyID orderLabel =
           directory.fullLabelForInOrderAppend(recordKey, containerKey, documentRootKey, feedLastRecordLocal);
       builder.appendBatchRow(batch, row, recordKey, orderLabel);
@@ -470,7 +522,24 @@ public final class ProjectionBulkLoad {
       lastClosedRecordKey = recordKey;
       diagObserved++;
       diagClosed++;
+    } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+      // The ONE recoverable failure of this feed: a resource-wide dictionary hit its allocation
+      // bound. The probe front refuses BEFORE mutating, so the build state is consistent — and the
+      // designed outcome (the exception says it itself) is to abandon the PROJECTION and let the
+      // LOAD complete on the generic pipeline. The listener's drain lane already does exactly this;
+      // without this arm the coordinator feed lane poisoned the whole transaction instead, which is
+      // how a 100M AUTO load died at 674k distinct URL values with exit 1.
+      if (!ABANDON_ON_FEED_BUDGET_BREACH) {
+        // Test seam: the pre-fix behaviour, so the regression test can prove this arm is what keeps
+        // the load alive.
+        poisonAfterFailure(tooBig);
+        throw tooBig;
+      }
+      abandonDuringFeed(tooBig, storageEngineWriter);
     } catch (final Throwable failure) {
+      if (persistentMutationStarted) {
+        poisonOwningTransaction(storageEngineWriter, failure);
+      }
       poisonAfterFailure(failure);
       throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(failure);
     }
@@ -606,9 +675,7 @@ public final class ProjectionBulkLoad {
       }
       if (cleanupFailure != null) {
         if (primaryFailure != null) {
-          if (cleanupFailure != primaryFailure) {
-            primaryFailure.addSuppressed(cleanupFailure);
-          }
+          addSuppressedSafely(primaryFailure, cleanupFailure);
         } else {
           poisonAfterFailure(cleanupFailure);
           throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(cleanupFailure);
@@ -622,9 +689,28 @@ public final class ProjectionBulkLoad {
     try {
       abort();
     } catch (final Throwable cleanupFailure) {
-      if (cleanupFailure != primaryFailure) {
-        primaryFailure.addSuppressed(cleanupFailure);
-      }
+      addSuppressedSafely(primaryFailure, cleanupFailure);
+    }
+  }
+
+  /** Prevent a caller from committing a partially published multi-slot operation. */
+  private static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter,
+      final Throwable primaryFailure) {
+    try {
+      storageEngineWriter.markTransactionRollbackOnly(primaryFailure);
+    } catch (final RuntimeException | Error poisonFailure) {
+      addSuppressedSafely(primaryFailure, poisonFailure);
+    }
+  }
+
+  private static void addSuppressedSafely(final Throwable primaryFailure, final Throwable secondaryFailure) {
+    if (primaryFailure == secondaryFailure) {
+      return;
+    }
+    try {
+      primaryFailure.addSuppressed(secondaryFailure);
+    } catch (final RuntimeException | Error ignored) {
+      // Preserve the authoritative publication failure even when cleanup runs under VM pressure.
     }
   }
 
@@ -667,10 +753,9 @@ public final class ProjectionBulkLoad {
       final byte[] columnKinds = builder.columnKinds();
       bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       final long[] valueDictionaryHeaderKeys = builder.flushStreamingDictionaryGeneration(storageEngineWriter);
-      fenceWriter.finish(storage, 0);
-      // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
-      // the new leaf count to tombstone.
-      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), 0,
+      fenceWriter.finish(storage);
+      // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
+      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {

@@ -26,8 +26,10 @@ import java.util.Map;
  * surrogate pairs assembled from consecutive escapes.</li>
  * <li>UTF-8 value bytes are byte-identical to {@code String.getBytes(UTF_8)} over the decoded
  * chars, INCLUDING the {@code '?'} replacement byte for unpaired surrogates.</li>
- * <li>Numbers are delegated verbatim to {@link JsonNumber#stringToNumber(String)} — identical
- * {@code Number} types and values by construction.</li>
+ * <li>Ordinary integers accumulate into an overflow-checked primitive while their characters are
+ * scanned; decimal, exponent, overflow and malformed forms fall back verbatim to
+ * {@link JsonNumber#stringToNumber(String)}. The exposed {@code Number} types and values therefore
+ * remain identical.</li>
  * </ul>
  *
  * <p>
@@ -47,6 +49,15 @@ final class BulkJsonScanner {
   static final int EVENT_FALSE = 8;
   static final int EVENT_NULL = 9;
   static final int EVENT_END_DOCUMENT = 10;
+
+  /** No numeric event is currently exposed. */
+  static final int NUMBER_TYPE_NONE = 0;
+  /** The current numeric event is represented exactly by an {@code int}. */
+  static final int NUMBER_TYPE_INT = 1;
+  /** The current numeric event is represented exactly by a {@code long}. */
+  static final int NUMBER_TYPE_LONG = 2;
+  /** The current numeric event requires the ordinary {@link Number} fallback representation. */
+  static final int NUMBER_TYPE_FALLBACK = 3;
 
   private static final int DEFAULT_BUFFER_CHARS = 1 << 16;
 
@@ -79,6 +90,15 @@ final class BulkJsonScanner {
   private Number currentNumber;
   private String scratchName;
   private Number scratchNumber;
+
+  /**
+   * Primitive numeric state follows the same scratch/current handoff as the UTF-8 buffers. A peek may
+   * populate the scratch lane, but it cannot overwrite the event the caller is still consuming.
+   */
+  private int currentNumberType;
+  private long currentIntegralNumberValue;
+  private int scratchNumberType;
+  private long scratchIntegralNumberValue;
 
   private int peekedEvent = -1;
 
@@ -115,6 +135,8 @@ final class BulkJsonScanner {
     scratchUtf8 = previouslyExposed;
     currentName = scratchName;
     currentNumber = scratchNumber;
+    currentNumberType = scratchNumberType;
+    currentIntegralNumberValue = scratchIntegralNumberValue;
     return event;
   }
 
@@ -125,7 +147,37 @@ final class BulkJsonScanner {
 
   /** Valid after {@link #next()} returned {@link #EVENT_NUMBER}. */
   Number number() {
+    // Preserve the existing Number-shaped scanner contract, but materialize a wrapper only for a
+    // caller that actually asks for it. Primitive-aware sinks can consume numberType() and
+    // integralNumberValue() without allocating an Integer or Long per token.
+    if (currentNumber == null) {
+      if (currentNumberType == NUMBER_TYPE_INT) {
+        currentNumber = Integer.valueOf((int) currentIntegralNumberValue);
+      } else if (currentNumberType == NUMBER_TYPE_LONG) {
+        currentNumber = Long.valueOf(currentIntegralNumberValue);
+      }
+    }
     return currentNumber;
+  }
+
+  /**
+   * Primitive representation tag for the current numeric event. Valid after {@link #next()} returns
+   * {@link #EVENT_NUMBER}; {@link #NUMBER_TYPE_FALLBACK} means callers must use {@link #number()}.
+   */
+  int numberType() {
+    return currentNumberType;
+  }
+
+  /**
+   * Exact primitive value of the current {@link #NUMBER_TYPE_INT} or {@link #NUMBER_TYPE_LONG} event.
+   *
+   * @throws IllegalStateException if the current event has no primitive integral representation
+   */
+  long integralNumberValue() {
+    if (currentNumberType != NUMBER_TYPE_INT && currentNumberType != NUMBER_TYPE_LONG) {
+      throw new IllegalStateException("current number has no primitive integral representation");
+    }
+    return currentIntegralNumberValue;
   }
 
   /** Valid after {@link #next()} returned {@link #EVENT_STRING}; reused buffer. */
@@ -186,7 +238,6 @@ final class BulkJsonScanner {
         default -> {
           if (c == '-' || (c >= '0' && c <= '9')) {
             scanNumber((char) c);
-            scratchNumber = JsonNumber.stringToNumber(new String(token, 0, tokenLength));
             return EVENT_NUMBER;
           }
           throw new IOException("unexpected character '" + (char) c + "' in JSON input");
@@ -281,18 +332,68 @@ final class BulkJsonScanner {
   private void scanNumber(final char first) throws IOException {
     tokenLength = 0;
     appendToken(first);
+
+    // Parse the ordinary integral lane while the scanner already traverses the token. Accumulating
+    // negatively is the same overflow-safe technique used by JsonNumber.stringInteger and admits
+    // Long.MIN_VALUE, whose positive magnitude cannot be represented by a long. Any decimal mark,
+    // exponent syntax, embedded sign, overflow, or malformed sign-only token takes the exact old
+    // String/JsonNumber path below.
+    final boolean negative = first == '-';
+    final long overflowLimit = negative
+        ? Long.MIN_VALUE
+        : -Long.MAX_VALUE;
+    final long multiplyLimit = overflowLimit / 10;
+    long result = 0;
+    int digits = 0;
+    boolean primitiveIntegral = true;
+    if (!negative) {
+      result = -(first - '0');
+      digits = 1;
+    }
+
     while (true) {
       if (position == limit && !fill()) {
-        return;
+        break;
       }
       final char c = buffer[position];
       if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
         appendToken(c);
         position++;
+        if (primitiveIntegral && c >= '0' && c <= '9') {
+          final int digit = c - '0';
+          if (result < multiplyLimit) {
+            primitiveIntegral = false;
+          } else {
+            result *= 10;
+            if (result < overflowLimit + digit) {
+              primitiveIntegral = false;
+            } else {
+              result -= digit;
+              digits++;
+            }
+          }
+        } else {
+          primitiveIntegral = false;
+        }
       } else {
-        return;
+        break;
       }
     }
+
+    if (primitiveIntegral && digits > 0) {
+      final long value = negative
+          ? result
+          : -result;
+      scratchIntegralNumberValue = value;
+      scratchNumberType = value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE
+          ? NUMBER_TYPE_INT
+          : NUMBER_TYPE_LONG;
+      scratchNumber = null;
+      return;
+    }
+
+    scratchNumber = JsonNumber.stringToNumber(new String(token, 0, tokenLength));
+    scratchNumberType = NUMBER_TYPE_FALLBACK;
   }
 
   private void expect(final String rest) throws IOException {

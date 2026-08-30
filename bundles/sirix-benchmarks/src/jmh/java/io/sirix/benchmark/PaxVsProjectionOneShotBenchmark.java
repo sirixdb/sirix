@@ -71,18 +71,11 @@ import java.util.concurrent.TimeUnit;
  * JVM. Untimed, per invocation: the executor is closed and recreated (dropping every
  * instance cache — compiled predicates, page-skip schedules, region caches, worker
  * transactions), the resource's buffer pool is evicted ({@link BufferManager#clearAllCaches()}),
- * and the projection handle is re-installed over the SAME built leaves (dropping its lazily
- * decoded column store without paying an index rebuild). The timed query then pays predicate
- * compilation, page loads and region access on the PAX arm, and column-segment fetch +
- * decode on the projection arm — the cost profile of "a warm server answering this query
- * for the first time".
- *
- * <p><b>Cross-tier caveat for the storage-cold arms</b> ({@code storage=IO_URING},
- * {@code osCold=true}): the projection tier in this harness is installed from in-memory
- * leaves, so its one-shot cost is pure decode — only the PAX arm pays device I/O there.
- * Within-tier comparisons (same arm across I/O modes, or PAX-vs-PAX across backends) are
- * sound; cross-tier ratios in those arms conflate columnar layout with storage residency
- * and must not be quoted as layout wins alone.
+ * and the catalog's decoded projection handle is evicted. The timed query then pays predicate
+ * compilation, page loads and region access on the PAX arm, and catalog hydration plus
+ * column-segment fetch and decode on the projection arm — the cost profile of "a warm server
+ * answering this query for the first time". Both arms read their ordinary persisted format;
+ * the benchmark has no RAM-resident projection-install route.
  *
  * <p>Run with:
  * <pre>
@@ -101,7 +94,7 @@ public class PaxVsProjectionOneShotBenchmark {
   @Param({ "100000", "1000000" })
   public int recordCount;
 
-  /** {@code true} → covering projection installed (re-cooled per invocation); {@code false} → PAX. */
+  /** {@code true} → catalogued covering projection (re-cooled per invocation); {@code false} → PAX. */
   @Param({ "false", "true" })
   public boolean projectionIndex;
 
@@ -125,18 +118,6 @@ public class PaxVsProjectionOneShotBenchmark {
   @Param({ "false" })
   public boolean osCold;
 
-  /**
-   * How the projection is discovered. {@code false} installs it into the in-memory
-   * {@code ProjectionIndexRegistry} — the bench/test pool, whose leaves are RAM-resident, so
-   * that arm measures kernels only and pays NO device I/O. {@code true} persists a catalogued
-   * definition and lets the production {@code ProjectionIndexCatalog} path find it; the cold
-   * step then also evicts the catalog's handle cache, so every invocation rebuilds the handle
-   * from the metadata blob plus a row-group directory walk and re-reads each queried column's
-   * segments from storage. Only the catalogued arm is a fair cold comparison against PAX.
-   */
-  @Param({ "false" })
-  public boolean catalogued;
-
   private static final String JSON_DB = "pax-vs-proj-oneshot-db";
   private static final String JSON_RESOURCE = "records.jn";
   private static final QNm DOC_VAR = new QNm("doc");
@@ -148,7 +129,6 @@ public class PaxVsProjectionOneShotBenchmark {
   private JsonResourceSession resourceSession;
   private SirixVectorizedExecutor vecExecutor;
   private BufferManager bufferManager;
-  private ProjectionIndexBenchSetup.Installed installedProjection;
   private int latestRev;
   private String resourceKey;
 
@@ -179,20 +159,15 @@ public class PaxVsProjectionOneShotBenchmark {
     resourceKey = resourceSession.getResourceConfig().getResource().toString();
 
     if (projectionIndex) {
-      if (catalogued) {
-        // Must run BEFORE $doc is bound: the index commit creates a new revision.
-        final String stats = ProjectionIndexBenchSetup.createProjectionIndexViaQuery(
-            chain, ctx, "jn:doc('" + JSON_DB + "','" + JSON_RESOURCE + "')");
-        latestRev = resourceSession.getMostRecentRevisionNumber();
-        System.out.printf("# catalogued projection created: %s (revision now %d)%n",
-            stats.trim(), latestRev);
-      } else {
-        installedProjection = ProjectionIndexBenchSetup.buildAndInstallWildcard(resourceSession);
-        if (installedProjection.result().totalRows() != recordCount) {
-          throw new IllegalStateException("projection rows " + installedProjection.result().totalRows()
-              + " != records " + recordCount);
-        }
+      // Must run BEFORE $doc is bound: the index commit creates a new revision.
+      final ProjectionIndexBenchSetup.BuildResult built =
+          ProjectionIndexBenchSetup.ensureProjection(resourceSession);
+      if (built.totalRows() != recordCount) {
+        throw new IllegalStateException("projection rows " + built.totalRows() + " != records " + recordCount);
       }
+      latestRev = resourceSession.getMostRecentRevisionNumber();
+      System.out.printf("# catalogued projection: %d row groups, %d rows (revision now %d)%n",
+          built.rowGroupCount(), built.totalRows(), latestRev);
     }
 
     vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev);
@@ -219,14 +194,14 @@ public class PaxVsProjectionOneShotBenchmark {
     if (!projectionIndex && delta != 0) {
       throw new IllegalStateException("no projection installed but predicated aggregate claims projection serving");
     }
-    System.out.printf("# tier verified: projectionIndex=%s catalogued=%s storage=%s osCold=%s, "
-        + "projection scans during probe=%d%n", projectionIndex, catalogued, storage, osCold, delta);
+    System.out.printf("# tier verified: projectionIndex=%s storage=%s osCold=%s, "
+        + "projection scans during probe=%d%n", projectionIndex, storage, osCold, delta);
   }
 
   /**
    * Re-cool everything a first-touch query would find cold, outside the timed region:
    * fresh executor (all instance caches and worker transactions gone), evicted buffer
-   * pool, and — on the projection arm — a fresh registry handle with an undecoded store.
+   * pool, and — on the projection arm — the catalog's decoded handle.
    */
   @Setup(Level.Invocation)
   public void goCold() {
@@ -246,13 +221,9 @@ public class PaxVsProjectionOneShotBenchmark {
       dropOsPageCache();
     }
     if (projectionIndex) {
-      if (catalogued) {
-        // Drop the catalog's decoded handles: the next query rebuilds from the metadata blob +
-        // directory walk and re-fetches column segments — the real cold projection path.
-        ProjectionIndexCatalog.clearCache();
-      } else {
-        ProjectionIndexBenchSetup.reinstall(installedProjection);
-      }
+      // The next query rebuilds from the metadata blob + directory walk and re-fetches column
+      // segments through the sole persisted projection path.
+      ProjectionIndexCatalog.clearCache();
     }
     vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev);
     SequentialPipelineStrategy.setVectorizedExecutor(vecExecutor);

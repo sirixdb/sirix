@@ -10,9 +10,12 @@ import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -222,20 +225,15 @@ public final class ProjectionColumnStore {
    */
   private ProjectionBloomChunks.ColumnEvidence @Nullable [] bloomBlocks;
 
-  /** See {@link ProjectionIndexColumnSegmentCodec#encodeBloomBlock}. Catalog-attach, set once. */
-  public void attachBloomBlocks(final byte @Nullable [] @Nullable [] blocks) {
-    this.bloomBlocks = ProjectionBloomChunks.fromLegacyBlocks(blocks, directories.size());
-  }
-
-  /** Attach manifest-backed chunks (or validated legacy blocks) loaded by the catalog. */
+  /** Attach manifest-backed chunks loaded by the catalog. */
   public void attachBloomBlocks(final ProjectionBloomChunks.ColumnEvidence @Nullable [] blocks) {
     this.bloomBlocks = blocks;
   }
 
   /**
    * Clear {@code keep} bits for leaves whose string-column fingerprint PROVES the literal absent.
-   * Evidence order: the contiguous block (already in memory, zero I/O), else the per-leaf chain
-   * (cached after the first fetch), else nothing — leaves without evidence stay kept.
+   * Evidence order: chunk-manifest blocks, else the per-leaf chain (cached after the first fetch),
+   * else nothing — leaves without evidence stay kept.
    *
    * @return number of leaves newly dropped
    */
@@ -248,16 +246,7 @@ public final class ProjectionColumnStore {
         ? blocks[col]
         : null;
     if (block != null) {
-      final int blockDropped = block.prune(literalHash, keep, n, fetcher);
-      if (blockDropped >= 0) {
-        return blockDropped;
-      }
-      // A referenced legacy root is typed only when its deferred payload is fetched. If it is not
-      // an exact PBLM block, fall through to the per-leaf chain just like an inline malformed root.
-      // Manifest-backed chunks never return this sentinel: a bad chunk keeps only its own span.
-      if (blockDropped != ProjectionBloomChunks.EVIDENCE_UNUSABLE) {
-        throw new IllegalStateException("Unknown Bloom evidence result " + blockDropped);
-      }
+      return block.prune(literalHash, keep, n, fetcher);
     }
     final byte[][] chain = stringBloomSegments(col, fetcher);
     if (chain == null) {
@@ -315,6 +304,7 @@ public final class ProjectionColumnStore {
       this.columnKinds = new byte[0];
     } else {
       final byte[] d0 = this.directories.get(0).descriptor();
+      RowGroupDescriptor.validate(d0);
       final int columnCount = RowGroupDescriptor.columnCount(d0);
       this.columnKinds = new byte[columnCount];
       for (int c = 0; c < columnCount; c++) {
@@ -359,6 +349,7 @@ public final class ProjectionColumnStore {
     final int leaves = directories.size();
     for (int leaf = 1; leaf < leaves; leaf++) {
       final byte[] di = directories.get(leaf).descriptor();
+      RowGroupDescriptor.validate(di);
       if (!RowGroupDescriptor.kindsAgree(d0, di)) {
         throw new ProjectionStoreInconsistentException(leaf, describeDisagreement(d0, di));
       }
@@ -433,6 +424,15 @@ public final class ProjectionColumnStore {
    * @throws IllegalStateException if {@code col} is not a STRING_DICT column
    */
   public int[] stringValueExtrema(final int col, final ColumnSegmentFetcher fetcher) {
+    return stringValueExtrema(col, residentLeafAccess(fetcher, null));
+  }
+
+  /**
+   * As {@link #stringValueExtrema(int, ColumnSegmentFetcher)}, reading the leaves through
+   * {@code access} — one sequential pass, so a windowed access derives the same memoized answer
+   * without ever holding the column resident.
+   */
+  public int[] stringValueExtrema(final int col, final LeafColumnAccess access) {
     if (col < 0 || col >= columnKinds.length
         || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("Column " + col + " is not STRING_DICT");
@@ -442,8 +442,7 @@ public final class ProjectionColumnStore {
     if (hit != null) {
       return hit;
     }
-    final ColumnSlice[] slices = column(col, fetcher);
-    final int n = slices.length;
+    final int n = directories.size();
     final int[] extrema = new int[2 * n];
     // The collation gate, hoisted out of the comparisons and recorded for later callers: whether a
     // supplementary character is in play is a property of the DICTIONARY, and re-deriving it per
@@ -457,7 +456,7 @@ public final class ProjectionColumnStore {
     // per-leaf body chases byte[] dictionary entries all over the heap, so it is memory-bound rather
     // than compute-bound, and the pool is already carrying this store's column decodes beside it.
     for (int leaf = 0; leaf < n; leaf++) {
-      extremaOfLeaf(slices[leaf], leaf, extrema, leafSupplementary);
+      extremaOfLeaf(access.slice(col, leaf), leaf, extrema, leafSupplementary);
     }
     boolean anySupplementary = false;
     for (final boolean leafHasOne : leafSupplementary) {
@@ -1681,8 +1680,9 @@ public final class ProjectionColumnStore {
    * Per-leaf {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_SET_COUNTS} payloads.
    *
    * <p>
-   * These segments are forced INLINE, so their bytes live in the descriptors this store already holds
-   * and {@code fetchAll} is handed nothing to fetch — the whole chain resolves without a page read.
+   * These segments are bounded by the 512-byte segment-slot inline threshold, so their bytes are
+   * captured with the directories and {@code fetchAll} is handed nothing to fetch — the whole chain
+   * resolves without an overflow-page read.
    * That is the difference between this and {@link #dictRowCounts}, which needs the dictionary
    * segment and therefore a page per leaf.
    *
@@ -1799,15 +1799,9 @@ public final class ProjectionColumnStore {
         }
         throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
       }
-      // Segment-slot layout: a bare INLINE segment's bytes were captured at directory build (its
-      // zone-map-only descriptor carries no inline region), so they come straight from the directory.
-      // Descriptor layout: an inline segment's bytes ride the descriptor's trailing region.
-      final byte[] dirInline = dir.inlineBytesAt(entry);
-      final byte[] inlineForEntry = dirInline != null
-          ? dirInline
-          : RowGroupDescriptor.entryIsInline(desc, entry)
-              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
-              : null;
+      // A small segment lives inline in its OWN segment slot and was captured while the directory
+      // was built. The descriptor never carries segment payload bytes.
+      final byte[] inlineForEntry = dir.inlineBytesAt(entry);
       if (inlineForEntry != null) {
         if (inlineBytes == null) {
           inlineBytes = new byte[n][];
@@ -1887,7 +1881,10 @@ public final class ProjectionColumnStore {
       final boolean optional, final boolean[] absent, final int workers) {
     final int n = directories.size();
     final int chunk = (n + workers - 1) / workers;
-    final AtomicReference<byte[][]> inline = new AtomicReference<>();
+    // One carrier for the whole fan-out. Allocating lazily inside each worker let CAS losers discard
+    // one n-entry array apiece under an inline-heavy first touch.
+    final byte[][] inline = new byte[n][];
+    final AtomicBoolean hasInline = new AtomicBoolean();
     final AtomicReference<RuntimeException> failed = new AtomicReference<>();
     IntStream.range(0, workers).parallel().forEach(w -> {
       final int from = w * chunk;
@@ -1896,7 +1893,7 @@ public final class ProjectionColumnStore {
         return;
       }
       try {
-        collectColumnOffsetsRange(segId, offsets, optional, absent, from, to, inline, n);
+        collectColumnOffsetsRange(segId, offsets, optional, absent, from, to, inline, hasInline);
       } catch (final RuntimeException malformed) {
         failed.compareAndSet(null, malformed);
       }
@@ -1905,13 +1902,15 @@ public final class ProjectionColumnStore {
     if (malformed != null) {
       throw malformed;
     }
-    return inline.get();
+    return hasInline.get()
+        ? inline
+        : null;
   }
 
   /** One worker's leaf range of {@link #collectColumnOffsetsParallel}. */
   private void collectColumnOffsetsRange(final int segId, final long[] offsets, final boolean optional,
-      final boolean[] absent, final int from, final int to, final AtomicReference<byte[][]> inline, final int n) {
-    byte[][] inlineBytes = inline.get();
+      final boolean[] absent, final int from, final int to, final byte[][] inlineBytes,
+      final AtomicBoolean hasInline) {
     for (int i = from; i < to; i++) {
       final RowGroupDirectory dir = directories.get(i);
       final byte[] desc = dir.descriptor();
@@ -1924,23 +1923,10 @@ public final class ProjectionColumnStore {
         }
         throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
       }
-      final byte[] dirInline = dir.inlineBytesAt(entry);
-      final byte[] inlineForEntry = dirInline != null
-          ? dirInline
-          : RowGroupDescriptor.entryIsInline(desc, entry)
-              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
-              : null;
+      final byte[] inlineForEntry = dir.inlineBytesAt(entry);
       if (inlineForEntry != null) {
-        if (inlineBytes == null) {
-          // First inline entry seen by ANY worker allocates the shared carrier; the losers of the
-          // race adopt the winner's array. Every later write lands at this worker's own index, so
-          // the array is only ever written disjointly.
-          final byte[][] fresh = new byte[n][];
-          inlineBytes = inline.compareAndSet(null, fresh)
-              ? fresh
-              : inline.get();
-        }
         inlineBytes[i] = inlineForEntry;
+        hasInline.set(true);
         offsets[i] = Constants.NULL_ID_LONG;
       } else {
         offsets[i] = dir.columnSegmentOffsets()[entry];
@@ -2067,7 +2053,7 @@ public final class ProjectionColumnStore {
 
   /**
    * As above, but when {@code keepWords} is non-null, leaves whose bit is clear are neither fetched
-   * (their offset is replaced by the no-page sentinel), patched from the inline region, nor verified
+   * (their offset is replaced by the no-page sentinel), filled from an inline segment slot, nor verified
    * — a leaf the caller has already proven irrelevant costs zero I/O and zero CPU.
    */
   private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind, final boolean optional,
@@ -2076,9 +2062,9 @@ public final class ProjectionColumnStore {
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's segment offsets ascend with the leaf index — no
     // explicit sort needed for read locality. One batched fetch = one read transaction.
-    // Hybrid: an inline segment carries no page — its bytes come straight from the descriptor, so
-    // it is skipped in the offset batch (the NULL_ID_LONG sentinel → the fetcher yields null there)
-    // and filled in afterwards. inlineBytes stays null when the whole column is referenced.
+    // A segment stored inline in its own slot carries no page; its bytes were captured with the
+    // directory, so it is skipped in the offset batch (NULL_ID_LONG makes the fetcher yield null)
+    // and filled afterwards. inlineBytes stays null when the whole column is referenced.
     final long[] offsets = new long[n];
     final boolean[] absent = optional
         ? new boolean[n]
@@ -2263,6 +2249,360 @@ public final class ProjectionColumnStore {
       final long doneNanos = System.nanoTime();
       System.err.printf("[prefetchAll] swept segment chains: %d pages=%d in %.1f ms | t=%.1f..%.1f%n",
           sweptSegmentChains, hintedPages, (doneNanos - startNanos) / 1e6, startNanos / 1e6, doneNanos / 1e6);
+    }
+  }
+
+
+  // ==================== per-leaf column access (resident or windowed) ====================
+
+  /**
+   * Per-leaf access to a column store for kernels that visit ONE leaf at a time — the sorted top-k
+   * scan and its kin. The resident form hands out the store's retained slices; the windowed form
+   * decodes leaves per window through the caller's fetcher and keeps a handful of windows in a
+   * small clock cache, so a column whose whole-column fill would exceed the heap budget (a fat
+   * string column at 100M rows, ~8 GB of per-leaf dictionaries) still serves the kernel exactly,
+   * at a bounded working set. Single-threaded by contract: the kernels that take it run on one
+   * thread.
+   */
+  public interface LeafColumnAccess {
+    /** The slice of {@code col} on {@code leaf}, never masked — sort keys, best-first and zone reads. */
+    ColumnSlice slice(int col, int leaf);
+
+    /**
+     * The slice of predicate column {@code col} on {@code leaf}: the pruned sentinel when the zone-map
+     * keep mask dropped the leaf, exactly as the masked resident fill hands it out.
+     */
+    ColumnSlice predicateSlice(int col, int leaf);
+
+    /** The record keys of {@code leaf} in row order. */
+    long[] recordKeys(int leaf);
+
+    /** Whether leaves are decoded per window instead of held resident. */
+    boolean windowed();
+  }
+
+  private static final LongAdder WINDOWED_LEAF_ACCESSES = new LongAdder();
+
+  /** Test observability: how often a kernel took the windowed (non-retaining) access. */
+  public static long windowedLeafAccessCount() {
+    return WINDOWED_LEAF_ACCESSES.sum();
+  }
+
+  /** Leaves per decoded window of the windowed access — the LRU keeps a few of these per column. */
+  public static final int LEAF_ACCESS_WINDOW = 64;
+
+  /**
+   * Resident when every one of {@code columns} (and the KEYS chain, when {@code needKeys}) fits
+   * the fill budget or is already filled — the retained slices serve as always; otherwise the
+   * windowed access, which retains nothing.
+   */
+  public LeafColumnAccess leafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int[] columns, final boolean needKeys) {
+    // The COMBINED projected fill of everything not yet resident, against what the budget has left —
+    // not each column alone. Two fat columns that each fit the remainder do not fit together: the
+    // first fill would succeed and the second throw the budget door mid-kernel, declining the try to
+    // the interpreter, while the next try (first column now retained) would go windowed and serve.
+    boolean resident = true;
+    long needed = 0L;
+    final boolean[] counted = new boolean[columnKinds.length];
+    for (final int col : columns) {
+      if (!columnSliceable(col)) {
+        resident = false;
+        break;
+      }
+      if (counted[col] || columnFilled(col)) {
+        continue;
+      }
+      counted[col] = true;
+      needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
+    }
+    if (resident && needKeys && recordKeySlices == null) {
+      needed += projectedRecordKeysFillBytes();
+    }
+    if (resident && retainedFillBytes.get() + needed > columnFillBudgetBytes) {
+      resident = false;
+    }
+    if (resident) {
+      return new ResidentLeafAccess(fetcher, keepWords);
+    }
+    WINDOWED_LEAF_ACCESSES.increment();
+    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW);
+  }
+
+  /** The resident access regardless of budget (tests and callers that already hold the fills). */
+  public LeafColumnAccess residentLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+    return new ResidentLeafAccess(fetcher, keepWords);
+  }
+
+  /** The windowed access regardless of budget (tests). */
+  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int windowLeaves) {
+    WINDOWED_LEAF_ACCESSES.increment();
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves);
+  }
+
+  private final class ResidentLeafAccess implements LeafColumnAccess {
+    private final ColumnSegmentFetcher fetcher;
+    private final long @Nullable [] keepWords;
+    private final ColumnSlice[][] byColumn = new ColumnSlice[columnKinds.length][];
+    private final ColumnSlice[][] byPredicateColumn = new ColumnSlice[columnKinds.length][];
+    private long @Nullable [][] keys;
+
+    ResidentLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+      this.fetcher = fetcher;
+      this.keepWords = keepWords;
+    }
+
+    @Override
+    public ColumnSlice slice(final int col, final int leaf) {
+      ColumnSlice[] slices = byColumn[col];
+      if (slices == null) {
+        slices = column(col, fetcher);
+        byColumn[col] = slices;
+      }
+      return slices[leaf];
+    }
+
+    @Override
+    public ColumnSlice predicateSlice(final int col, final int leaf) {
+      if (keepWords == null) {
+        return slice(col, leaf);
+      }
+      ColumnSlice[] slices = byPredicateColumn[col];
+      if (slices == null) {
+        slices = columnMasked(col, fetcher, keepWords);
+        byPredicateColumn[col] = slices;
+      }
+      return slices[leaf];
+    }
+
+    @Override
+    public long[] recordKeys(final int leaf) {
+      long[][] k = keys;
+      if (k == null) {
+        k = ProjectionColumnStore.this.recordKeys(fetcher);
+        keys = k;
+      }
+      return k[leaf];
+    }
+
+    @Override
+    public boolean windowed() {
+      return false;
+    }
+  }
+
+  /** One segment chain's per-leaf addressing, collected once per column of the windowed access. */
+  private static final class ChainOffsets {
+    final long[] offsets;
+    final byte @Nullable [][] inlineBytes;
+    final boolean @Nullable [] absent;
+
+    ChainOffsets(final long[] offsets, final byte @Nullable [][] inlineBytes, final boolean @Nullable [] absent) {
+      this.offsets = offsets;
+      this.inlineBytes = inlineBytes;
+      this.absent = absent;
+    }
+  }
+
+  private final class WindowedLeafAccess implements LeafColumnAccess {
+    /**
+     * Decoded leaves kept per column, LRU. A miss decodes the leaf's whole window (sequential scans
+     * then touch each window once), and the capacity is well above a top-k heap's size plus a window,
+     * so the heap comparisons that resolve OTHER leaves' entries hit the cache instead of re-decoding
+     * a window per comparison — the pathology that made a 100M sorted scan slower than the interpreter.
+     */
+    private static final int LEAVES_PER_COLUMN = 512;
+    private final ColumnSegmentFetcher fetcher;
+    private final long @Nullable [] keepWords;
+    private final int windowLeaves;
+    private final int leafCount = directories.size();
+    private final ChainOffsets[] bodyChains = new ChainOffsets[columnKinds.length];
+    private final ChainOffsets[] dictChains = new ChainOffsets[columnKinds.length];
+    @SuppressWarnings("unchecked")
+    private final Int2ObjectLinkedOpenHashMap<ColumnSlice>[] leafCache =
+        new Int2ObjectLinkedOpenHashMap[columnKinds.length];
+    private ChainOffsets keysChain;
+    private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
+
+    WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves) {
+      if (windowLeaves <= 0) {
+        throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
+      }
+      this.fetcher = fetcher;
+      this.keepWords = keepWords;
+      this.windowLeaves = windowLeaves;
+    }
+
+    @Override
+    public boolean windowed() {
+      return true;
+    }
+
+    private boolean pruned(final int leaf) {
+      return keepWords != null && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) == 0L;
+    }
+
+    @Override
+    public ColumnSlice predicateSlice(final int col, final int leaf) {
+      if (leaf >= 0 && leaf < leafCount && pruned(leaf)) {
+        return PRUNED_SLICE;
+      }
+      return slice(col, leaf);
+    }
+
+    @Override
+    public ColumnSlice slice(final int col, final int leaf) {
+      if (leaf < 0 || leaf >= leafCount) {
+        throw new IndexOutOfBoundsException("leaf " + leaf + " of " + leafCount);
+      }
+      if (!columnSliceable(col)) {
+        throw new IllegalStateException("Column " + col + " is not sliceable");
+      }
+      Int2ObjectLinkedOpenHashMap<ColumnSlice> cache = leafCache[col];
+      if (cache == null) {
+        cache = new Int2ObjectLinkedOpenHashMap<>(LEAVES_PER_COLUMN * 2);
+        leafCache[col] = cache;
+      }
+      final ColumnSlice hit = cache.getAndMoveToLast(leaf);
+      if (hit != null) {
+        return hit;
+      }
+      final int window = leaf / windowLeaves;
+      final ColumnSlice[] decoded = decodeWindow(col, window);
+      final int from = window * windowLeaves;
+      for (int i = 0; i < decoded.length; i++) {
+        cache.putAndMoveToLast(from + i, decoded[i]);
+      }
+      while (cache.size() > LEAVES_PER_COLUMN) {
+        cache.removeFirst();
+      }
+      return decoded[leaf - from];
+    }
+
+    private ChainOffsets chain(final int col, final int segId, final boolean optional) {
+      final long[] offsets = new long[leafCount];
+      final boolean[] absent = optional
+          ? new boolean[leafCount]
+          : null;
+      final byte[][] inline = collectColumnOffsets(segId, offsets, optional, absent);
+      return new ChainOffsets(offsets, inline, absent);
+    }
+
+    /** Fetch, verify and hand back the segments of {@code [from, to)} of one chain (nulls where absent). */
+    private byte[][] fetchWindow(final ChainOffsets chain, final int from, final int to, final int segId,
+        final byte segKind, final boolean maskedChain) {
+      final byte[][] out = new byte[leafCount][];
+      boolean any = false;
+      for (int i = from; i < to; i++) {
+        if (chain.offsets[i] != Constants.NULL_ID_LONG && !(maskedChain && pruned(i))) {
+          any = true;
+          break;
+        }
+      }
+      if (any) {
+        // Pruned leaves are fetched with their window (their offsets stay real); the kernel never
+        // reads them, and the window's contiguity is what the backend's run coalescing lives on.
+        try {
+          fetcher.fetchRange(chain.offsets, from, to, out);
+        } catch (final RuntimeException fetchFailed) {
+          throw new IllegalStateException("Windowed segment fetch failed for segment id " + segId + ": "
+              + fetchFailed.getMessage(), fetchFailed);
+        }
+      }
+      final byte[][] segments = new byte[to - from][];
+      for (int i = from; i < to; i++) {
+        byte[] segment = out[i];
+        if (chain.inlineBytes != null && chain.inlineBytes[i] != null) {
+          segment = chain.inlineBytes[i];
+        }
+        if (chain.absent != null && chain.absent[i]) {
+          continue;
+        }
+        if (maskedChain && pruned(i)) {
+          continue;
+        }
+        if (segment == null) {
+          throw new IllegalStateException("Windowed fetch returned no segment " + segId + " for leaf " + i);
+        }
+        ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segment, segId, segKind);
+        segments[i - from] = segment;
+      }
+      return segments;
+    }
+
+    private ColumnSlice[] decodeWindow(final int col, final int window) {
+      final int from = window * windowLeaves;
+      final int to = Math.min(from + windowLeaves, leafCount);
+      final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+      final boolean string = set || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+      ChainOffsets body = bodyChains[col];
+      if (body == null) {
+        body = chain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col), false);
+        bodyChains[col] = body;
+      }
+      ChainOffsets dict = null;
+      if (string) {
+        dict = dictChains[col];
+        if (dict == null) {
+          dict = chain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col), true);
+          dictChains[col] = dict;
+        }
+      }
+      final boolean maskedChain = false; // windows decode every leaf; pruning is the predicate view's business
+      final byte[][] bodies = fetchWindow(body, from, to, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+          ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, maskedChain);
+      final byte[][] dicts = dict != null
+          ? fetchWindow(dict, from, to, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+              ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, maskedChain)
+          : null;
+      final ColumnSlice[] decoded = new ColumnSlice[to - from];
+      for (int i = from; i < to; i++) {
+        if (maskedChain && pruned(i)) {
+          decoded[i - from] = PRUNED_SLICE;
+          continue;
+        }
+        final byte[] descriptor = directories.get(i).descriptor();
+        final byte[] bodySeg = bodies[i - from];
+        final byte[] dictSeg = dicts != null
+            ? dicts[i - from]
+            : null;
+        decoded[i - from] = set
+            ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
+            : string
+                ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
+                : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+      }
+      return decoded;
+    }
+
+    @Override
+    public long[] recordKeys(final int leaf) {
+      if (leaf < 0 || leaf >= leafCount) {
+        throw new IndexOutOfBoundsException("leaf " + leaf + " of " + leafCount);
+      }
+      final long[] hit = keyCache.getAndMoveToLast(leaf);
+      if (hit != null) {
+        return hit;
+      }
+      final int window = leaf / windowLeaves;
+      if (keysChain == null) {
+        keysChain = chain(-1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), false);
+      }
+      final int from = window * windowLeaves;
+      final int to = Math.min(from + windowLeaves, leafCount);
+      final byte[][] segments = fetchWindow(keysChain, from, to, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+          ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, false);
+      final long[][] decoded = new long[to - from][];
+      for (int i = from; i < to; i++) {
+        decoded[i - from] = ProjectionIndexColumnSegmentCodec.decodeKeysSlice(directories.get(i).descriptor(),
+            segments[i - from]);
+        keyCache.putAndMoveToLast(i, decoded[i - from]);
+      }
+      while (keyCache.size() > LEAVES_PER_COLUMN) {
+        keyCache.removeFirst();
+      }
+      return decoded[leaf - from];
     }
   }
 

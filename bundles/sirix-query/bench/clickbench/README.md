@@ -30,10 +30,12 @@ DuckDB **1.5.2 (Variegata)**.
 Everything here — and `ClickBenchSchema.java` on the Java side — agrees on exactly this:
 
 * **one JSON object per hit, all 105 columns always present, in `create.sql` column order**;
-* the whole file is **ONE JSON ARRAY** of those objects, `[{...},\n{...}]`, which
-  `ClickBenchLoadMain` shreds through a Jackson streaming parser; the loader also accepts
-  newline-delimited JSON — the shape of the official `hits.json.gz` — detected by peeking for the
-  leading `[` and ingested through the transaction's native LDJSON mode rather than reframed;
+* the whole file is **ONE JSON ARRAY** of those objects, `[{...},\n{...}]`; the loader also accepts
+  newline-delimited JSON — the shape of the official `hits.json.gz`. File sources default to the
+  general chunked parallel importer. A streaming delimiter adapter frames LDJSON as an array, and an
+  allocation-stable byte filter exposes the official stream's quoted `BIGINT` values and
+  space-separated timestamps as the canonical token types. Neither adapter buffers a record or
+  writes a second input file. `-Dclickbench.parallelImport=false` retains the Jackson cursor path;
 * `SMALLINT`/`INTEGER`/`BIGINT` → JSON numbers, exact int64, never quoted, never floats;
 * `TEXT`/`VARCHAR`/`CHAR` → JSON strings; `NULL` is coalesced to `""`, which is what ClickBench
   itself uses as the "missing" marker, so the file never contains a JSON `null`;
@@ -97,7 +99,9 @@ wget --continue --progress=dot:giga \
 ./prepare-data.sh hits.parquet hits-10m.json 10000000
 
 # 3. SirixDB: load, then run and dump results
-java -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchLoadMain \
+java -Dclickbench.expectedRows=99997497 -Dclickbench.projection=true \
+     -Dclickbench.projection.incremental=true -DbuildPathSummary=true \
+     -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchLoadMain \
      /var/tmp/sirix-clickbench hits.json
 java -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchRunMain \
      /var/tmp/sirix-clickbench --tries 3 --dump results-sirix
@@ -108,7 +112,82 @@ java -cp <sirix-query classpath> io.sirix.query.bench.clickbench.ClickBenchRunMa
 
 # 5. diff
 ./compare-results.py results-sirix results-duckdb
+
+# Full correctness gate over the official 99,997,497-row corpus. DuckDB's
+# database and spill files must stay inside the dedicated work directory.
+work=/var/tmp/clickbench-differential
+sirix_resources="-Xms4g -Xmx4g -XX:MaxDirectMemorySize=1g -Dsirix.offheap.bytes=8589934592 -Dsirix.allocator=frame -Dsirix.arena.strategy=shared"
+HITS_JSON=/path/to/hits.json EXPECTED_ROWS=99997497 REQUIRE_AUTO_GLOBAL_DICT=1 \
+SIRIX_LOAD_JVM_ARGS="$sirix_resources" SIRIX_QUERY_JVM_ARGS="$sirix_resources" \
+DUCKDB_DB="$work/hits.duckdb" DUCKDB_TEMP_DIRECTORY="$work/duckdb-tmp" \
+DUCKDB_MEMORY_LIMIT=12GB DUCKDB_THREADS=4 \
+./run-differential.sh 99997497 "$work"
 ```
+
+The default parallel path requires `hashType=NONE` and `storeNodeHistory=false`; both are already the
+ClickBench defaults. A non-standard hashed or temporal-history load must set
+`-Dclickbench.parallelImport=false`. The loader checks this before allocating off-heap memory or
+opening the target.
+
+`run-differential.sh` always loads with `clickbench.projection=true`,
+`clickbench.projection.incremental=true`, and the exact `buildPathSummary=true` property. For a file
+source it requires an explicit positive expected-row count (the first argument or `EXPECTED_ROWS`)
+and forwards it as `clickbench.expectedRows`; the official corpus value is **99,997,497**. This lets
+the global-dictionary election reject unsuitable high-cardinality columns before ingestion instead
+of abandoning the projection partway through. The script captures both loader streams and aborts
+before querying if it sees `[proj] PROJECTION ABANDONED`. The loader's existing persisted projection
+acceptance check also verifies its final row count against the same positive hint; the script does
+not add a repair or post-load index build.
+
+AUTO applies `sirix.projection.globalDict.budgetBytes` as one aggregate, not as an equal slice for
+every declared string column. After the bounded leading sample it ranks only worthwhile, V0-safe
+candidates by sampled local-dictionary pressure (then smaller reservation and column order), reserves
+at least twice each projected footprint per simultaneously resident structure, and admits the
+deterministic subset that fits. A streaming column therefore reserves a combined four-times envelope
+which is split into disjoint generation-writer and whole-load probe-front halves; neither structure
+can spend the other's cap. Any spare aggregate is divided among the selected combined envelopes
+without letting their finite ceilings sum past the configured total. Thus unrelated low-cardinality
+strings cannot make a safe dictionary fail a per-column pre-gate; both structures' byte/structural
+checks remain runtime fail-closed boundaries.
+
+Both Sirix query legs are route-gated, not inferred from their timings. The fast leg passes
+`--require-vectorized-serving`; for every one of the 43 fully serialized queries the runner snapshots
+all outcome-level serving counters and requires at least one positive delta, then prints the exact
+route names in that query's `note` column. Lookup, attempt, decline, and page-read counters do not
+qualify. The generic leg passes `--require-generic-serving` and requires every such delta to remain
+zero. Therefore a silent fast-path decline and an accidentally vectorized "generic" leg both stop the
+campaign before DuckDB runs.
+
+Set `REQUIRE_AUTO_GLOBAL_DICT=1` when AUTO is part of the campaign claim. The script appends
+`-Dsirix.projection.globalDict=auto` after caller JVM flags and parses the loader's completed-build
+banner; a missing banner or `globalDictColumns=0` is fatal. This is intentionally opt-in because a
+corpus whose sampled string columns do not justify a resource-wide dictionary is a valid AUTO
+outcome, but it cannot be used as evidence for global-dictionary performance.
+
+The loader snapshots the process-wide HOT mutation counters immediately before `store.create*` and,
+after the two cold persisted projection reopens, emits one per-load evidence record:
+
+```text
+# HOT_INCREMENTAL_DELTAS COMPLETE_STRUCTURAL_FRONTIER_SPLICE=0 STRUCTURAL_VALIDATION_FAILURE=0 STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE=0 MUTATION_TRAVERSAL_REFUSED=0 STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED=0
+```
+
+The values are deltas, so earlier work in a reused JVM is excluded. A complete structural-frontier
+splice is a legitimate bounded incremental operation and is reported rather than rejected. Every
+load fails before publishing `Load time` if a published structure fails validation, height
+propagation cannot be preflighted, or a mandatory mutation traversal is refused. Oversized
+defense-in-depth validation scopes are also disclosed; the route-local mandatory guard still runs.
+There is no subtree-rebuild counter anymore because no subtree-rebuild mutation entry point remains
+in production.
+
+`SIRIX_LOAD_JVM_ARGS` and `SIRIX_QUERY_JVM_ARGS` are whitespace-delimited append points for the
+fixed-heap, direct-memory, allocator, off-heap, GC, and HFT flags used by a particular campaign. This
+is necessary because the Gradle tasks' general-purpose defaults are `-Xmx12g` and both Java mains
+otherwise reserve 24 GiB off heap. A later `-Xmx4g` and `-Dsirix.offheap.bytes=...` in these variables
+override those defaults; the fixed-heap HFT section below gives the complete canonical loader string.
+The script appends its mandatory expected-row/projection/path-summary properties after
+`SIRIX_LOAD_JVM_ARGS`, and appends `autoVectorize=true` or `false` after `SIRIX_QUERY_JVM_ARGS`, so an
+earlier duplicate cannot silently disable the projection or collapse the two query legs into the
+same route.
 
 For the *performance* number, point DuckDB at the parquet instead — that is how ClickBench measures
 it, and it avoids charging DuckDB for a JSON parse SirixDB does not pay at query time:
@@ -171,7 +250,7 @@ deleted by the commands:
 gate_root=$(mktemp -d /tmp/sirix-hft-gate.XXXXXX)
 hft_sha=$(git rev-parse HEAD)
 load_classpath=$(./gradlew -q :sirix-query:printClickBenchRuntimeClasspath)
-common_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:-G1UseAdaptiveIHOP -XX:InitiatingHeapOccupancyPercent=45 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -XX:-UseJVMCICompiler -DstorageType=FILE_CHANNEL -Dsirix.allocator=frame -Dsirix.offheap.bytes=8589934592 -Dsirix.arena.strategy=shared -Dsirix.asyncFlush.parallelism=2 -Dsirix.asyncFlush.appendParallelism=2 -Dsirix.asyncFlush.sidePageBytes=67108864 -Dsirix.asyncFlush.sidePageCount=131072 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.autoCommit.nodes=4194304 -Dsirix.projection.globalDict=never -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
+common_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:-G1UseAdaptiveIHOP -XX:InitiatingHeapOccupancyPercent=45 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -XX:-UseJVMCICompiler -DstorageType=FILE_CHANNEL -Dsirix.allocator=frame -Dsirix.offheap.bytes=8589934592 -Dsirix.arena.strategy=shared -Dsirix.asyncFlush.parallelism=2 -Dsirix.asyncFlush.appendParallelism=2 -Dsirix.asyncFlush.sidePageBytes=67108864 -Dsirix.asyncFlush.sidePageCount=131072 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.autoCommit.nodes=4194304 -Dsirix.projection.globalDict=never -Dclickbench.parallelImport=true -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
 
 ./gradlew --no-daemon :sirix-query:clickBenchLoad \
   -Pclickbench.args="$gate_root/db-1m generate:1000000:42" \
@@ -268,7 +347,7 @@ reclamation to a Cleaner and `global` never reclaims, so both deliberately fall 
 resident final-commit path. The loader resolves the effective HotSpot `MaxNewSize` and arena strategy
 before measurement, then emits exactly one `# HFT_CONFIG` record inside the boundary. The parser
 requires the canonical dictionary, logical auto-commit, `asyncFlushNodeCap=16384`, exact 4 MiB G1
-region, arena, storage, projection-mode, and row-count values. It also requires
+region, arena, storage, `importer=parallel-bulk`, projection-mode, and row-count values. It also requires
 `versioningType=FULL` and the resolved pinned-trie limits `pinnedTrieScanBudget=1024` and
 `pinnedTrieBatchCapacity=64`. Changing or omitting one fails closed instead of silently measuring a
 different workload or an unbounded flush/spill scan.
@@ -399,7 +478,7 @@ maintenance_root=$(mktemp -d /tmp/sirix-maintenance-gate.XXXXXX)
 maintenance_classpath=$(./gradlew -q :sirix-query:printClickBenchRuntimeClasspath)
 saturation_classpath=$(./gradlew -q :sirix-query:printClickBenchTestRuntimeClasspath)
 
-ingestion_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:-G1UseAdaptiveIHOP -XX:InitiatingHeapOccupancyPercent=45 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -XX:-UseJVMCICompiler -DstorageType=FILE_CHANNEL -Dsirix.allocator=frame -Dsirix.offheap.bytes=8589934592 -Dsirix.arena.strategy=shared -Dsirix.asyncFlush.parallelism=2 -Dsirix.asyncFlush.appendParallelism=2 -Dsirix.asyncFlush.sidePageBytes=67108864 -Dsirix.asyncFlush.sidePageCount=131072 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.autoCommit.nodes=4194304 -Dsirix.projection.globalDict=never -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
+ingestion_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:-G1UseAdaptiveIHOP -XX:InitiatingHeapOccupancyPercent=45 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -XX:-UseJVMCICompiler -DstorageType=FILE_CHANNEL -Dsirix.allocator=frame -Dsirix.offheap.bytes=8589934592 -Dsirix.arena.strategy=shared -Dsirix.asyncFlush.parallelism=2 -Dsirix.asyncFlush.appendParallelism=2 -Dsirix.asyncFlush.sidePageBytes=67108864 -Dsirix.asyncFlush.sidePageCount=131072 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.autoCommit.nodes=4194304 -Dsirix.projection.globalDict=never -Dclickbench.parallelImport=true -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
 maintenance_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -DstorageType=FILE_CHANNEL -Dsirix.arena.strategy=shared -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.projection.globalDict=auto -Dsirix.asyncFlush.appendParallelism=1 -Dsirix.asyncFlush.appendQueueCapacity=1 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
 
 for versioning in FULL DIFFERENTIAL INCREMENTAL SLIDING_SNAPSHOT; do
@@ -506,9 +585,15 @@ drain, GC and safepoint bounds, and zero positive humongous-region samples.
 --tries 3                  the ClickBench protocol
 --queries <file>           default: queries.sql next to the script
 --threads N                0 = DuckDB default
+--memory-limit SIZE        e.g. 12GB; default is DuckDB's setting
+--temp-directory <dir>     explicit DuckDB spill directory
 --column-spec <file>       JSON from ClickBenchSchema.duckdbColumnSpecJson();
                            cross-checked against the embedded type table
 --only 0,7,42              run a subset (debugging)
+--full-reference           emit untimed qNN.full.jsonl oracles for LIMIT queries
+--candidate-reference ID=DIR
+                           emit bounded exact qNN.oracle-ID.json files tied to
+                           the candidate results; repeat for multiple paths
 ```
 
 * The `hits` table is created from the **verbatim `duckdb/create.sql` DDL**, so its column types are
@@ -519,31 +604,75 @@ drain, GC and safepoint bounds, and zero positive humongous-region samples.
   `VARCHAR` and `CAST` on insert.
 * Every try calls `fetchall()` **inside** the timed region — DuckDB's streaming result would
   otherwise let the timer stop before the work is done.
-* Outputs: `qNN.jsonl` per query (`NN` = 0-based ClickBench index, matching
-  `ClickBenchQueries.byIndex(NN)`), `clickbench-results.txt` (the `Load time:` / `Data size:` /
-  43 × `[t1, t2, t3],` block), and `summary.json`.
+* Outputs: `.clickbench-result-format`, `qNN.jsonl` per query (`NN` = 0-based ClickBench index,
+  matching `ClickBenchQueries.byIndex(NN)`), `clickbench-results.txt` (the `Load time:` /
+  `Data size:` / 43 × `[t1, t2, t3],` block), and `summary.json`. The version marker is mandatory:
+  a non-empty unmarked directory may contain the former rounded encoding and is rejected rather
+  than silently upgraded. Start fresh or reuse a directory carrying the current marker. On reuse,
+  every selected final/partial result and oracle is invalidated before query work; a completed JSONL
+  file is published by same-directory atomic rename, so a failed run is missing rather than stale or
+  truncated.
+  With `--full-reference`, each LIMIT query also gets an atomically published, streamed
+  `qNN.full.jsonl` containing the complete untimed relation. Q24/Q26 carry EventTime (and Q26's
+  visible SearchPhrase secondary key) as explicit sidecar keys without changing the measured row.
+  `--candidate-reference` is the scalable correctness mode: it writes only the exact bounded window
+  keys, the candidate and DuckDB rows to which the proof is bound, and grouped full-relation matches
+  with exact multiplicities. It never writes the complete relation.
 * A failing query is reported, written as `[null, null, null],` and makes the exit status non-zero;
   the other 42 still run.
 
-Result canonicalisation, identical on both engines: integers keep every digit, floats are rounded to
-**6 significant digits** (`%.6g`), NULL is `null`, timestamps/dates are the ISO-8601 strings above.
-`ClickBenchRunMain.canonicalCell` does the same thing on the Java side.
+Result canonicalisation is lossless for every current ClickBench numeric type. Integers keep every
+digit. DuckDB writes finite `DOUBLE` values using Python's shortest round-trip binary64 rendering;
+`ClickBenchRunMain.canonicalCell` round-trips the Brackit token through Java `double` and lets Gson
+write the corresponding shortest representation. A future non-integral DuckDB `DECIMAL` fails
+closed until a lossless cross-engine encoding is defined. NULL is `null`, and timestamps/dates are
+the ISO-8601 strings above.
 
 ## `compare-results.py`
 
 ```
 ./compare-results.py <sirix-results-dir> <duckdb-results-dir> [--queries queries.sql]
-                     [--max-diff-rows N]
+                     [--max-diff-rows N] [--strong [--bounded-oracle ID]]
 ```
 
 Rows are compared as a **multiset** — SQL `GROUP BY` has no inherent order, so line order carries no
-information — with integers exact, floats to a relative 1e-9, strings exact, `null` equal only to
-`null`. `int` vs `float` is compared numerically: JSON has one number type, so `1666` vs `1666.0` is
-a serialisation artefact, not a wrong answer.
+information — with integers and decoded binary64 values exact, strings exact, and `null` equal only
+to `null`. An integral float remains exactly equivalent to the same integer because JSON has one
+number type (`1666` versus `1666.0` is only a serialisation difference). There is no epsilon: a
+one-ULP aggregate disagreement is a mismatch.
 
 Whenever the ORDER BY key is resolvable, both sides are additionally checked to be **actually
 ordered by it** — a multiset comparison alone would not notice an engine that returns the right rows
 in the wrong order.
+
+`run-differential.sh` uses `--strong --bounded-oracle ID`. Candidate output is available before
+DuckDB runs. For each LIMIT query, one DuckDB-side join covers the union of the vectorized, generic,
+and DuckDB window rows. The join groups matching full-relation rows and returns exact multiplicities;
+there is no probabilistic hash. Each small sidecar embeds the corresponding candidate and DuckDB
+rows, so changing or swapping a result after oracle generation fails closed. Exact result
+cardinality, exact ordered-window key sequence, and multiplicity-respecting membership are all
+mandatory. Independent lossless typed key tokens bind raw `DOUBLE` sort-key identity as well as the
+lossless result payload. Q24/Q26 carry their otherwise-hidden EventTime keys. Q17
+may choose any ten rows, but
+every one must be a real full-relation group row and no full row may be reused beyond its
+multiplicity. Only then may different tied members receive a `TIE-AMBIGUOUS` verdict; it is labelled
+`STRONGLY VERIFIED`, never `UNVERIFIABLE`.
+
+The boundedness contract is explicit. Every current LIMIT is at most 25 rows. Relations without
+floating output are joined on their complete projected row (all ClickBench group keys are projected);
+the six relations containing an `AVG` use reviewed exact group identities: RegionID, CounterID,
+derived host, or the two-column engine/IP and watch/IP keys. SQL returns at most one grouped match
+per distinct requested identity, with a one-past limit that detects and rejects identity drift. A
+new floating LIMIT query without a reviewed identity, duplicate output names, a changed width, or an
+identity matching multiple relation rows is an error. DuckDB still has to scan or aggregate the
+underlying relation, but its memory limit and spill directory bound that engine work; Python and the
+per-candidate sidecars stay `O((candidate directories + 1) × LIMIT × projected width)` (the CLI caps
+candidate directories at eight; the gate uses two). On the official corpus, use an on-disk
+`DUCKDB_DB`, a `DUCKDB_MEMORY_LIMIT`, and a `DUCKDB_TEMP_DIRECTORY` inside the run work directory:
+the DuckDB table is roughly 20.5 GiB before grouped-query working memory.
+
+`--full-reference` remains available for small diagnostic corpora. Omitting `--bounded-oracle` from
+`compare-results.py --strong` selects those streamed `qNN.full.jsonl` files instead.
 
 ### The tie ambiguity, handled explicitly
 
@@ -576,16 +705,18 @@ alias, by expression text, or by ordinal. Over the 43 queries that lands as:
 | a window lying **entirely inside one tied group** (at synthetic scale the `PageViews` plateau of Q38–Q41 is all 1s) | every returned row is at a boundary, so two completely disjoint answers both pass the tie test — legal, but nothing was actually checked | TIE-AMBIGUOUS, marked `UNVERIFIABLE` |
 | Q23 `SELECT *` | resolved: a star's `ORDER BY` terms are matched positionally against the 105 `hits` columns (`EventTime` is output index 4), so its ordering IS checked | as usual |
 
-`UNVERIFIABLE` verdicts are counted in the summary line (`12 tie-ambiguous (5 unverifiable)`) and
-listed by query, so a run can never be mistaken for fully checked.
+Without `--strong`, `UNVERIFIABLE` verdicts are counted in the summary line and listed by query. That
+legacy/reporting mode is useful for result directories without full sidecars, but it is not the
+correctness gate and can accept a fabricated row that merely shares a boundary aggregate.
 
 The script fails loud rather than degrading quietly: a `queries.sql` that does not resolve to exactly
 43 statements, a missing queries file, or a `ClickBenchSchema.java` whose column roster has drifted
 from the one embedded here all abort with exit 2 — each of them would otherwise silently weaken the
 comparison.
 
-Exit status: `0` all MATCH/TIE-AMBIGUOUS, `1` at least one real MISMATCH, `2` no mismatches but at
-least one MISSING result file or an unusable setup.
+Exit status: `0` all MATCH/verified TIE-AMBIGUOUS, `1` at least one real MISMATCH, `2` no mismatches
+but at least one MISSING result file, missing/unusable strong sidecar, or an unusable setup. Strong
+mode defensively returns 2 if an `UNVERIFIABLE` verdict ever escapes validation.
 
 ---
 
@@ -648,23 +779,25 @@ identically here.
 
 ---
 
-## Two real cross-engine semantics to know about
+## Two real cross-engine semantics handled by the port
 
-Neither is worked around; both would show up as a MISMATCH and both are the JSONiq side's call.
+Both differences are represented explicitly so the SirixDB result matches DuckDB rather than only
+matching on an ASCII or formatting-convenient subset.
 
 1. **`STRLEN` counts bytes, `string-length` counts code points.** Q27 (`AVG(STRLEN(URL))`) and Q28
-   (`AVG(STRLEN(Referer))`) therefore agree only while the URLs are ASCII:
+   (`AVG(STRLEN(Referer))`) use `jn:utf8-length`, which counts the stored UTF-8 bytes without
+   materialising another byte array:
 
    ```console
    $ duckdb -c "SELECT strlen('ünïcode') AS bytes, length('ünïcode') AS chars;"
    bytes = 9,  chars = 7
    ```
 
-2. **Q42's group key renders differently.** `DATE_TRUNC('minute', EventTime)` is a `TIMESTAMP` in
+2. **Q42's group key renders differently by default.** `DATE_TRUNC('minute', EventTime)` is a `TIMESTAMP` in
    DuckDB and canonicalises to `"2013-07-15T03:46:00"`, while the JSONiq port's
    `substring($h.EventTime, 1, 16)` produces `"2013-07-15T03:46"`. Appending `":00"` on the JSONiq
-   side fixes it and changes nothing else — a constant suffix preserves the lexicographic order the
-   query's `ORDER BY` relies on:
+   side fixes it and changes nothing else — the port includes that suffix, and a constant suffix
+   preserves the lexicographic order the query's `ORDER BY` relies on:
 
    ```
    let $m := substring($h.EventTime, 1, 16) || ":00"
@@ -691,10 +824,11 @@ against a locally generated stand-in with the **identical 105-column schema**, i
 * At 20 000 rows Q27/Q28 (`HAVING COUNT(*) > 100000`) and Q41 (`OFFSET 10000`) are structurally
   empty; a 250 000-row run was added where **all 43 return rows**.
 * `compare-results.py`: an identical copy gives 43 × MATCH (exit 0). A perturbed copy is caught in
-  every shape tried — a changed scalar, a changed non-boundary row, a dropped row, a 1e-6 relative
-  float drift, a NULLed value, a Q42 key truncated to 16 characters, a reversed or swapped ordering
-  (exit 1) and a deleted file (exit 2) — while a 1e-12 relative float drift and a swap of two rows
-  *tied at the cut-off* correctly stay MATCH / TIE-AMBIGUOUS.
+  every shape tried — a changed scalar, a changed non-boundary row, a dropped row, a one-ULP float
+  drift, a NULLed value, a Q42 key truncated to 16 characters, a reversed or swapped ordering
+  (exit 1), and a deleted file (exit 2). A swap of two real rows *tied at the cut-off* correctly stays
+  TIE-AMBIGUOUS. Unmarked old result directories and unknown marker versions exit 2 before any row
+  comparison.
 * Running the two load paths against each other on the same data is itself a live tie test. The two
   loads hold provably identical rows (same md5 over the whole table) yet 23 of the 43 result files
   differ byte for byte, because DuckDB's parallel scan picks a different winner among rows tied at

@@ -91,6 +91,47 @@ public interface FlyweightNode extends DataRecord {
   }
 
   /**
+   * Guaranteed LOWER bound on {@link #serializeToHeap}'s byte count — the size the record cannot
+   * serialize below.
+   *
+   * <p>
+   * {@link #estimateSerializedSize()} pads its metadata term to a worst case, and the pad decides
+   * more than capacity: {@code KeyValueLeafPage#serializeToHeap} refuses records whose estimate
+   * exceeds {@link io.sirix.page.PageConstants#MAX_RECORD_SIZE}, and a refused record is re-serialized
+   * generically at commit — losing its fused directory kind and with it its membership in every PAX
+   * region. On the ClickBench hits corpus that band (estimate over the cap, actual under it) held
+   * 6146 of 1,000,000 records, all invisible to anchored scans. Refusals therefore key on THIS bound:
+   * only a record that cannot possibly fit is turned away without attempting the write; the
+   * post-write size check keeps the cap exact.
+   *
+   * <p>
+   * The default equals the upper estimate, which keeps the refusal behavior of every node kind that
+   * does not override it byte-for-byte unchanged. Value nodes whose payload dominates the record
+   * should override with {@code minimalMetadataBytes + payloadLength}.
+   *
+   * @return a size {@code serializeToHeap} can never undercut; never larger than
+   *         {@link #estimateSerializedSize()}
+   */
+  default int estimateSerializedSizeLowerBound() {
+    return estimateSerializedSize();
+  }
+
+  /**
+   * Convert a non-negative serialized-size estimate to the {@code int} API contract without
+   * wrapping. Variable-sized flyweights perform their additions and multiplications in
+   * {@code long}, then use this helper for the final narrowing conversion.
+   *
+   * @param estimatedSize non-negative serialized-size estimate computed in {@code long}
+   * @return {@link Integer#MAX_VALUE} when the estimate is not representable as an {@code int},
+   *         otherwise the exact estimate
+   */
+  static int saturatingSerializedSize(final long estimatedSize) {
+    return estimatedSize >= Integer.MAX_VALUE
+        ? Integer.MAX_VALUE
+        : (int) estimatedSize;
+  }
+
+  /**
    * Check if this node is a write-path singleton managed by a node factory.
    * Write singletons are rebound per-access and must NOT be stored in records[].
    *

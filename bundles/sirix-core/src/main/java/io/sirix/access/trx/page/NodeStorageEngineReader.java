@@ -28,6 +28,7 @@ import io.sirix.settings.StringCompressionType;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.InternalResourceSession;
@@ -254,14 +255,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   /**
    * Most recently read pages by type and index. Using specific fields instead of generic cache for
-   * clear ownership and lifecycle. Index-aware: NAME/PATH/CAS can have multiple indexes (0-3).
+   * clear ownership and lifecycle. Index-aware: NAME can have multiple keyed-trie dictionaries.
    */
   private RecordPage mostRecentDocumentPage;
   private RecordPage mostRecentChangedNodesPage;
   private RecordPage mostRecentRecordToRevisionsPage;
   private RecordPage pathSummaryRecordPage;
-  private final RecordPage[] mostRecentPathPages = new RecordPage[4];
-  private final RecordPage[] mostRecentCasPages = new RecordPage[4];
   private final RecordPage[] mostRecentNamePages = new RecordPage[4];
   private RecordPage mostRecentDeweyIdPage;
 
@@ -445,11 +444,40 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     assert !isClosed : "Transaction is already closed!";
   }
 
+  /** Keep secondary-index records out of the generic keyed-trie route. */
+  static void validateKeyedTrieRoute(final StorageEngineReader storageEngineReader,
+      final IndexType indexType, final int index) {
+    requireNonNull(storageEngineReader);
+    requireNonNull(indexType);
+    if (indexType == IndexType.PATH || indexType == IndexType.CAS || indexType == IndexType.PROJECTION
+        || indexType == IndexType.VALIDTIME) {
+      throw new IllegalArgumentException(indexType + " indexes use HOT storage");
+    }
+    if (indexType != IndexType.NAME) {
+      return;
+    }
+
+    final ResourceSession<?, ?> resourceSession = storageEngineReader.getResourceSession();
+    final DatabaseType databaseType;
+    if (resourceSession instanceof JsonResourceSession) {
+      databaseType = DatabaseType.JSON;
+    } else if (resourceSession instanceof XmlResourceSession) {
+      databaseType = DatabaseType.XML;
+    } else {
+      throw new IllegalStateException("Cannot determine the database type for NAME dictionary slot " + index
+          + " from resource session " + resourceSession);
+    }
+    if (!NamePage.isNameDictionarySlot(databaseType, index)) {
+      throw new IllegalArgumentException("NAME index " + index + " uses HOT storage");
+    }
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
     requireNonNull(indexType);
     assertNotClosed();
+    validateKeyedTrieRoute(this, indexType, index);
 
     if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
@@ -467,7 +495,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // One record key in, one record out: the load may stop after the page's metadata and expand
     // only the chunk this record lives in.
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR ->
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, NAME, VECTOR ->
         getRecordPage(reusableIndexLogKey, true);
       default -> throw new IllegalStateException();
     };
@@ -493,6 +521,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (record == null) {
       // Unified page path: check directory for flyweight vs legacy format
       if (page instanceof KeyValueLeafPage kvlPage) {
+        // A fused overflow descriptor is intentionally a populated flyweight slot so page scans
+        // can locate its field metadata. It is not a complete record: point reads must resolve the
+        // authoritative same-key OverflowPage below. The slotted-page decoder performs that cold
+        // descriptor check once; doing it here as well taxes every ordinary point read.
         record = getRecordFromSlottedPage(kvlPage, nodeKey, offset);
       } else {
         var data = page.getSlot(offset);
@@ -506,7 +538,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // Overflow page fallback
       try {
         final PageReference reference = page.getPageReference(nodeKey);
-        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+        if (isReadableOverflowReference(reference)) {
           final var data = readOverflowPage(reference).getData();
           record = getDataRecord(nodeKey, offset, data, page);
         } else {
@@ -541,6 +573,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private DataRecord getRecordFromSlottedPage(final KeyValueLeafPage kvlPage, final long nodeKey, final int offset) {
     final MemorySegment slottedPage = kvlPage.getSlottedPage();
     if (!PageLayout.isSlotPopulated(slottedPage, offset)) {
+      return null;
+    }
+    if (kvlPage.isFusedOverflowDescriptor(offset)) {
       return null;
     }
     // Before the kind is read and long before FlyweightNodeFactory binds onto the heap or the
@@ -911,6 +946,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public SlotOrCachedResult lookupSlotOrCached(final long recordKey, final IndexType indexType, final int index) {
     requireNonNull(indexType);
     assertNotClosed();
+    validateKeyedTrieRoute(this, indexType, index);
 
     if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return new SlotOrCachedResult(null, null);
@@ -925,7 +961,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // Get the page reference (uses cache) - ONE lookup for both paths
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR ->
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, NAME, VECTOR ->
         getRecordPage(reusableIndexLogKey, true);
       default -> null;
     };
@@ -961,12 +997,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Get slot data
-    MemorySegment data = page.getSlot(offset);
+    MemorySegment data = page.isFusedOverflowDescriptor(offset)
+        ? null
+        : page.getSlot(offset);
     if (data == null) {
       // Try overflow page
       try {
         final PageReference reference = page.getPageReference(recordKey);
-        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+        if (isReadableOverflowReference(reference)) {
           data = readOverflowPage(reference).getData();
         }
       } catch (final SirixIOException e) {
@@ -1020,6 +1058,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public SlotLocation lookupSlotWithGuard(long recordKey, IndexType indexType, int index) {
     requireNonNull(indexType);
     assertNotClosed();
+    validateKeyedTrieRoute(this, indexType, index);
 
     if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
@@ -1034,7 +1073,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // Get the page reference
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR ->
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, NAME, VECTOR ->
         getRecordPage(reusableIndexLogKey, true);
       default -> throw new IllegalStateException("Unsupported index type: " + indexType);
     };
@@ -1059,12 +1098,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Get slot data
-    MemorySegment data = page.getSlot(offset);
+    MemorySegment data = page.isFusedOverflowDescriptor(offset)
+        ? null
+        : page.getSlot(offset);
     if (data == null) {
       // Try overflow page
       try {
         final PageReference reference = page.getPageReference(recordKey);
-        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+        if (isReadableOverflowReference(reference)) {
           data = readOverflowPage(reference).getData();
         }
       } catch (final SirixIOException e) {
@@ -1266,10 +1307,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public ProjectionIndexPage getProjectionIndexPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     final PageReference ref = revisionRoot.getProjectionIndexPageReference();
-    // Backwards compat: revisions written before PROJECTION_REFERENCE_OFFSET existed
-    // have a bare PageReference with no page attached. Seed an empty container page
-    // on first access so callers never get null — matches the legacy semantics for
-    // CASPage/PathPage/NamePage which are always present on fresh revisions.
+    // Lazily seed a new page when the reference has neither an in-memory nor a durable target.
     if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG && ref.getLogKey() == Constants.NULL_ID_INT) {
       final ProjectionIndexPage fresh = new ProjectionIndexPage();
       ref.setPage(fresh);
@@ -1282,10 +1320,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     final PageReference ref = revisionRoot.getValidTimeIndexPageReference();
-    // Backwards compat: revisions written before VALIDTIME_REFERENCE_OFFSET existed have a bare
-    // PageReference with no page attached. Seed an empty container page on first access so callers
-    // never get null — matches the legacy semantics for CASPage/PathPage/NamePage which are always
-    // present on fresh revisions.
+    // Lazily seed a new page when the reference has neither an in-memory nor a durable target.
     if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG && ref.getLogKey() == Constants.NULL_ID_INT) {
       final ValidTimeIndexPage fresh = new ValidTimeIndexPage();
       ref.setPage(fresh);
@@ -1366,6 +1401,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   PageReferenceToPage getRecordPage(final IndexLogKey indexLogKey, final boolean pointLookup) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
+    validateKeyedTrieRoute(this, indexLogKey.getIndexType(), indexLogKey.getIndexNumber());
     final boolean lazyEligible = pointLookup && trxIntentLog == null;
 
     // Symbol tables must be in hand BEFORE the page-cache compute below runs: a document page's
@@ -1636,9 +1672,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Already materialized? Then its regions are in hand and re-reading the image would be
-    // strictly more work. Region payloads are heap byte[] arrays that outlive the page's off-heap
-    // memory, so this needs no guard: even if the sweeper closes the page an instant later, the
-    // columns we took stay valid.
+    // strictly more work. A returned wrapper retains the region table before snapshotting page
+    // metadata, so the native payload remains valid even if the sweeper closes the page immediately
+    // afterwards.
     //
     // A cached page WITHOUT a usable region table (one the writer built in memory and never
     // deserialized, or one whose regions a mutation invalidated) falls through to the disk read
@@ -1696,7 +1732,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // null here just means "use the records".
       return null;
     }
-    return pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);
+    final RegionsOnlyPage page = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, regionDeferMask);
+    if (page != null && !page.hasCompleteColumnCoverage()) {
+      page.close();
+      return null;
+    }
+    return page;
   }
 
   /**
@@ -1706,10 +1747,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <p>
    * One definition for both cached branches above, so the two paths cannot drift structurally — and
    * LOCK-FREE, because this is the hottest serve path and N workers re-reading one resident page must
-   * not serialize on its monitor. The region payloads are backed by the table's automatic arena and
-   * stay valid for as long as the returned object holds them; everything else read here is
-   * snapshotted seqlock-style and validated instead of pinned. The snapshot covers the slot bitmap (a
-   * copy out of POOLED slotted memory that eviction may recycle) and the FSST symbol-table id (which
+   * not serialize on its monitor. The region payloads are backed by reference-counted native storage
+   * and stay valid until the returned wrapper is closed; everything else read here is snapshotted
+   * seqlock-style and validated instead of pinned. The snapshot covers the slot bitmap (a copy out of
+   * POOLED slotted memory that eviction may recycle) and the FSST symbol-table id (which
    * {@code close()} clears — packaging the cleared id beside an FSST-encoded dictionary would make
    * every literal probe miss). {@code close()} sets its flag before it releases the segment or clears
    * the binding, so a clear flag read AFTER the snapshot — the full fence keeps the order — proves
@@ -1718,15 +1759,36 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private static @Nullable RegionsOnlyPage serveFromCached(final KeyValueLeafPage cached, final long recordPageKey,
       final RegionTable regions) {
-    final long[] slotBitmap = cached.getSlotBitmap();
-    final int revision = cached.getRevision();
-    final int populatedCount = cached.getCachedPopulatedCount();
-    final long fsstSymbolTableId = cached.getFsstSymbolTableId();
-    VarHandle.fullFence();
-    if (cached.isClosed()) {
-      return null; // mid-close: the snapshot may be of recycled memory — the fallback serves
+    // Overflow values are absent from PAX. Returning the resident table would either miss a value
+    // that matches the predicate or resurrect an older inline value during fragment merging.
+    if (!cached.getReferencesMap().isEmpty()) {
+      return null;
     }
-    return new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId, regions, slotBitmap);
+    // Pin the table before touching page state. Page close publishes its CLOSED bit and releases its
+    // ownership; tryRetain either wins first (keeping the arena valid through this snapshot) or
+    // observes zero and sends the caller to the committed image. No stale arena can be resurrected.
+    if (!regions.tryRetain()) {
+      return null;
+    }
+    boolean transferred = false;
+    try {
+      final long[] slotBitmap = cached.getSlotBitmap();
+      final int revision = cached.getRevision();
+      final int populatedCount = cached.getCachedPopulatedCount();
+      final long fsstSymbolTableId = cached.getFsstSymbolTableId();
+      VarHandle.fullFence();
+      if (cached.isClosed()) {
+        return null; // mid-close: the snapshot may be of recycled memory — the fallback serves
+      }
+      final RegionsOnlyPage served =
+          new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId, regions, slotBitmap, true);
+      transferred = true;
+      return served;
+    } finally {
+      if (!transferred) {
+        regions.close();
+      }
+    }
   }
 
   /**
@@ -1782,20 +1844,57 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     final int count = 1 + fragmentKeys.size();
     final RegionsOnlyPage[] fragments = new RegionsOnlyPage[count];
-    fragments[0] = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, 0);
-    if (fragments[0] == null || !fragments[0].hasSlotBitmap()) {
-      return null;
-    }
-    for (int i = 1; i < count; i++) {
-      final PageReference fragmentRef =
-          new PageReference().setKey(fragmentKeys.get(i - 1).key()).setDatabaseId(databaseId).setResourceId(resourceId);
-      final RegionsOnlyPage fragment = pageReader.readRegionsOnly(fragmentRef, resourceConfig, regionKindMask, 0);
-      if (fragment == null || !fragment.hasSlotBitmap()) {
+    try {
+      fragments[0] = pageReader.readRegionsOnly(reference, resourceConfig, regionKindMask, 0);
+      if (fragments[0] == null || !fragments[0].hasSlotBitmap()
+          || !fragments[0].hasCompleteColumnCoverage()) {
+        closeRegionFragments(fragments);
         return null;
       }
-      fragments[i] = fragment;
+      for (int i = 1; i < count; i++) {
+        final PageReference fragmentRef = new PageReference().setKey(fragmentKeys.get(i - 1).key())
+                                                             .setDatabaseId(databaseId)
+                                                             .setResourceId(resourceId);
+        final RegionsOnlyPage fragment = pageReader.readRegionsOnly(fragmentRef, resourceConfig, regionKindMask, 0);
+        if (fragment == null || !fragment.hasSlotBitmap() || !fragment.hasCompleteColumnCoverage()) {
+          if (fragment != null) {
+            fragment.close();
+          }
+          closeRegionFragments(fragments);
+          return null;
+        }
+        fragments[i] = fragment;
+      }
+      return fragments;
+    } catch (final RuntimeException | Error failure) {
+      try {
+        closeRegionFragments(fragments);
+      } catch (final RuntimeException | Error cleanupFailure) {
+        if (cleanupFailure != failure) {
+          failure.addSuppressed(cleanupFailure);
+        }
+      }
+      throw failure;
     }
-    return fragments;
+  }
+
+  private static void closeRegionFragments(final RegionsOnlyPage[] fragments) {
+    Throwable first = null;
+    for (final RegionsOnlyPage fragment : fragments) {
+      if (fragment == null) {
+        continue;
+      }
+      try {
+        fragment.close();
+      } catch (final RuntimeException | Error failure) {
+        if (first == null) {
+          first = failure;
+        } else if (first != failure) {
+          first.addSuppressed(failure);
+        }
+      }
+    }
+    rethrowUnchecked(first);
   }
 
   @Override
@@ -1903,12 +2002,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case CHANGED_NODES -> mostRecentChangedNodesPage;
       case RECORD_TO_REVISIONS -> mostRecentRecordToRevisionsPage;
       case PATH_SUMMARY -> pathSummaryRecordPage;
-      case PATH -> index < mostRecentPathPages.length
-          ? mostRecentPathPages[index]
-          : null;
-      case CAS -> index < mostRecentCasPages.length
-          ? mostRecentCasPages[index]
-          : null;
       case NAME -> index < mostRecentNamePages.length
           ? mostRecentNamePages[index]
           : null;
@@ -1966,24 +2059,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> {
         RecordPage old = pathSummaryRecordPage;
         pathSummaryRecordPage = page;
-        yield old;
-      }
-      case PATH -> {
-        RecordPage old = index < mostRecentPathPages.length
-            ? mostRecentPathPages[index]
-            : null;
-        if (index < mostRecentPathPages.length) {
-          mostRecentPathPages[index] = page;
-        }
-        yield old;
-      }
-      case CAS -> {
-        RecordPage old = index < mostRecentCasPages.length
-            ? mostRecentCasPages[index]
-            : null;
-        if (index < mostRecentCasPages.length) {
-          mostRecentCasPages[index] = page;
-        }
         yield old;
       }
       case NAME -> {
@@ -2279,7 +2354,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final int offset = StorageEngineReader.recordPageOffset(recordKey);
     DataRecord record = null;
     final MemorySegment slottedPage = page.getSlottedPage();
-    if (slottedPage != null && PageLayout.isSlotPopulated(slottedPage, offset)) {
+    if (slottedPage != null && PageLayout.isSlotPopulated(slottedPage, offset)
+        && !page.isFusedOverflowDescriptor(offset)) {
       page.ensureChunkFor(offset);
       if (PageLayout.getDirNodeKindId(slottedPage, offset) > 0) {
         record = getRecordFromSlottedPage(page, recordKey, offset);
@@ -2289,9 +2365,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           record = deserializeDetachedRecord(slot.toArray(ValueLayout.JAVA_BYTE), recordKey, offset, page);
         }
       }
-    } else {
+    }
+    if (record == null) {
       final PageReference overflowReference = page.getPageReference(recordKey);
-      if (overflowReference != null && overflowReference.getKey() != Constants.NULL_ID_LONG) {
+      if (isReadableOverflowReference(overflowReference)) {
         final byte[] data = readOverflowPage(overflowReference).getDataBytes();
         record = deserializeDetachedRecord(data, recordKey, offset, page);
       }
@@ -2311,6 +2388,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         page.getDeweyIdAsByteArray(offset), resourceConfig);
     propagateFsstSymbolTableToRecord(record, page);
     return record;
+  }
+
+  private static boolean isReadableOverflowReference(final @Nullable PageReference reference) {
+    return reference != null && (reference.getPage() instanceof OverflowPage
+        || reference.getKey() != Constants.NULL_ID_LONG);
   }
 
   @Nullable
@@ -2352,13 +2434,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public @Nullable PageReference getLeafPageReference(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
+    validateKeyedTrieRoute(this, indexType, indexNumber);
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
+    if (pageReferenceToSubtree == null) {
+      return null;
+    }
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, rootPage);
   }
 
   @Nullable
   PageReference getLeafPageReference(final PageReference pageReferenceToSubtree, final long recordPageKey,
       final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
+    validateKeyedTrieRoute(this, indexType, indexNumber);
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, revisionRootPage);
   }
 
@@ -2548,21 +2635,21 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param indexType the index type
    * @param index the index to use
    */
+  @Nullable
   PageReference getPageReference(final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
     assert revisionRoot != null;
+    validateKeyedTrieRoute(this, indexType, index);
     // $CASES-OMITTED$
     return switch (indexType) {
       case DOCUMENT -> revisionRoot.getIndirectDocumentIndexPageReference();
       case CHANGED_NODES -> revisionRoot.getIndirectChangedNodesIndexPageReference();
       case RECORD_TO_REVISIONS -> revisionRoot.getIndirectRecordToRevisionsIndexPageReference();
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(revisionRoot).getIndirectPageReference();
-      case CAS -> getCASPage(revisionRoot).getIndirectPageReference(index);
-      case PATH -> getPathPage(revisionRoot).getIndirectPageReference(index);
-      case NAME -> getNamePage(revisionRoot).getIndirectPageReference(index);
+      case CAS, PATH -> throw new IllegalArgumentException(indexType + " secondary indexes use HOT storage");
+      case NAME -> getNamePage(revisionRoot).getNameDictionaryReference(databaseType(), index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
-      case PROJECTION -> getProjectionIndexPage(revisionRoot).getIndirectPageReference(index);
-      case VALIDTIME -> getValidTimeIndexPage(revisionRoot).getIndirectPageReference(index);
+      case PROJECTION, VALIDTIME -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       default ->
         throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -2594,6 +2681,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final long pageKey,
       final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     assertNotClosed();
+    validateKeyedTrieRoute(this, indexType, indexNumber);
     return keyedTrieReader.getReferenceToLeafOfSubtree(this, uberPage, startReference, pageKey, indexNumber, indexType,
         revisionRootPage);
   }
@@ -2605,8 +2693,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION, VALIDTIME ->
+      case DOCUMENT, NAME, VECTOR ->
         recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case PATH, CAS, PROJECTION, VALIDTIME ->
+        throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }
@@ -2625,6 +2715,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public int getCurrentMaxIndirectPageTreeLevel(final IndexType indexType, final int index,
       final RevisionRootPage revisionRootPage) {
+    validateKeyedTrieRoute(this, indexType, index);
     final int maxLevel;
     final RevisionRootPage currentRevisionRootPage = revisionRootPage == null
         ? rootPage
@@ -2636,14 +2727,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case DOCUMENT -> currentRevisionRootPage.getCurrentMaxLevelOfDocumentIndexIndirectPages();
       case CHANGED_NODES -> currentRevisionRootPage.getCurrentMaxLevelOfChangedNodesIndexIndirectPages();
       case RECORD_TO_REVISIONS -> currentRevisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-      case CAS -> getCASPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-      case PATH -> getPathPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case CAS, PATH -> throw new IllegalArgumentException(indexType + " secondary indexes use HOT storage");
       case NAME -> getNamePage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-      case PROJECTION -> getProjectionIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-      case VALIDTIME -> getValidTimeIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case PROJECTION, VALIDTIME -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
     };
 
     return maxLevel;
@@ -2739,8 +2828,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentChangedNodesPage = null;
       mostRecentRecordToRevisionsPage = null;
       mostRecentDeweyIdPage = null;
-      Arrays.fill(mostRecentPathPages, null);
-      Arrays.fill(mostRecentCasPages, null);
       Arrays.fill(mostRecentNamePages, null);
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
@@ -2775,8 +2862,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentRecordToRevisionsPage = null;
       mostRecentDeweyIdPage = null;
       pathSummaryRecordPage = null;
-      Arrays.fill(mostRecentPathPages, null);
-      Arrays.fill(mostRecentCasPages, null);
       Arrays.fill(mostRecentNamePages, null);
 
       isClosed = true;
@@ -2826,38 +2911,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
-          yield null;
-        }
-        yield pathPage.getOrCreateReference(indexNumber);
+        yield pathPage == null ? null : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
-          yield null;
-        }
-        yield casPage.getOrCreateReference(indexNumber);
+        yield casPage == null ? null : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
-          yield null;
-        }
-        yield namePage.getOrCreateReference(indexNumber);
+        yield namePage == null ? null : namePage.getIndexReference(databaseType(), indexNumber);
       }
       case PROJECTION -> {
         final ProjectionIndexPage projPage = getProjectionIndexPage(actualRootPage);
-        if (projPage == null || indexNumber >= projPage.getReferencesCount()) {
-          yield null;
-        }
-        yield projPage.getOrCreateReference(indexNumber);
+        yield projPage == null ? null : projPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = getValidTimeIndexPage(actualRootPage);
-        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
-          yield null;
-        }
-        yield vtPage.getOrCreateReference(indexNumber);
+        yield vtPage == null ? null : vtPage.getIndexReference(indexNumber);
       }
       default -> null;
     };
@@ -3158,7 +3228,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           throw new SirixIOException("HOT fragment at key " + fragmentKey.key()
               + " is absent or not a HOTLeafPage — the versioning window is incomplete");
         }
+        // Publish the newly guarded fragment into the cleanup-owned list BEFORE validating its
+        // header. A corrupt metadata/header pair must fail closed, but throwing before this add
+        // would strand the fragment's cache guard because the catch below can release only pages
+        // reachable from this list.
         fragments.add(hotFragment);
+        final int physicalRevision = hotFragment.getRevision();
+        if (fragmentKey.revision() != physicalRevision) {
+          throw new SirixIOException("HOT fragment revision mismatch at key " + fragmentKey.key()
+              + ": metadata revision=" + fragmentKey.revision() + ", physical header revision="
+              + physicalRevision);
+        }
       }
     } catch (final Throwable loadFailed) {
       // A read failing part way through leaves the window unreachable by the caller, so nothing

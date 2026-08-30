@@ -24,16 +24,10 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * Scale validation for the residual Stage 4b iter-3 rebuild-subtree floor.
+ * Scale validation for complete structural-frontier splices.
  *
- * <p>Today's verdict ({@code HOT_ROUTING_ENCODING_REWRITE.md} Phase 2) declares the 4
- * residual {@code rebuildSubtree(insertDepth)} firings on the SLIDING_SNAPSHOT canary
- * "structurally necessary" -- bounded per canary, eliminating them requires the routing
- * encoding rewrite. The Stage 3c memo measured the floor on a single 10-revision /
- * 1k-keys-per-rev workload only. This probe runs the same workload SHAPE at three
- * scales to settle whether the residual is bounded by revisions (= O(K) for fixed
- * revisions) or grows per insert (= O(N)). The numbers determine whether the floor is
- * a true structural bound or merely "small because the canary is small".
+ * <p>This probe runs the same workload shape at three scales and reports how often the common
+ * incremental driver needs its complete structural-frontier arm.
  *
  * <p>Scales:
  * <ul>
@@ -58,13 +52,13 @@ final class Direction1ScaleValidationProbe {
   Path tempDir;
 
   @Test
-  void measureRebuildScalingAcrossWorkloadShapes() throws IOException {
+  void measureFrontierScalingAcrossWorkloadShapes() throws IOException {
     System.err.println();
     System.err.println("=== Direction 1 Scale Validation -- Stage 4b iter-3 floor ===");
     System.err.println();
     System.err.printf("%-30s %10s %10s %10s %10s %12s %12s %12s%n",
-        "shape", "inserts", "revs", "C2-total", "C2-D1", "C2-fbk", "rebuilds",
-        "rebuilds/rev");
+        "shape", "inserts", "revs", "C2-total", "C2-D1", "C2-fbk", "frontiers",
+        "frontiers/rev");
     System.err.println("-".repeat(120));
 
     runOne("baseline",      1_000, 10);
@@ -73,16 +67,15 @@ final class Direction1ScaleValidationProbe {
 
     System.err.println("-".repeat(120));
     System.err.println("Interpretation:");
-    System.err.println("  - rebuilds/rev approximately constant across all three shapes ==>");
-    System.err.println("    the residual scales with revisions, not inserts (verdict confirmed).");
-    System.err.println("  - rebuilds growing with keys/rev ==> O(N) floor, forces routing rewrite.");
+    System.err.println("  - frontiers/rev approximately constant means the cold arm scales with revisions.");
+    System.err.println("  - frontiers growing with keys/rev means the cold arm scales with inserts.");
     System.err.println();
   }
 
   private void runOne(String label, int entriesPerRev, int totalRevs) throws IOException {
     final long subInsertBefore = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get();
     final long fallbackBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
-    final long rebuildCallsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
+    final long frontiersBefore = AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get();
 
     final long seed = 0xDEADBEEFL;
     final Random rng = new Random(seed);
@@ -128,13 +121,13 @@ final class Direction1ScaleValidationProbe {
 
     final long subInserts = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get() - subInsertBefore;
     final long fallbacks = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - fallbackBefore;
-    final long rebuildCalls = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get() - rebuildCallsBefore;
+    final long frontiers = AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get() - frontiersBefore;
     final long totalC2 = subInserts + fallbacks;
     final long inserts = (long) entriesPerRev * totalRevs;
-    final double rebuildsPerRev = (double) rebuildCalls / totalRevs;
+    final double frontiersPerRev = (double) frontiers / totalRevs;
 
     System.err.printf("%-30s %10d %10d %10d %10d %12d %12d %12.3f%n",
-        label, inserts, totalRevs, totalC2, subInserts, fallbacks, rebuildCalls, rebuildsPerRev);
+        label, inserts, totalRevs, totalC2, subInserts, fallbacks, frontiers, frontiersPerRev);
   }
 
   private static String buildArray(int n, java.util.function.IntUnaryOperator gen) {

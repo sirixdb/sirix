@@ -39,6 +39,20 @@ public final class FlyweightNodeFactory {
   }
 
   /**
+   * Whether {@code nodeKindId} has a flyweight slotted-record layout understood by this factory.
+   *
+   * <p>The field-layout table and this factory intentionally cover the same set of IDs. Keeping the
+   * persisted-directory fence in terms of this predicate prevents an arbitrary in-range byte (or a
+   * retired {@link io.sirix.node.NodeKind} ID) from being published as a bindable slot.</p>
+   */
+  static boolean supportsNodeKindId(final int nodeKindId) {
+    return switch (nodeKindId) {
+      case 1, 2, 3, 7, 8, 9, 13, 24, 25, 27, 28, 29, 30, 31, 48, 49, 50, 51, 52, 53 -> true;
+      default -> false;
+    };
+  }
+
+  /**
    * Create a flyweight node shell and bind it to a record in the slotted page.
    *
    * @param page         the slotted page MemorySegment

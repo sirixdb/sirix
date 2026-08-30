@@ -135,7 +135,7 @@ public final class VectorPage extends AbstractForwardingPage {
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.VECTOR, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.VECTOR, storageEngineReader, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {

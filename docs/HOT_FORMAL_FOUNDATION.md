@@ -58,7 +58,7 @@ densePK(K, M) = PEXT(K, M) = Σ_{j=0}^{m-1} K[b_{m-1-j}] · 2^j
 
 i.e. the `m` key-bits at the mask positions, packed MSB-first into an integer.
 This is `Long.compress` on the masked word(s) — see
-`HOTIndirectPage.findChildSpanNode` (`HOTIndirectPage.java:473-510`).
+`HOTIndirectPage.findChildByPartialKey`.
 
 ### 1.4 Routing and descent
 
@@ -396,9 +396,9 @@ Theorems 1–3 *derive* the fix; they do not leave it to taste.
 4. **Trigger** — at **commit**: one post-order walk per HOT index per
    transaction; rebuild only the *highest* malformed indirect of each disjoint
    malformed region (rebuilding an ancestor subsumes its descendants).
-   Cost `O(|S|)` per commit, bounded, cascade-free; and a correct trie removes
-   the `O(N)` `HOTIndexReader.collectViaLeafWalk` fallback, so steady-state
-   reads get *faster*.
+   Cost `O(|S|)` per commit, bounded, cascade-free. Point reads use only the
+   canonical routed lookup, so an invariant violation cannot silently switch a
+   request onto an `O(N)` whole-index scan.
 
 **Why not eager (per-split) rebuild:** correct but it rebuilds far more often
 and re-pays `O(subtree)` on the hot write path. Commit-time amortizes to one

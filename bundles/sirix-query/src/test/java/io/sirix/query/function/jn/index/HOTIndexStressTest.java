@@ -34,7 +34,6 @@ import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
-import io.sirix.index.path.PathIndexListenerFactory;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,8 +89,6 @@ public class HOTIndexStressTest {
     Databases.removeDatabase(testDbPath);
     Files.createDirectories(testDbPath.getParent());
 
-    // Enable HOT indexes for testing
-    System.setProperty(PathIndexListenerFactory.USE_HOT_PROPERTY, "true");
   }
 
   @AfterEach
@@ -101,7 +98,6 @@ public class HOTIndexStressTest {
     } catch (Exception e) {
       // Ignore cleanup errors
     }
-    System.clearProperty(PathIndexListenerFactory.USE_HOT_PROPERTY);
   }
 
   // =========================================================================

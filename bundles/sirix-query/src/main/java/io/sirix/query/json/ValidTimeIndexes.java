@@ -13,6 +13,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
+import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.util.LinkedHashSet;
@@ -78,8 +79,11 @@ public final class ValidTimeIndexes {
     requireNonNull(wtx, "wtx must not be null");
     requireNonNull(paths, "paths must not be null");
 
-    final IndexDef validTimeIdxDef = IndexDefs.createValidTimeIdxDef(paths,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME), IndexDef.DbType.JSON);
+    final var storageEngineWriter = wtx.getStorageEngineWriter();
+    final int indexDefNo = storageEngineWriter.getValidTimeIndexPage(storageEngineWriter.getActualRevisionRootPage())
+        .nextUnallocatedIndex();
+    final IndexDef validTimeIdxDef =
+        IndexDefs.createValidTimeIdxDef(paths, indexDefNo, IndexDef.DbType.JSON);
     controller.createIndexes(Set.of(validTimeIdxDef), wtx);
 
     // Invalidate cached query plans so the optimizer considers the new index.
@@ -132,15 +136,29 @@ public final class ValidTimeIndexes {
     final JsonIndexController controller = resourceSession.getWtxIndexController(wtx.getRevisionNumber());
 
     final Set<IndexDef> indexDefsToCreate = new LinkedHashSet<>(4);
+    final var storageEngineWriter = wtx.getStorageEngineWriter();
+    final var revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME) == 0) {
-      indexDefsToCreate.add(
-          IndexDefs.createValidTimeIdxDef(defaultPaths(validTimeConfig), 0, IndexDef.DbType.JSON));
+      final int validTimeIndexDefNo =
+          storageEngineWriter.getValidTimeIndexPage(revisionRootPage).nextUnallocatedIndex();
+      indexDefsToCreate.add(IndexDefs.createValidTimeIdxDef(defaultPaths(validTimeConfig), validTimeIndexDefNo,
+          IndexDef.DbType.JSON));
     }
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS) == 0) {
-      int casIndexDefNo = 0;
-      for (final Path<QNm> path : defaultPaths(validTimeConfig)) {
+      final var casPage = storageEngineWriter.getCASPage(revisionRootPage);
+      final var validTimePaths = defaultPaths(validTimeConfig);
+      int casIndexDefNo = casPage.nextUnallocatedIndex();
+      int remainingPaths = validTimePaths.size();
+      for (final Path<QNm> path : validTimePaths) {
         indexDefsToCreate.add(
-            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(path), casIndexDefNo++, IndexDef.DbType.JSON));
+            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(path), casIndexDefNo, IndexDef.DbType.JSON));
+        remainingPaths--;
+        if (remainingPaths > 0) {
+          if (casIndexDefNo == Constants.INP_REFERENCE_COUNT - 1) {
+            throw new IllegalStateException("CAS index reference space exhausted while reserving valid-time indexes");
+          }
+          casIndexDefNo = casPage.nextUnallocatedIndex(casIndexDefNo + 1);
+        }
       }
     }
     if (indexDefsToCreate.isEmpty()) {

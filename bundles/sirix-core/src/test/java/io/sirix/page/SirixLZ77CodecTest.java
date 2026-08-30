@@ -17,9 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-trip + compression-ratio tests for {@link SirixLZ77Codec} — the
- * schema-tuned single-pass LZ77 variant used per-page on the Sirix
- * {@link KeyValueLeafPage} write path.
+ * Round-trip + compression-ratio tests for {@link SirixLZ77Codec} — the schema-tuned single-pass
+ * LZ77 variant used per-page on the Sirix {@link KeyValueLeafPage} write path.
  */
 @DisplayName("SirixLZ77Codec")
 final class SirixLZ77CodecTest {
@@ -91,8 +90,7 @@ final class SirixLZ77CodecTest {
       final int encoded = SirixLZ77Codec.encode(in, 0, n, buf, 0);
       // A single long match covers 4084 bytes (n - MFLIMIT), 12 literals tail,
       // + some framing. Expect far below 50 bytes.
-      assertTrue(encoded < 50,
-          "all-zero " + n + " should encode to < 50 bytes, got " + encoded);
+      assertTrue(encoded < 50, "all-zero " + n + " should encode to < 50 bytes, got " + encoded);
       final MemorySegment out = arena.allocate(n);
       final int decoded = SirixLZ77Codec.decode(buf, 0, encoded, out, 0);
       assertEquals(n, decoded);
@@ -141,8 +139,7 @@ final class SirixLZ77CodecTest {
       final byte[] buf = new byte[SirixLZ77Codec.maxEncodedSize(n)];
       final int encoded = SirixLZ77Codec.encode(in, 0, n, buf, 0);
       // Should compress to well under 100 bytes: first 4 literal, one long match.
-      assertTrue(encoded < 100,
-          "repeating pattern " + n + " should encode to < 100 bytes, got " + encoded);
+      assertTrue(encoded < 100, "repeating pattern " + n + " should encode to < 100 bytes, got " + encoded);
       final MemorySegment out = arena.allocate(n);
       final int decoded = SirixLZ77Codec.decode(buf, 0, encoded, out, 0);
       assertEquals(n, decoded);
@@ -223,14 +220,17 @@ final class SirixLZ77CodecTest {
       // Last 2 KB: realistic record-header pattern —
       // 0x01, templateId, 0x00, 0x00 repeating.
       for (int i = 0; i < 2048; i++) {
-        expected[6144 + i] = (byte) ((i & 3) == 0 ? 0x01 : (i & 3) == 1 ? 0x42 : 0x00);
+        expected[6144 + i] = (byte) ((i & 3) == 0
+            ? 0x01
+            : (i & 3) == 1
+                ? 0x42
+                : 0x00);
       }
       MemorySegment.copy(expected, 0, in, ValueLayout.JAVA_BYTE, 0L, n);
       final byte[] buf = new byte[SirixLZ77Codec.maxEncodedSize(n)];
       final int encoded = SirixLZ77Codec.encode(in, 0, n, buf, 0);
       // The compressible sections should dominate; expect ≤ 40% of n.
-      assertTrue(encoded < (n * 4) / 10,
-          "mixed input " + n + " should compress to < 40%, got " + encoded);
+      assertTrue(encoded < (n * 4) / 10, "mixed input " + n + " should compress to < 40%, got " + encoded);
       final MemorySegment out = arena.allocate(n);
       final int decoded = SirixLZ77Codec.decode(buf, 0, encoded, out, 0);
       assertEquals(n, decoded);
@@ -296,10 +296,42 @@ final class SirixLZ77CodecTest {
   }
 
   @Test
+  @DisplayName("non-zero output offset reports bytes written and preserves surrounding bytes")
+  void nonZeroOutputOffsetReportsLengthAndPreservesSurroundingBytes() {
+    final byte[] data = patterned(4096, 24);
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment in = arena.allocate(data.length);
+      MemorySegment.copy(data, 0, in, ValueLayout.JAVA_BYTE, 0L, data.length);
+
+      final int encodedCapacity = SirixLZ77Codec.maxEncodedSize(data.length);
+      final byte[] expected = new byte[encodedCapacity];
+      final int expectedLength = SirixLZ77Codec.encode(in, 0, data.length, expected, 0);
+
+      final int outputOffset = 11;
+      final int suffixLength = 13;
+      final byte sentinel = (byte) 0xA5;
+      final byte[] actual = new byte[outputOffset + encodedCapacity + suffixLength];
+      Arrays.fill(actual, sentinel);
+
+      final int actualLength = SirixLZ77Codec.encode(in, 0, data.length, actual, outputOffset);
+
+      assertEquals(expectedLength, actualLength);
+      assertArrayEquals(Arrays.copyOf(expected, expectedLength),
+          Arrays.copyOfRange(actual, outputOffset, outputOffset + actualLength));
+      for (int i = 0; i < outputOffset; i++) {
+        assertEquals(sentinel, actual[i], "prefix byte " + i);
+      }
+      for (int i = outputOffset + actualLength; i < actual.length; i++) {
+        assertEquals(sentinel, actual[i], "suffix byte " + i);
+      }
+    }
+  }
+
+  @Test
   @DisplayName("decoder rejects wrong frame marker")
   void rejectsWrongFrameMarker() {
     try (Arena arena = Arena.ofConfined()) {
-      final byte[] bad = new byte[] { 0x00, 0x00 };
+      final byte[] bad = new byte[] {0x00, 0x00};
       final MemorySegment out = arena.allocate(1);
       try {
         SirixLZ77Codec.decode(bad, 0, bad.length, out, 0);
@@ -477,13 +509,14 @@ final class SirixLZ77CodecTest {
   /**
    * The encoder's output is persisted, so its bytes are part of the on-disk format even though
    * nothing in the wire-format spec pins <em>which</em> of the legal encodings it picks. Every
-   * round-trip test above passes just as happily if a refactor changes the match choices and
-   * rewrites every page in the database.
+   * round-trip test above passes just as happily if a refactor changes the match choices and rewrites
+   * every page in the database.
    *
-   * <p>This pins the choice: fixed inputs, one per encoder branch, checked against the exact
-   * encoded length and a digest of the encoded bytes. A refactor that keeps the format but changes
-   * the output fails here and nowhere else — which is the signal to think about whether existing
-   * resources still read back, not to update the constants reflexively.
+   * <p>
+   * This pins the choice: fixed inputs, one per encoder branch, checked against the exact encoded
+   * length and a digest of the encoded bytes. A refactor that keeps the format but changes the output
+   * fails here and nowhere else — which is the signal to think about whether existing resources still
+   * read back, not to update the constants reflexively.
    */
   @Test
   @DisplayName("encoder output is byte-stable across every branch")
@@ -500,8 +533,8 @@ final class SirixLZ77CodecTest {
   }
 
   /** Encode {@code data} and assert its encoded length and digest match the frozen values. */
-  private static void assertEncodedBytes(final String label, final byte[] data,
-      final int expectedLength, final String expectedDigest) {
+  private static void assertEncodedBytes(final String label, final byte[] data, final int expectedLength,
+      final String expectedDigest) {
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment in = arena.allocate(Math.max(1, data.length));
       MemorySegment.copy(data, 0, in, ValueLayout.JAVA_BYTE, 0L, data.length);
@@ -569,7 +602,7 @@ final class SirixLZ77CodecTest {
           in.set(ValueLayout.JAVA_BYTE, i, (byte) (rng.nextInt(127) + 1));
         } else if (i + 4 <= n) {
           // Record header repeat.
-          in.set(ValueLayout.JAVA_BYTE, i,     (byte) 0x01);
+          in.set(ValueLayout.JAVA_BYTE, i, (byte) 0x01);
           in.set(ValueLayout.JAVA_BYTE, i + 1, (byte) 0x42);
           in.set(ValueLayout.JAVA_BYTE, i + 2, (byte) 0x00);
           in.set(ValueLayout.JAVA_BYTE, i + 3, (byte) 0x00);
@@ -598,8 +631,8 @@ final class SirixLZ77CodecTest {
       final long t1 = System.nanoTime();
       final double nsPerByte = (t1 - t0) / ((double) iters * n);
       final double gbPerSec = 1.0 / nsPerByte;
-      System.out.printf("[SirixLZ77Codec] decode: %.2f ns/byte (%.2f GB/s) "
-          + "(encoded=%d, uncompressed=%d, ratio=%.2fx)%n",
+      System.out.printf(
+          "[SirixLZ77Codec] decode: %.2f ns/byte (%.2f GB/s) " + "(encoded=%d, uncompressed=%d, ratio=%.2fx)%n",
           nsPerByte, gbPerSec, encoded, n, (double) n / encoded);
       // HFT-grade target: ≥ 2 GB/s (≤ 0.5 ns/byte) on modern hardware.
       // CI boxes can be ~5× slower — use a loose sanity ceiling instead.
@@ -621,7 +654,7 @@ final class SirixLZ77CodecTest {
         } else if (r < 70) {
           in.set(ValueLayout.JAVA_BYTE, i, (byte) (rng.nextInt(127) + 1));
         } else if (i + 4 <= n) {
-          in.set(ValueLayout.JAVA_BYTE, i,     (byte) 0x01);
+          in.set(ValueLayout.JAVA_BYTE, i, (byte) 0x01);
           in.set(ValueLayout.JAVA_BYTE, i + 1, (byte) 0x42);
           in.set(ValueLayout.JAVA_BYTE, i + 2, (byte) 0x00);
           in.set(ValueLayout.JAVA_BYTE, i + 3, (byte) 0x00);
@@ -641,8 +674,7 @@ final class SirixLZ77CodecTest {
       final long t1 = System.nanoTime();
       final double nsPerByte = (t1 - t0) / ((double) iters * n);
       final double mbPerSec = 1000.0 / nsPerByte;
-      System.out.printf("[SirixLZ77Codec] encode: %.2f ns/byte (%.0f MB/s)%n",
-          nsPerByte, mbPerSec);
+      System.out.printf("[SirixLZ77Codec] encode: %.2f ns/byte (%.0f MB/s)%n", nsPerByte, mbPerSec);
       // HFT-grade target: ≥ 500 MB/s (≤ 2.0 ns/byte) on modern hardware.
       // CI boxes can be ~5× slower — use a loose sanity ceiling.
       assertTrue(nsPerByte < 50.0, "encode too slow: " + nsPerByte + " ns/byte");

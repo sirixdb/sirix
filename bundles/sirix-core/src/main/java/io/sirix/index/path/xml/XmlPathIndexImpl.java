@@ -1,6 +1,5 @@
 package io.sirix.index.path.xml;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.index.IndexDef;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.path.PathIndexBuilderFactory;
@@ -14,8 +13,8 @@ public final class XmlPathIndexImpl implements XmlPathIndex {
   private final PathIndexListenerFactory pathIndexListenerFactory;
 
   public XmlPathIndexImpl() {
-    pathIndexBuilderFactory = new PathIndexBuilderFactory(DatabaseType.XML);
-    pathIndexListenerFactory = new PathIndexListenerFactory(DatabaseType.XML);
+    pathIndexBuilderFactory = new PathIndexBuilderFactory();
+    pathIndexListenerFactory = new PathIndexListenerFactory();
   }
 
   @Override

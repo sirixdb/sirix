@@ -8,6 +8,7 @@ import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.Stage;
+import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
 
@@ -406,6 +407,14 @@ public final class GroupAggregateDetectionStage implements Stage {
               final String strlenField = strlenCall(bound, loopVar);
               if (strlenField != null) {
                 lets.add(PreGroupLet.deref(letVar, "len:" + strlenField, 0L));
+                continue;
+              }
+              // jn:utf8-length($r.f) is the byte-count twin used for SQL STRLEN. Keep its
+              // operand distinct from fn:string-length: the projection kernel can compute either
+              // from the same UTF-8 dictionary, but their answers differ for non-ASCII values.
+              final String utf8LengthField = utf8LengthCall(bound, loopVar);
+              if (utf8LengthField != null) {
+                lets.add(PreGroupLet.deref(letVar, "utf8len:" + utf8LengthField, 0L));
                 continue;
               }
               final CondDeref cond = conditionalDeref(bound, loopVar);
@@ -1260,6 +1269,16 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     final String ns = fn.getNamespaceURI();
     if (ns != null && !ns.isEmpty() && !Namespaces.FN_NSURI.equals(ns) && !Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      return null;
+    }
+    return loopVarDerefField(expr.getChild(0), loopVar);
+  }
+
+  /** {@code jn:utf8-length($loop.field)} → the field name, else {@code null}. */
+  private static String utf8LengthCall(final AST expr, final QNm loopVar) {
+    if (expr == null || expr.getType() != XQ.FunctionCall || expr.getChildCount() != 1
+        || !(expr.getValue() instanceof QNm fn) || !"utf8-length".equals(fn.getLocalName())
+        || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI())) {
       return null;
     }
     return loopVarDerefField(expr.getChild(0), loopVar);

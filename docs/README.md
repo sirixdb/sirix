@@ -31,6 +31,7 @@ list of files.
 | [PROJECTION_INDEXES.md](PROJECTION_INDEXES.md) | The user-facing feature: what a columnar projection index is, how to create one in JSONiq, and which analytical queries it accelerates. Start here. |
 | [PROJECTION_INDEX_DEEP_DIVE.md](PROJECTION_INDEX_DEEP_DIVE.md) | One dataset walked through every layer — JSON rows to columnar leaves to semantic segments to the bytes on disk to the SIMD kernels — and back up through maintenance and time travel. |
 | [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md) | Normative contract for the V0 storage format: exact record lookup, document-order routing, and local update/delete/insert/move maintenance. |
+| [STORAGE_FOOTPRINT_REDUCTION_PLAN.md](STORAGE_FOOTPRINT_REDUCTION_PLAN.md) | Measurement-gated plan for shrinking the primary tree, projection segments and global dictionaries without giving up direct SIMD execution or incremental copy-on-write updates. |
 
 The remaining `PROJECTION_INDEX_*.md` files are storage-format design notes; the deep dive cites
 them where they matter.

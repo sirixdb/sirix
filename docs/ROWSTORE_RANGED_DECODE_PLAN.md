@@ -46,8 +46,8 @@ u8       chunkCount                // K, 0..128 (writer clamps; 0 legal for empt
 K × {
   u16    firstEntry                // 0-based rank in populated-bitmap order; contiguous, monotone
   u16    entryCount                // Σ over K == populatedCount (throws otherwise)
-  int    rawLen                    // Σ over K == onDiskHeapSize (throws otherwise); int because a single
-                                   //   in-heap record can reach MAX_RECORD_SIZE-1 = 149,999 B > u16
+  int    rawLen                    // Σ over K == onDiskHeapSize (throws otherwise); int because a chunk
+                                   //   can aggregate beyond u16 although one encoded slot allocation is capped at 512 B
   int    encLen
   u8     codec                     // 0|1|2|3|4 — 1 (LZ4) accepted on read, never written
   u64    xxh3                      // over the encLen stored bytes
@@ -144,7 +144,7 @@ Every corner case from the four surveys, consolidated. **Behavior** = what the d
 |---|---|---|---|
 | 16 | 1-slot delta fragments (routine under auto-commit) | K=1, ~40 B framing overhead over monolith; degrade is graceful by construction | G(pop=1) |
 | 17 | Bitmap holes / single-high-slot / sparse shapes | Entry-space chunking is hole-blind; slot↔entry strictly via bitmap rank | G(4 bitmap shapes) |
-| 18 | Record up to MAX_RECORD_SIZE−1 = 149,999 B in-heap | Own chunk; this is why table rawLen/encLen are int, not u16 | G(max-record) |
+| 18 | Encoded slot allocation up to `MAX_RECORD_SIZE = 512` B inline, including any Dewey payload/trailer | Ordinary greedy chunk membership; aggregate chunk lengths remain `int` because a chunk can exceed `u16` | G(max-record + Dewey) |
 | 19 | Record exactly = C; chunk of exactly 1 entry; boundary at last entry | Greedy plan rules deterministic; boundary cases enumerated | G(crafted sizes) |
 | 20 | Page near MAX_SLOTTED_PAGE_CAPACITY (256 KiB) → K could exceed table width | Writer clamps K ≤ 128 by doubling C | G(256 KiB synthetic) |
 | 21 | All-zero bitmap ≠ absent bitmap (the ChunkedRegionReadTest trap) | Reader never infers absence from zero content; popcount cross-check retained; new Σ-checks added (#41) | X + S |
@@ -257,7 +257,7 @@ Core sweep (full cross-product, no sampling):
 Core = 2×32×8×4×3 = **6,144** dedup pages + 1×8×4×3 = **96** degenerate pages.
 
 Targeted overlay (remaining axes × 4 representative flag settings {none, all, parentKey-only, value+nameKey}):
-- record sizes ∈ {1 B, mixed, one record > C, record == C, 149,999 B} → 5
+- record/slot-boundary shapes ∈ {1 B, mixed, 257 B with C=256 B, 512 B with C=512 B, body + Dewey payload/trailer totaling 512 B} → 5
 - overflow ∈ {0, present} → 2; dewey ∈ {off, on} → 2; FSST ∈ {off, on} → 2
 - forced codec ∈ {ZeroRun, ByteRun, LZ77, STORED} → 4; tombstones ∈ {none, some} → 2
 
@@ -320,7 +320,7 @@ Overlay = 4 × (5×2×2×2×4×2) = **2,560** pages. Plus indexType ∈ {DOCUMEN
 
 VERDICT: **GAPS** — the design is substantially sound and nearly all file:line citations check out against the code, but two gaps are wrong-answer-class and the formal statements need repair before the proofs are trustworthy.
 
-**Verified and held** (spot checks against `/home/johannes/IdeaProjects/sirix`): envelope fence throws on nonzero flags exactly as claimed (PageKind.java:4940-4948, :5004-5015); structuralFlags is exactly 5 bits (:5590-5616) so 2^5=32 is right; the cross-product arithmetic is correct (6,144+96+2,560=8,800); MAX_RECORD_SIZE=150,000 (PageConstants.java:10); inline abort is pre-emission (:2375-2384) so the restage claim is legal; value/nameKey elision cursors are sequential and the plan correctly precomputes rank prefixes; FSST'd string bytes live verbatim in heap and regions so injection is a straight copy needing no symbol table at materialize (:2117, :2548, :3590-3598); the compressed-segment replay covers the whole page including envelope (serializePage :1542-1547) so I5 replay is trivially byte-identical; unresolved-overflow double-serialize skip (:1706-1714); JavaLz4BlockDecoder pre-buffer rejection (:122-126); native-decoder tail slack (pax/RegionTable.java:796-804); retainedBytes-without-decode (:410-424); AbstractReader comment is indeed stale (:48-60 claims KVLP verifies after decompression); regionChunkEligible (FileChannelReader.java:335-338); VersioningType shadowing helpers consult only bitmap+refmap (:1009-1026).
+**Verified and held** (spot checks against `/home/johannes/IdeaProjects/sirix`): envelope fence throws on nonzero flags exactly as claimed (PageKind.java:4940-4948, :5004-5015); structuralFlags is exactly 5 bits (:5590-5616) so 2^5=32 is right; the cross-product arithmetic is correct (6,144+96+2,560=8,800); `PageConstants.MAX_RECORD_SIZE` delegates to the shared `Constants.MAX_RECORD_SIZE = 512` encoded-slot ceiling (an inline Dewey payload/trailer counts toward it; after overflow, the record body moves to `OverflowPage` and the Dewey ID remains in page metadata); inline abort is pre-emission (:2375-2384) so the restage claim is legal; value/nameKey elision cursors are sequential and the plan correctly precomputes rank prefixes; FSST'd string bytes live verbatim in heap and regions so injection is a straight copy needing no symbol table at materialize (:2117, :2548, :3590-3598); the compressed-segment replay covers the whole page including envelope (serializePage :1542-1547) so I5 replay is trivially byte-identical; unresolved-overflow double-serialize skip (:1706-1714); JavaLz4BlockDecoder pre-buffer rejection (:122-126); native-decoder tail slack (pax/RegionTable.java:796-804); retainedBytes-without-decode (:410-424); AbstractReader comment is indeed stale (:48-60 claims KVLP verifies after decompression); regionChunkEligible (FileChannelReader.java:335-338); VersioningType shadowing helpers consult only bitmap+refmap (:1009-1026).
 
 **Gaps, ranked:**
 

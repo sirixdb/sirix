@@ -881,7 +881,8 @@ empirically gated. Ready for implementation.*
   completion (because it interacts with iter-18's pathDepth==1 handler via height
   escalation).
 
-**Out of scope.** Reader-side lower-bound / lex fallbacks (separate read-path concern).
+**Out of scope.** Reader-side lower-bound / lex fallbacks (subsequently removed as a separate
+read-path cleanup; the reader now uses one canonical PEXT route).
 Performance microbench characterization vs. the prior straddle-rebuild baseline (measure
 but don't gate on absolute numbers). The leaf-consolidation sweep (`consolidateSubtree`)
 — it's its own concern and DOES NOT trigger rebuilds.
@@ -1663,4 +1664,3 @@ run are an O(subtree-rebuild) cost per firing — not trivially small. More impo
 they are the structural reason iter-18's incremental work cannot extend to the
 pathDepth==1 case, which is the LAST self-heal firing. Closing Stage 3c is the
 prerequisite for "incremental updates all the way".
-

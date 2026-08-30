@@ -7,14 +7,17 @@ package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.BufferManager;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
-import io.sirix.settings.Constants;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
@@ -33,8 +36,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -250,7 +256,7 @@ final class HOTTraversalResolutionTest {
       when(storageEngineWriter.getLog()).thenReturn(log);
       when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
       when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(mock(RevisionRootPage.class));
-      when(storageEngineWriter.getPathPage(any()).incrementAndGetMaxHotPageKey(0)).thenReturn(ALLOCATED_PAGE_KEY);
+      stubPathPageKeyAllocator(storageEngineWriter);
 
       final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
       // An empty slot that nevertheless carries a durable offset: exactly the state the offset-as-
@@ -266,6 +272,65 @@ final class HOTTraversalResolutionTest {
     } finally {
       log.close();
     }
+  }
+
+  @Test
+  void repeatedTopLevelDescentsReuseTheWriterOwnedNavigationCarrierAndPathBuffers() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+      when(storageEngineWriter.getLog()).thenReturn(log);
+      when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
+      when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(mock(RevisionRootPage.class));
+      stubPathPageKeyAllocator(storageEngineWriter);
+
+      final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
+      final PageReference emptySlot = new PageReference();
+      final byte[] oversizedKey = new byte[64];
+      oversizedKey[Long.BYTES] = (byte) 0xFF; // poison outside the valid key prefix
+
+      final AbstractHOTIndexWriter.LeafNavigationResult first =
+          writer.prepareLeafOfTreeForTest(emptySlot, oversizedKey, Long.BYTES);
+      final HOTIndirectPage[] pathNodes = first.pathNodes();
+      final PageReference[] pathRefs = first.pathRefs();
+      final int[] pathChildIndices = first.pathChildIndices();
+
+      final AbstractHOTIndexWriter.LeafNavigationResult second =
+          writer.prepareLeafOfTreeForTest(emptySlot, oversizedKey, Long.BYTES);
+
+      assertSame(first, second, "a transaction writer must not allocate a result carrier per descent");
+      assertSame(pathNodes, second.pathNodes(), "path-node scratch must remain writer-owned");
+      assertSame(pathRefs, second.pathRefs(), "path-reference scratch must remain writer-owned");
+      assertSame(pathChildIndices, second.pathChildIndices(), "child-slot scratch must remain writer-owned");
+    } finally {
+      log.close();
+    }
+  }
+
+  @Test
+  void emptySlotRegistrationFailurePoisonsAndReleasesTheFreshLeaf() {
+    final TransactionIntentLog log = mock(TransactionIntentLog.class);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+    final IllegalStateException sentinel = new IllegalStateException("injected empty-slot registration failure");
+    when(storageEngineWriter.getLog()).thenReturn(log);
+    when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
+    when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(mock(RevisionRootPage.class));
+    stubPathPageKeyAllocator(storageEngineWriter);
+    doThrow(sentinel).when(log).put(any(PageReference.class), any(PageContainer.class));
+    final HOTLeafPage initializationProbe = new HOTLeafPage(0, 1, IndexType.PATH);
+    initializationProbe.close();
+    final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
+
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> writer.prepareLeafOfTreeForTest(new PageReference(), new byte[Long.BYTES], Long.BYTES));
+
+    assertSame(sentinel, failure);
+    verify(storageEngineWriter).markTransactionRollbackOnly(same(sentinel));
+    assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+        "the unregistered empty-tree leaf must return its off-heap frame");
   }
 
   /**
@@ -460,7 +525,7 @@ final class HOTTraversalResolutionTest {
       when(storageEngineWriter.getLog()).thenReturn(log);
       when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
       when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(mock(RevisionRootPage.class));
-      when(storageEngineWriter.getPathPage(any()).incrementAndGetMaxHotPageKey(0)).thenReturn(ALLOCATED_PAGE_KEY);
+      stubPathPageKeyAllocator(storageEngineWriter);
 
       final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
       final IllegalStateException failure = assertThrows(IllegalStateException.class,
@@ -608,7 +673,7 @@ final class HOTTraversalResolutionTest {
       when(storageEngineWriter.getLog()).thenReturn(log);
       when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
       when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(mock(RevisionRootPage.class));
-      when(storageEngineWriter.getPathPage(any()).incrementAndGetMaxHotPageKey(0)).thenReturn(ALLOCATED_PAGE_KEY);
+      stubPathPageKeyAllocator(storageEngineWriter);
 
       final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
       final IllegalStateException failure = assertThrows(IllegalStateException.class,
@@ -657,6 +722,17 @@ final class HOTTraversalResolutionTest {
 
   private static TransactionIntentLog newLog() {
     return new TransactionIntentLog(mock(BufferManager.class, RETURNS_DEEP_STUBS), 64);
+  }
+
+  private static void stubPathPageKeyAllocator(final StorageEngineWriter storageEngineWriter) {
+    final PathPage pathPage = mock(PathPage.class);
+    // doReturn/when, not when(...).thenReturn: the writer mocks here use RETURNS_DEEP_STUBS, and
+    // prepareSecondaryIndexPage's return type erases to Page — so inside when(...) the deep-stub
+    // answer hands back a Page mock that javac's inserted checkcast to PathPage rejects before the
+    // stubbing exists. The doReturn form invokes the method in statement position, where no cast is
+    // inserted, and installs the answer without consulting the deep-stub default.
+    doReturn(pathPage).when(storageEngineWriter).prepareSecondaryIndexPage(IndexType.PATH);
+    when(pathPage.incrementAndGetMaxHotPageKey(0)).thenReturn(ALLOCATED_PAGE_KEY);
   }
 
   private static StorageEngineWriter storageEngineWriter(final TransactionIntentLog log) {

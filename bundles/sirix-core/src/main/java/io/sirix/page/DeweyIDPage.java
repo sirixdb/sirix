@@ -102,7 +102,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     PageReference reference = getIndirectPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.DEWEYID_TO_RECORDID, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.DEWEYID_TO_RECORDID, storageEngineReader, log);
       incrementAndGetMaxNodeKey();
     }
   }

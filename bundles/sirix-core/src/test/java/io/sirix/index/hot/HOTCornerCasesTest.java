@@ -412,7 +412,6 @@ class HOTCornerCasesTest {
     void testConcurrentReadDuringSplit() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 
@@ -469,7 +468,6 @@ class HOTCornerCasesTest {
     void testRangeQueryAcrossSplit() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 
@@ -654,7 +652,6 @@ class HOTCornerCasesTest {
     void testSplitWithIncrementalVersioning() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.INCREMENTAL)
                                                .maxNumberOfRevisionsToRestore(5)
                                                .build());
@@ -713,7 +710,6 @@ class HOTCornerCasesTest {
     void testHistoricalRevisionRead() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 
@@ -770,7 +766,6 @@ class HOTCornerCasesTest {
     void testRootSplitThenNewRevision() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 
@@ -815,7 +810,6 @@ class HOTCornerCasesTest {
     void testFragmentThreshold() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.DIFFERENTIAL)
                                                .maxNumberOfRevisionsToRestore(3)
                                                .build());
@@ -861,7 +855,6 @@ class HOTCornerCasesTest {
     void testReaderIsolationDuringCOW() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 

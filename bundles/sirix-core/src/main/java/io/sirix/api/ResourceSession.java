@@ -30,11 +30,8 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.node.interfaces.DataRecord;
-import io.sirix.node.interfaces.Node;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.xml.XmlIndexController;
-import io.sirix.cache.Cache;
-import io.sirix.cache.RBIndexKey;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.nio.file.Path;
@@ -479,11 +476,4 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param revision the revision whose shared transactions should be closed
    */
   void closeSharedReadOnlyTrxs(int revision);
-
-  /**
-   * Get cache for index-structures.
-   *
-   * @return the cache
-   */
-  Cache<RBIndexKey, Node> getIndexCache();
 }

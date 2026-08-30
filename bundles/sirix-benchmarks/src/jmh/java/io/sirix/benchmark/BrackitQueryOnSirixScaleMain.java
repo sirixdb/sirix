@@ -145,6 +145,20 @@ public final class BrackitQueryOnSirixScaleMain {
     if (vectorized) {
       JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
       session = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
+    }
+
+    // A projection is a catalogued index. Ensure it before binding the executor so the executor
+    // reads the revision produced by the index-creation commit.
+    if (Boolean.getBoolean("projection") && session != null) {
+      final long tBuild = System.nanoTime();
+      final ProjectionIndexBenchSetup.BuildResult result =
+          ProjectionIndexBenchSetup.ensureProjection(session);
+      final long buildMs = (System.nanoTime() - tBuild) / 1_000_000L;
+      System.out.printf("# Projection index: %,d row groups, %,d rows, ensured in %,d ms%n",
+          result.rowGroupCount(), result.totalRows(), buildMs);
+    }
+
+    if (vectorized) {
       // Default = all cores. Overridable via -Dsirix.vec.threads=N — useful
       // when a concurrency bug in Sirix's JVMCI-compiled allocator / page
       // combiner path triggers at high fan-out.
@@ -154,21 +168,6 @@ public final class BrackitQueryOnSirixScaleMain {
       vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), vecThreads);
       SequentialPipelineStrategy.setVectorizedExecutor(vec);
       System.out.printf("# Vec threads: %d%n", vecThreads);
-    }
-
-    // -Dprojection=true installs a covering projection index on
-    // (age, active, dept) so that the filterCount / compoundAndFilterCount
-    // queries route through ProjectionIndexByteScan instead of the generic
-    // collectColumns path. Correctness is preserved — the byte-scan returns
-    // the same count, and any query that isn't a conjunctive
-    // NUM_CMP/STR_EQ/BOOL_REF tree falls back to the generic path.
-    if (Boolean.getBoolean("projection") && session != null) {
-      final long tBuild = System.nanoTime();
-      final ProjectionIndexBenchSetup.BuildResult result =
-          ProjectionIndexBenchSetup.installWildcard(session);
-      final long buildMs = (System.nanoTime() - tBuild) / 1_000_000L;
-      System.out.printf("# Projection index: %,d leaves, %,d rows, built in %,d ms%n",
-          result.rowGroupCount(), result.totalRows(), buildMs);
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);

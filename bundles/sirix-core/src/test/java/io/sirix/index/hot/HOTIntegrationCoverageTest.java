@@ -65,13 +65,11 @@ class HOTIntegrationCoverageTest {
   void setUp() throws IOException {
     DATABASE_PATH = tempDir.resolve("hot-coverage-db");
     Files.createDirectories(DATABASE_PATH);
-    System.setProperty("sirix.index.useHOT", "true");
     Allocators.getInstance();
   }
 
   @AfterEach
   void tearDown() {
-    System.clearProperty("sirix.index.useHOT");
     try {
       Databases.removeDatabase(DATABASE_PATH);
     } catch (Exception ignored) {
@@ -676,4 +674,3 @@ class HOTIntegrationCoverageTest {
 
   // NAME and PATH index tests are covered in HOTMultiLayerIndirectPageTest
 }
-

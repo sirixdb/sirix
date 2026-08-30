@@ -34,8 +34,7 @@ import static org.junit.Assert.assertEquals;
  * A HOT index key is a byte string that carries the value's type id, so a probe key has to be typed
  * like the entries the index stores rather than like whatever atomic the caller passed — otherwise
  * an {@code xs:decimal} index probed with a numerically equal {@code xs:double} builds a different
- * key and the lookup silently returns nothing. The RBTree backend never had that problem, which is
- * what made it easy to miss.
+ * key and the lookup silently returns nothing.
  * </p>
  */
 public final class JsonCASNumericLookupTest {

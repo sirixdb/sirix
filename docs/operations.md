@@ -134,7 +134,7 @@ and can be overridden via system properties.
 | `RecordPageFragmentCache` | 18.75% of budget | `sirix.cache.recordPageFragment` | Older revision fragments needed to reconstruct historical records |
 | `PageCache` | 6.25% of budget (min 100 MB) | `sirix.cache.page` | Index pages, RevisionRoot pages — metadata, not records |
 | `RevisionRootPageCache` | 5,000 entries (fixed count) | — | Revision root pointers |
-| `RBTreeNodeCache` | 50,000 entries (fixed) | — | RB-tree index nodes |
+| `HOTLookupCache` | Derived from the record-page budget | `sirix.hot.lookupCache.entries` | Memoized committed-revision point lookups |
 | `NamesCache` | 500 entries (fixed) | — | Interned QName / property-name strings |
 | `PathSummaryCache` | 20 entries (fixed) | — | Per-resource path-summary readers |
 

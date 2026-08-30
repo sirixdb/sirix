@@ -4,8 +4,10 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.page.PageConstants;
+import io.sirix.settings.Constants;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -50,28 +52,61 @@ public final class IndexDefs {
   }
 
   public static IndexDef createNameIdxDef(final int indexDefNo, final IndexDef.DbType dbType) {
-    return switch (dbType) {
-      case JSON ->
-        new IndexDef(Set.of(), Set.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
-      case XML ->
-        new IndexDef(Set.of(), Set.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
-    };
+    return new IndexDef(Set.of(), Set.of(), physicalNameIndexId(indexDefNo, dbType), dbType);
   }
 
   public static IndexDef createFilteredNameIdxDef(final Set<QNm> excluded, final int indexDefNo,
       final IndexDef.DbType dbType) {
-    return switch (dbType) {
-      case JSON -> new IndexDef(Set.of(), excluded, PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
-      case XML -> new IndexDef(Set.of(), excluded, PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
-    };
+    return new IndexDef(Set.of(), excluded, physicalNameIndexId(indexDefNo, dbType), dbType);
   }
 
   public static IndexDef createSelectiveNameIdxDef(final Set<QNm> included, final int indexDefNo,
       final IndexDef.DbType dbType) {
-    return switch (dbType) {
-      case JSON -> new IndexDef(included, Set.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
-      case XML -> new IndexDef(included, Set.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
+    return new IndexDef(included, Set.of(), physicalNameIndexId(indexDefNo, dbType), dbType);
+  }
+
+  /**
+   * Map a logical NAME definition number onto its non-overlapping physical {@link io.sirix.page.NamePage}
+   * reference slot.
+   */
+  private static int physicalNameIndexId(final int indexDefNo, final IndexDef.DbType dbType) {
+    Objects.requireNonNull(dbType, "dbType must not be null");
+    if (indexDefNo < 0) {
+      throw new IllegalArgumentException("NAME index definition number must be non-negative: " + indexDefNo);
+    }
+
+    final int base = switch (dbType) {
+      case JSON -> PageConstants.JSON_NAME_INDEX_OFFSET;
+      case XML -> PageConstants.XML_NAME_INDEX_OFFSET;
     };
+    if (indexDefNo >= Constants.INP_REFERENCE_COUNT - base) {
+      throw new IllegalArgumentException("NAME index definition number " + indexDefNo
+          + " maps outside the NamePage reference space");
+    }
+    return base + indexDefNo;
+  }
+
+  /**
+   * Convert a validated physical {@link io.sirix.page.NamePage} secondary-index slot back to the
+   * logical definition number accepted by the NAME factory methods.
+   *
+   * @param physicalIndexId physical NamePage reference slot
+   * @param dbType database type defining the reserved NamePage prefix
+   * @return logical NAME index definition number
+   */
+  public static int logicalNameIndexDefNoForPhysicalSlot(final int physicalIndexId,
+      final IndexDef.DbType dbType) {
+    Objects.requireNonNull(dbType, "dbType must not be null");
+    final int base = switch (dbType) {
+      case JSON -> PageConstants.JSON_NAME_INDEX_OFFSET;
+      case XML -> PageConstants.XML_NAME_INDEX_OFFSET;
+    };
+    if (physicalIndexId < base || physicalIndexId >= Constants.INP_REFERENCE_COUNT) {
+      throw new IllegalArgumentException("Physical NAME index slot " + physicalIndexId
+          + " is outside the secondary " + dbType + " NamePage range [" + base + ", "
+          + Constants.INP_REFERENCE_COUNT + ")");
+    }
+    return physicalIndexId - base;
   }
 
   /**

@@ -1,20 +1,12 @@
 package io.sirix.query.scan;
 
 import io.brackit.query.Query;
-import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.jdm.Type;
-import io.brackit.query.util.path.Path;
-import io.brackit.query.util.path.PathParser;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
-import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexCatalog;
-import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -25,8 +17,6 @@ import org.junit.jupiter.api.Test;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -102,13 +92,17 @@ public final class StringPredicateDifferentialTest {
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
+      createProjectionIndex(chain, ctx);
     }
+    ProjectionIndexCatalog.clearCache();
   }
 
   @AfterEach
   void tearDown() {
-    ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
+    if (dbDir != null) {
+      Databases.removeDatabase(dbDir);
+    }
   }
 
   // ---- ordering, selectivity swept -----------------------------------------------------------
@@ -245,7 +239,6 @@ public final class StringPredicateDifferentialTest {
         if (vectorized) {
           final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = db.beginResourceSession(RES);
-          installProjection(session);
           exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
@@ -264,25 +257,13 @@ public final class StringPredicateDifferentialTest {
     }
   }
 
-  private static void installProjection(final JsonResourceSession session) {
-    final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
-    final String[] fields = {"id", "date", "url", "sup", "tier"};
-    final Type[] types = {Type.LON, Type.STR, Type.STR, Type.STR, Type.STR};
-    final List<Path<QNm>> fieldPaths = new ArrayList<>(fields.length);
-    final List<Type> typeList = new ArrayList<>(fields.length);
-    for (int i = 0; i < fields.length; i++) {
-      fieldPaths.add(Path.parse("/[]/" + fields[i], PathParser.Type.JSON));
-      typeList.add(types[i]);
-    }
-    final var def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, typeList, 7, IndexDef.DbType.JSON);
-    final List<byte[]> leaves = new ArrayList<>();
-    final ProjectionIndexBuilder builder;
-    final int revision = session.getMostRecentRevisionNumber();
-    try (var rtx = session.beginNodeReadOnlyTrx(revision); var pathSummary = session.openPathSummary(revision)) {
-      builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
-      builder.build(rtx);
-    }
-    ProjectionIndexRegistry.installWildcard(session.getResourceConfig().getResource().toString(), fields, leaves,
-        builder.numericColumnNonIntegralFlags());
+  private static void createProjectionIndex(final SirixCompileChain chain, final SirixQueryContext context) {
+    new Query(chain, """
+        let $doc := jn:doc('%s','%s')
+        let $stats := jn:create-projection-index($doc, '/[]',
+          ('/[]/id', '/[]/date', '/[]/url', '/[]/sup', '/[]/tier'),
+          ('long', 'string', 'string', 'string', 'string'))
+        return sdb:commit($doc)
+        """.formatted(DB, RES)).evaluate(context);
   }
 }

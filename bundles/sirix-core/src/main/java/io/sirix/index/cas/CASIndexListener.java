@@ -4,12 +4,8 @@ import io.sirix.access.trx.node.IndexController;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.AtomicUtil;
-import io.sirix.index.SearchMode;
 import io.sirix.index.hot.HOTIndexWriter;
-import io.sirix.index.redblacktree.RBTreeReader;
-import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Atomic;
@@ -17,55 +13,35 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.index.path.summary.PathSummaryReader;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Optional;
 import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Listener for CAS (Content-and-Structure) index changes.
- * 
- * <p>
- * Supports both traditional RBTree and high-performance HOT index backends.
- * </p>
  */
 public final class CASIndexListener {
 
   private static final Logger logger = LoggerFactory.getLogger(CASIndexListener.class);
 
-  private final @Nullable RBTreeWriter<CASValue, NodeReferences> rbTreeWriter;
-  private final @Nullable HOTIndexWriter<CASValue> hotWriter;
+  private final HOTIndexWriter<CASValue> indexWriter;
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
   private final Type type;
-  private final boolean useHOT;
+  private @Nullable LongSet resolvedPCRs;
+  private long maxKnownPCR = -1L;
 
-  /**
-   * Constructor with RBTree writer (legacy path).
-   */
-  public CASIndexListener(final PathSummaryReader pathSummaryReader,
-      final RBTreeWriter<CASValue, NodeReferences> indexWriter, final Set<Path<QNm>> paths, final Type type) {
-    this.pathSummaryReader = pathSummaryReader;
-    this.rbTreeWriter = indexWriter;
-    this.hotWriter = null;
-    this.paths = paths;
-    this.type = type;
-    this.useHOT = false;
-  }
-
-  /**
-   * Constructor with HOT writer (high-performance path).
-   */
-  public CASIndexListener(final PathSummaryReader pathSummaryReader, final HOTIndexWriter<CASValue> hotWriter,
+  public CASIndexListener(final PathSummaryReader pathSummaryReader, final HOTIndexWriter<CASValue> indexWriter,
       final Set<Path<QNm>> paths, final Type type) {
-    this.pathSummaryReader = pathSummaryReader;
-    this.rbTreeWriter = null;
-    this.hotWriter = hotWriter;
-    this.paths = paths;
-    this.type = type;
-    this.useHOT = true;
+    this.pathSummaryReader = requireNonNull(pathSummaryReader);
+    this.indexWriter = requireNonNull(indexWriter);
+    this.paths = requireNonNull(paths);
+    this.type = requireNonNull(type);
   }
 
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey,
@@ -75,20 +51,19 @@ public final class CASIndexListener {
 
   public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey,
       final Str value) {
-    var hasMoved = pathSummaryReader.moveTo(pathNodeKey);
-    assert hasMoved;
+    final boolean matchesPath = matchesIndexedPath(pathNodeKey);
     switch (type) {
       case INSERT -> {
         // An empty path set means "index ALL paths" (matching CASIndexBuilder); the old guard
         // checked only getPCRsForPaths(paths).contains(...), which is the empty set for an empty
         // path config — so a `jn:create-cas-index($doc,'xs:string')` indexed existing data but
         // every subsequent insert was invisible to the index. (PathIndexListener has this guard.)
-        if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
+        if (matchesPath) {
           insert(nodeKey, pathNodeKey, value);
         }
       }
       case DELETE -> {
-        if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
+        if (matchesPath) {
           // Converted exactly as insert() converts, because the two must build the SAME key or the
           // delete misses the entry it is meant to remove. A value that does not convert was never
           // indexed, so there is nothing to remove and skipping is right.
@@ -97,18 +72,26 @@ public final class CASIndexListener {
             return;
           }
           final CASValue casValue = new CASValue(typedValue, this.type, pathNodeKey);
-          if (useHOT) {
-            assert hotWriter != null;
-            hotWriter.remove(casValue, nodeKey);
-          } else {
-            assert rbTreeWriter != null;
-            rbTreeWriter.remove(casValue, nodeKey);
-          }
+          indexWriter.remove(casValue, nodeKey);
         }
       }
       default -> {
       }
     }
+  }
+
+  /** Resolve configured paths once, refreshing only when a newly minted PCR can change the answer. */
+  private boolean matchesIndexedPath(final long pathNodeKey) {
+    if (paths.isEmpty()) {
+      return true;
+    }
+    LongSet pcrs = resolvedPCRs;
+    if (pcrs == null || pathNodeKey > maxKnownPCR) {
+      pcrs = pathSummaryReader.getPCRsForPaths(paths);
+      resolvedPCRs = pcrs;
+      maxKnownPCR = Math.max(pathNodeKey, pathSummaryReader.getMaxNodeKey());
+    }
+    return pcrs.contains(pathNodeKey);
   }
 
   /**
@@ -142,42 +125,8 @@ public final class CASIndexListener {
 
     if (isOfType) {
       final CASValue indexValue = new CASValue(typedValue, type, pathNodeKey);
-      if (useHOT) {
-        insertHOT(nodeKey, indexValue);
-      } else {
-        insertRBTree(nodeKey, indexValue);
-      }
+      indexWriter.indexNodeKey(indexValue, nodeKey);
     }
-  }
-
-  private void insertRBTree(final long nodeKey, final CASValue indexValue) {
-    assert rbTreeWriter != null;
-    final Optional<NodeReferences> textReferences = rbTreeWriter.get(indexValue, SearchMode.EQUAL);
-    if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(nodeKey, new NodeReferences(textReferences.get().getNodeKeys()), indexValue);
-    } else {
-      setNodeReferencesRBTree(nodeKey, new NodeReferences(), indexValue);
-    }
-  }
-
-  /**
-   * Add {@code nodeKey} to {@code indexValue}'s posting list in the HOT backend.
-   *
-   * <p>
-   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
-   * recorded for {@code indexValue} need neither be read back nor re-inserted — doing so cost one
-   * range scan plus one full trie descent per already-stored node key, making a bulk insert of k
-   * nodes sharing a value quadratic in k.
-   * </p>
-   */
-  private void insertHOT(final long nodeKey, final CASValue indexValue) {
-    assert hotWriter != null;
-    hotWriter.indexNodeKey(indexValue, nodeKey);
-  }
-
-  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final CASValue indexValue) {
-    assert rbTreeWriter != null;
-    rbTreeWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
 }

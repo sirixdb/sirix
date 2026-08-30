@@ -182,7 +182,6 @@ class HOTHeightOptimalTest {
     void testSplitCreatesCorrectBiNode() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 
@@ -271,7 +270,6 @@ class HOTHeightOptimalTest {
     void testIndirectPageCOW() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.FULL)
                                                .build());
 

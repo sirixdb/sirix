@@ -16,12 +16,8 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.cas.CASIndexListenerFactory;
-import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -51,23 +47,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("HOT Multi-Revision Fragment Chain Regression")
 final class HOTMultiRevisionFragmentChainTest {
 
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
-
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
@@ -81,8 +60,6 @@ final class HOTMultiRevisionFragmentChainTest {
   @Test
   @DisplayName("name index across 5 revisions: every key persists through chain reconstruction")
   void nameIndexMultiRevisionPersistsAllKeys() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
 
@@ -116,8 +93,6 @@ final class HOTMultiRevisionFragmentChainTest {
   @Test
   @DisplayName("CAS index across 5 revisions: cumulative value distribution is correct at HEAD")
   void casIndexMultiRevisionCumulative() {
-    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef casIndexDef;
 
@@ -151,8 +126,6 @@ final class HOTMultiRevisionFragmentChainTest {
   @Test
   @DisplayName("read at every intermediate revision sees the cumulative-up-to-that-revision view")
   void readAtIntermediateRevisionsIsCumulative() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
     final int[] revisions = new int[4];

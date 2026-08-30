@@ -80,6 +80,10 @@ public final class JNFun {
   }
 
   static {
+    Functions.predefine(
+        new Utf8Length(new Signature(SequenceType.INTEGER, new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne))));
+    Functions.predefine(new SirixArraySize());
+
     // move to
     Functions.predefine(new SelectJsonItem(SelectJsonItem.SELECT_JSON_ITEM, new Signature(SequenceType.JSON_ITEM,
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.INT, Cardinality.One))));
@@ -195,13 +199,11 @@ public final class JNFun {
 
     // create-projection-index
     Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
-            new SequenceType(AtomicType.STR, Cardinality.One),
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(new CreateProjectionIndex(CREATE_PROJECTION_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
-            new SequenceType(AtomicType.STR, Cardinality.One),
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
 
     // create-cas-index
@@ -215,18 +217,16 @@ public final class JNFun {
         new CreateCASIndex(CREATE_CAS_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
 
     // create-valid-time-index (bitemporal interval index; backend forced to HOT)
+    Functions.predefine(new CreateValidTimeIndex(CREATE_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM,
+        SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(new CreateValidTimeIndex(CREATE_VALID_TIME_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
-            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
-    Functions.predefine(
-        new CreateValidTimeIndex(CREATE_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
 
     // drop-projection-index
-    Functions.predefine(new DropProjectionIndex(DROP_PROJECTION_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
-    Functions.predefine(new DropProjectionIndex(DROP_PROJECTION_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
-            new SequenceType(AtomicType.INR, Cardinality.One))));
+    Functions.predefine(
+        new DropProjectionIndex(DROP_PROJECTION_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
+    Functions.predefine(new DropProjectionIndex(DROP_PROJECTION_INDEX, new Signature(SequenceType.JSON_ITEM,
+        SequenceType.JSON_ITEM, new SequenceType(AtomicType.INR, Cardinality.One))));
 
     // find-projection-index
     Functions.predefine(new FindProjectionIndex(FIND_PROJECTION_INDEX,
@@ -237,8 +237,8 @@ public final class JNFun {
     // drop-valid-time-index
     Functions.predefine(
         new DropValidTimeIndex(DROP_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
-    Functions.predefine(new DropValidTimeIndex(DROP_VALID_TIME_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.INR, Cardinality.One))));
+    Functions.predefine(new DropValidTimeIndex(DROP_VALID_TIME_INDEX, new Signature(SequenceType.JSON_ITEM,
+        SequenceType.JSON_ITEM, new SequenceType(AtomicType.INR, Cardinality.One))));
 
     // scan indexes
     Functions.predefine(new ScanPathIndex());

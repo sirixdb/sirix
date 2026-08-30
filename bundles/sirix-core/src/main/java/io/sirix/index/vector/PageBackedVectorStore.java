@@ -47,7 +47,7 @@ import io.sirix.settings.Constants;
  *
  * <p>Layout within the index tree:
  * <ul>
- *   <li>Key 0: Document root (created by {@code PageUtils.createTree})</li>
+ *   <li>Key 0: Document root (created by {@code PageUtils.createKeyedTrie})</li>
  *   <li>Key 1: {@link VectorIndexMetadataNode} — graph-level metadata (entry point, max level)</li>
  *   <li>Key 2+: {@link VectorNode} instances — embedding vectors with neighbor lists</li>
  * </ul>

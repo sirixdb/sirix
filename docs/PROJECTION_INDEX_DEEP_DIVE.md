@@ -264,10 +264,9 @@ flowchart TD
 - The descriptor slot's **value** is a `RowGroupDescriptor` (§5) — a
   **zone-map-only** directory: it names each segment with a `byteLen` and an
   XXH3-64 `contentHash` and mirrors its min/max/flags, but carries no segment
-  bytes. (An earlier hybrid let small segments ride *inside* the descriptor;
-  with a slot of their own they no longer need to, and storing them in one
-  place rather than two is what keeps assembly from having to decide which
-  copy is authoritative.)
+  bytes. Descriptor-contained segment bytes are not a second supported form:
+  descriptor validation rejects them. Storing every payload in its one
+  segment slot leaves exactly one authoritative copy.
 - A **segment slot** is BARE — no magic, no version, no on-disk hash, because
   the descriptor entry's `byteLen` + `contentHash` already back it and are
   re-checked at assembly. Its value is a 1-byte discriminator plus either the
@@ -397,8 +396,7 @@ offset  size  field
 27+C     2    segCount
         31    per segment entry (sorted by ascending columnSegmentId):
                 short columnSegmentId   2 bytes since the cap became 21 844
-                int   byteLen           low 31 bits = exact segment length;
-                                        high bit (SEG_INLINE_FLAG) = INLINE
+                int   byteLen           exact non-negative segment length
                 long  contentHash       XXH3-64 of segment bytes
                 byte  colFlags          provenance mirror
                 long  min               ┐ zone-map mirror
@@ -406,11 +404,11 @@ offset  size  field
 ```
 
 In the segment ⇔ slot layout the descriptor is **zone-map only**: it names
-each segment and vouches for it, but never holds its bytes. `SEG_INLINE_FLAG`
-and the trailing inline region it used to introduce are vestigial here —
-`putRowGroupAsColumnSegmentSlots` strips any inline region (`toZoneMapOnly`)
-before writing, so assembly resolves *every* segment through its own slot and
-never has to decide which of two copies is authoritative.
+each segment and vouches for it, but never holds its bytes. The encoder emits
+only this form, and every storage/read boundary validates it. A descriptor
+with an inline flag or trailing payload region is unsupported and fails
+closed; it is never normalized, migrated, or accepted as a second format.
+Assembly therefore resolves every segment through exactly one segment slot.
 
 Inline-vs-referenced did not disappear; it moved down one level, to the
 **slot** (§8.4). A segment slot's value is a 1-byte discriminator plus either
@@ -510,8 +508,9 @@ write the `min > max` sentinel pair so descriptor-only pruning skips it.
 Slot 0 does not hold a descriptor; it holds a `PIXB` **blob**. A blob is an
 opaque payload stored either **inline** (bytes ride the slot value, right
 after the marker) or **referenced** (bytes in a side-map `OverflowPage`) —
-the same hybrid split the leaf descriptor uses for its segments (§5.1), and
-the write path picks inline for payloads ≤ 512 B:
+the same single tagged slot carrier used by the segment slots (§5.1). This is
+one wire format with two size-selected states, not two readable formats or
+compatibility paths. The write path picks inline for payloads ≤ 512 B:
 
 ```text
  0  4  MAGIC "PIXB"
@@ -554,7 +553,7 @@ Slot-0 states are deliberately distinct:
 | State | Representation | Meaning |
 |---|---|---|
 | Valid metadata | `PIXB` → current-version `PIXM`, stale bit clear | projection serves |
-| Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE`, plus the writer's `StaleReason` in the reason bits (see `DISK_FORMAT.md`) | dropped definition, unfinished load-time build, a load-time build abandoned by an over-budget global dictionary, or corruption valve; the reason carries the remedy the writer knew, so a report need not guess it, and a rebuild on the next same-shape create clears the tombstone |
+| Stale marker | `PIXB` → tiny `PIXM` with `FLAG_STALE`, plus the writer's `StaleReason` in the reason bits (see `DISK_FORMAT.md`) | an explicitly abandoned virgin build; the physical tree is not repaired or reused. Remove the catalog definition, commit, and create again to allocate a fresh physical index id |
 | Truthful empty store | valid metadata, `leafCount = 0` | zero-record root; still valid |
 | Unsupported/corrupt layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ 0 | decline; maintenance fails closed |
 
@@ -624,10 +623,11 @@ sequenceDiagram
     B->>M: putBlob(slot 0, PIXM shape)<br/>written STRICTLY LAST
 ```
 
-Writing metadata **last** means a crash mid-build leaves the old metadata
-in place (all writes ride one CoW commit anyway, but the ordering keeps the
-two writers — builder and maintenance — consistent). The fence chunks (§5.4)
-are written alongside; unchanged chunks carry forward as no-ops.
+Writing metadata **last** means a failed virgin build never publishes a usable
+projection. All writes ride one CoW transaction; failure aborts that transaction
+and no catalog definition may point at the incomplete physical tree. The fence
+chunks (§5.4) are written before metadata. Incremental maintenance uses the same
+metadata-last publication rule and carries unchanged chunks forward as no-ops.
 
 The slot writes above do **not** each descend the trie. A fresh build starts
 from a virgin tree, so the builder engages `HOTBulkSlotLoader`
@@ -645,7 +645,7 @@ tree per entry.
 ### 6.2 The commit chain — how referenced segment pages get their identity
 
 This applies to *referenced* segments only; inline small segments (§5.1,
-§8.4) travel inside the descriptor slot and need no page of their own.
+§8.4) travel inside their own segment slots and need no page of their own.
 Referenced segments are `OverflowPage`s and follow its discipline: **never
 written before commit** (rollback safety needs no undo — an uncommitted
 segment page was simply never written), and their durable key is assigned
@@ -703,7 +703,7 @@ Details that make this correct under versioning:
 flowchart TD
     A["re-encode segment s"] --> B{"prior descriptor has s?<br/>byteLen equal?<br/>XXH3-64 equal?"}
     B -- yes --> C["carry forward prior PageReference<br/>NO page write, NO byte read<br/>segment stays CoW-shared"]
-    B -- no --> D["attach new OverflowPage (referenced)<br/>or inline into descriptor if small<br/>written at commit, key = offset"]
+    B -- no --> D["write the segment's one slot:<br/>inline payload if ≤512 B,<br/>otherwise attach one OverflowPage"]
     C --> E["descriptor entry re-emitted"]
     D --> E
     E --> F["descriptor slot written<br/>(loud updateOrSplitInsert)"]
@@ -739,7 +739,7 @@ automatic rather than hand-tracked.
 flowchart TD
     Q["query arrives at<br/>SirixVectorizedExecutor"] --> CAT["ProjectionIndexCatalog<br/>keyed (resource, defId, buildRevision)"]
     CAT --> META["readBlob slot 0 → PIXM<br/>shape match? stale? leafCount"]
-    META -- "stale / mismatch / legacy" --> FB["fall back to generic pipeline<br/>(negative-cache)"]
+    META -- "stale / mismatch / unsupported" --> FB["fall back to generic pipeline<br/>(negative-cache)"]
     META -- ok --> RAL["readAllLeaves:<br/>range-scan descriptors<br/>(contiguity enforced)"]
     RAL --> SEG["fetch segment pages<br/>parallel assembly ≥ 64 leaves<br/>verify byteLen + XXH3 at fill"]
     SEG -- "any mismatch" --> FB
@@ -1021,20 +1021,22 @@ the fragment chain is allowed to grow and when a full leaf is forced
 (`bumpHOTPageFragmentChain`). FULL short-circuits to "return the newest
 fragment, it is already complete."
 
-### 8.4 What versioning means for a projection index — the inline/reference hybrid
+### 8.4 What versioning means for a projection index — the tagged slot carrier
 
 Here is the payoff, and it is where the strategies of §8.3 finally earn their
 keep on a projection. A row group is not stored as one blob; each of its pieces
 is a slot of its own, **routed to the sharing mechanism that fits its size** — the inline-vs-
-reference hybrid of the segment-directory storage (spec:
+reference states of the one tagged segment-slot carrier (spec:
 `PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md`; plain-English tour:
 `PROJECTION_INDEX_HYBRID_EXPLAINED.md`). It is the move a small-string-
 optimized `string` makes — short strings live *inside* the object, long ones
 on the heap behind a pointer — and the one `KeyValueLeafPage` already makes
-for document records (a record ≤ `MAX_RECORD_SIZE = 500` B inline as a slot,
-larger to an `OverflowPage`). A projection applies it per segment.
+for document records (an encoded inline slot allocation ≤ `MAX_RECORD_SIZE = 512` B,
+including any Dewey payload/trailer; a larger allocation puts the record body in an
+`OverflowPage` while the Dewey ID remains in page metadata). A projection applies it per segment.
 
-Three storage classes, two versioning behaviours:
+The single persisted projection format has three storage classes with two
+versioning behaviours:
 
 | Storage class | What it is | How it versions |
 |---|---|---|
@@ -1074,15 +1076,11 @@ would re-fatten the HOT slots and walk straight back into the deep-split
 failure families the descriptor/segment split was built to kill (§3, §12) —
 which is why the design inlines only what is cheap and references the rest.
 
-> **Historical note.** The hybrid was first built one level up, as an inline
-> region *inside* the descriptor governed by
-> `sirix.projection.inlineMaxSegmentBytes` / `inlineMaxTotalBytes` (192 B per
-> segment, 512 B per leaf, smallest-first). Giving each segment its own slot
-> subsumed it: the codec still computes that split, but
-> `putRowGroupAsColumnSegmentSlots` strips the inline region before writing, so
-> those properties no longer affect what is persisted. They survive as a test
-> seam for pinning every segment to a page, which is the only way to observe
-> page-level sharing.
+> **Rejected design record.** An earlier proposal put small segment payloads in
+> a trailing descriptor region. That proposal is not a readable or writable
+> format. No size properties, codec classification, conversion path, or test
+> seam selects it. The sole implementation gives every segment one slot and
+> applies the 512-byte inline decision to that slot.
 >
 > Note also that 1:1 **segment ⇔ slot** — which shipped — is a different
 > question from splitting ONE segment across MANY slots, which did not and is
@@ -1286,17 +1284,19 @@ day-to-day behavior:
   case; a violation is a loud bug signal, not a spill path.
 - **Same-commit create+delete** of a record dedupes in the dirty set and
   extraction simply finds nothing — no phantom rows.
-- **Dropped definitions** write a blob tombstone over slot 0 (not just a
-  cache invalidation), so a drop → recreate with fewer leaves can never
-  resolve old segment pages through stale descriptors.
+- **Dropped definitions** remove only the catalog definition. The immutable
+  historical physical tree remains addressable by its old id for time travel;
+  a later create allocates a fresh physical id and therefore cannot resolve
+  old segment pages through stale descriptors.
 
 ## 12. V0 format identity and failure policy
 
-No older projection-format reader or migration bridge is implemented. Every
-current projection envelope and payload emits version zero; unknown version
-bytes decline at serving boundaries and fail ordinary maintenance before
-publication. Explicit index creation or recreation constructs a fresh CoW
-sub-tree and does not define an on-open migration contract.
+Exactly one projection format is implemented. Every projection envelope and
+payload emits version zero; unknown version bytes decline at serving boundaries
+and fail ordinary maintenance before publication. Same-shape create is
+idempotent only for a usable catalogued definition. Replacement requires
+drop + commit + create, and create allocates a fresh physical CoW sub-tree;
+there is no on-open migration or in-place repair contract.
 
 ## 13. Performance positioning
 
@@ -1328,7 +1328,7 @@ rewrite, not an ETL export.
 | Segment codec (encode/assemble/FSST modes) | `index/projection/ProjectionIndexSegmentCodec.java` |
 | Shared encoding primitives (FOR, presence, dicts) | `index/projection/ProjectionIndexLeafCodec.java` |
 | Raw scan form | `index/projection/ProjectionIndexLeafPage.java` |
-| Storage API (slots, blobs, readAllLeaves, resetTree) | `index/projection/ProjectionIndexHOTStorage.java` |
+| Storage API (slots, blobs, readAllLeaves, virgin-tree initialization) | `index/projection/ProjectionIndexHOTStorage.java` |
 | Double transform | `index/projection/ProjectionDoubleEncoding.java` |
 | Extraction + exactness | `index/projection/ProjectionIndexRowExtractor.java` |
 | Streaming build | `index/projection/ProjectionIndexBuilder.java` |
@@ -1336,7 +1336,7 @@ rewrite, not an ETL export.
 | Incremental maintenance | `index/projection/ProjectionIndexChangeListener.java` |
 | Catalog / hydrate | `index/projection/ProjectionIndexCatalog.java` |
 | Kernels | `index/projection/ProjectionIndexByteScan.java` |
-| Referenced-segment storage / inline classification | `page/OverflowPage.java`, `index/projection/ProjectionIndexSegmentCodec.java` (`classifyInline`) |
+| Segment-slot storage / 512-byte carrier choice | `page/OverflowPage.java`, `index/projection/ProjectionIndexHOTStorage.java` |
 | Per-leaf fence chunks | `index/projection/ProjectionIndexFences.java` |
 | Side map, refs serialization, split routing | `page/HOTLeafPage.java`, `page/PageKind.java` |
 | Commit chain | `access/trx/page/NodeStorageEngineWriter.java` |
@@ -1364,8 +1364,8 @@ noted)*
 | **Provenance flags** | Per-column sticky truth bits (`UNREPRESENTABLE`, `NON_INTEGRAL`, …) recording anything that would make fast-path answers inexact. Serving gates read them and decline rather than risk a wrong answer. |
 | **Raw scan form** | The flat in-memory layout (`PIX1` tail) the SIMD kernels read — reconstructed byte-identically from segments at hydrate time. |
 | **Hydrate** | Loading and assembling a projection's leaves from disk into the query-side cache, once per (resource, definition, build revision). |
-| **Blob slot (`PIXB`/`PIXM`)** | The hashed-blob container used by slot 0 and the descriptor slots: a marker with byteLen + XXH3-64, payload inline (≤ 512 B) or in one page. `PIXM` is the metadata payload it carries at slot 0 (shape, row-group count, stale flag). |
-| **Tombstone** | A zero-length slot value marking a deleted slot — distinct from a live row group with zero rows, and from the *stale* metadata tombstone that invalidates a whole projection. |
+| **Blob slot (`PIXB`/`PIXM`)** | The hashed-blob container used for metadata and auxiliary blob slots: a marker with byteLen + XXH3-64, payload inline (≤ 512 B) or in one page. `PIXM` is the metadata payload it carries at slot 0 (shape, row-group count, stale flag). |
+| **Tombstone** | A zero-length slot value marking a deleted slot — distinct from a live row group with zero rows. A stale metadata marker is reserved for an explicitly abandoned virgin build; catalog drop does not mutate the physical tree. |
 | **Carry-forward / no-op share** | Skipping a segment write because the re-encoded bytes hash identically to the prior revision's — the prior page is referenced instead of rewritten. |
 | **Fail closed / fall back** | The serving discipline: any unproven precondition silently routes the query to the generic document-scan pipeline, which is always correct (just slower). |
 | **Differential suite** | Tests that run every query on both the vectorized path and the interpreted pipeline and require byte-identical results. |

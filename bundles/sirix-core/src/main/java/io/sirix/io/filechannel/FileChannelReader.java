@@ -273,7 +273,7 @@ public final class FileChannelReader extends AbstractReader {
       // into a page-owned allocation before returning.
       if (byteHandler.supportsMemorySegments()) {
         final MemorySegment segment = MemorySegment.ofBuffer(buffer);
-        verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+        verifyChecksumIfNeeded(buffer, reference, resourceConfiguration);
         return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
       } else {
         final byte[] page = new byte[dataLength];
@@ -328,7 +328,7 @@ public final class FileChannelReader extends AbstractReader {
         return null; // caller falls back to the full read path
       }
       final MemorySegment segment = MemorySegment.ofBuffer(buffer);
-      verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+      verifyChecksumIfNeeded(buffer, reference, resourceConfiguration);
       return deserializeRegionsOnlyFromSegment(resourceConfiguration, segment, regionKindMask, regionDeferMask);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -381,6 +381,12 @@ public final class FileChannelReader extends AbstractReader {
     if (regionOffset < 0 || regionOffset >= dataLength) {
       return null;
     }
+    if (probe[4] == 0L) {
+      // The header cannot positively certify that PAX covers every value. Do not issue a second
+      // bounded read whose result the storage-engine reader must reject anyway; the whole-image
+      // fallback reads the existing tail and distinguishes an older safe image from real overflow.
+      return null;
+    }
 
     final int want = (int) Math.min(REGION_CHUNK_BYTES, dataLength - regionOffset);
     ByteBuffer chunk = acquireBuffer(want);
@@ -393,7 +399,7 @@ public final class FileChannelReader extends AbstractReader {
       // probe[3] is the page's FSST dictionary id, which only a chunked body states this early; a
       // monolith page reports "none" here and is kept off this path by regionChunkEligible.
       return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk), probe[0],
-          (int) probe[1], (int) probe[2], probe[3], regionKindMask, regionDeferMask, bitmap.clone());
+          (int) probe[1], (int) probe[2], probe[3], regionKindMask, regionDeferMask, bitmap.clone(), probe[4] != 0L);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
@@ -591,7 +597,7 @@ public final class FileChannelReader extends AbstractReader {
 
       if (byteHandler.supportsMemorySegments()) {
         final MemorySegment segment = MemorySegment.ofBuffer(buffer);
-        verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+        verifyChecksumIfNeeded(buffer, reference, resourceConfiguration);
         return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment, reference);
       } else {
         final byte[] page = new byte[dataLength];

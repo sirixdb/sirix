@@ -60,7 +60,7 @@ public final class JsonVectorIndexImpl implements VectorIndex {
 
   /**
    * The metadata node is always at key 1 (key 0 is the document root created by
-   * {@code PageUtils.createTree}).
+   * {@code PageUtils.createKeyedTrie}).
    */
   private static final long METADATA_NODE_KEY = 1L;
 

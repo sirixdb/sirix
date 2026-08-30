@@ -18,9 +18,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -50,23 +48,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class HOTBugFixRegressionTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
-
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOTSetting() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   // ===== Bug 1: Signed byte comparison in merge ordering =====
 
@@ -355,23 +336,4 @@ class HOTBugFixRegressionTest {
     }
   }
 
-  // ===== Bug 5: ChunkDirectorySerializer fragmentCount validation =====
-
-  @Nested
-  @DisplayName("Bug 5: ChunkDirectorySerializer defensive validation")
-  class ChunkDirectoryValidationTests {
-
-    @Test
-    @DisplayName("Negative fragment count should throw on deserialization")
-    void testNegativeFragmentCountIsRejected() {
-      // The fix adds bounds checking in ChunkDirectorySerializer.deserialize():
-      // if (fragmentCount < 0 || fragmentCount > 10_000) throw IAE
-      // This test verifies the semantics: negative counts are invalid
-      int negativeCount = -1;
-      assertTrue(negativeCount < 0, "Negative fragment count should be invalid");
-
-      int extremeCount = 100_000;
-      assertTrue(extremeCount > 10_000, "Extremely large fragment count should be invalid");
-    }
-  }
 }
