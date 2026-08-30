@@ -756,6 +756,18 @@ public final class ProjectionIndexBuilder {
     if (type == Type.INR || type == Type.LON || type == Type.INT) {
       return ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
     }
+    if (type == Type.DATI || type == Type.DATE) {
+      // Declared temporal columns store an epoch in the long lane and reproduce the document's exact
+      // text on emission (ProjectionTemporalCodec). Under the kill switch they build and serve as
+      // ordinary per-leaf string columns, which is what every such column did before this kind
+      // existed — same answers, ~25 B/row instead of ~1.
+      if (ProjectionTemporalCodec.temporalKindsEnabled()) {
+        return type == Type.DATI
+            ? ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+            : ProjectionIndexRowGroupPage.COLUMN_KIND_DATE;
+      }
+      return ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    }
     if (type == Type.DEC || type == Type.DBL || type == Type.FLO) {
       // Floating/decimal columns store exact doubles (order-preserving transform) instead of
       // silently truncating into longs — docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6. No

@@ -913,7 +913,9 @@ public final class ProjectionColumnGroupScan {
       for (int k = 0; k < keyCount; k++) {
         final ColumnSlice slice = keyCols[k][leaf];
         compPresence[k] = slice.presenceWords();
-        if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        // A temporal key rides the numeric lane like any other ordered long: the epoch IS the group
+        // identity, and the winner's text is rendered from it when the group is emitted.
+        if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])
             || keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
               && (globalKeyViews == null || globalKeyViews.length != keyCount || globalKeyViews[k] == null
@@ -1159,7 +1161,7 @@ public final class ProjectionColumnGroupScan {
                   identity[lane + 1] = 0L;
                 }
               }
-            } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            } else if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])) {
               long v = compValues[k][rowIdx];
               if (keyOffsets != null && keyOffsets[k] != 0L) {
                 final long shifted = v + keyOffsets[k];
@@ -1278,7 +1280,7 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       outPresent[k] = true;
-      if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])) {
         outIsLong[k] = true;
         outLongs[k] = ProjectionIndexByteScan.applyDivMod(slice.numericValues()[rowIdx] + (keyOffsets != null
             ? keyOffsets[k]

@@ -231,9 +231,68 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_KIND_STRING_GLOBAL = 5;
 
+  /**
+   * A column declared {@code xs:dateTime}, stored as EPOCH SECONDS UTC in the long lane.
+   *
+   * <p>
+   * The document holds ISO-8601 text ({@code dddd-dd-ddTdd:dd:dd}); a per-leaf string dictionary over
+   * it costs ~25 B/row and turns every sort, group and comparison into string work. The epoch is one
+   * bit-packed integer per row that FOR-packs, zone-maps, sorts, groups and compares through the
+   * NUMERIC_LONG kernels untouched, and {@link ProjectionTemporalCodec} maps back to the exact
+   * original bytes on emission. That round trip is what makes the kind lossless, and it holds only
+   * because the builder REFUSES any value that is not exactly canonical — see
+   * {@link ProjectionTemporalCodec}.
+   *
+   * <p>
+   * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent
+   * {@link #COLUMN_KIND_NUMERIC_DOUBLE} and {@link #COLUMN_KIND_STRING_GLOBAL} already set: every
+   * layout surface tests {@link #isLongLaneKind} and needs no change. What the kind byte buys is the
+   * two things a bare long cannot say — that emission must FORMAT the cell, and that a string literal
+   * compared against it must be mapped to a numeric bound. {@link #isNumericKind} stays false: an
+   * epoch is not a quantity to sum or average, and a served {@code sum} over one would answer where
+   * the interpreter raises.
+   */
+  public static final byte COLUMN_KIND_TIMESTAMP = 6;
+
+  /**
+   * A column declared {@code xs:date}, stored as EPOCH DAYS UTC in the long lane. The date twin of
+   * {@link #COLUMN_KIND_TIMESTAMP}, with canonical text {@code dddd-dd-dd}.
+   */
+  public static final byte COLUMN_KIND_DATE = 7;
+
+  /** The highest kind byte this build understands; readers reject anything above it as corrupt. */
+  public static final byte MAX_COLUMN_KIND = COLUMN_KIND_DATE;
+
   /** {@code true} for the two numeric kinds, whose storage layout is identical. */
   public static boolean isNumericKind(final byte kind) {
     return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
+  }
+
+  /** {@code true} for the two declared temporal kinds. */
+  public static boolean isTemporalKind(final byte kind) {
+    return kind == COLUMN_KIND_TIMESTAMP || kind == COLUMN_KIND_DATE;
+  }
+
+  /**
+   * {@code true} for every kind whose cells are signed longs on which NUMERIC order IS value order
+   * and numeric equality IS value equality — {@link #COLUMN_KIND_NUMERIC_LONG} and the two temporal
+   * kinds.
+   *
+   * <p>
+   * The predicate for kernels that ORDER or GROUP cells: a min/max selection, a sort key, a group
+   * identity, a range or equality predicate. Deliberately narrower than {@link #isLongLaneKind} at
+   * both ends. {@link #COLUMN_KIND_STRING_GLOBAL} is excluded because a dictionary id orders by first
+   * intern, not by value. {@link #COLUMN_KIND_NUMERIC_DOUBLE} is excluded because its cells are an
+   * order-preserving TRANSFORM: sites that admit it must transform their literals too, which is a
+   * decision each one makes explicitly rather than inheriting from a predicate.
+   *
+   * <p>
+   * Wider than {@link #isNumericKind} at the temporal end, and only for ordering: a caller that
+   * MATERIALISES a cell admitted here must ask {@link #isTemporalKind} and format, or it emits an
+   * epoch where the document held text.
+   */
+  public static boolean isOrderedLongKind(final byte kind) {
+    return kind == COLUMN_KIND_NUMERIC_LONG || isTemporalKind(kind);
   }
 
   /**
@@ -247,7 +306,8 @@ public final class ProjectionIndexRowGroupPage {
    * it, averaging it or returning it as a minimum are all wrong answers rather than slow ones.
    */
   public static boolean isLongLaneKind(final byte kind) {
-    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_STRING_GLOBAL;
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_STRING_GLOBAL
+        || isTemporalKind(kind);
   }
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
@@ -1021,8 +1081,9 @@ public final class ProjectionIndexRowGroupPage {
         presenceCols[c] = new long[(MAX_ROWS + 63) >>> 6];
         switch (columnKinds[c]) {
           // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
-          // exactly like any other integer column.
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+          // exactly like any other integer column; the temporal kinds ride it as epochs.
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+              COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
             numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
@@ -1320,7 +1381,7 @@ public final class ProjectionIndexRowGroupPage {
     }
 
     switch (kind) {
-      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
         numericCols[0][row] = longValue;
         if (clean) {
           columnMin[0] = Math.min(columnMin[0], longValue);
@@ -1459,7 +1520,7 @@ public final class ProjectionIndexRowGroupPage {
         columnSawNonDoubleSource[c] = true;
       }
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
           final long v = longValues[c];
           numericCols[c][row] = v;
           if (clean) {
@@ -2026,7 +2087,8 @@ public final class ProjectionIndexRowGroupPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+              COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++)
               col[i] = bb.getLong();
@@ -2172,7 +2234,8 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL,
+            COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE ->
           writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {

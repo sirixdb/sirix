@@ -85,7 +85,9 @@ public final class CompositeGroupIdentity {
    * @return {@code 1} for an exactly representable component, {@code 2} for a dictionary string
    */
   public static int lanesFor(final byte[] keyKinds, final int[] keySubstr, final int k) {
-    if (isCast(keySubstr, k) || keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+    // A temporal component is one exact lane: its epoch is the identity, the same way a numeric
+    // component's value is — nothing has to be recovered from a dictionary to compare two of them.
+    if (isCast(keySubstr, k) || ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])
         || keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
       return 1;
     }

@@ -281,15 +281,24 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           return {"revision": sdb:commit($doc)}
         """;
     query(floating);
-    // …while genuinely unsupported types still fail loudly.
+    // …while genuinely unsupported types still fail loudly. ('datetime' and 'date' used to stand
+    // here; they are DECLARABLE since the temporal column kinds landed, so the guard moved to a type
+    // the vocabulary still does not know — otherwise it would have gone quietly vacuous.)
     final String unsupported = """
           let $doc := jn:doc('json-path1','sales.jn')
           return jn:create-projection-index($doc, '/[]',
-              ('/[]/age'), ('datetime'))
+              ('/[]/age'), ('time'))
         """;
     final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(unsupported));
     Assertions.assertTrue(e.getMessage().contains("Unsupported projection column type"),
         () -> "unexpected message: " + e.getMessage());
+    // The message must name every type that IS declarable, or a caller cannot discover the temporal
+    // ones from the failure alone.
+    for (final String declarable : new String[] {"long", "double", "decimal", "boolean", "string", "timestamp",
+        "date"}) {
+      Assertions.assertTrue(e.getMessage().contains(declarable),
+          () -> "the rejection must list '" + declarable + "': " + e.getMessage());
+    }
   }
 
   @Test

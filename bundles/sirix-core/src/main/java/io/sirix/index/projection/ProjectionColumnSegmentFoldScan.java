@@ -174,9 +174,12 @@ public final class ProjectionColumnSegmentFoldScan {
         return false;
       }
     }
-    // The aggregate must be a NUMERIC column, checked by KIND: columnSliceable now also admits
-    // string and boolean columns, and a fold over their bytes would misparse them as numbers.
-    if (aggColOrNegative >= 0 && !ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(aggColOrNegative))) {
+    // The aggregate must be a NUMERIC or TEMPORAL column, checked by KIND: columnSliceable now also
+    // admits string and boolean columns, and a fold over their bytes would misparse them as numbers.
+    // A temporal column folds for its extrema (its epoch orders as the text does); the caller is what
+    // keeps a sum off it.
+    if (aggColOrNegative >= 0 && !ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(aggColOrNegative))
+        && !ProjectionIndexRowGroupPage.isTemporalKind(store.columnKind(aggColOrNegative))) {
       return false;
     }
     final Stream probe = new Stream();
@@ -310,8 +313,12 @@ public final class ProjectionColumnSegmentFoldScan {
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int numericColumn, final long[] acc, final int fromRowGroup, final int toRowGroup,
       final ColumnSegmentFetcher fetcher, final int aggMask) {
-    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    // Admitted for its ORDER, like the sliced fold: min/max over an epoch is exactly the extremum of
+    // the text, while a SUM over one is not an answer any caller asks for (and requireSumFitsLong
+    // below still refuses one it cannot compute).
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
+      throw new IllegalStateException(
+          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
     final boolean[] predNumeric = predicateNumeric(store, predicates);
@@ -754,8 +761,12 @@ public final class ProjectionColumnSegmentFoldScan {
   public static void treeAggregateNumeric(final ProjectionColumnStore store, final PredicateTree tree,
       final int numericColumn, final long[] acc, final int fromRowGroup, final int toRowGroup,
       final ColumnSegmentFetcher fetcher, final int aggMask) {
-    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    // Admitted for its ORDER, like the sliced fold: min/max over an epoch is exactly the extremum of
+    // the text, while a SUM over one is not an answer any caller asks for (and requireSumFitsLong
+    // below still refuses one it cannot compute).
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
+      throw new IllegalStateException(
+          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnPredicate[] leaves = tree.leaves;
     final byte[][][] leafBytes = resolvePredicateBytes(store, leaves, fetcher);

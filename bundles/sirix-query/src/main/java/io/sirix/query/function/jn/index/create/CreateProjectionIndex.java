@@ -437,9 +437,14 @@ public final class CreateProjectionIndex extends AbstractFunction {
       case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
+      // Declared temporal columns: every value must be exactly YYYY-MM-DDTHH:MM:SS (timestamp) or
+      // YYYY-MM-DD (date), and the column stores the epoch rather than the text.
+      case "timestamp", "datetime" -> Type.DATI;
+      case "date" -> Type.DATE;
       default -> throw new QueryException(
           new QNm("Unsupported projection column type '" + type + "' — use long (integer/int), double "
-              + "(float), decimal (dec), boolean (bool), or string (str). Double/decimal columns "
+              + "(float), decimal (dec), boolean (bool), string (str), timestamp (datetime) or date. "
+              + "Double/decimal columns "
               + "store exact doubles in an order-preserving encoding; decimals that are not "
               + "exactly representable as doubles mark the column not-value-exact and value-exact "
               + "consumers decline it (fail-closed)."));

@@ -2199,3 +2199,66 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   declared `timestamp`/`date` column types — canonical shapes, epoch numeric lane, exact formatter emission, literal→
   bound rule, substring arithmetic, NUMERIC_LONG kernels; kill switch `-Dsirix.projection.temporalKinds=false`;
   harness declares the types). Disjoint file sets; no Gradle in agents.
+- 18:02 **Committed wave 1 as `1c43bcbbe`** (B0r counters + ProjectionDiskDump + PageSectionDiagCountersTest, B2 synthesized order labels, plan 6.1 + ledger); wave-2 agent edits (B5-d: Constants/PageLayout/OverflowSlotSidecar/PageConstants/StringRegion; B1: ProjectionTemporalCodec …) stay uncommitted until gated.
+- 18:36 **B5-d measured at 1M (rig classpath, three-way; file bytes / KeyValueLeafPage / OverflowPage):** baseline
+  (`1c43bcbbe`) 1,854.3 MB / 1,093.3 / 728.3; completeness-only (cap pinned to 512 by a compiled overlay) **1,887.8 MB
+  (+33.6)** / 1,129.3 (+36.0) / 728.3; completeness + cap 1,023 **1,871.1 MB (+16.8)** / 1,151.8 (+58.6) / 690.8
+  (−37.4; 57,968 records of 512–1,023 B moved inline). Structural acceptance MET: string region on 103,517/103,517
+  document pages (was 91,275), stranded values 0 (was 3.75 M), value elision active 99.9 % (was 88.1 %), pages with
+  overflow descriptors 0.2 % (was 11.8 %), inline string payload 3.00 → 1.13 B/slot. **Storage acceptance NOT met:
+  completeness costs +36 MB in the leaves** — the 12 K pages that gained a region lost 67 MB of raw heap but wrote +49 MB
+  of value-elision metadata (`appendValueElision`: per elided slot a slot-gap varint + type byte + original-width varint
+  + region-index varint ≈ 4–5 B; 3.23 → 3.65 B/record raw, i.e. TWICE the 205–224 MB of heap bytes elision removes) and
+  +20 MB of string region; the body wire grew +16 MB although its raw input shrank. All four tuple fields are
+  derivable (bitmap + per-tag running rank + canonical widths) ⇒ **B3-a's derived elision metadata is the largest trie
+  lever (−3.65 B/record raw, −0.90 name-key widths, −1.39 pathNodeKey column).** The cap raise alone: −37.4 MB overflow,
+  +22.6 MB leaves, but the body wire grew +110 MB for 37 MB of moved raw bytes — unexplained; the codec election is
+  sticky per thread (`sirix.codecBakeoff.probeInterval` 16) ⇒ two controls launched with probeInterval=1 (B5-d, baseline).
+  Note: at 1M the 728 MB OverflowPage class is mostly superseded row-group versions of the incremental projection build
+  (memory), so leaf bytes are the metric, not the file.
+- 18:50 **Body codec election finding (1M controls, `-Dsirix.codecBakeoff.probeInterval=1`):** the sticky per-thread
+  winner (bake-off every 16th page) writes leaves at 1,093.3 MB where a bake-off on every page writes 1,037.7 MB
+  (**−5.1 %**; B5-d: 1,151.8 → 1,090.5 MB) — for +1 s on a 30 s load (solo timing; file byte-identical between the
+  solo and the parallel run). Mechanism: index pages (NAME/PATH_SUMMARY, 13 % of serializations) share the
+  serialization threads, their probes elect zero-run, and the record pages that follow are written up to 3× their
+  LZ77 size. Fix (lead, `PageKind.emitSmallestBody` + `encodeChunkedFrame`): between probes always encode zero-run
+  and LZ77 and write the smaller; byte-run only on probes or while it holds the election; kill switch
+  `-Dsirix.codecBakeoff.stickyOnly=true`; seam `electBodyCodecForTesting`; witness `BodyCodecElectionTest` (stale
+  zero-run election → LZ77 written and fewer bytes; kill switch = mutation writes zero-run; probe re-elects).
+- 18:47 **Codec-election fix confirmed on a 1M reload (B5-d + fix, default cadence): leaf 1,151.8 → 1,090.5 MB
+  (1,090,522,658 B vs 1,090,522,653 B under probeInterval=1), file 1,871.1 → 1,812.3 MB (byte-identical to the
+  probe-every-page run), load 30 s (unchanged).** Rig: BodyCodecElectionTest 3/3, PageSectionDiagCountersTest 5/5,
+  SlottedPageEncodingSerializationTest 28/28, StringRegionPerTagCompletenessTest 9/9, OverflowSlotSidecarWireTest 8/8,
+  GoldenFormatTest 14/14, GoldenCompositePageTest 2/2, chunked-body suites 38/38. Net vs the wave-1 baseline
+  (1,854.3 MB / leaf 1,093.3): file −42.0 MB, leaf −2.8 MB — the codec fix pays for B5-d's elision tuples until B3-a
+  derives them. B3-a launched next with derived elision metadata as its first deliverable (see briefs-wave3.md).
+- 18:45 **Cap control under the codec fix (cap pinned 512 + completeness + fix): leaf 1,072.4 MB, overflow 728.3, file
+  1,829.1** vs cap 1,023: leaf 1,090.5 (+18.2 = string region +13.8 written + body ≈ +3), overflow 690.8 (−37.4),
+  file 1,812.3 (**−16.8 MB net**). The earlier "+110 MB body wire" was a `PageSectionDiag` artifact: it counts
+  re-serialized pages again and the record count rose 116,594,971 → 116,761,005 on the same 119,41x serializations
+  (pages holding 512–1,023 B records get re-serialized more often — a write-CPU note, not bytes); the StorageProfile
+  leaf class is the ground truth. **Verdict: B5-d ACCEPTED** — cap raise is a clean win (raw overflow pages →
+  compressed leaves, fewer OverflowPage reads); completeness is structurally right and speed-positive (region-only
+  serving on 100 % of pages) at +34.7 MB of elision tuples that B3-a's derived metadata removes. Baseline+fix →
+  B5-d+fix: leaf 1,037.7 → 1,090.5, file 1,795.6 → 1,812.3 (+0.9 %). B3-a spawned 18:48 (impl-b3a).
+- 18:49 **B5-d review closed by the lead** (the agent's report remainder never arrived; everything verified directly):
+  diff read (StringRegion wire: suppressed-tag list behind the sign bit of `parentDictSize`, byte-identical when
+  empty; PageKind writer suppresses the descriptor's name/path tag, withholds the sketch, leaves the slot's region
+  index −1; KeyValueLeafPage derive-on-read mirrors it; empty encode → no region); all 6 `lookupTag` consumers in the
+  executor decline on an absent tag or key on element tags a fused descriptor cannot suppress; rig 9/3/5/1056/28/3
+  green; kill-switch pin PROVENANCE verified with a HEAD-compiled probe (`agents/lead/probe/GoldenProbe`): HEAD bytes
+  == pin == B5-d under `-Dsirix.page.stringRegion.perTagCompleteness=false`; page-size consequence covered by
+  `FusedRecordSizeCapTest#aPagePackedWithCapSizedRecordsRoundTrips` (records beyond the page heap are diverted).
+- 18:53 **Wave 2 measured at 1M (`storage1m-wave2`, rig classpath = B1 + B5-d + codec fix): file 1,770.4 MB (wave-1
+  baseline 1,854.3 → −4.5 %), leaf 1,070.4 MB, overflow 664.4 MB; projection 103.49 B/row; EventTime kind#6
+  2.16 B/row (acceptance ≤ 3; was 2.11 as a global-dict column at 1M, 24.7 per-leaf at 100M), EventDate kind#7
+  0.03 B/row (≤ 0.2; was 0.14).** B1 review closed by the lead (its report never arrived): kinds 6/7 in the long
+  lane; `isOrderedLongKind` for sort/group/min-max/predicate admission, `isTemporalKind` for formatting,
+  `isNumericKind` unchanged so a served sum cannot answer where the interpreter raises (both aggregate-kind asserts
+  admit a temporal column only as the count-distinct identity operand); build-time canonical validation on the bulk
+  and record paths; literal→bound rule exact (full = point, unit-boundary prefix = half-open range with eq
+  constant-false / ne all-present, else decline); substring windows as idiv/mod with a pre-epoch gate; min/max from
+  zone maps alone; kill switch reconciled in `sameDeclaredShape`. Rig: ProjectionTemporalCodecTest 9/9,
+  TemporalColumnDifferentialTest 9/9 (strict serving), TemporalColumnKillSwitchTest 1/1, ClickBenchProjectionTest
+  5/5, ProjectionIndexFunctionTest 31/31, regression 18/13/56/3/27/47/12/45/7 green (the agent had not compiled its
+  new test classes; the lead compiled them into `agents/lead/out`).

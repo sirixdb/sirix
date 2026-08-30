@@ -397,7 +397,7 @@ public final class RowGroupDescriptor {
 
   private static void requireKnownColumnKind(final byte kind, final int column) {
     if (kind < ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-        || kind > ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        || kind > ProjectionIndexRowGroupPage.MAX_COLUMN_KIND) {
       throw new IllegalStateException("Corrupt leaf descriptor: unknown column kind " + kind + " at " + column);
     }
   }

@@ -122,8 +122,11 @@ public final class ProjectionChunkRowBatch {
     boolean anySet = false;
     for (int column = 0; column < columns; column++) {
       switch (columnKinds[column]) {
+        // The temporal kinds hold an epoch per row: the long lane, allocated exactly as for a
+        // numeric column, and no string arena at all.
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           longLanes[column] = new long[expectedRows];
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
@@ -284,6 +287,16 @@ public final class ProjectionChunkRowBatch {
           || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
         storeString(column, utf8, length);
+      } else if (ProjectionIndexRowGroupPage.isTemporalKind(columnKind)) {
+        // A declared temporal column converts the feed's bytes straight into its epoch lane — no
+        // arena copy, no dictionary, and a value that is not exactly canonical fails the LOAD,
+        // where the record that carries it is still identifiable.
+        final long epoch = ProjectionTemporalCodec.parse(columnKind, utf8, 0, length);
+        if (epoch == ProjectionTemporalCodec.NOT_CANONICAL) {
+          throw ProjectionTemporalCodec.notCanonical(columnKind, column, utf8, 0, length);
+        }
+        flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
+        longLanes[column][rowCount] = epoch;
       } else {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }

@@ -56,6 +56,7 @@ import io.sirix.index.projection.WindowedSliceArrays;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.projection.ProjectionStringIdentityRegistry;
+import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -1747,7 +1748,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // long would emit garbage keys; STRING_SET has no single value per row at all. Both — and
     // every other kind — decline here rather than falling through to a kernel.
     final byte groupKind = handle.columnKindOf(groupColumn);
-    if (groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+    // A temporal column joins the numeric arm: it groups on its epoch and the shim renders each
+    // winner's text, exactly as the global arm renders each winner's dictionary entry.
+    if (ProjectionIndexRowGroupPage.isOrderedLongKind(groupKind)
         || groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
       return projectionNumericGroupCounts(handle, emptyPreds, groupColumn, groupField);
     }
@@ -1826,7 +1829,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // here, as do out-of-range BigInteger/BigDecimal and fractional decimals. What survives
     // is exactly what re-renders digit-for-digit as xs:integer. Skipped for ids: they are minted
     // as dense positive integers, so a truncated double cannot be among them.
-    if (!globalKey && !handle.numericColumnIsIntegral(groupColumn, fetcher)) {
+    // A temporal cell is an epoch this build parsed from canonical text — it can no more be a
+    // truncated double than a minted id can, and asking would walk the column for nothing.
+    final byte temporalDisplay = temporalDisplayOf(handle, groupColumn);
+    if (!globalKey && temporalDisplay == ProjectionTemporalCodec.DISPLAY_NONE
+        && !handle.numericColumnIsIntegral(groupColumn, fetcher)) {
       return null;
     }
     final long[] missing = new long[1];
@@ -1866,6 +1873,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       groupValues = resolveGlobalGroupKeys(globalDictionary, ids, i -> true);
       if (groupValues == null) {
         return null;
+      }
+    } else if (temporalDisplay != ProjectionTemporalCodec.DISPLAY_NONE) {
+      // The key the query sees is the document's text, not the epoch the kernel grouped on. One
+      // format per GROUP, not per row, through the codec's per-thread buffer.
+      groupValues = new String[n];
+      for (int i = 0; i < n; i++) {
+        groupValues[i] = ProjectionTemporalCodec.formatToString(temporalDisplay, groupIds[i]);
       }
     }
     for (int i = 0; i < n; i++) {
@@ -3691,11 +3705,53 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return null;
       }
       final int col = handle.columnOf(field);
-      if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      if (col < 0) {
         return null;
       }
+      final byte minMaxKind = handle.columnKindOf(col);
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      if (ProjectionIndexRowGroupPage.isTemporalKind(minMaxKind)) {
+        // A temporal column answers min/max from its ZONE MAPS: the descriptors already carry each
+        // leaf's epoch range, and the extremum of the text IS the extremum of the epoch. No segment
+        // is fetched at all — the whole answer is metadata plus one format.
+        if (!handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        final ProjectionColumnStore temporalStore = handle.columnStoreOrNull();
+        if (temporalStore == null) {
+          return null;
+        }
+        final long[] range = new long[2];
+        long best = 0L;
+        boolean any = false;
+        for (int leaf = 0, n = temporalStore.rowGroupCount(); leaf < n; leaf++) {
+          if (!temporalStore.columnZoneRange(leaf, col, range)) {
+            return null; // no descriptor evidence — the typed scan answers
+          }
+          if (range[0] > range[1]) {
+            continue; // all-missing leaf: the format's marker, never a real range
+          }
+          final long candidate = min
+              ? range[0]
+              : range[1];
+          if (!any || (min
+              ? candidate < best
+              : candidate > best)) {
+            best = candidate;
+            any = true;
+          }
+        }
+        STRING_MINMAX_SERVED.increment();
+        // No present value anywhere: fn:min/max of the empty sequence IS the empty sequence.
+        return any
+            ? new ComputedStrJsonItem(
+                ProjectionTemporalCodec.formatToString(ProjectionTemporalCodec.displayOf(minMaxKind), best))
+            : new ItemSequence();
+      }
+      if (minMaxKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        return null;
+      }
       if (!handle.columnSparseClean(col, fetcher, materializer)) {
         return null;
       }
@@ -7630,7 +7686,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     // Kind dispatch — see tryProjectionIndexGroupByCountOnly. Same exact-equality arms.
     final byte groupKind = handle.columnKindOf(groupColumn);
-    if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(groupKind)
         && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
         && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
       return null;
@@ -7646,7 +7702,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
-    if (groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+    if (ProjectionIndexRowGroupPage.isOrderedLongKind(groupKind)
         || groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
       return projectionNumericGroupCounts(handle, preds, groupColumn, groupField);
     }
@@ -7913,6 +7969,107 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * The display kind a temporal column's values must be rendered through, or
+   * {@link ProjectionTemporalCodec#DISPLAY_NONE} for every other kind.
+   *
+   * <p>
+   * The one question every site that MATERIALISES a projection cell has to ask. A temporal column's
+   * cells are epochs; the document held text, and the interpreter this route replaces returns that
+   * text. A site that admits the kind for its ORDER (a sort key, a group identity, a predicate) needs
+   * nothing here; a site that hands the value to the query does.
+   */
+  private static byte temporalDisplayOf(final ProjectionIndexRegistry.Handle handle, final int col) {
+    return ProjectionTemporalCodec.displayOf(handle.columnKindOf(col));
+  }
+
+  /**
+   * Whether a temporal column's values are all at or after the epoch — the precondition for
+   * expressing an ISO {@code substring} as {@code idiv}/{@code mod} on the stored value.
+   *
+   * <p>
+   * The kernels' {@code idiv} truncates toward zero (XQuery's rule), while the text operation
+   * truncates toward the past; the two agree exactly while the epoch is non-negative and diverge
+   * below it. Answered from the leaf descriptors' zone minima, so the gate costs no I/O.
+   */
+  private static boolean temporalColumnNonNegative(final ProjectionColumnStore store, final int col) {
+    if (store == null) {
+      return false;
+    }
+    final long[] range = new long[2];
+    for (int leaf = 0, n = store.rowGroupCount(); leaf < n; leaf++) {
+      if (!store.columnZoneRange(leaf, col, range)) {
+        return false; // no evidence — fail closed
+      }
+      if (range[0] > range[1]) {
+        continue; // all-missing leaf carries no range
+      }
+      if (range[0] < 0L) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Turn a STRING comparison against a declared temporal column into the numeric predicate its epoch
+   * lane can answer, or {@code null} to decline.
+   *
+   * <p>
+   * Two literal shapes are expressible and the rewrite is EXACT for both, because every stored value
+   * has the same fixed width (see {@link ProjectionTemporalCodec#boundsForLiteral}). Against a FULL
+   * canonical literal the comparison is the same comparison on the epoch. Against a canonical PREFIX
+   * — {@code "2013-07-15"} on a timestamp column, {@code "2013-07"} on a date column — no stored value
+   * can be EQUAL to it, so {@code eq} is false for every row and {@code ne} true for every present
+   * one, while {@code lt}/{@code le} both become "before the prefix's first value" and
+   * {@code gt}/{@code ge} both become "at or after it" (a value carrying the prefix is longer, so it
+   * sorts after the literal). Any other literal declines and the interpreter answers.
+   */
+  private static ProjectionIndexScan.@Nullable ColumnPredicate temporalPredicate(final byte columnKind,
+      final int column, final ProjectionIndexScan.Op stringOp, final byte[] literalUtf8) {
+    if (literalUtf8 == null) {
+      return null;
+    }
+    final long[] bounds = new long[2];
+    final int verdict =
+        ProjectionTemporalCodec.boundsForLiteral(columnKind, literalUtf8, 0, literalUtf8.length, bounds);
+    if (verdict == ProjectionTemporalCodec.BOUND_DECLINE) {
+      return null;
+    }
+    final long low = bounds[0];
+    if (verdict == ProjectionTemporalCodec.BOUND_EXACT) {
+      final ProjectionIndexScan.Op numericOp = switch (stringOp) {
+        case EQ -> ProjectionIndexScan.Op.EQ;
+        case NE -> ProjectionIndexScan.Op.NE;
+        case STR_LT -> ProjectionIndexScan.Op.LT;
+        case STR_LE -> ProjectionIndexScan.Op.LE;
+        case STR_GT -> ProjectionIndexScan.Op.GT;
+        case STR_GE -> ProjectionIndexScan.Op.GE;
+        default -> null;
+      };
+      return numericOp == null
+          ? null
+          : ProjectionIndexScan.ColumnPredicate.numeric(column, numericOp, low);
+    }
+    return switch (stringOp) {
+      // A shorter literal cannot EQUAL a fixed-width value, so the comparison is false for every
+      // present row and true for none — not the prefix's range, which is what a `starts-with` would
+      // ask. (The interpreter compares the strings, and "2013-07-15T10:10:00" never equals
+      // "2013-07-15".) Constant false is the form the decimal arm already uses: no long is greater
+      // than Long.MAX_VALUE.
+      case EQ -> ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+      // The complement over PRESENT rows: every value differs from the short literal. Missing rows
+      // are still excluded by the presence bitmaps, which is what NE means here.
+      case NE -> ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, Long.MIN_VALUE);
+      // v < "2013-07" and v <= "2013-07" are the same set: v is never equal, and a value that starts
+      // with the prefix is LONGER and therefore greater. bounds[0] is the first value of the range.
+      case STR_LT, STR_LE -> ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LT, low);
+      // v > "2013-07" holds for every value inside the prefix's range as well as after it.
+      case STR_GT, STR_GE -> ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, low);
+      default -> null;
+    };
+  }
+
+  /**
    * Convert ONE compiled predicate leaf node to a {@link ProjectionIndexScan.ColumnPredicate},
    * applying every serving gate (coverage, sparse evidence, integrality/transform rules for double
    * columns). {@code null} = not servable — callers fall back. Shared by the flat conjunctive
@@ -7960,8 +8117,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // A global string column stores ids in the long lane. It is NOT numericColumn: a numeric
       // comparison against an id is meaningless, and every arithmetic site must keep declining it.
       final boolean globalStringColumn = columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+      // A declared temporal column is a STRING to the query and a long in storage. It answers the
+      // ORDERING and EQUALITY string questions — through the literal-to-bound rewrite below, which is
+      // exact — and refuses the rest: containment is a question about the text's bytes, not about a
+      // point on the timeline, and no bound expresses it.
+      final boolean temporalColumn = ProjectionIndexRowGroupPage.isTemporalKind(columnKindByte);
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP, CompiledPredicate.OP_FP_CMP, CompiledPredicate.OP_DEC_CMP -> {
+          // Deliberately NOT temporalColumn: `$r.eventTime > 5` compares a string to a number, which
+          // the interpreter type-errors on. Serving it as an epoch comparison would answer instead.
           if (!numericColumn) {
             return null;
           }
@@ -7970,7 +8134,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // STRING_GLOBAL joins STRING_DICT here and only here (with NE): equality is the one
           // string question a resource-wide dictionary answers exactly, because the id IS the
           // identity, so `= lit` becomes an integer compare after one probe.
-          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn) {
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn
+              && !temporalColumn) {
             return null;
           }
         }
@@ -7979,7 +8144,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // not the complement of membership. Comparing a SEQUENCE to a literal is existential over
           // the elements, so its negation is "no element equals lit", which is a different question
           // from "the value differs". The kernels enforce the same rule and would throw.
-          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn) {
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn
+              && !temporalColumn) {
             return null;
           }
         }
@@ -7991,7 +8157,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // evaluated ONCE PER DISTINCT VALUE against the resource-wide dictionary's bytes and
           // rides as a verdict bitset the kernels test per row (globalStringVerdictPredicate) —
           // the same two-phase evaluation the per-leaf dictionaries already run.
-          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn) {
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn
+              && !(temporalColumn && op == CompiledPredicate.OP_STR_CMP)) {
             return null;
           }
         }
@@ -8107,17 +8274,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
-          pred = globalStringColumn
-              ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], true)
-              : ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          pred = temporalColumn
+              ? temporalPredicate(columnKindByte, column, ProjectionIndexScan.Op.EQ, cp.strLiteralBytes[cp.strIdx[n]])
+              : globalStringColumn
+                  ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], true)
+                  : ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
           if (pred == null) {
             return null;
           }
         }
         case CompiledPredicate.OP_STR_NE -> {
-          pred = globalStringColumn
-              ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], false)
-              : ProjectionIndexScan.ColumnPredicate.stringNe(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          pred = temporalColumn
+              ? temporalPredicate(columnKindByte, column, ProjectionIndexScan.Op.NE, cp.strLiteralBytes[cp.strIdx[n]])
+              : globalStringColumn
+                  ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], false)
+                  : ProjectionIndexScan.ColumnPredicate.stringNe(column, cp.strLiteralBytes[cp.strIdx[n]]);
           if (pred == null) {
             return null;
           }
@@ -8136,9 +8307,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (strOp == null) {
             return null;
           }
-          pred = globalStringColumn
-              ? globalStringVerdictPredicate(handle, column, litBytes, strOp)
-              : new ProjectionIndexScan.ColumnPredicate(column, strOp, 0L, 0L, false, litBytes);
+          pred = temporalColumn
+              ? temporalPredicate(columnKindByte, column, strOp, litBytes)
+              : globalStringColumn
+                  ? globalStringVerdictPredicate(handle, column, litBytes, strOp)
+                  : new ProjectionIndexScan.ColumnPredicate(column, strOp, 0L, 0L, false, litBytes);
           if (pred == null) {
             return null;
           }
@@ -12409,6 +12582,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[] keyCondCols = keySubstLit != null
           ? new int[2 * keyCount]
           : null;
+      // Per-key display: DISPLAY_NONE except where a temporal column's epoch (or a derived slice of
+      // it) has to be rendered back into the text the query grouped on.
+      final byte[] keyDisplays = new byte[keyCount];
+      // Which keys had a temporal substring REWRITTEN into arithmetic — those already decided their
+      // display (the text of the window, or none at all for an integer cast) and must not inherit
+      // the column's whole-value display below.
+      final boolean[] keyDerived = new boolean[keyCount];
+      // A substring over a TEMPORAL column is arithmetic, not a byte window — it is rewritten into
+      // the kernels' existing (v idiv D) mod M transform below, which needs private copies of the
+      // caller's annotation arrays.
+      long[] effKeyOffsets = keyOffsets;
+      int[] effKeySubstr = keySubstr;
+      long[] effKeyDivMod = keyDivMod;
+      final long[] temporalDerivation = new long[3];
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
         if (col < 0) {
@@ -12444,7 +12631,49 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         final boolean globalSubstring = keySubstring
             && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
-        if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalSubstring) {
+        if (keySubstring && ProjectionIndexRowGroupPage.isTemporalKind(kind)) {
+          // substring(t, 1, 16) is "truncate to the minute" and substring(t, 15, 2) is "the minute of
+          // the hour": both are divisions of the epoch, so the kernels group on a NUMBER and the
+          // winner is rendered back into the exact characters the window would have cut. Windows
+          // that are not divisions (a calendar month, a fragment straddling a separator) decline.
+          //
+          // The annotation's SIGN says what the query grouped on: a negative start is the bare
+          // substring (a STRING key, so the winner is rendered), a positive one is
+          // xs:integer(substring(...)) (an INTEGER key, so the derived long IS the key and nothing is
+          // rendered). Only a two-digit window casts to an integer at all; every leading window holds
+          // separators, on which the interpreter's cast raises — decline those rather than answer.
+          final int substringStart = Math.abs(keySubstr[2 * g]);
+          final boolean bareSubstring = keySubstr[2 * g] < 0;
+          if (keyShifted || keyConditional || keyStringified || keyDivided || keySubstr[2 * g + 1] <= 0
+              || !ProjectionTemporalCodec.substringDerivation(kind, substringStart, keySubstr[2 * g + 1],
+                  temporalDerivation)
+              || (!bareSubstring && temporalDerivation[2] != ProjectionTemporalCodec.DISPLAY_TWO_DIGIT)) {
+            return declineGroupAgg("temporal substring key is not a division of the epoch");
+          }
+          // The arithmetic and the text agree only at or after the epoch — see the gate's contract.
+          if (!temporalColumnNonNegative(handle.columnStoreOrNull(), col)) {
+            return declineGroupAgg("temporal substring key over a column with pre-epoch values");
+          }
+          if (effKeySubstr == keySubstr) {
+            effKeySubstr = keySubstr.clone();
+            effKeyDivMod = keyDivMod == null
+                ? new long[2 * keyCount]
+                : keyDivMod.clone();
+            // anyKeyTransform is "keyOffsets != null", and this IS a transform: a null offsets array
+            // would route the rewritten key to the untransformed arm, which ignores keyDivMod.
+            effKeyOffsets = keyOffsets == null
+                ? new long[keyCount]
+                : keyOffsets.clone();
+          }
+          effKeySubstr[2 * g] = 0;
+          effKeySubstr[2 * g + 1] = 0;
+          effKeyDivMod[2 * g] = temporalDerivation[0];
+          effKeyDivMod[2 * g + 1] = temporalDerivation[1];
+          keyDisplays[g] = bareSubstring
+              ? (byte) temporalDerivation[2]
+              : ProjectionTemporalCodec.DISPLAY_NONE;
+          keyDerived[g] = true;
+        } else if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalSubstring) {
           return declineGroupAgg("substring key needs a STRING_DICT or readable STRING_GLOBAL column");
         }
         if (keyCondCols != null) {
@@ -12484,7 +12713,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return declineGroupAgg("packed substring key is single-key only"); // the STRING substring variant serves
                                                                              // single keys via the packed arm only
         }
-        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        if (ProjectionIndexRowGroupPage.isTemporalKind(kind)) {
+          // The epoch IS the group identity, exactly and across leaves; only the emitted key differs
+          // from a plain numeric one, and keyDisplays[g] is what says so. An untransformed component
+          // renders the whole value; a rewritten substring renders its slice (set above).
+          if (!keyDerived[g]) {
+            keyDisplays[g] = ProjectionTemporalCodec.displayOf(kind);
+          }
+          if (keyCount == 1) {
+            numericSingleKey = true;
+          }
+          anyNumericComponent = true;
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             && handle.numericColumnIsIntegral(col, fetcher)) {
           if (keyCount == 1) {
             numericSingleKey = true;
@@ -12555,6 +12795,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         groupCols[g] = col;
       }
+      // Effectively-final views of the (possibly rewritten) transform annotations, for the lambdas.
+      final long[] keyOffsetsEff = effKeyOffsets;
+      final int[] keySubstrEff = effKeySubstr;
+      final long[] keyDivModEff = effKeyDivMod;
       final boolean hasGlobalSubstring = anyGlobalSubstring;
       final boolean hasGlobalComposite = anyGlobalComposite;
       final boolean globalRegexGroup = globalRegexKey;
@@ -12721,6 +12965,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // dictionary guarantees, byte-confirmed at intern time. No integrality gate either: an
           // id cannot be a truncated double.
           cdStringOperand = false;
+        } else if (ProjectionIndexRowGroupPage.isTemporalKind(handle.columnKindOf(col))) {
+          // The epoch is the exact identity of the value — two rows share one iff they held the same
+          // text — so the NUMERIC distinct arm counts it with no dictionary and no content hash. The
+          // ANSWER is a count, so nothing is formatted.
+          cdStringOperand = false;
         } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)) {
           return declineGroupAgg("distinct operand column is not an integral NUMERIC_LONG");
@@ -12839,11 +13088,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // In-kernel ordering: resolvable only when every order spec reads a primitive accumulator
       // slot AND a sole-consumer subsequence caps the output — then the arms heap-select the
       // first `limit` groups of the stable order instead of sorting and materializing them all.
-      final boolean anyKeyTransform = keyOffsets != null;
+      final boolean anyKeyTransform = keyOffsetsEff != null;
       // A single substring-transformed STRING key groups AND orders on an order-preserving
       // digit pack (validated ISO-minute windows), so ORD_KEY is servable for it.
-      final boolean packedStringKey = keyCount == 1 && keySubstr != null && keySubstr[0] < 0;
-      if (packedStringKey && (keySubstr[1] != 16 || cdBlock >= 0)) {
+      final boolean packedStringKey = keyCount == 1 && keySubstrEff != null && keySubstrEff[0] < 0;
+      if (packedStringKey && (keySubstrEff[1] != 16 || cdBlock >= 0)) {
         return declineGroupAgg("packed substring key outside the 16-char window, or with count(distinct)"); // the pack
                                                                                                             // validator
                                                                                                             // covers
@@ -13001,7 +13250,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (packedStringKey) {
         return packedSubstringGroupAggregate(armPayloads, windowedSlices, packedSlicedArm
             ? groupStore
-            : null, preds, tree, groupCol, -keySubstr[0], keySubstr[1], aggColsFlat, keyNames, funcs, aggFields,
+            : null, preds, tree, groupCol, -keySubstrEff[0], keySubstrEff[1], aggColsFlat, keyNames, funcs, aggFields,
             outNames, distinctFields, eff, chunkSize, orderPlan, selLimit, having, sumExactMask,
             handle.columnKindOf(groupCol) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
                 ? handle.valueDictionaryHeaderKey(groupCol)
@@ -13015,7 +13264,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             globalSingleKey
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
-            sumExactMask);
+            sumExactMask, keyDisplays[0]);
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
@@ -13156,7 +13405,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   : armPayloads.get(0)[24 + groupCols[k]];
             }
           }
-          final int compositeIdWidth = CompositeGroupIdentity.width(identityKinds, keySubstr);
+          final int compositeIdWidth = CompositeGroupIdentity.width(identityKinds, keySubstrEff);
           // String components are carried as a fingerprint PAIR, which discriminates but does not
           // identify: two distinct strings sharing both fingerprints would produce equal identity
           // lanes, so acquireExact would fold them and — because the lanes match — never report a
@@ -13165,7 +13414,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // declines if it cannot. Numeric and substring-cast components need none of this: they
           // carry their raw or cast value in an exact lane.
           final ProjectionStringIdentityRegistry compositeIdentityRegistry =
-              CompositeGroupIdentity.hasFingerprintedComponent(identityKinds, keySubstr)
+              CompositeGroupIdentity.hasFingerprintedComponent(identityKinds, keySubstrEff)
                   ? new ProjectionStringIdentityRegistry(keyCount, compositeIdentityMaxBytes)
                   : null;
           if (windowedSlices && compositeSlicedArm) {
@@ -13251,8 +13500,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                                 cdBlock >= 0
                                     ? cdBudgets[idx]
                                     : null,
-                                keyOffsets, keySubstr, transformDecline, keyCondCols, condColsNow, keyCondLits, keyCondElseBytes,
-                                keyDivMod, globalKeyViews, compositeIdentityRegistry);
+                                keyOffsetsEff, keySubstrEff, transformDecline, keyCondCols, condColsNow, keyCondLits, keyCondElseBytes,
+                                keyDivModEff, globalKeyViews, compositeIdentityRegistry);
                           } else {
                             ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(sub, subEnd), preds,
                                 groupCols, aggColsFlat, local, sub, cdBlock, cdBlock >= 0
@@ -13261,7 +13510,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                                 cdBlock >= 0
                                     ? cdBudgets[idx]
                                     : null,
-                                keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes, keyDivMod,
+                                keyOffsetsEff, keySubstrEff, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes, keyDivModEff,
                                 globalKeyViews, compositeIdentityRegistry, globalCondElseIdsF);
                           }
                           if (wsl != null) {
@@ -13442,7 +13691,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                       : null
                   : cCondCols;
               ProjectionColumnGroupScan.readRowKeyPartsSliced(keyColsE, cKeyKinds, condColsE, leaf, rowIdx, strParts,
-                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod,
+                  longParts, present, isLong, keyOffsetsEff, keySubstrEff, keyCondCols, keyCondLits, keySubstLit, keyDivModEff,
                   winnerGlobalKeyViews);
               if (cEmit != null) {
                 cEmit.release(leaf, leaf + 1);
@@ -13454,11 +13703,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
               }
               ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
-                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod,
+                  longParts, present, isLong, effKeyOffsets, effKeySubstr, keyCondCols, keyCondLits, keySubstLit, effKeyDivMod,
                   winnerGlobalKeyViews);
             }
             out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
-                aggFields, outNames, distinctFields, cdBase));
+                aggFields, outNames, distinctFields, cdBase, keyDisplays));
           }
           GROUP_AGG_SERVED.increment();
           if (compositeSlicedArm) {
@@ -13587,10 +13836,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                     : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
             // JSONBench Q2's shape: a per-leaf-dict GROUP key with a GLOBAL distinct operand. That
             // one lane folds longs into a set, so an id column serves it directly; every other lane
-            // keeps the exact-kind assert.
-            final boolean globalDistinctOperand = a == cdBlock && !cdStringDict
-                && groupStore.columnKind(aggColsFlat[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
-            if (!globalDistinctOperand && groupStore.columnKind(aggColsFlat[a]) != expected) {
+            // keeps the exact-kind assert. A TEMPORAL operand qualifies for the same reason: its
+            // epoch is the value's exact identity and the answer is a COUNT, so nothing is summed
+            // and nothing is rendered.
+            final boolean identityDistinctOperand = a == cdBlock && !cdStringDict
+                && (groupStore.columnKind(aggColsFlat[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+                    || ProjectionIndexRowGroupPage.isTemporalKind(groupStore.columnKind(aggColsFlat[a])));
+            if (!identityDistinctOperand && groupStore.columnKind(aggColsFlat[a]) != expected) {
               throw new IllegalStateException(
                   "aggColumn " + aggColsFlat[a] + " kind mismatch (expected " + expected + ")");
             }
@@ -14864,7 +15116,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
       final ProjectionIndexScan.PredicateTree predTree, final long[] having, final byte[] stringLengthModes,
       final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
-      final long sumExactMask) {
+      final long sumExactMask, final byte keyDisplay) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -14926,12 +15178,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   || (cdStringDict && a == cdBlockIdx)
                       ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
                       : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
-          // The distinct operand is the one slot a long-lane STRING_GLOBAL column may fill: it is
-          // folded into a set of longs, never summed or compared as a quantity. Every other lane
-          // keeps the exact-kind assert, so a global column can still not be summed by accident.
-          final boolean globalDistinctOperand = a == cdBlockIdx && !cdStringDict
-              && slicedStore.columnKind(aggCols[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
-          if (!globalDistinctOperand && slicedStore.columnKind(aggCols[a]) != expected) {
+          // The distinct operand is the one slot a long-lane identity column may fill — a
+          // STRING_GLOBAL id or a TEMPORAL epoch: it is folded into a set of longs, never summed or
+          // compared as a quantity, and the answer is a count. Every other lane keeps the exact-kind
+          // assert, so neither kind can be summed by accident.
+          final boolean identityDistinctOperand = a == cdBlockIdx && !cdStringDict
+              && (slicedStore.columnKind(aggCols[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+                  || ProjectionIndexRowGroupPage.isTemporalKind(slicedStore.columnKind(aggCols[a])));
+          if (!identityDistinctOperand && slicedStore.columnKind(aggCols[a]) != expected) {
             throw new IllegalStateException("aggColumn " + aggCols[a] + " kind mismatch (expected " + expected + ")");
           }
           slicedAggCols[a] = distinctIdentityOperand(cdStringDict, a, cdBlockIdx, aggCols[a], slicedStore)
@@ -15152,7 +15406,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ? missingMergedHeld
           : ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
       return emitNumericGroupWinners(partSelectors, missingMergedFinal, orderPlan, limit, slotWidth, having, keyNames,
-          funcs, aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0);
+          funcs, aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0,
+          keyDisplay);
     }
     @SuppressWarnings("unchecked")
     final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
@@ -15250,6 +15505,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       legacyKeyStrings = resolveGlobalGroupKeys(globalKeyDictionary, ids, i -> true);
       if (legacyKeyStrings == null) {
         return declineGroupAgg("a winning global group key has no value in this revision (legacy arm)");
+      }
+    } else if (keyDisplay != ProjectionTemporalCodec.DISPLAY_NONE) {
+      // A temporal key grouped on its epoch; the query asked about text. One format per GROUP.
+      legacyKeyStrings = new String[ordered.size()];
+      for (int i = 0; i < legacyKeyStrings.length; i++) {
+        legacyKeyStrings[i] = ProjectionTemporalCodec.formatToString(keyDisplay, ordered.get(i).getLongKey());
       }
     } else {
       legacyKeyStrings = null;
@@ -15462,7 +15723,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
     }
     final ServedGroups served = emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth,
-        having, keyNames, funcs, aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false);
+        having, keyNames, funcs, aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false,
+        // The dense arm exists for global dictionary ids and is entered only with one; a temporal
+        // key never reaches it, so it has no text of its own to render.
+        ProjectionTemporalCodec.DISPLAY_NONE);
     if (served != null) {
       GROUP_DENSE_SERVED.increment();
     }
@@ -15524,7 +15788,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int slotWidth, final long[] having,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int cdBase, final long globalKeyDictionary, final boolean sliced,
-      final boolean cdServed) {
+      final boolean cdServed, final byte keyDisplay) {
     int winnerCount = missingMerged[0] > 0
         ? 1
         : 0;
@@ -15571,6 +15835,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       keyStrings = resolveGlobalGroupKeys(globalKeyDictionary, winnerIds, finalSel::hasKeyAt);
       if (keyStrings == null) {
         return declineGroupAgg("a winning global group key has no value in this revision");
+      }
+    } else if (keyDisplay != ProjectionTemporalCodec.DISPLAY_NONE) {
+      // Winners only: at most K formats, and the missing-key group renders nothing at all.
+      keyStrings = new String[finalSel.size()];
+      for (int i = 0; i < finalSel.size(); i++) {
+        keyStrings[i] = finalSel.hasKeyAt(i)
+            ? ProjectionTemporalCodec.formatToString(keyDisplay, finalSel.keyLongAt(i))
+            : null;
       }
     } else {
       keyStrings = null;
@@ -15927,6 +16199,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT:
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN:
           break;
+        // A temporal column emits TEXT: the deref's atomic is the document's string, and the codec
+        // reproduces it byte-for-byte from the stored epoch.
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP:
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_DATE:
+          break;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL:
           if (handle.valueDictionaryHeaderKey(col) <= 0L) {
             return null; // ids with no dictionary to resolve them against
@@ -15954,6 +16231,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return null;
       }
       final boolean globalValues = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+      final byte valueDisplay = ProjectionTemporalCodec.displayOf(kind);
       final ArrayList<Item> items = new ArrayList<>();
       // A global column emits IDS through the sink; the values are resolved once, after the scan.
       final IntArrayList globalIds = globalValues
@@ -15964,6 +16242,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         public void acceptLong(final long raw) {
           if (globalValues) {
             globalIds.add((int) raw);
+            return;
+          }
+          if (valueDisplay != ProjectionTemporalCodec.DISPLAY_NONE) {
+            // Same item type the string arm below builds — a temporal column's deref IS a string,
+            // and a bare Str would serialize `2013-07-15` where the interpreter writes `"2013-07-15"`.
+            items.add(new ComputedStrJsonItem(ProjectionTemporalCodec.formatToString(valueDisplay, raw)));
             return;
           }
           items.add(switch (kind) {
@@ -16058,8 +16342,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return null;
         }
         final byte kind = handle.columnKindOf(col);
-        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          if (!handle.numericColumnIsIntegral(col, fetcher)) {
+        // A temporal key joins the numeric arm: ordering its epoch IS ordering its text, which is
+        // what makes it the cheapest sort key in the store. The route returns RECORD KEYS, so
+        // nothing is formatted here — the emitted values still come from the records. The
+        // integrality probe is numeric-only: an epoch parsed from canonical text cannot be a
+        // truncated double, and the probe would walk the column to learn that.
+        if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind)) {
+          if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+              && !handle.numericColumnIsIntegral(col, fetcher)) {
             return null;
           }
         } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
@@ -16477,6 +16767,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT:
           case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN:
             break;
+          // A temporal column materialises as the document's TEXT, rendered from its epoch.
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP:
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_DATE:
+            break;
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG:
             if (!handle.numericColumnIsIntegral(col, fetcher)) {
               return null; // value-exact gate, same as aggregate serving
@@ -16573,6 +16867,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
               vals[e] = switch (kinds[d]) {
                 case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> new Str(stringVals[d]);
+                case ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+                  new Str(ProjectionTemporalCodec.formatToString(ProjectionTemporalCodec.displayOf(kinds[d]),
+                      longVals[d]));
                 case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> longVals[d] != 0
                     ? Bool.TRUE
                     : Bool.FALSE;
@@ -17473,17 +17770,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static ArrayObject groupAggRecordComposite(final String[] keyNames, final boolean[] present,
       final boolean[] isLong, final String[] strParts, final long[] longParts, final long[] acc, final String[] funcs,
-      final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields, final int cdBase) {
+      final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields, final int cdBase,
+      final byte[] keyDisplays) {
     final int k = keyNames.length;
     final QNm[] names = new QNm[k + funcs.length];
     final Sequence[] vals = new Sequence[k + funcs.length];
     for (int i = 0; i < k; i++) {
       names[i] = new QNm(keyNames[i]);
+      // A TEMPORAL component's long is an epoch (or a division of one): the query grouped on text,
+      // so the codec renders exactly the characters the value — or the substring window — spelled.
       vals[i] = !present[i]
           ? null
-          : isLong[i]
-              ? new Int64(longParts[i])
-              : new Str(strParts[i]);
+          : keyDisplays != null && keyDisplays[i] != ProjectionTemporalCodec.DISPLAY_NONE
+              ? new Str(ProjectionTemporalCodec.formatToString(keyDisplays[i], longParts[i]))
+              : isLong[i]
+                  ? new Int64(longParts[i])
+                  : new Str(strParts[i]);
     }
     fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields, cdBase);
     return new ArrayObject(names, vals);

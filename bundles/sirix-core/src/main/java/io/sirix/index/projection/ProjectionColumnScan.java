@@ -210,8 +210,13 @@ public final class ProjectionColumnScan {
       final int numericColumn, final long[] acc, final int fromRowGroup, final int toRowGroup,
       final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
-    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    // The temporal kinds are admitted for their ORDER (the min/max lanes), which is exactly what an
+    // epoch answers; the sum lane still folds and simply is not read for such a column — the caller
+    // that requests a sum over a temporal column is the one that must decline, and an overflow here
+    // raises ArithmeticException, which callers already treat as a decline.
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
+      throw new IllegalStateException(
+          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
@@ -264,8 +269,13 @@ public final class ProjectionColumnScan {
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc, final int fromRowGroup,
       final int toRowGroup, final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
-    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    // The temporal kinds are admitted for their ORDER (the min/max lanes), which is exactly what an
+    // epoch answers; the sum lane still folds and simply is not read for such a column — the caller
+    // that requests a sum over a temporal column is the one that must decline, and an overflow here
+    // raises ArithmeticException, which callers already treat as a decline.
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
+      throw new IllegalStateException(
+          "aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
     final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
@@ -1030,8 +1040,12 @@ public final class ProjectionColumnScan {
   /** One present cell of {@code slice} to {@code sink}; the kind is loop-invariant at every call. */
   private static void emitOne(final FieldValueSink sink, final byte kind, final ColumnSlice slice, final int rowIdx) {
     switch (kind) {
+      // A temporal cell is handed out as its stored EPOCH, exactly as a global id is: this kernel has
+      // no business rendering text, and the caller that asked for a temporal column formats the run
+      // through ProjectionTemporalCodec. The executor gates the kind before it gets here.
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         sink.acceptLong(slice.numericValues()[rowIdx]);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
         sink.acceptLong((slice.boolWords()[rowIdx >>> 6] >>> (rowIdx & 63) & 1L));
@@ -1305,11 +1319,13 @@ public final class ProjectionColumnScan {
     }
     for (int k = 0; k < sortColumns.length; k++) {
       final byte kind = store.columnKind(sortColumns[k]);
-      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+      // A temporal column sorts on its epoch, which IS the text's order — the one property that
+      // makes the numeric key exact for it and not for a global dictionary id.
+      if (!ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
           && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
           && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
-        throw new IllegalStateException(
-            "sortColumn " + sortColumns[k] + " is not NUMERIC_LONG, STRING_DICT, or STRING_GLOBAL");
+        throw new IllegalStateException("sortColumn " + sortColumns[k]
+            + " is not NUMERIC_LONG, a temporal kind, STRING_DICT, or STRING_GLOBAL");
       }
     }
   }
@@ -1410,7 +1426,7 @@ public final class ProjectionColumnScan {
     boolean dropped = false;
     for (final ColumnPredicate p : predicates) {
       final byte kind = store.columnKind(p.column);
-      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG && p.stringLitBytes == null) {
+      if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind) && p.stringLitBytes == null) {
         final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(p.column);
         for (int i = 0; i < n; i++) {
           if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {

@@ -414,8 +414,11 @@ public final class ProjectionIndexScan {
       final long[] out) {
     final byte kind = leaf.columnKind(p.column);
     switch (kind) {
+      // A temporal predicate reaches here already mapped to numeric bounds (see the executor's
+      // literal-to-bound rule), so the cells and the literal are in the same units.
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         evalNumeric(leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
         evalBoolean(leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
@@ -699,7 +702,7 @@ public final class ProjectionIndexScan {
     // Zone maps only help on numeric / dict-id columns. Booleans pass
     // through — pruning them would require leaf-global has-true/
     // has-false flags which we don't encode today.
-    if (!ProjectionIndexRowGroupPage.isNumericKind(kind))
+    if (!ProjectionIndexRowGroupPage.isNumericKind(kind) && !ProjectionIndexRowGroupPage.isTemporalKind(kind))
       return false;
     final long min = leaf.columnMin(p.column);
     final long max = leaf.columnMax(p.column);

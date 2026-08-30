@@ -184,7 +184,20 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   raw), `io.sirix.query.bench.projection.ProjectionDiskDump` (all segment kinds + descriptors + framing; 1M:
   115.49 B/row), `PageSectionDiagCountersTest` 4/4; one `build.gradle` line enables the gate for the core test task
   (assert-and-provide, like `sirix.hot.mergeDiag`).
-- **B5-d — cap + completeness.** Files: `settings/Constants.java`, `page/PageLayout.java`, `page/OverflowSlotSidecar.java`,
+- **B5-d — DONE 18:25 (impl-b5d), measured 18:36–18:47:** cap 512 → 1,023 (one source of truth, class-load check),
+  per-TAG string-region completeness (suppressed-tag list behind the sign bit of `parentDictSize`; sketch withheld
+  when a tag is suppressed; kill switch `-Dsirix.page.stringRegion.perTagCompleteness=false`). Structural acceptance
+  met at 1M (region on 100 % of document pages, stranded 0, elision 99.9 %, descriptor pages 0.2 %) but the leaf
+  class grew +58.6 MB: every newly elided slot writes the `appendValueElision` tuple (slot gap, type, width, region
+  index ≈ 4–5 B; 3.65 B/record raw — TWICE the heap bytes elision removes). Found alongside: the sticky codec
+  election wrote record pages with index pages' zero-run winner — **fixed by the lead (always compare zero-run and
+  LZ77; kill switch `-Dsirix.codecBakeoff.stickyOnly=true`; `BodyCodecElectionTest`): leaf −5.3 %, file 1,854.3 →
+  1,812.3 MB net, load time unchanged.** Under the fix the cap raise alone is leaf +18.2 MB (string region +13.8,
+  body ≈ +3) against overflow −37.4 MB = file −16.8 MB (the "+110 MB body wire" was the section diag re-counting
+  re-serialized pages; judge by the StorageProfile leaf class), completeness alone leaf +34.7 MB (the tuples).
+  ACCEPTED. Consequence: B3-a starts with DERIVED elision metadata (bitmap + per-tag running rank + canonical
+  widths) — the largest trie lever measured so far.
+- **B5-d — cap + completeness (original brief).** Files: `settings/Constants.java`, `page/PageLayout.java`, `page/OverflowSlotSidecar.java`,
   `page/PageKind.java` (`stringRegionComplete`), `page/pax/StringRegion.java` (per-tag completeness). Witness: the
   counter above drops to 0 on a bulk fixture with long strings; region-only reads on pages with carriers; mutation:
   a page with an overflow record must not lose its other strings' elision. Acceptance at 1M: string-elision pages
@@ -194,7 +207,11 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   read), `page/pax/RegionTable.java`; the schema sub-trie in a NamePage-keyed store. Witness: parity of every
   region-only scan and zone-map prune; mutation: one width for all tags. Acceptance: regions ≤ 2 B/record at 1M;
   with the schema, fixed overhead ≤ 0.5 B/record.
-- **B3-a — structure as columns + derived elision metadata + revision elision.** Files: `page/PageKind.java`
+- **B3-a — LAUNCHED 18:48 (impl-b3a), deliverable 1 = DERIVED elision metadata** (elided-slot bitmap, per-tag
+  running rank instead of a region index, canonical widths/types with exception lists, name-key width derived;
+  kill switch `-Dsirix.page.body.derivedElision=false` proven against HEAD bytes; acceptance staged elision
+  metadata ≤ 0.6 B/record and leaf class ≤ 950 MB at 1M), deliverable 2 = structure as columns + revision elision.
+- **B3-a — structure as columns + derived elision metadata + revision elision (original brief).** Files: `page/PageKind.java`
   (`writeEncodedBody`, `BodySections.appendValueElision` / `appendNameKeyElision` and readers, the reinject site,
   flag bits, activation guards), `node/StructuralKeyColumnCodec.java` (+ its test), `page/pax/RecordOrdinalRegion.java`
   / the STRUCT_POINTERS region, `node/NodeKind.java`. Fixtures the mutation "assume predicted" must fail on: a deleted

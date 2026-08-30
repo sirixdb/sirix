@@ -439,8 +439,19 @@ public final class ProjectionIndexMetadata {
 
   /** Whether two column kinds describe the same declared column, ignoring the dictionary choice. */
   private static boolean sameDeclaredShape(final byte persisted, final byte derived) {
-    return persisted == derived || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-        && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
+    if (persisted == derived
+        || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+            && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
+      return true;
+    }
+    // The temporal kinds' kill switch is a DEPLOYMENT choice, not a shape change: a store built with
+    // -Dsirix.projection.temporalKinds=false holds the declared column as a per-leaf string column,
+    // and a later reader with the switch back on derives the temporal kind from the same declaration.
+    // Rejecting that pairing would make the switch a one-way door — the store would hydrate only under
+    // the flag it happened to be built with. Serving reads the STORE's kind, so such a column simply
+    // keeps taking the string route it was built for.
+    return ProjectionIndexRowGroupPage.isTemporalKind(derived)
+        && persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   }
 
   public byte[] serialize() {

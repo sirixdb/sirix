@@ -338,7 +338,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -627,9 +628,9 @@ public final class ProjectionIndexByteScan {
         continue;
       }
       final byte kind = payload[24 + numericColumn];
-      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (!ProjectionIndexRowGroupPage.isOrderedLongKind(kind)) {
         throw new IllegalStateException(
-            "aggregate column " + numericColumn + " is not NUMERIC_LONG (kind=" + kind + ")");
+            "aggregate column " + numericColumn + " is not NUMERIC_LONG or temporal (kind=" + kind + ")");
       }
       final int base = s.columnDataOff[numericColumn];
       final int stride = (rowCount + 63) >>> 6;
@@ -694,9 +695,9 @@ public final class ProjectionIndexByteScan {
       if (rowCount <= 0)
         continue;
       final byte kind = payload[24 + numericColumn];
-      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (!ProjectionIndexRowGroupPage.isOrderedLongKind(kind)) {
         throw new IllegalStateException(
-            "aggregate column " + numericColumn + " is not NUMERIC_LONG (kind=" + kind + ")");
+            "aggregate column " + numericColumn + " is not NUMERIC_LONG or temporal (kind=" + kind + ")");
       }
       final int base = s.columnDataOff[numericColumn];
       final int stride = (rowCount + 63) >>> 6;
@@ -1530,8 +1531,9 @@ public final class ProjectionIndexByteScan {
         // Same fail-loud per-leaf kind check the group column gets: a leaf whose kind
         // byte drifted from the handle metadata must never be folded as longs silently.
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, aggColumns[a])
@@ -1629,7 +1631,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -1709,7 +1712,7 @@ public final class ProjectionIndexByteScan {
       if (col >= columnCount) {
         return false;
       }
-      if (payload[24 + col] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (!ProjectionIndexRowGroupPage.isOrderedLongKind(payload[24 + col])) {
         return false;
       }
       ensureOffsetScratch(s, columnCount);
@@ -1832,10 +1835,13 @@ public final class ProjectionIndexByteScan {
     // same long lane, and grouping by an id IS grouping by the value it stands for — that identity
     // is the whole point of the kind. What must NOT join is NUMERIC_DOUBLE, whose cells carry the
     // order-preserving transform rather than the value.
-    if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+    // A temporal column joins for the same reason a global id does: its cell IS the group identity,
+    // exactly and across leaves. Only the winner's TEXT has to be rendered, and that happens on
+    // emission, where the caller knows the column's kind.
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
         && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
       throw new IllegalStateException(
-          "groupColumn " + groupColumn + " is not NUMERIC_LONG or STRING_GLOBAL (kind=" + kind + ")");
+          "groupColumn " + groupColumn + " is not NUMERIC_LONG, temporal or STRING_GLOBAL (kind=" + kind + ")");
     }
     final int tailStart = presenceTailStart(payload, s.leafDataEnd);
     if (tailStart < 0) {
@@ -2087,8 +2093,9 @@ public final class ProjectionIndexByteScan {
         // Same fail-loud per-leaf kind check the group column gets: a leaf whose kind byte
         // drifted from the handle metadata must never be folded as longs silently.
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
         aggValOff[a] = s.columnDataOff[aggColumns[a]];
@@ -2282,8 +2289,9 @@ public final class ProjectionIndexByteScan {
         // answer, not a slow one.
         final boolean globalDistinctOperand =
             a == distinctBlock && !cdStringDict && aggKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
-        if (!globalDistinctOperand && aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!globalDistinctOperand && !ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
         aggValOff[a] = s.columnDataOff[aggColumns[a]];
@@ -2654,8 +2662,9 @@ public final class ProjectionIndexByteScan {
         // shape — a per-leaf-dict GROUP key with a high-cardinality global distinct operand.
         final boolean globalDistinctOperand =
             a == distinctBlock && !cdStringDict && aggKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
-        if (!globalDistinctOperand && aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!globalDistinctOperand && !ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, aggColumns[a])
@@ -2868,8 +2877,9 @@ public final class ProjectionIndexByteScan {
           : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
       for (int a = 0; a < aggCount; a++) {
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, aggColumns[a])
@@ -3160,7 +3170,7 @@ public final class ProjectionIndexByteScan {
         compPresOff[k] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, col)
             : -1;
-        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
             || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
               && (globalKeyViews == null || globalKeyViews.length != keyCount || globalKeyViews[k] == null)) {
@@ -3274,8 +3284,9 @@ public final class ProjectionIndexByteScan {
           : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
       for (int a = 0; a < aggCount; a++) {
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, aggColumns[a])
@@ -3376,7 +3387,7 @@ public final class ProjectionIndexByteScan {
                   identity[lane + 1] = 0L;
                 }
               }
-            } else if (compKind[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            } else if (ProjectionIndexRowGroupPage.isOrderedLongKind(compKind[k])) {
               long v = getLongLE(payload, compValOff[k] + rowIdx * 8);
               if (keyOffsets != null && keyOffsets[k] != 0L) {
                 final long shifted = v + keyOffsets[k];
@@ -3537,7 +3548,7 @@ public final class ProjectionIndexByteScan {
       }
       outPresent[k] = true;
       final byte kind = payload[24 + col];
-      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind)) {
         outIsLong[k] = true;
         outLongs[k] = applyDivMod(getLongLE(payload, columnDataOff[col] + rowIdx * 8) + (keyOffsets != null
             ? keyOffsets[k]
@@ -3689,7 +3700,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -4298,8 +4310,9 @@ public final class ProjectionIndexByteScan {
           : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
       for (int a = 0; a < aggCount; a++) {
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, aggColumns[a])
@@ -4526,7 +4539,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -4719,8 +4733,9 @@ public final class ProjectionIndexByteScan {
           throw new IllegalStateException("aggColumn " + aggColumns[a] + " out of range [0, " + columnCount + ")");
         }
         final byte aggKind = payload[24 + aggColumns[a]];
-        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(aggKind)) {
+          throw new IllegalStateException(
+              "aggColumn " + aggColumns[a] + " is not NUMERIC_LONG or temporal (kind=" + aggKind + ")");
         }
         aggPresOff[a] = tailStart >= 0
             ? presenceWordsOff(payload, tailStart, aggColumns[a])
@@ -4952,8 +4967,9 @@ public final class ProjectionIndexByteScan {
           throw new IllegalStateException("sortColumn " + sortColumn + " out of range [0, " + columnCount + ")");
         }
         final byte sortKind = payload[24 + sortColumn];
-        if (sortKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("sortColumn " + sortColumn + " is not NUMERIC_LONG (kind=" + sortKind + ")");
+        if (!ProjectionIndexRowGroupPage.isOrderedLongKind(sortKind)) {
+          throw new IllegalStateException(
+              "sortColumn " + sortColumn + " is not NUMERIC_LONG or temporal (kind=" + sortKind + ")");
         }
       }
       final int rowCount = evaluateRowGroupMask(payload, predicates, s);
@@ -5096,6 +5112,7 @@ public final class ProjectionIndexByteScan {
           dictOffs[c] = offs;
           dictIdsOff[c] = running;
         } else if (!ProjectionIndexRowGroupPage.isNumericKind(kinds[c])
+            && !ProjectionIndexRowGroupPage.isTemporalKind(kinds[c])
             && kinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
           throw new IllegalStateException("column " + col + " has unsupported kind " + kinds[c]);
         }
@@ -5233,7 +5250,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -5451,8 +5469,11 @@ public final class ProjectionIndexByteScan {
     final int kindsOff = 24;
     final byte kind = payload[kindsOff + p.column];
     switch (kind) {
+      // A temporal predicate arrives already expressed in the column's own units: the executor maps
+      // the string literal onto an exact value or a half-open epoch range before building it.
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
         evalNumericBytes(payload, s.columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, s.numericScratch,
             s.numericFlags, s.colMask);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
@@ -5591,7 +5612,8 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -5626,7 +5648,7 @@ public final class ProjectionIndexByteScan {
     // representable values, so an all-missing leaf prunes outright.
     for (final var p : predicates) {
       final byte kind = payload[kindsOff + p.column];
-      if (!ProjectionIndexRowGroupPage.isNumericKind(kind))
+      if (!ProjectionIndexRowGroupPage.isNumericKind(kind) && !ProjectionIndexRowGroupPage.isTemporalKind(kind))
         continue;
       final long min = getLongLE(payload, columnMinMaxOff[p.column]);
       final long max = getLongLE(payload, columnMinMaxOff[p.column] + 8);
