@@ -2618,3 +2618,18 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
 - 00:04 L1 screen launched (nice-10, one core): distinct values per window of 10 / 1,234 / 10,000 consecutive rows
   for URL, Referer, Title, SearchPhrase over the full 100M corpus, with a per-decile breakdown because the corpus is
   clustered. It decides P2 segment 5 (trie names global ids) vs L1 (bigger leaves make per-leaf dictionaries work).
+- 00:12 NOTE: a detached job launched INSIDE the sandbox is reaped when the tool call ends (the L1 screen died silently at 00:04 with a 0-byte log); every long job must be launched with the sandbox disabled, which is why the 100M loads and legs survived. Screen relaunched 00:07.
+- 00:16 **Ingestion D1 (impl-ingest): the discarded-serialization premise CONFIRMED and attributed exactly — and it
+  corrects my 20:52 entry.** At 1M (idle machine, load 29.6 s wall / 218.6 CPU-s / 713 % CPU / RSS 4.6 GB):
+  fullEncodes 116,275 vs pagesWritten 105,464, excess **10,811 (9.3 %), 100 % IndexType.NAME** (12,200 encodes for
+  1,389 writes = **8.78×**, 244.4 MB produced then dropped); DOCUMENT is 1.00, PATH_SUMMARY is 1.00 (my entry
+  mis-attributed it via the inline-path split, which is a body-format fact and unrelated). Mechanism: each snapshot
+  epoch deep-copies the NAME leaf, runs the FULL encode, and only then does
+  `hasUnresolvedOverflowReferences(copy)` see NULL-key carriers — which the encode itself minted — so the leaf is
+  promoted back into the TIL and re-encoded next epoch; the pre-flush deferral arm tests before serializing and
+  therefore never fires (deferred 0, promoted 10,811). ~256 distinct NAME leaves absorb 12,200 encodes; one page key
+  was encoded **4,427 times**. Cost: encoding is 40.2 % of load CPU (87.9 of 218.6 CPU-s); the discarded share is
+  6.4 CPU-s = 2.9 % of load CPU at 1M, and scales with epochs × hot-leaf size, so 100M needs its own measurement.
+  D2 (hoist the refusal ahead of the encode) approved with guardrails: the unsafe failure direction must be
+  impossible (no leaf may be stranded or pinned to final commit), `sirix.data` digest identical, acceptance = the
+  counter gap closing, and any reader-visible change gets a query leg.
