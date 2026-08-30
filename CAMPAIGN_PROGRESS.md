@@ -2262,3 +2262,48 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   TemporalColumnDifferentialTest 9/9 (strict serving), TemporalColumnKillSwitchTest 1/1, ClickBenchProjectionTest
   5/5, ProjectionIndexFunctionTest 31/31, regression 18/13/56/3/27/47/12/45/7 green (the agent had not compiled its
   new test classes; the lead compiled them into `agents/lead/out`).
+- 18:57 **Committed wave 2: `3647d58e1` (B5-d cap 1,023 + per-tag completeness + body codec election fix) and
+  `32b7c2a37` (B1 timestamp/date kinds + docs).** Committed before the Gradle gate on purpose: B3-a is about to edit
+  PageKind.java and a later commit could not have separated its hunks; the rig evidence for both commits is above.
+  Gradle gates now run on a DETACHED WORKTREE of HEAD (`$S/wt-gate`, `gates-wave2-wt.sh` targeted + full core + full
+  query suites) so the moving tree cannot interfere; a fresh rig (`rig/core6|queryout6|testout6`) is being compiled
+  from HEAD for the next agents (B6 next; B5-c after B3-a).
+- 19:02 **Agent reports finally arrived (both had replied in plain text; only SendMessage delivers — briefs now say so).**
+  B5-d (8): the +36 MB completeness cost = (i) the string region compresses worse than the heap it replaced (LZ77
+  0.87 vs 0.34–0.76: at ~9.7 rows/page every URL/Title/Referer value is distinct, so the per-leaf dictionary's
+  16 B/tag + 4 B/entry framing buys nothing), (ii) a genuine DOUBLE COPY whenever value-elision activation refuses
+  (`PageKind:2447`: region written AND values inline; 54 pages at 1M), (iii) the activation heuristic compares RAW
+  bytes on both sides of the codec. All pre-existing; per-tag completeness widened the population 88 → 100 %.
+  Consequences: B3-a removes the tuples (deliverable 1); B5-c gets "region framing: varint lengths, per-tag
+  plain-concatenation lane for all-distinct tags, activation gates compared post-codec"; the value-elision refusal
+  path must not write the region twice (B3-a to check). B5-d's page-size audit: MAX_SLOTTED_PAGE_CAPACITY 256 KiB
+  is the ceiling (1,000-B records: 253 inline + 771 side slots, 0 mismatches), pinned in FusedRecordSizeCapTest.
+  B1: the brief's prefix-`eq` → half-open range was WRONG (a 19-char value never equals a 10-char literal;
+  interpreter 0 vs range 19) — corrected to constant-false, caught by the differential on first run; mutations
+  M1–M7 (drop seconds, bad zero-pad, wrong substring unit, ' ' sniffing, prefix-eq range, epoch emission ×2) each
+  caught; declines kept for grouped min/max, `numericSingleGroupCounts`, computed operands, `contains`; the substring
+  arm needs zone minima ≥ 0 (pre-1970 corpora decline). Both agents flag the jqwik banner's embedded
+  prompt-injection line in rig logs — library output, ignored.
+- 19:06 B5-d's untested combination closed: `-Dsirix.page.arrayElementStrings=true` differentials on the wave-2
+  classes — ArrayContainsScopeDifferentialTest 11/11, ArrayElementStringColumnTest 2/2, ArrayContainsPredicateTest
+  4/4. **Disk-full incident:** nine 1.8 GB 1M measurement DBs in the scratchpad filled /dev/nvme0n1p7 (641 GB, 98 %);
+  the rig rebuild died mid-javac and the targeted worktree gate started with 0 B free (its rc lines were lost, the
+  full-core run started under ENOSPC). Freed the `storage1m-*/db` dirs (logs kept; 18 GB free), restarted the rig
+  rebuild; the worktree gate is being restarted from a clean build dir. The 100M rebuild will need the old 131.9 GB
+  campaign DB deleted first (protocol).
+- 19:00 Gate restarted on a fresh worktree of `32b7c2a37` (targeted → full core → full query); rig core6/queryout6/testout6 rebuilt from HEAD (1,475 / 444 / 1,533 classes); **B6 (impl-b6, headroom-gated residency + per-query pins + release, kill switch `-Dsirix.projection.residency.headroom=false`) launched on core6** in parallel with B3-a (still reading; no file edits yet at 18:54).
+- 19:12 **Wave-2 Gradle gates on the worktree of `32b7c2a37`:** query targeted (rc=0) and FULL query suite (rc=0,
+  2m 56s) green; core targeted 2,476 tests / 1 failed; FULL core 10,897 tests / 8 failed, 74 skipped. The 8 are
+  fixture PREMISES of the 512 cap, not defects: `AdoptedOverflowCarrierStagingTest` swept URL payloads 430..700 B
+  "on both sides of the 512-byte cap" (its positive-witness guard "the corpus produced no overflow carriers" fired —
+  exactly as designed), the json/xml `DensePageDirectCreationFallbackTest` built "oversized" values as 2^4096 / 600 B.
+  Fixed by the lead: every size is now relative to `Constants.MAX_RECORD_SIZE` (sweep cap−82..cap+188; magnitudes
+  8·(cap+1) bits; payload cap+88). The 9th, `ProjectionIndexParentKeyNotificationTest#recordReadFailureIsNot…`
+  (Mockito "isFinished() wanted but not invoked"), failed only in the targeted run and passed in the full run —
+  being re-run ×3 in isolation to classify order dependence (it is not in any wave-2 file's path).
+- 19:20 Gate follow-up: `ProjectionIndexParentKeyNotificationTest#recordReadFailureIsNotReclassifiedAsAnAbsentNode`
+  passes 3/3 in isolation and the projection package passes as a whole (rc=0) under Gradle in the worktree — a
+  pre-existing ORDER-DEPENDENT flake of the targeted `--tests` combination, not a wave-2 regression (no wave-2 file
+  is on the listener path); left as a known flake. Re-based `AdoptedOverflowCarrierStagingTest` 6/6 on the rig; the
+  json/xml `DensePageDirectCreationFallbackTest` need Mockito's inline agent (rig cannot load it) → verified under
+  Gradle in the worktree with the fixed files copied in (result below).

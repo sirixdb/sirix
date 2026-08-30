@@ -279,19 +279,22 @@ final class AdoptedOverflowCarrierStagingTest {
   // ==== corpus ================================================================================
 
   /**
-   * URL payloads sweep 430..700 bytes: both sides of the 512-byte fused cap, so inline and carrier
-   * records share leaves. Uniform over 92 printable characters so FSST declines them and the bands
-   * hold (a hex alphabet would be halved and every value would silently fit inline).
+   * URL payloads sweep {@code cap - 82 .. cap + 188} bytes around {@link Constants#MAX_RECORD_SIZE}:
+   * both sides of the fused inline cap, so inline and carrier records share leaves. Sized from the
+   * constant, not a literal, so a cap change moves the sweep with it and the positive-witness guard
+   * ("the corpus produced no overflow carriers") keeps meaning what it says. Uniform over 92
+   * printable characters so FSST declines them and the bands hold (a hex alphabet would be halved
+   * and every value would silently fit inline).
    */
   private static byte[] corpus(final List<String> urls) {
     final Random rng = new Random(0x5711D5EEDL);
-    final StringBuilder sb = new StringBuilder(RECORDS * 620);
+    final StringBuilder sb = new StringBuilder(RECORDS * (Constants.MAX_RECORD_SIZE + 108));
     sb.append('[');
     for (int i = 0; i < RECORDS; i++) {
       if (i > 0) {
         sb.append(',');
       }
-      final String url = payload(rng, 430 + i % 271);
+      final String url = payload(rng, Constants.MAX_RECORD_SIZE - 82 + i % 271);
       urls.add(url);
       sb.append("{\"id\":").append(i).append(",\"note\":").append(i % 41).append(",\"URL\":\"").append(url).append("\"}");
     }

@@ -160,7 +160,9 @@ final class DensePageDirectCreationFallbackTest {
   }
 
   private static byte[] payload(final byte marker) {
-    final byte[] payload = new byte[600];
+    // Past the inline record cap by the same margin whatever the cap is: the premise of every caller is
+    // the diversion, not a byte count.
+    final byte[] payload = new byte[Constants.MAX_RECORD_SIZE + 88];
     Arrays.fill(payload, marker);
     return payload;
   }

@@ -172,8 +172,10 @@ final class DensePageDirectCreationFallbackTest {
     final KeyValueLeafPage freshPage = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     try {
       final JsonNodeFactoryImpl freshFactory = newFactory(freshPage, 1);
-      final BigInteger hugeInteger = BigInteger.ONE.shiftLeft(4096);
-      final BigDecimal hugeDecimal = new BigDecimal(BigInteger.ONE.shiftLeft(4104), 37);
+      // Magnitudes one byte past the inline record cap, so the encoded record can never fit inline
+      // whatever the cap is: the premise of this test is the diversion, not a byte count.
+      final BigInteger hugeInteger = BigInteger.ONE.shiftLeft(8 * (Constants.MAX_RECORD_SIZE + 1));
+      final BigDecimal hugeDecimal = new BigDecimal(BigInteger.ONE.shiftLeft(8 * (Constants.MAX_RECORD_SIZE + 2)), 37);
       assertEquals(0, PageLayout.getHeapEnd(freshPage.getSlottedPage()));
 
       final NumberNode integerNode = freshFactory.createJsonNumberNode(10, 11, 12, hugeInteger, null);
