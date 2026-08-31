@@ -1001,3 +1001,22 @@ the whole staged body vs its wire form, misapplied to one section. The string re
 **Launch remains blocked on exactly three small items** (every recent report has crossed them): W1 the
 per-resource warm plan, W1b the residency counter, item 6 the `WARMED_DICTIONARIES` relocation to the
 buffer manager. Commit hashes for the three, then launch per the prescribed shape.
+
+### All seven pre-9799bb10f commits reviewed; the launch list is final at FOUR
+
+Verdicts: **V4/H2 fixed better than prescribed** (per-view budget defaulted to 0 AND the knee re-measured
+with the L2 present, honestly reported as inside the noise — which also disposes of the eager-allocation
+half, ~40 KB → ~0.3 KB per view); **V3 fixed and verified unreachable**; **V2 substantially fixed with one
+residual** — `get` clones, but the MISS path puts the array and hands the same reference onward, so the
+populating caller aliases the cached array: fixed by one word, `put(key, verdict.clone())`, on the path that
+already paid the 58 ms sweep.
+
+**A ruling error, owned by the lead:** V2's original "the wrapper — enforcement at zero cost" was wrong — a
+`test(id)` call in the kernels' innermost per-row loop is a bet on JIT inlining stated as a fact, in the one
+place the codebase's rules demand measurement. It passed TWO reviewers (the lead who ruled it, the reviewer
+who carried the phrasing) before the implementer caught it. **A ruling's cost claim deserves the same
+verify-don't-assert treatment as any other claim — rulings arrive pre-trusted, which is the hazard.**
+
+**Final pre-launch list, four items:** W1 (per-resource warm plan), W1b (residency counter), the
+`WARMED_DICTIONARIES` relocation, the V2 miss-path clone. Hashes in, launch immediately — impl-ingest's
+mechanical verification of `9799bb10f` + the four runs in parallel and gates the LANDING, not the launch.
