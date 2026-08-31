@@ -82,3 +82,49 @@ Segment 5 — the trie's string region naming the same ids — is worth about **
 −5.6, and is what makes M1 possible at all. It needs a per-transaction resolver because `PageKind`'s
 reinjection has no reader, and it is gated behind a point-read and reconstruction measurement, since it puts
 a resolver hop on the primary read path. Do not start it until segment 1 is measured at 100M.
+
+## Ruling 2026-08-31: the acceptance is a FRESH BUILD, and the retrofit is not the route
+
+Recorded after `impl-p2s1` proved S1–S4 end to end at 1M (Title: 977 leaves, 188,548 per-leaf entries →
+**73,970 distinct**, 5.5 s total, **43/43 query dumps byte-identical** afterwards) and measured that the
+converted database **grew** 1,094.5 → 1,105.1 MB.
+
+**The growth is correct and structural.** Sirix is append-only. Dropping a column's `DICT` / `BLOOM` /
+`DICT_HASHES` removes the *reference* from the new leaf version; the superseded bytes stay at their durable
+offsets so revision N still reads. A post-pass conversion of an existing database therefore costs bytes and
+buys query shape. **Anyone proposing a conversion pass as a storage lever must answer that sentence first.**
+
+**But the retrofit was never the acceptance route.** `requireVirginTreeForInitialBuild`
+(`ProjectionIndexHOTStorage:205`, called from `ProjectionBulkLoad.begin:315`) forbids re-running the builder
+over a *populated* projection tree. A freshly loaded database is a virgin tree, and "Order of work" item 2
+above always meant loading a new 100M database from the corpus. That path is open.
+
+**The real blocker is the promotion gate, and 40 of its 52 bytes are the index we are deleting.**
+`projectedGlobalDictionaryBytes = rows × (avgValueBytes + PER_ENTRY_OVERHEAD_BYTES)` with
+`PER_ENTRY_OVERHEAD_BYTES = 52` (`ProjectionIndexBuilder:305`) against `min(heap/8, 2 GiB)`. Two defects:
+it projects cardinality as **`rows`** rather than distinct (Title at 1M is 2.5× dedupped, and nobody has ever
+measured the true corpus cardinalities — the recorded ones come from a 20k-row head sample); and its 52 B/entry
+is, per its own javadoc, *offsets 8 + lengths 4 + two hashes 16 + 24 B of open-addressed table slots* — i.e.
+**the forward hash index P2 removes**. The gate blocking the storage win prices the memory cost of the
+structure this work exists to delete.
+
+That 52 B is inherent to a **streaming** build: one pass must answer "have I seen this value" per row, so its
+peak heap grows with D. A **sort-based pre-pass does not** — S1's spilling run buffer and S2's k-way merge have
+a peak independent of D and emit the dictionary already rank-ordered, which is the form that front-codes. The
+`globaldict-promotion-budget-crossover` at ~6–18M rows is an artifact of the build shape, not of the data.
+
+**Fresh-build shape:** pre-pass → finished rank-ordered dictionary → one projection build writing final ids.
+Nothing is superseded, so the file does not grow, and S3/S4 are not on that path (they remain the retrofit for
+existing databases). The builder must not reintroduce a hash probe to answer value→id: S1 visits values in row
+order and can emit the id lane once ranks exist — ~1.6 GB of sequential spill at 100M for four columns.
+
+| clause | instrument |
+|---|---|
+| ≤ 27 B/row values+directory | sum of row-group descriptor `byteLen` — **accepted**, and stronger than a ratio |
+| ≤ 40 B/row projection half | same |
+| **≥ 5.0 GB saving** | **file size of a freshly loaded 100M database vs a freshly loaded HEAD one** — never a retrofit delta |
+| no per-query regression | unchanged |
+
+Measured against the shipped default (`sirix.page.overflow.compress=false`, opt-in since `8cfeb2207`), so the
+gate's 9.57 GB baseline stands; report the compression-on arm too, since P2 changes which bytes remain in that
+class and may change that lever's verdict.
