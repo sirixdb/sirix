@@ -927,7 +927,14 @@ public final class NamePage extends AbstractForwardingPage {
     // aborted transaction's records would stay cached under a revision a later transaction goes on
     // to build, and key reuse would then serve content that was never committed. The writer memo is
     // bounded by one transaction and evicted by the put path, so it does not have that exposure.
-    final boolean writing = storageEngineReader instanceof StorageEngineWriter;
+    //
+    // Guarded exactly as getNames does four hundred lines above, and deliberately not with an
+    // `instanceof StorageEngineWriter`: `writeCopy` is a property of the PAGE that no reader test
+    // can see, and a delegate reader carrying a live intent log is not a writer. Neither is
+    // reachable on this path today, but two caches in one file guarding the same question with two
+    // different tests is how the third one gets written wrong -- and that precedent's own comment
+    // records a reader-state test already being found insufficient once.
+    final boolean writing = writeCopy || storageEngineReader.hasTrxIntentLog();
     if (!writing) {
       final DataRecord retained = recordCache.get(recordCacheKey);
       if (retained != null) {

@@ -21,6 +21,7 @@ import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -119,8 +120,12 @@ public final class GlobalValueDictionary {
    */
   private static final int READ_VIEW_BUCKET_CACHE_SIZE = 16;
 
-  /** Decoded sub-blocks a read view retains; each covers many consecutive ids. */
-  private static final int READ_VIEW_BLOCK_CACHE_SIZE = 16;
+  /**
+   * FLOOR for both per-view tables: the smallest they may be, and what they are when the resident
+   * budget is off. Named as a floor rather than a size because it is no longer either table's
+   * actual length -- {@link #READ_VIEW_BLOCK_SLOTS} decides that from the budget.
+   */
+  private static final int READ_VIEW_TABLE_FLOOR = 16;
 
   /**
    * Byte budget for one view's resident decoded blocks; {@code 0} keeps the fixed 16-slot table.
@@ -174,17 +179,37 @@ public final class GlobalValueDictionary {
   private static final int READ_VIEW_BUCKET_SLOTS =
       Math.max(READ_VIEW_BUCKET_CACHE_SIZE, READ_VIEW_BLOCK_SLOTS);
 
+  static {
+    // Both tables index with `x & (SLOTS - 1)`, which is a modulo only for a power of two. A later
+    // edit to the sizing arithmetic that produced, say, 3000 slots would not fail -- it would
+    // silently mask into a fraction of the table and surface only as unexplained latency. The
+    // constraint is cheap to state and impossible to notice once broken.
+    if (Integer.bitCount(READ_VIEW_BLOCK_SLOTS) != 1 || Integer.bitCount(READ_VIEW_BUCKET_SLOTS) != 1
+        || Integer.bitCount(READ_VIEW_CACHE_SIZE) != 1) {
+      throw new ExceptionInInitializerError("read-view table sizes must be powers of two, got blocks="
+          + READ_VIEW_BLOCK_SLOTS + " buckets=" + READ_VIEW_BUCKET_SLOTS + " slices=" + READ_VIEW_CACHE_SIZE);
+    }
+  }
+
+
+  /** Ceiling on what one view's tables may hold, whatever the property says. */
+  private static final long MAX_RESIDENT_BLOCK_BYTES = 512L << 20;
+
   private static int blockSlotsForBudget(final long budgetBytes) {
     if (budgetBytes <= 0L) {
-      return READ_VIEW_BLOCK_CACHE_SIZE;
+      return READ_VIEW_TABLE_FLOOR;
     }
     final long affordable = budgetBytes / ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES;
-    if (affordable <= READ_VIEW_BLOCK_CACHE_SIZE) {
-      return READ_VIEW_BLOCK_CACHE_SIZE;
+    if (affordable <= READ_VIEW_TABLE_FLOOR) {
+      return READ_VIEW_TABLE_FLOOR;
     }
-    // Highest power of two not exceeding what the budget affords, capped so a mistyped property
-    // cannot ask for an array of references larger than any dictionary could fill.
-    final long capped = Math.min(affordable, 1L << 20);
+    // Highest power of two not exceeding what the budget affords, under TWO caps. The first
+    // bounds the array of references; the second bounds the RESIDENT BYTES those slots may
+    // come to hold, which the first does not -- 1<<20 slots of 64 KiB blocks is 64 GiB, so a
+    // mistyped property could make an absurd footprint legal while every individual bound
+    // looked reasonable.
+    final long byBytes = MAX_RESIDENT_BLOCK_BYTES / ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES;
+    final long capped = Math.min(Math.min(affordable, 1L << 20), byBytes);
     return Integer.highestOneBit((int) capped);
   }
 
@@ -257,17 +282,15 @@ public final class GlobalValueDictionary {
      */
     private final ValueDictionaryEntryNode[] cachedSpills = new ValueDictionaryEntryNode[READ_VIEW_CACHE_SIZE];
     /** Direct-mapped reverse-bucket retention; {@code -1} marks an unused slot. */
-    private final int[] cachedBuckets = new int[READ_VIEW_BUCKET_SLOTS];
-    private final ValueDictionaryValueBucketNode[] cachedBucketNodes =
-        new ValueDictionaryValueBucketNode[READ_VIEW_BUCKET_SLOTS];
+    private int @Nullable [] cachedBuckets;
+    private ValueDictionaryValueBucketNode @Nullable [] cachedBucketNodes;
     /**
      * Direct-mapped retention of decoded SUB-BLOCKS, keyed by record key. A block is up to 64 KiB
      * and packs many consecutive ids, so decoding one per probe dominated the miss path; holding a
      * few costs a fixed number of references and no per-id state.
      */
-    private final long[] cachedBlockKeys = new long[READ_VIEW_BLOCK_SLOTS];
-    private final ValueDictionaryValueBlockNode[] cachedBlocks =
-        new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_SLOTS];
+    private long @Nullable [] cachedBlockKeys;
+    private ValueDictionaryValueBlockNode @Nullable [] cachedBlocks;
     /**
      * Separator array over the ordered prefix, loaded ONCE per view and then kept. It is the whole
      * point of the structure: without it a binary-search probe decodes one block per step, with it
@@ -296,7 +319,6 @@ public final class GlobalValueDictionary {
       this.namePage = namePage;
       this.databaseType = databaseType;
       this.reader = reader;
-      java.util.Arrays.fill(cachedBuckets, -1);
     }
 
     /** Dictionary header key this view was opened for. */
@@ -616,6 +638,15 @@ public final class GlobalValueDictionary {
       }
       final int bucket = (id - 1) >>> 8;
       final int bucketSlot = bucket & (READ_VIEW_BUCKET_SLOTS - 1);
+      // Allocated on first MISS, not in the constructor. A view is built per worker and there are
+      // many readView call sites per execution, so eager tables were 1.5-3 MB of garbage per
+      // execution when the budget sized them large -- paid even by the queries that never resolve a
+      // slice. One predictable branch on a path that fetches a record anyway costs nothing.
+      if (cachedBuckets == null) {
+        cachedBuckets = new int[READ_VIEW_BUCKET_SLOTS];
+        Arrays.fill(cachedBuckets, -1);
+        cachedBucketNodes = new ValueDictionaryValueBucketNode[READ_VIEW_BUCKET_SLOTS];
+      }
       ValueDictionaryValueBucketNode bucketNode = cachedBuckets[bucketSlot] == bucket
           ? cachedBucketNodes[bucketSlot]
           : null;
@@ -631,6 +662,10 @@ public final class GlobalValueDictionary {
       final long blockKey = bucketNode.blockKeyCovering(id);
       if (blockKey != 0L) {
         final int blockSlot = (int) (blockKey ^ blockKey >>> 32) & (READ_VIEW_BLOCK_SLOTS - 1);
+        if (cachedBlockKeys == null) {
+          cachedBlockKeys = new long[READ_VIEW_BLOCK_SLOTS];
+          cachedBlocks = new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_SLOTS];
+        }
         ValueDictionaryValueBlockNode block = cachedBlockKeys[blockSlot] == blockKey
             ? cachedBlocks[blockSlot]
             : null;
