@@ -1051,3 +1051,24 @@ two defaults alone.
 
 **Launch ordered: commit the four by name, then GO** — census gates on the load, diags off in legs, baseline
 re-legged on today's build, two interleaved pairs minimum, storage number the moment the load completes.
+
+## LAUNCH: all six confirmed with hashes (9234502b3, 9799bb10f) — extraction-first sequencing
+
+W1 (pass planned as a whole: equal shares of 75 % of the record-cache bound), W1b (residency counter;
+warmed 2,327 / resident 2,327 at 1M — equal as predicted, the gap is what moves at 100M), H1, F3/F5/V5,
+protocol read (envelope, `expectedRows=99997497`, SIGTERM-not-KILL, marker-file waiting), marker relocated.
+The V2 miss-path clone also landed — reader 1 no longer aliases the value it populated.
+
+**THE FIND INSIDE ITEM 6, bigger than the item: `clearCachesForResource` was not sweeping the verdict or
+record caches.** Both are keyed `(databaseId, resourceId, …)`; a resource deleted and recreated with the same
+ids would have been served its predecessor's ANSWERS — the wrong-answer class again, found because relocating
+the marker forced an end-to-end read of the clearing contract. All three dictionary caches are now swept
+first in that method. The reviewer's marker finding turned out to be the smallest of three exposures behind
+one door.
+
+**Risk picture, flagged before launch:** disk 109 GB free against a ~64–70 GB write (the protocol's 160 GB
+threshold predates the diet; margin 39–45 GB — workable, nothing deleted mid-run); and the fresh route's
+one never-run-at-100M step — extracting sorted distinct values per column — is sequenced FIRST to fail fast,
+~6 min/column measured by extrapolation from 3.4 s at 1M, run with a ~20 GB heap so an OOM would indict the
+design rather than the room. Projection build budgeted at ~100 min as an honestly-flagged one-scale slope;
+overrun falls to the load-only tier.
