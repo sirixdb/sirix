@@ -1131,3 +1131,27 @@ URL: 105 GB free; three value files ~7–8 GB total against an expected ~64–70
 Load: document-only, protocol envelope, census gates ON, started 23:36, ~46 min expected. Disk 102 GB free
 after 7.4 GB of value files; 32–38 GB of margin expected at completion. Sequence: load result → storage
 number before any leg → projection build → legs; build overrun past 03:15 falls to load-only without asking.
+
+## 100M LOAD COMPLETE (37.2 min, exit 0): document-only 52.15 GB vs the 69.63 GB with-projection baseline
+
+Not like-for-like — the projection is building now — but the document alone is **17.5 GB under a baseline
+that already carries its projection**. (1M ratio would put the finished build near ~64 GB; recorded as an
+extrapolation, not a result. Build launched 00:15.)
+
+**The 100M census, banked at zero extra cost, `residual=0 B`** — the last 1M-derived numbers are now
+measured:
+
+| quantity | 1M | **100M measured** |
+|---|---|---|
+| three converted columns' region share | 63.0 % | **59.0 % (17.49 GB raw)** |
+| OriginalURL share | 8.5 % | **9.7 % (grows with scale — strengthens its case)** |
+| temporal (incl. EventDate) | 18.1 % | **19.8 % (5.86 GB raw)** |
+| id-lane FOR saving | 58.3 % | **60.0 %** |
+| region split | 91.7 / 4.4 / 3.9 | **92.5 / 3.9 / 3.6** |
+
+**The lever's mechanism, measured in one number each:** per-leaf duplication across 10.2M leaves —
+URL 66.9M local entries for 18.3M distinct = **3.65×**, Title **6.5×**, Referer **2.9×**. (Referer lowest,
+consistent with the marginal-economics concern: high cardinality, least dedup.)
+
+The census header now states the body ratio applies to no region (`3cd2de6cb` doing its job on its first
+100M outing). Disk 53 GB free; ~41 GB expected after the projection.
