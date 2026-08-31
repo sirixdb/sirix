@@ -793,3 +793,32 @@ the remainder through the existing path), behind the master switch, with an enga
 dispatch counters. If the decomposition says page I/O dominates instead, a dictionary-page prefetch is the
 alternative — chosen by the table, not by preference. The precondition checklist (V1 wrong-answer fix, V2/V3,
 F3/F4/F5, census run, V4 accounting) proceeds in parallel and gates 100M regardless.
+
+## Convergent discovery: the record cache accepted uncommitted state — found twice, fixed once (4956fe5c0)
+
+Within minutes of each other and independently: **impl-ingest's holder review** (H1: the cache omits the
+`writeCopy || hasTrxIntentLog()` guard that `NamesCache` — the precedent it cites — has thirty lines away;
+uncommitted records enter a resource-lifetime cache under a revision an aborted transaction's successor
+reuses, and NOTHING clears buffer-manager caches on rollback) and **impl-p2s1's pattern audit** after fixing
+V1 (a node key identifies content only for COMMITTED records). Fixed in `4956fe5c0` together with **V1**
+(`entryCount` into the verdict key — ids past a stale bitset's end read as no-match: silently dropped rows,
+no exception, no counter). impl-ingest verifies the fix mechanically against the extended baseline.
+
+**The lesson, stated once:** *neither bug was reachable through the benchmark* — every leg is read-only, so
+43/43 stayed byte-identical through both. **Review a cache's key against its invalidation story; a green leg
+proves nothing about write-path interactions.** And H1's generalisation of V1: before asking whether the key
+is complete, ask whether the value is cacheable AT ALL — no key makes a non-durable value safe.
+
+**Also verified sound in the same review:** the generation-header eviction, on every path —
+`NamePage.putProjectionValueDictionaryRecord` is the single choke point (the only `persistRecord` for that
+offset in the tree), every writer routes through it including `flushAppend`'s stable-key rewrite, and the
+remove precedes the persist inside the writer's own transaction. Recorded in the baseline as
+verified-do-not-re-review.
+
+**H2 ordered:** the record cache IS the shared L2 for decoded blocks, so `fe02e228c`'s 2,048-slot per-view
+default was measured with nothing behind it — the knee is stale. Re-measure the slot-count curve WITH the L2,
+shrink the per-view default to the new knee (discharging most of F4's eager allocation), and the V4
+accounting then totals three real budgets instead of four overlapping ones.
+
+Still open: V2 wrapper, V3 deletion, F3/F5, the census run, the §6.4 length-table answer, the V4 table —
+and the critical path per the user ruling: the q20/q22 cold first-touch decomposition and fix.
