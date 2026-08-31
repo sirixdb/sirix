@@ -1155,3 +1155,25 @@ consistent with the marginal-economics concern: high cardinality, least dedup.)
 
 The census header now states the body ratio applies to no region (`3cd2de6cb` doing its job on its first
 100M outing). Disk 53 GB free; ~41 GB expected after the projection.
+
+## Build failure: the scaffold's own refusal caught a chunk-transition bug in the hour-old arena fix
+
+`PrebuiltGlobalDictionary` refused a URL the pre-pass had never seen — the loud refusal it was built to make,
+and it was RIGHT: appending would have minted an id no reader could resolve. Root cause, four minutes after
+fixing the error message to name the VALUE and not just the fact: **the chunked arena's `ensure` wrote the
+next chunk's start into `offsets[count]`, which is simultaneously the END of the previous entry** — the pad
+was attributed to the preceding value, corrupting ~12 values per column (one per 256 MiB chunk transition).
+
+**Why every check passed: the 1M verification ran at a scale where the changed branch never executes** (35 MB
+arena, zero transitions). "Byte-identical at 1M" was a green light from code whose new path never ran — the
+hollow-witness shape again, self-committed four hours after writing the memory about it, self-named.
+
+**Fix + witness:** starts and lengths in separate arrays; padding moves a write CURSOR no entry depends on;
+chunk size made configurable SPECIFICALLY so a small run can force the boundary path — 1M at 64 KB chunks =
+**539 transitions, byte-identical to the known-good file, `distinctBytes` unchanged** (confirming padding is
+no longer counted as data). The knob's javadoc says it exists for the test.
+
+**Full reload, not reuse:** the first build's pre-pass had committed 2.91 GB of dictionaries built from
+corrupted values, and an append-only store cannot take them back — the postpass lesson applied to our own
+artifact. Re-extract 00:42 → load → build; inside the 03:15 cutoff with the 04:00 load-only tier as
+fallback. The 1M gate, all commits, and the 100M census predate the bug and are unaffected.
