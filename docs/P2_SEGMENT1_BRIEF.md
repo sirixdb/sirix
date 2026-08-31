@@ -480,3 +480,20 @@ the encoder through another door (then the contract must say so) or the gate doe
 regressions describe the shippable configuration; q20's fix is being decomposed (block decodes per execution,
 decode vs expansion vs scan) before choosing between a block-wise sweep and a verdict cache — the cache alone
 leaves cold at 52 ms and the clause is hot AND cold.
+
+### Gating question CLOSED (2026-08-31, from both ends)
+
+The mechanism: the switch arrived as `-Dsirix.projection.globalDict.rank=true` on the invoking command line —
+both `fresh.sh` and `load1m.sh` pass `"$@"` straight to the JVM, so it is invisible in the launcher's source,
+which is exactly where the state was (mis)read. Two independent confirmations: a code trace (`ENABLED` is a
+`static final` read of that one property; the only serialization arm is `NodeKind:1954`, and the only
+`setProperty` in the tree is a test's setup/teardown), and a measured witness — `FreshBuildMain` with the
+switch unset runs `ENABLED=false, calls=0 won=0`, plain blocks, 605,475,801 B; with it set, `calls=1416
+won=1415`, 573,331,369 B; same driver, same corpus, switch the only difference. **No second door; the gate
+covers the fresh path; the coupling contract holds.** The original mis-report was a configuration the
+operator had set and then inferred from source — the same failure as the codec-state error, one step earlier.
+
+A permanent fork-JVM gate test (property set before class load, both switch states, written form asserted) is
+authorized to touch `build.gradle`, following the existing contract style at `:155`; setup-time `setProperty`
+is NOT an acceptable shape, since `ENABLED` is `static final` and that test would rot on class-load ordering.
+Commit `d8f3c99dc` was amended (unpushed) to `df9bdf6c4` to state the gating truthfully.
