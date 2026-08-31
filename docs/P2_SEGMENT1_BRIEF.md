@@ -753,3 +753,27 @@ clause verdict. The holder landed without its ordered pre-review — local and r
 load-bearing twice), key completeness at the consumers, and whether this cache makes the per-view block
 tables partially redundant (a V4 budget and deletion question). The V4 table gains a fourth budget: 256 MiB
 records + 64 MiB verdicts + 128 MiB/view blocks + page caches vs the 8 GB query heap.
+
+## Six-pair stability verdict — hot MET; cold reduced to TWO real regressions (and a −33 % corrected)
+
+**Correction first: "hot −33 %" was one favourable 3-pair sample.** Six interleaved pairs, suite delta per
+pair (rank3 − never): cold −0.605/+0.252/−0.053/+0.122/−0.165/+0.111 (mean −0.056 s); hot
+−0.579/−0.006/−0.275/+0.319/−0.485/−0.115 (mean −0.190 s). **The spread exceeds the effect: honest suite
+numbers are cold PARITY (−0.9 %), hot ≈ −15 %.** Policy: suite totals from six pairs or not at all;
+per-query effects may be claimed from three.
+
+**Per-query clause, tested as "in how many of six pairs does this query regress >10 ms":**
+- **HOT: MET. Nothing is 6/6** (worst: q42 and q27 at 4/6, both with faster pairs).
+- **COLD: exactly two 6/6 regressions, both URL substring predicates paying the FIRST verdict build:**
+  q20 mean +43 ms [range +15,+72], q22 mean +22 ms [+17,+29]. The earlier twelve-query cold list was
+  membership churn. The record cache cannot remove a genuine first touch — this is the predicted
+  "cache fixes hot; cold pays one full build of the derived structure", measured and isolated.
+
+**The two-scale arithmetic for the user's decision:** at 1M the first build sweeps 275,494 distinct against
+the per-leaf arm's 406,029 entries (ratio 0.68) plus an extra dictionary-page fetch population → ~40 ms
+behind on that one execution. At 100M it is ~18M distinct against ~95M per-leaf entries (**ratio 0.19**) —
+the same arithmetic inverts and the global arm should win cold outright.
+
+**Three-column build, final at 1M:** 560,297,881 B (−8.7 %), cold parity, hot ≈ −15 %, hot clause met, cold
+exception = {q20 +43 ms, q22 +22 ms, first execution only}, 43/43 byte-identical every leg, decodes
+26,300 → 2,455 (never: 125).
