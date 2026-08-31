@@ -551,3 +551,28 @@ Status of each claim pending the full-rebuild re-run:
 
 Lesson, permanent: **an overlay rig with per-file compiles rots silently; a leg must refuse to run when any
 tracked source is newer than the rig's classes.** The guard belongs in the leg script, not in memory.
+
+### Contamination RESOLVED (2026-08-31, rebuilt rig)
+
+**Storage: both arms reproduced byte-for-byte** on the clean rig (`never` 613,610,513, rank+codec
+573,331,369) — the matrix and the −6.6 % stand. **Corrected suite totals: rank BEATS `never`, cold Σ 6.695 vs
+7.387 (−9.4 %), hot 2.689 vs 3.086 (−12.9 %)** — the stale rig had inflated both arms ~6 s and compressed the
+ratio. 43/43 byte-identical on both rank arms.
+
+**The per-query clause still fails, with a re-baselined set** (all rank-vs-never, current rig): q9 0.156 vs
+0.029, q21 0.080 vs 0.025, q18 0.123 vs 0.070, q20 0.061 vs 0.012, q22 0.084 vs 0.040, q23 0.067 vs 0.047.
+q9 and q18 were *wins* on the stale rig — every stale per-query claim is discarded, not adjusted.
+
+**The executor-scoped verdict cache is reverted as worthless**: a fresh executor per try gives it a
+structural 0 % hit rate (with it, hot 2.728 / q20 0.061; without, 2.689 / 0.058). Its apparent vindication
+was entirely the accidental one-file upgrade. Any future cache lives in a holder that outlives executors and
+is evaluated only after residency.
+
+**Residency design ruling** (seam read): the `cachedProjectionDictionaryRecord` no-op for read-only
+transactions guards the MEMO'S IMPLEMENTATION — a mutable LRU map whose read path mutates order, sound only
+single-threaded — not the records, which are deliberately shareable (heap-materialized, flyweight-guarded,
+COW-fresh keys). So the read side gets a SEPARATE cache: concurrent, per-resource, holding the decoded
+front-expanded (offsets, bytes) block form keyed by block node key, generation header EXCLUDED (the one
+stable-key rewrite; no writer hooks on the read path), budget from the cache-grant regime, decode-on-demand
+as the witnessed fallback. `impl-ingest` reviews the diff before it lands (their seam; the specific question:
+does anything in the flush lifecycle invalidate a decoded block under a read-only trx).
