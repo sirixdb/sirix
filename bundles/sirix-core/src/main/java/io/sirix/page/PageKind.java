@@ -7938,11 +7938,15 @@ public enum PageKind {
    * </p>
    *
    * <p>
-   * What would earn the default back is a cache of DECODED payloads — the miss is that only the
-   * compressed form is cached, so the work is repeated per pass rather than per page. With that in
-   * place this is 4.69 GB and a cold-scan win for one line. Turn it on with
-   * {@code -Dsirix.page.overflow.compress=true}; a resource written with it cannot be read by a build
-   * that predates the flag bit.
+   * A cache of decoded payloads is the obvious answer and it is the wrong one at this scale: the
+   * class is 12.76 GB compressed at 100M and the query envelope is an 8 GB heap, so what would have
+   * to be cached cannot be. What could earn the default back is either a decoder fast enough that a
+   * per-pass decode disappears into the I/O it saves, or compressing only the payload classes that
+   * are not scan-hot — the value-dictionary blocks and overlong records rather than the projection's
+   * column segments — which needs the writer to know which it is holding, and buys correspondingly
+   * less. Where it already pays with no caveat is a cold or I/O-bound workload: the 43-query cold sum
+   * fell 555.7 s to 447.4 s. Turn it on with {@code -Dsirix.page.overflow.compress=true}; a resource
+   * written with it cannot be read by a build that predates the flag bit.
    * </p>
    */
   private static final boolean OVERFLOW_PAYLOAD_COMPRESSION_ENABLED =
