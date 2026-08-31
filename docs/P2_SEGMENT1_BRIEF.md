@@ -837,3 +837,29 @@ reader-state test alone was found insufficient once before), and a delegate read
 is not a `StorageEngineWriter`. Neither is on the dictionary path today. The deciding argument is
 consistency: **two caches in one file guarding with different tests is how the third one gets written
 wrong.** V2/V3/V5 remain open per the same mechanical verification.
+
+## H2/V4 resolved by supersession (c4ea56f16): the per-view block table defaults OFF
+
+With the shared record cache present, the per-view table buys nothing the leg can measure: point reads
+381 ns (16 slots) vs 312 ns (2,048), cold 6.786 vs 6.744 s, hot 1.288 vs 1.302 — **the spread within each
+configuration exceeds the difference between them** (and a single leg said 1.752 vs 1.302 and would have
+argued hard for the wrong answer; three legs each decided it). The shape argument outranks the numbers: a
+per-view budget is claimed once PER VIEW, a shared cache once. The knob stays for contexts with no shared
+cache; only the default moved.
+
+**The V4 accounting table, now that deletion shortened it:**
+
+| cache | budget |
+|---|---|
+| verdict cache (shared, weight-bounded) | 64 MiB |
+| dictionary record cache (shared, weight-bounded) | 256 MiB |
+| per-view block table | **0** (was 128 MiB × views) |
+| **total claim vs 8 GB query heap** | **320 MiB = 3.9 %** |
+
+Both caches degrade to re-reading, so the ceiling is true, not aspirational. **V4 CLOSED.**
+
+Standing state: three global columns landed default-off behind the master switch — 560,297,881 B (−8.7 %),
+2,455 decodes/leg, cold parity, hot ≈ −15 %, hot clause met, cold = {q20 +43, q22 +22 ms} first-touch,
+43/43 every leg, 320 MiB memory ceiling. Open: H1's one-line guard-form change, V2/V3/V5 hygiene, the §6.4
+length-table answer, the census run — and **the critical path, not yet started: the q20 first-execution
+decomposition** that the user's fix-cold-first ruling gates 100M on.
