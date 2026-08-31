@@ -822,3 +822,18 @@ accounting then totals three real budgets instead of four overlapping ones.
 
 Still open: V2 wrapper, V3 deletion, F3/F5, the census run, the §6.4 length-table answer, the V4 table —
 and the critical path per the user ruling: the q20/q22 cold first-touch decomposition and fix.
+
+### 4956fe5c0 verified per baseline row: V1 CLOSED; H1 ruled to the precedent's exact guard
+
+**V1 CLOSED, better than specified:** `entryCount` in the key is the same `final` `ReadView` field later
+paired at the call site — key and pairing cannot diverge even in principle.
+
+**H1: the landed `instanceof StorageEngineWriter` guard closes the reachable exposure** (traced, not assumed:
+a write trx's `getStorageEngineReader()` returns the writer itself), **but is ruled to change to the
+precedent's form verbatim — `writeCopy || storageEngineReader.hasTrxIntentLog()` on both consult and
+populate.** Two residual holes the type test leaves, stated with reachability rather than inflated:
+`writeCopy` is a PAGE property no reader test can see (and `NamesCache:526`'s own comment records that a
+reader-state test alone was found insufficient once before), and a delegate reader carrying a live intent log
+is not a `StorageEngineWriter`. Neither is on the dictionary path today. The deciding argument is
+consistency: **two caches in one file guarding with different tests is how the third one gets written
+wrong.** V2/V3/V5 remain open per the same mechanical verification.
