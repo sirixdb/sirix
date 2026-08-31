@@ -941,3 +941,27 @@ last safe launch 03:15** (three columns, codec on, census riding it, against the
 baseline) → nothing new after 05:00; commit, clean tree, handoff section at the end of this file → stop at
 06:00 regardless of state. A gate failure means no 100M and the failure analysis is the handoff — the rule
 held, the numbers say what to fix next.
+
+## THE GATE IS MET (821fedfa1): zero stable regressions, cold AND hot, nine pairs
+
+Acceptance under the same pair-counting protocol that found the regressions: **stable (9/9) regressions
+>10 ms — cold 0, hot 0**; suite medians cold −0.225 s, hot −0.269 s; 43/43 byte-identical. **q20 and q22 —
+the two the user refused to accept — are wins in most pairs and stable in none.** One outlier pair (+4.14 s
+cold) kept in, protocol robust by construction, medians quoted for that reason. Nearest survivor: q1 at 8/9
+cold +31 ms — its pre-existing behaviour.
+
+**The warmer's own first version created a regression, and the acceptance instrument caught it:** dedupe
+scoped to the executor meant the warm walk repeated 43× per leg (95,912 touches for 2,327 blocks) — pure
+cache hits, no decodes, but running beside queries it put a NEW stable +57 ms on q1. Fixed by scoping to
+(database, resource, revision, dictionary). **A background optimisation is measured on the foreground it
+competes with** — the lesson at one more layer.
+
+Engagement witness: 2,327 warmed on, 0 off; decodes unchanged at 2,455.
+
+**GO issued for the 100M full package** behind a five-item pre-launch checklist: binding warmer findings #1
+(per-resource warm plan — at 100M three ~2.3 GB dictionaries into a 256 MiB cache without a shared plan
+thrash at load time) and #2 (residency counter — the only number that says what the warmer bought at 100M),
+H1's guard one-liner, F3/F5/V5 hygiene, and the launch protocol read. Launch shape: load with census gates
+ON (banks the 100M shares), legs with ALL diags OFF, the standing baseline RE-LEGGED on the current build in
+the same session (its recorded numbers are older code), minimum two interleaved pairs cold+hot with the
+stability caveat named, storage number reported the moment the load completes.
