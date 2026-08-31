@@ -359,3 +359,42 @@ made without knowing this. Consequence, stated plainly:
 Enumerating the other structures with that property is required before any 100M number is taken as the answer.
 It is also the first place to look for the OPEN 454 MB anomaly above: a gap between what the file weighs and
 what we believe we store is exactly the shape of a slot-addressed structure nobody is counting.
+
+## The 454 MB anomaly, DIAGNOSED 2026-08-31 — one radix node per entry
+
+Same build, same corpus, differing only in `-Dsirix.projection.globalDict`, 1M rows, URL the one global
+column (D = 275,494):
+
+| arm | OverflowPage bytes | OverflowPage count | total |
+|---|---|---|---|
+| `never` (all per-leaf) | 134,694,208 | 26,220 | 612,569,426 |
+| `auto` (URL streaming global) | 589,163,463 | 249,350 | 1,091,805,899 |
+| **delta** | **+454,469,255** | **+223,130** | +479,236,473 |
+
+**The page count names the cause.** 223,130 extra pages for 275,494 entries is **0.81 pages per entry**,
+averaging **2,037 B** each. `ValueDictionaryRadixNode.FANOUT = 256`, and the builder allocates
+`new long[FANOUT]` — **2,048 B of child pointers per node, mostly empty.** Measured 2,037 against a
+theoretical 2,048 is as close as an attribution gets. The streaming path pays **1,650 B per dictionary entry**
+to store values averaging 128 B, because it writes about one 2 KB radix node per entry and every one of them
+is durable in an append-only store.
+
+**The same column, done by the rank pass: 16,821,659 B = 61 B/entry — 27.0× less** (durable directory sizes,
+`s1db-urlonly` vs `s1db-never`; an over-estimate, since a retrofit also leaves the superseded per-leaf bytes).
+It writes **no forward index at all** — sorted blocks plus the separator array.
+
+**A hypothesis of mine, killed and recorded as such.** I predicted per-rotation whole-radix rewrites, since
+`ProjectionBulkLoad` flushes a generation at every drain. Raising `-Dsirix.autoCommit.nodes` 8× (1,048,576 →
+8,388,608) did **not** reduce OverflowPage at all: rotations in the parallel-bulk path are driven by
+coordinator epochs, not the auto-commit threshold, and the cost is per ENTRY, not per generation. That arm is
+also not a clean A/B — `core9` was rebuilt between the two loads — so its only safe reading is "no reduction".
+
+**Consequences.**
+1. It does **not** affect the 100M ClickBench number: promotion declines above ~6–18M rows, so that database
+   is entirely per-leaf.
+2. It **is** a shipping-default storage defect on any resource small enough for AUTO to promote — the stock
+   1M build is **78 % larger** than the same corpus with the feature off.
+3. **It clears the fresh-build route**, which is why it was chased: the pre-pass writes a rank-ordered
+   dictionary with no forward index, so it does not inherit the tax.
+4. **It re-prices the promotion gate.** That gate's `PER_ENTRY_OVERHEAD_BYTES = 52` is a HEAP estimate of this
+   same forward index; the STORAGE cost of building it is **1,650 B/entry — 32× what the gate believes it is
+   admitting.** Any re-derivation of the gate has to price both.
