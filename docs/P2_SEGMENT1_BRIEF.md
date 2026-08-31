@@ -610,3 +610,35 @@ temperatures. Remaining hot regressions: q20 +47 ms, q22 +39, q21 +35, q23 +17 (
 converted column). `impl-ingest` is engaged compile-only: the per-tag string-region instrument in
 `PageSectionDiag` (segment-5 sizing questions (1)–(2)), and the flush-lifecycle review of `fe02e228c` plus
 the holder diff. Machine ownership stays with impl-p2s1's legs.
+
+## Verdict cache landed on the buffer manager (7044fc9a3): the quartet now BEATS never hot
+
+**Why the first attempt measured zero, verified this time**: instrumentation showed 15 verdict sweeps across
+a 43-query 3-try leg arriving on **12 distinct executor instances** (`StoreBoundExecutorCache` exists but this
+runner never hits it) — an executor-scoped cache structurally cannot hit. The cache now follows the
+`NamesCache` pattern on the buffer manager: `GlobalVerdictCacheKey(databaseId, resourceId, revision,
+headerNodeKey, op, literalHex)`, Caffeine, **bounded by WEIGHT not count** (34 KB per verdict at 275k
+distinct, ~2.3 MB at 18M — a count bound comfortable at one scale is hundreds of MB at the other).
+`EmptyBufferManager` no-ops; missing is always safe.
+
+Measured (min across three interleaved arm-pairs of five tries): **cold Σ rank 6.531 vs never 6.718, hot
+1.230 vs 1.287 — rank wins both temperatures**; q20 hot 2.0 vs 11.0 ms, q21 8 vs 35, q22 14 vs 33,
+q23 17 vs 43 (**2.4–5.5× faster than never**, from +49 ms behind). 43/43 byte-identical.
+
+**Clause still unmet.** Hot: six queries >10 ms behind (q27 +75, q29 +30, q36 +23, q8 +21 — none touch the
+converted columns; the set has shifted across legs, so stability must be established before they count).
+Cold: **14 queries**, broad, mostly non-verdict — hypothesis: the per-leaf arm reads each leaf's dictionary
+inside pages it already fetches, while the global arm adds a dictionary-page population (1M ratio 275k/406k
+= 0.68, barely paying; 100M 18M/95M = 0.19, inverting). **Ruling: measure cold page reads per arm per query
+before any escalation — the user gets a mechanism, not a hypothesis** — noting the global arm's leaves are
+SMALLER, so net cold I/O could go either way, and the breadth of the cold set hints at changed row-group
+page contents affecting non-dictionary queries too.
+
+**The guard caught a live cross-teammate contamination**: four legs refused because impl-ingest was editing
+`PageSectionDiag`/`StringRegion` (building the per-tag census = roadmap task 1 — impl-p2s1 must NOT
+duplicate it) during measurement. Leg-freeze protocol now in force ("leg starting, hold edits" / "leg
+done"), rebuild-before-each-arm-pair as backstop, legs run with every diag off. `rebuild.sh` additionally
+fixed: `|| true` was masking javac failures and `set -e` was killing it silently.
+
+**Order:** cold page-read counts + hot-set stability → length table (buffer-manager pattern; Referer's q28
+blocker, the holder's third tenant) → Referer + full leg → clause verdict compiled for the user.
