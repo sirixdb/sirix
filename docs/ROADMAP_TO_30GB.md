@@ -63,3 +63,31 @@ three converted columns' 169.1 MB of in-trie dictionary bytes become **~909 KB**
 
 Premise correction: the earlier "~1.52 B/record string region" figure was EventDate's; the fat columns run
 **47–63 B/value**, 30–40× larger — that is what the lever replaces.
+
+### CORRECTION to the stage-B sizing above: those figures are RAW — written = raw × 0.644
+
+The census addendum above sizes slices in raw bytes despite the instrument printing the scaling warning —
+the exact staged-vs-encoded error this campaign already made once, made by the lead this time. Reproduced
+independently at `039e2f8ba` (two runs, different commits, identical to the digit, `residual=0` both):
+**raw→written ratio 0.644.** Written bytes at 1M:
+
+| slice | raw MB | **WRITTEN MB** |
+|---|---|---|
+| three converted columns | 169.1 | **108.9** |
+| OriginalURL | 22.8 | **14.7** |
+| temporal (3 timestamps; EventDate EXCLUDED, see below) | 47.2 | **30.4** |
+| whole region | 268.5 | **172.9** |
+| FOR id-lane re-pack | 6.81 | **4.39** — 2.5 % of the region; real, but NOT worth stage-B design effort |
+
+**Consequence for the stack table: stage B's −14/−15 GB must be re-derived from WRITTEN region bytes before
+the stage is committed.** If the 100M "string region 17.3 GB" figure in `STORAGE_TO_MID_TABLE.md` was itself
+raw-derived, the honest stage-B value is nearer **−10 GB** and the stack's central estimate moves ~+4 GB.
+Re-derive at the 100M build (the census runs there anyway); do not quote −15 until then.
+
+**Also measured: per-leaf dictionaries barely deduplicate on the fat columns** (values per entry: URL 1.64,
+Referer 1.86, Title 2.24 at ~9.7 rows/leaf) — so the resource-wide dictionary's prize is almost entirely
+CROSS-leaf dedup and the election rule's "per-leaf removed" term is nearly "all of it". **EventDate is
+already optimal** (exactly one 1 B entry per leaf — every row in a leaf shares a date) and is excluded from
+the temporal sub-lever, which is therefore the three timestamp columns (17.6 %), not four. Caveat pinned:
+the census's `localDictEntries` is the SUM of per-leaf sizes, never a resource-wide distinct count — global
+cardinality still comes from the HLL pass.
