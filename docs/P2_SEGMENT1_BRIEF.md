@@ -703,3 +703,27 @@ costs ~11.9 MB, the first column where the dictionary eats more than half the sa
 short values). Rule: **price a candidate column by (per-leaf bytes removed − dictionary bytes added), never
 by the projection-side delta alone.** SearchPhrase (18,316 distinct, 56.9 B mean) gets this test before it is
 ever converted, arms or no arms.
+
+## 7044fc9a3 reviewed: F1/F2 PASS; five findings, one a latent wrong-answer bug
+
+Census committed as `4db2bd1a5`. The verdict cache passes both binding constraints — bare `long[]` cached
+(the value, never the accessor), keyed by the *validated* `view.revision()`, key complete for the predicate,
+cross-resource correct. Findings and rulings:
+
+- **V1 (FIX NOW — latent wrong answer):** the key omits `entryCount`, but the call site pairs a cached
+  verdict with the CURRENT view's count. Revision freezes the dictionary only for a COMMITTED revision, and
+  `JsonNodeTrx extends JsonNodeReadOnlyTrx` — the static type does NOT prove read-only. A query over an
+  uncommitted write trx sees a stable revision while the dictionary grows: a verdict sized N riding with
+  entryCount N+M is an AIOOBE or silently dropped rows. Fix: `entryCount` into the key — free, already read
+  at the call site. *Revision is only a sufficient key while the dictionary cannot change under it.*
+- **V2:** the shared `long[]` reaches every worker; "arms only bit-test" is true today, unverifiable
+  tomorrow, and a mutating arm corrupts silently while passing every test. Ruling: a final wrapper exposing
+  only `test(id)` (monomorphic, inlined, ~zero cost) plus the SHARED-never-mutate sentence at both ends.
+- **V3:** the unused 2-arg `get(key, fn)` would run an O(distinct) sweep under the CHM bin lock (58 ms at
+  1M, seconds at 18M, unrelated keys blocked). Dead + trap = **delete**.
+- **V4 (MANDATORY before any 100M leg):** three cache budgets share one 8 GB query heap and nothing sums
+  them — 64 MiB verdicts + **128 MiB decoded blocks PER VIEW** (10+ views/execution ⇒ >1 GB worst case at
+  100M) + page caches. An accounting table joins the clause-verdict report; the per-view block budget is
+  also the strongest argument for promoting the block table into the shared cross-execution holder.
+- **V5:** unreachable `toSecondCache()`, and the Caffeine inline FQN gets a comment naming the
+  `io.sirix.cache.Cache` collision (Java has no import alias; justified exception over silent one).
