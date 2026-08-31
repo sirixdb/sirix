@@ -225,3 +225,38 @@ rewrite per bounded append the segment 0 gate already priced at 64.7 B/entry (D=
 (D=2.62M). It also gates the fresh-build plan, which promotes columns globally at 100M — a 9× tax there adds
 hundreds of GB instead of removing five. Time-boxed to a diagnosis: attribute the 454 MB by page class and
 index type, name the owner, report. Do not difference two builds for any storage claim until this is closed.
+
+## W18 closed, 2026-08-31 — 26.2× → 2.36× for 0.162 B/row
+
+`ValueDictionaryBlockIndexNode`: one record per dictionary, keyed from a `blockIndexKey` appended to the header
+and read defensively like `orderedPrefixCount`. Partitions on **reverse-bucket** boundaries (256 ids) rather
+than block boundaries — nearly the same partition but **total by construction**, so a spilled oversized value
+needs no special case. Each entry holds the shortest prefix of its range's first value that still orders after
+the previous range's last, cut at a UTF-8 code-point boundary and **verified against the comparator before
+use**, falling back to the whole value when the short form does not separate. Loaded once per `ReadView`.
+It is an accelerator only: with no array the range is the whole ordered prefix — slower, never wrong.
+
+| probe | ns/probe | ratio to hash probe |
+|---|---|---|
+| stateless per-id read | — | 39.1× |
+| cached `ReadView` | 390,982 | 26.2× |
+| **+ separator array** | **33,802** | **2.36×** |
+
+**Bytes counted INSIDE the clause**, per the ruling: URL 13.138 → 13.212, Referer 12.375 → 12.432,
+Title 4.279 → 4.308, SearchPhrase 0.488 → 0.490. **Σ 30.280 → 30.442 B/row** — 161,512 B total, 0.5 % of the
+dictionary, for an 11× probe improvement. Still UNDECIDED against ≤27 pending 100M.
+
+**Four killing mutations**, and the first two initially SURVIVED: the W17 fixture never called
+`buildBlockIndex`, so every search took the correct-but-unindexed fallback and the range logic never ran —
+the same "witness proves less than it claims" failure as the comparator-prefix fixture, in a new place. Fixed
+by building the array in the fixture and asserting `getBlockIndexKey() != 0` as a positive engagement witness.
+Now `blockOf` `<=` → `<` fails at rank 257 (the first id of the second range) and a separator cut one byte
+short with verification bypassed fails at rank 249. **Rule: every witness needs a positive assertion that the
+mechanism under test is engaged — ask what the test would do if the feature quietly did not run.**
+
+End to end: the rank pass builds the array in S2, and converting Title on the stock 1M database still gives
+43/43 dumps byte-identical with `route=NONE` unchanged at 1.
+
+**Deferred deliberately:** the heap-output LZ77 decode defect (`SirixLZ77Codec` silently taking the Java
+decoder, 3.0 vs 16.9 GB/s). It divides both probe arms and so changes no acceptance; the absolute win belongs
+to the maintenance interner. Follow-up, not a W18 fix.
