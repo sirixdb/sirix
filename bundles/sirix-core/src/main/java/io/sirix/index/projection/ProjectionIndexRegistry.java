@@ -174,6 +174,20 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
+     * Every column's dictionary anchor, indexed by column, {@code 0} where the column is not global.
+     *
+     * <p>
+     * A COPY, because the array is the handle's own and a caller enumerating anchors must not be
+     * able to reach into it. For callers that need to act on the whole set — warming the
+     * dictionaries a resource has, rather than resolving one column's.
+     * </p>
+     */
+    public long[] valueDictionaryAnchors() {
+      final long[] keys = valueDictionaryHeaderKeys;
+      return keys == null ? new long[0] : keys.clone();
+    }
+
+    /**
      * Resolve a string literal to its id in {@code col}'s resource-wide dictionary.
      *
      * <p>

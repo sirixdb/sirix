@@ -706,6 +706,111 @@ public final class GlobalValueDictionary {
     }
   }
 
+  /** Identity of one warmed dictionary: the four facts that decide whether a walk is needed again. */
+  private record WarmKey(long databaseId, long resourceId, int revision, long headerNodeKey) {
+  }
+
+  /** Dictionaries already warmed. Bounded; an evicted marker costs a redundant walk, nothing more. */
+  private static final java.util.Set<WarmKey> WARMED_DICTIONARIES = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+  private static final int MAX_WARM_MARKERS = 256;
+
+  /** Blocks the warmer has decoded into the record cache; the engagement witness. */
+  private static final java.util.concurrent.atomic.AtomicLong WARMED_BLOCKS =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /** @return blocks warmed into the record cache since JVM start; {@code 0} means the warmer never ran. */
+  public static long warmedBlockCount() {
+    return WARMED_BLOCKS.get();
+  }
+
+  /**
+   * Decodes a dictionary's value blocks into the buffer manager's record cache, ahead of the query
+   * that would otherwise pay for them.
+   *
+   * <p>
+   * <b>Why this exists.</b> A first verdict build over a 275,494-entry dictionary measured 142 ms,
+   * of which 123 ms was first touch — 84 ms fetching and deserializing 1,085 block records and 39 ms
+   * decoding and front-expanding them — against 19 ms of steady-state work once they are resident.
+   * Every later execution pays the 19 ms. This moves the 123 ms off the query that happens to be
+   * first. A prefetch of the pages alone would move only the 84 ms; a warmer has to fetch in order
+   * to decode, so it moves both.
+   * </p>
+   *
+   * <p>
+   * <b>It caches values, never accessors.</b> Nothing here is retained: the walk touches records
+   * through {@code NamePage}, which populates the record cache with decoded, immutable block
+   * records, and the reader this runs on belongs to the caller. No {@link ReadView} is held, so no
+   * transaction is pinned past its own lifetime.
+   * </p>
+   *
+   * <p>
+   * <b>Partial warmth is partial benefit, never wrongness.</b> The walk stops when it has warmed
+   * {@code budgetBytes}, so a dictionary larger than the record cache warms its low ids and leaves
+   * the rest; a query reaching an unwarmed block decodes it through the path that already exists.
+   * Racing is safe for the same reason — a query arriving mid-warm finds some blocks resident and
+   * fetches the others. A failure is swallowed for the same reason: warming is an optimisation, and
+   * a resource that closed underneath a background walk must not turn into a query error.
+   * </p>
+   *
+   * @param headerNodeKey the dictionary's header key
+   * @param reader a reader the CALLER owns and outlives this call
+   * @param budgetBytes decoded bytes to stop after
+   * @return blocks warmed, or {@code 0} if the dictionary was unreadable
+   */
+  public static long warmDictionaryBlocks(final long headerNodeKey, final StorageEngineReader reader,
+      final long budgetBytes) {
+    Objects.requireNonNull(reader, "reader must not be null");
+    // ONCE per (database, resource, revision, dictionary). The caller cannot dedupe this itself: the
+    // query engine builds an executor per EXECUTION, so an executor-scoped guard let the walk repeat
+    // once per query — 43 times over a 43-query leg, ~96k redundant lookups. They were pure cache
+    // hits (decode count never moved), but they ran on the warm pool beside the queries and showed
+    // up as a stable cold regression on the earliest one. The marker set is bounded and holds only
+    // identities; losing an entry costs one extra walk, never a wrong answer.
+    final WarmKey warmKey =
+        new WarmKey(reader.getDatabaseId(), reader.getResourceId(), reader.getRevisionNumber(), headerNodeKey);
+    if (!WARMED_DICTIONARIES.add(warmKey)) {
+      return 0L;
+    }
+    if (WARMED_DICTIONARIES.size() > MAX_WARM_MARKERS) {
+      // A resource cycling through revisions must not grow this without bound; dropping the whole
+      // set costs at most one redundant walk per live dictionary.
+      WARMED_DICTIONARIES.clear();
+    }
+    final ReadView view = readView(headerNodeKey, reader);
+    if (view == null || view.entryCount() <= 0) {
+      return 0L;
+    }
+    long warmed = 0L;
+    long bytes = 0L;
+    final int bucketCount = (view.entryCount() - 1 >>> 8) + 1;
+    try {
+      for (int bucket = 0; bucket < bucketCount && bytes < budgetBytes; bucket++) {
+        final ValueDictionaryValueBucketNode bucketNode =
+            GlobalValueDictionaryRadix.valueBucketOf(view.reverseRootKey, bucket, view.namePage, view.databaseType,
+                reader);
+        if (bucketNode == null) {
+          break;
+        }
+        final int blocks = bucketNode.blockCount();
+        for (int block = 0; block < blocks && bytes < budgetBytes; block++) {
+          final ValueDictionaryValueBlockNode node = GlobalValueDictionaryRadix.blockNode(bucketNode.blockKey(block),
+              bucketNode.blockFirstId(block), view.namePage, view.databaseType, reader);
+          if (node == null) {
+            continue;
+          }
+          bytes += node.rawBytes().length;
+          warmed++;
+        }
+      }
+    } catch (final RuntimeException swallowed) {
+      // Best effort by contract: whatever was warmed stays warm and the query path is unaffected.
+      // A resource closing under a background walk must never surface as a query error.
+    }
+    WARMED_BLOCKS.addAndGet(warmed);
+    return warmed;
+  }
+
   public static long maximumKeysToReserve(final int entryCount) {
     if (entryCount < 0)
       throw new IllegalArgumentException("entryCount must not be negative");

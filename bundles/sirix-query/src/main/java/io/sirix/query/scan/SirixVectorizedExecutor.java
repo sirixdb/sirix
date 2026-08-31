@@ -794,6 +794,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * only once. For a 100M-record dataset that's a 8 s saving on the {@code minMaxAge} query shape
    * (one scan vs two).
    */
+  /**
+   * Whether to decode global dictionaries into the record cache ahead of the query that needs them.
+   * Behind the master switch, because it serves only {@code COLUMN_KIND_STRING_GLOBAL} columns.
+   */
+  private static final boolean GLOBAL_DICT_WARMUP = Boolean.getBoolean("sirix.projection.globalDict.rank")
+      && !"false".equalsIgnoreCase(System.getProperty("sirix.projection.globalDict.warmup", "true"));
+
+  /**
+   * Decoded bytes one dictionary may warm. Deliberately below the record cache's own weight bound so
+   * warming a large dictionary cannot evict what it just warmed — partial warmth is the intended
+   * outcome at a cardinality that does not fit, not a thrashing full pass.
+   */
+  private static final long GLOBAL_DICT_WARM_BYTES =
+      Long.getLong("sirix.projection.globalDict.warmBytes", 192L << 20);
+
+  /** Dictionary anchors this executor has already submitted, so a warm is kicked once per anchor. */
+  private final java.util.Set<Long> warmedDictionaries = ConcurrentHashMap.newKeySet();
+
   private final ConcurrentHashMap<String, long[]> aggregateCache = new ConcurrentHashMap<>();
 
   /**
@@ -8663,7 +8681,54 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       resolved.kickSegmentPrefetch(projectionWarmupPool, () -> s.beginNodeReadOnlyTrx(rev),
           trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
     }
+    kickGlobalDictionaryWarmup(resolved);
     return resolved;
+  }
+
+  /**
+   * Decodes this resource's global dictionaries into the record cache, off the query path.
+   *
+   * <p>
+   * A first verdict build over a 275,494-entry dictionary measured 142 ms, of which 123 ms was first
+   * touch — 84 ms fetching and deserializing 1,085 block records, 39 ms decoding and expanding them
+   * — against 19 ms of steady-state work once resident. Every execution after the first pays only
+   * the 19 ms, so the cost falls entirely on whichever query happens to be first. This moves it to a
+   * background thread that starts when the projection is first looked up, which is typically many
+   * queries before the one that would have paid.
+   * </p>
+   *
+   * <p>
+   * It rides the pool and the transaction-supplier idiom the segment prefetch already established,
+   * for the same reasons: never on a writer, never after shutdown, and always on its OWN read-only
+   * transaction so nothing is pinned past its lifetime. Warming is best effort by contract — a
+   * dictionary bigger than the budget warms its low ids and stops, a query reaching an unwarmed
+   * block decodes it through the path that already exists, and a race simply means some blocks are
+   * resident and others are not.
+   * </p>
+   */
+  private void kickGlobalDictionaryWarmup(final ProjectionIndexRegistry.@Nullable Handle resolved) {
+    if (resolved == null || !GLOBAL_DICT_WARMUP || wtx != null || projectionWarmupPool.isShutdown()) {
+      return;
+    }
+    final long[] anchors = resolved.valueDictionaryAnchors();
+    final var warmSession = session;
+    final int warmRevision = revision;
+    for (final long anchor : anchors) {
+      if (anchor <= 0L || !warmedDictionaries.add(anchor)) {
+        continue;
+      }
+      try {
+        projectionWarmupPool.execute(() -> {
+          try (var trx = warmSession.beginNodeReadOnlyTrx(warmRevision)) {
+            GlobalValueDictionary.warmDictionaryBlocks(anchor, trx.getStorageEngineReader(), GLOBAL_DICT_WARM_BYTES);
+          } catch (final RuntimeException swallowed) {
+            // Best effort: a resource closing under the warmer must not surface as a query error.
+          }
+        });
+      } catch (final RejectedExecutionException swallowed) {
+        // The pool is shutting down; the query path is unaffected.
+      }
+    }
   }
 
   private ProjectionIndexRegistry.Handle lookupProjectionResolved(final String[] sourcePath,
