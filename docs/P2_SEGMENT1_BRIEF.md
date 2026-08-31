@@ -878,3 +878,36 @@ sweep it replaces). Substituting openly with reasoning, rather than quietly doin
 the USER'S FIX-COLD-FIRST RULING remains open (the report still calls q20/q22 a pre-authorised exception; the
 user rejected the exception), along with H1's guard-form change, the census run, and the §6.4 one-liner. The
 q20 first-execution decomposition is the critical path and had not started as of this report.
+
+## The cold decomposition (critical path): first-touch is 86 %, fetch:decode ≈ 2:1 — the warmer wins
+
+Instrument: the record cache itself — call 1 fetches and decodes, call 2 finds residency, so call1 − call2
+IS the first-touch cost; CONTAINS vs EQ over the same resident blocks separates scan from iteration. Three
+runs, stable:
+
+| | codec ON | codec OFF |
+|---|---|---|
+| CONTAINS call 1 (cold) | 142 ms (decodes 1,085) | 104 ms (decodes 2) |
+| CONTAINS call 2+ (warm) | 18.4 ms | 19.8 ms |
+| **first touch** | **123 ms (86 %)** = fetch+deserialize 84 (68 %) + decode+expand 39 (32 %) | 84 ms |
+| substring scan (warm) | 17 ms (12 %) | 18 ms |
+| iterate + bitset | 1.7 ms | 2.4 ms |
+
+**The design rule the table teaches: when cost A is a prerequisite of cost B, a fix removing A removes both —
+"A dominates" argues FOR the warmer, not for prefetch.** A page prefetch strands the 39 ms of decode; the
+warmer (which must fetch to decode) removes all 123. Selected by arithmetic, not taste.
+
+**Two banked findings:** *once resident, coded and plain perform identically* (18.4 vs 19.8 ms) — the block
+codec is a ONE-TIME expansion cost, not a scan tax, which is the opposite of the overflow-compression story
+(there the OS cache held compressed pages and every scan re-decoded; here the decoded form has a home) and is
+the argument that codec-on is shippable where that lever was not. And **77 µs per overflow-page
+fetch-and-deserialize** joins the design constants.
+
+**The warmer builds now** to the standing constraints (existing 256 MiB cache, async, master switch, id-order
+partial warmth, F1 value-never-accessor), with three requirements: an engagement witness (warmed-block
+counter >0 warm / 0 off), impl-ingest's two pre-positioned questions answered IN the javadoc (write-trx
+behaviour; eviction race), acceptance by the six-pair protocol — q20 AND q22 below 6/6 cold.
+
+**§6.4 RESOLVED BY STRIKETHROUGH: the length table does not exist and never did.** q28's 4.71 s → 0.210 came
+from Referer becoming kind-5 served by the verdict + record caches. The design doc gets the strikethrough
+with the warmer commit so no future reader implements it.
