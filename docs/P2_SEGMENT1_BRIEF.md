@@ -911,3 +911,24 @@ behaviour; eviction race), acceptance by the six-pair protocol — q20 AND q22 b
 **§6.4 RESOLVED BY STRIKETHROUGH: the length table does not exist and never did.** q28's 4.71 s → 0.210 came
 from Referer becoming kind-5 served by the verdict + record caches. The design doc gets the strikethrough
 with the warmer commit so no future reader implements it.
+
+## The warmer exists — pre-reviewed peer-to-peer; three binding findings before the acceptance leg
+
+Design verified by impl-ingest (read-only, mid-freeze): the warmer guards on `wtx != null` AND **opens its
+own read-only transaction at a committed revision** rather than borrowing one — structurally ruling out the
+uncommitted-state class rather than guarding against it; the eviction race is benign (some blocks resident,
+others fetched, never wrong); and the warm budget is charged in the same currency as the cache's weigher
+(`rawBytes().length`, the accessor returning the internal array by design).
+
+**Binding before the six-pair acceptance leg:**
+1. **Per-RESOURCE warm plan** — 192 MiB × 3 anchors = 576 MiB requested into a 256 MiB cache: the third
+   dictionary evicts the first. One shared plan across anchors, stopping at the bound minus headroom.
+2. **A residency counter joins the engagement witness** — blocks-warmed is blind to eviction churn (warm 96k,
+   evict 60k, same number); blocks-still-resident is what moves at 100M.
+3. **Per-anchor transaction dedupe** — 129 transaction LIFETIMES per leg, resource scope the fix.
+
+**Caveat, verbatim, bounding what the acceptance proves: a green 1M leg is not evidence about 100M warm
+behaviour.** At 1M all three dictionaries (~108 MB) fit the bound; at 100M URL alone is ~2.3 GB decoded, so
+the warmer holds a fraction and the 100M cold story rests on the 0.19 sweep-ratio arithmetic, not residency.
+The 1M leg answers the user's gate (q20/q22 below 6/6 cold); the 100M leg measures the rest. Two claims,
+kept separate.
