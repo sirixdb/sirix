@@ -932,3 +932,12 @@ behaviour.** At 1M all three dictionaries (~108 MB) fit the bound; at 100M URL a
 the warmer holds a fraction and the 100M cold story rests on the 0.19 sweep-ratio arithmetic, not residency.
 The 1M leg answers the user's gate (q20/q22 below 6/6 cold); the 100M leg measures the rest. Two claims,
 kept separate.
+
+### USER DEADLINE (set 22:42, 2026-08-31): hard stop 06:00 Berlin
+
+Schedule of record, planned backwards: warmer fixes + hygiene by ~00:30 → six-pair cold acceptance leg
+(the user's gate: q20 AND q22 below 6/6 at >10 ms) by ~02:30 → **if green, the 100M fresh build launches,
+last safe launch 03:15** (three columns, codec on, census riding it, against the standing 69.51 GB
+baseline) → nothing new after 05:00; commit, clean tree, handoff section at the end of this file → stop at
+06:00 regardless of state. A gate failure means no 100M and the failure analysis is the handoff — the rule
+held, the numbers say what to fix next.
