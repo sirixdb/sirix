@@ -288,6 +288,30 @@ public final class ProjectionIndexBuilder {
   /** Build-local diagnostic, published only after the outer pipeline makes its metadata visible. */
   private int globalDictionaryColumns;
 
+  /**
+   * Per column, a dictionary that ALREADY holds every value this build will meet, or {@code null}.
+   *
+   * <p>
+   * When present the ordinary election never runs: no sample is buffered, no budget is planned and no
+   * streaming dictionary is created, because the question those stages answer — is a resource-wide
+   * dictionary worth it, and can its probe front be afforded — was settled by whoever built this one.
+   * </p>
+   */
+  private PrebuiltGlobalDictionary @Nullable [] prebuiltGlobalDictionaries;
+
+  /**
+   * Anchors named by {@code -Dsirix.projection.globalDict.prebuilt}, awaiting a writer to read them
+   * through. Format {@code column:headerKey[,column:headerKey...]}, column being the index in the
+   * definition's field order.
+   *
+   * <p>
+   * A property rather than an API argument because the builder is created several layers below
+   * whoever ran the pre-pass, and this is the fresh-build route's only entry point until the
+   * promotion gate is re-derived to elect it on measured cardinality.
+   * </p>
+   */
+  private long @Nullable [] pendingPrebuiltAnchors;
+
   /** {@code -Dsirix.projDiag}: explain election declines, which are otherwise silent by design. */
   private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
 
@@ -602,6 +626,7 @@ public final class ProjectionIndexBuilder {
       this.xmlRootsAreElements = true;
       this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
       this.sample = initialDictionarySample();
+      this.pendingPrebuiltAnchors = configuredPrebuiltAnchors(extractor.columnKindsRef().length);
       this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       return;
     }
@@ -643,6 +668,7 @@ public final class ProjectionIndexBuilder {
 
     this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
     this.sample = initialDictionarySample();
+    this.pendingPrebuiltAnchors = configuredPrebuiltAnchors(extractor.columnKindsRef().length);
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
   }
 
@@ -938,6 +964,9 @@ public final class ProjectionIndexBuilder {
         }
       }, false, orderLabelResolver);
       builder.inOrderLane = inOrderLane;
+      // A walking build has no dictionary epoch to defer this to, so it binds here — the one point
+      // where the builder and a writer are both in hand before the first leaf.
+      builder.bindPrebuiltDictionaries(storageEngineWriter);
       try {
         if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
           builder.build(jsonRtx);
@@ -953,8 +982,7 @@ public final class ProjectionIndexBuilder {
         bloomChunks.finishChunks(epoch.storage, fenceWriter.rowGroupCount(), columnKinds);
         // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
         // so nothing can be persisted about a dictionary until every id it will ever mint is known.
-        final long[] valueDictionaryHeaderKeys =
-            flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
+        final long[] valueDictionaryHeaderKeys = builder.valueDictionaryAnchors(storageEngineWriter);
         // A virgin initializer has no prior fence chunks to retire.
         fenceWriter.finish(epoch.storage);
         finishPersistWithStreamingFences(indexDef, epoch.storage, fenceWriter.rowGroupCount(), rtx.getRevisionNumber(),
@@ -1244,6 +1272,7 @@ public final class ProjectionIndexBuilder {
       if (sample != null) {
         decideDictionaryKindsAndDrainSample();
       }
+      publishInjectedColumnKinds();
     } finally {
       rtx.moveTo(restoreNodeKey);
     }
@@ -1487,6 +1516,32 @@ public final class ProjectionIndexBuilder {
     if (sample != null) {
       decideDictionaryKindsAndDrainSample();
     }
+    publishInjectedColumnKinds();
+  }
+
+  /**
+   * Flip the SHARED kinds array for injected columns, once every leaf has been written.
+   *
+   * <p>
+   * Deliberately last rather than at injection time: the extractor reads this array to decide how to
+   * build a leaf, and the injected columns must be built with their per-leaf dictionaries so the
+   * conversion has something to convert. It must also happen before the caller reads
+   * {@code columnKinds()} — which hands out a COPY — because that copy reaches both the Bloom chunk
+   * finaliser, which must skip these columns or leave bytes nothing will ever read, and the metadata,
+   * which must agree with what every leaf's descriptor now says.
+   * </p>
+   */
+  private void publishInjectedColumnKinds() {
+    final PrebuiltGlobalDictionary[] injected = prebuiltGlobalDictionaries;
+    if (injected == null) {
+      return;
+    }
+    final byte[] kinds = extractor.columnKindsRef();
+    for (int column = 0; column < injected.length; column++) {
+      if (injected[column] != null) {
+        kinds[column] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+      }
+    }
   }
 
   void publishGlobalDictionaryColumnsBuilt() {
@@ -1519,6 +1574,146 @@ public final class ProjectionIndexBuilder {
   /** Per-column kinds, index-aligned with the projection's declared fields. */
   public byte[] columnKinds() {
     return extractor.columnKinds();
+  }
+
+  /**
+   * Declare that the named columns resolve against dictionaries that are already complete.
+   *
+   * <p>
+   * This is the fresh-build half of the rank pass. A streaming build must answer "have I seen this
+   * value" as it reads, so it holds a probe front and persists a forward radix that measured
+   * <b>1,650 B per entry</b>; a build handed a finished rank-ordered dictionary needs neither, and
+   * the same column costs <b>61 B per entry</b>. The pre-pass that produced these dictionaries also
+   * knows the true distinct count, which is the number the promotion gate currently guesses at by
+   * using {@code rows}.
+   * </p>
+   *
+   * <p>
+   * Leaves are still BUILT with their per-leaf dictionaries and converted at flush, so a value is
+   * resolved once per per-leaf dictionary entry rather than once per row. That is the affordable
+   * shape at this scale; above it the ids should come positionally from the pre-pass instead.
+   * </p>
+   *
+   * @param headerKeysByColumn dictionary header key per column, 0 where the column is not injected
+   * @param storageEngineWriter the writer the dictionaries are read through
+   */
+  public void injectPrebuiltGlobalDictionaries(final long[] headerKeysByColumn,
+      final StorageEngineWriter storageEngineWriter) {
+    Objects.requireNonNull(headerKeysByColumn, "headerKeysByColumn must not be null");
+    final byte[] kinds = extractor.columnKindsRef();
+    if (headerKeysByColumn.length != kinds.length) {
+      throw new IllegalArgumentException("prebuilt dictionary anchors must be index-aligned with the " + kinds.length
+          + " columns, not " + headerKeysByColumn.length);
+    }
+    if (leavesEmitted != 0) {
+      throw new IllegalStateException("prebuilt dictionaries must be injected before the first leaf is emitted");
+    }
+    final PrebuiltGlobalDictionary[] injected = new PrebuiltGlobalDictionary[kinds.length];
+    int count = 0;
+    for (int column = 0; column < headerKeysByColumn.length; column++) {
+      if (headerKeysByColumn[column] == 0L) {
+        continue;
+      }
+      if (kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalArgumentException("column " + column + " is kind " + kinds[column]
+            + "; only a per-leaf string column can be built against a prebuilt dictionary");
+      }
+      injected[column] = new PrebuiltGlobalDictionary(column, headerKeysByColumn[column], storageEngineWriter);
+      count++;
+    }
+    if (count == 0) {
+      return;
+    }
+    prebuiltGlobalDictionaries = injected;
+    globalDictionaryColumns = count;
+    // The sample exists to MEASURE whether to promote. That question is answered, so buffering leaves
+    // to ask it again would cost memory and decide nothing.
+    if (sample != null) {
+      sample.clear();
+      sample = null;
+    }
+  }
+
+  /** Materialise anchors named by the property, once a writer exists to validate them through. */
+  void bindPrebuiltDictionaries(final StorageEngineWriter storageEngineWriter) {
+    if (pendingPrebuiltAnchors == null) {
+      return;
+    }
+    final long[] anchors = pendingPrebuiltAnchors;
+    pendingPrebuiltAnchors = null;
+    injectPrebuiltGlobalDictionaries(anchors, storageEngineWriter);
+  }
+
+  /**
+   * The anchors this build's global columns resolve against.
+   *
+   * <p>
+   * An injected build persisted nothing — the pre-pass owns those dictionaries — so there is nothing
+   * to flush and the anchors are simply reported. Any other build flushes what it minted.
+   * </p>
+   */
+  long @Nullable [] valueDictionaryAnchors(final StorageEngineWriter storageEngineWriter) {
+    if (prebuiltGlobalDictionaries == null) {
+      return flushValueDictionaries(globalDictionaries(), storageEngineWriter);
+    }
+    return prebuiltAnchors();
+  }
+
+  /**
+   * Header key per injected column, {@code 0} elsewhere.
+   *
+   * <p>
+   * The anchors are all an injected build has to report: it persisted no dictionary of its own, and
+   * without them the metadata constructor refuses a global column — a reader could then scan the id
+   * lane but never resolve an id through it.
+   * </p>
+   */
+  private long[] prebuiltAnchors() {
+    final PrebuiltGlobalDictionary[] injected = prebuiltGlobalDictionaries;
+    final long[] anchors = new long[injected.length];
+    for (int column = 0; column < injected.length; column++) {
+      if (injected[column] != null) {
+        anchors[column] = injected[column].headerKey();
+      }
+    }
+    return anchors;
+  }
+
+  /** Parses {@code -Dsirix.projection.globalDict.prebuilt}; {@code null} when unset or empty. */
+  private static long @Nullable [] configuredPrebuiltAnchors(final int columnCount) {
+    final String configured = System.getProperty("sirix.projection.globalDict.prebuilt");
+    if (configured == null || configured.isBlank()) {
+      return null;
+    }
+    final long[] anchors = new long[columnCount];
+    for (final String pair : configured.split(",")) {
+      final String trimmed = pair.trim();
+      if (trimmed.isEmpty()) {
+        continue;
+      }
+      final int colon = trimmed.indexOf(':');
+      if (colon <= 0 || colon == trimmed.length() - 1) {
+        throw new IllegalArgumentException("sirix.projection.globalDict.prebuilt wants column:headerKey pairs, got '"
+            + trimmed + "'");
+      }
+      final int column = Integer.parseInt(trimmed.substring(0, colon).trim());
+      if (column < 0 || column >= columnCount) {
+        throw new IllegalArgumentException(
+            "sirix.projection.globalDict.prebuilt names column " + column + " of " + columnCount);
+      }
+      anchors[column] = Long.parseLong(trimmed.substring(colon + 1).trim());
+    }
+    return anchors;
+  }
+
+  /** Convert the injected columns of one finished leaf before it is handed on. */
+  private void convertInjectedColumns(final ProjectionIndexRowGroupPage leaf) {
+    final PrebuiltGlobalDictionary[] injected = prebuiltGlobalDictionaries;
+    for (int column = 0; column < injected.length; column++) {
+      if (injected[column] != null) {
+        leaf.convertStringDictColumnToGlobal(column, injected[column]);
+      }
+    }
   }
 
   /** @return number of serialised leaves handed to {@code leafSink}. */
@@ -1697,6 +1892,9 @@ public final class ProjectionIndexBuilder {
       throw new IllegalStateException("dictionary epochs are only available to a streaming builder");
     }
     Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    // Deferred to here because a prebuilt dictionary must be READ to be validated, and the builder
+    // has no writer until its first epoch opens.
+    bindPrebuiltDictionaries(storageEngineWriter);
     final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
     if (encoders == null) {
       return;
@@ -1713,6 +1911,11 @@ public final class ProjectionIndexBuilder {
       throw new IllegalStateException("dictionary generations are only available to a streaming builder");
     }
     Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    if (prebuiltGlobalDictionaries != null) {
+      // Nothing to flush: the dictionaries were persisted by the pre-pass and this build only read
+      // them, so every epoch reports the same anchors rather than minting a generation.
+      return prebuiltAnchors();
+    }
     final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
     if (encoders == null) {
       return null;
@@ -2017,6 +2220,17 @@ public final class ProjectionIndexBuilder {
       if (sample.size() >= SAMPLE_LEAVES) {
         decideDictionaryKindsAndDrainSample();
       }
+      return;
+    }
+    if (prebuiltGlobalDictionaries != null) {
+      convertInjectedColumns(currentLeaf);
+      leafSink.accept(currentLeaf);
+      // NOT reused: the conversion tore down this page's per-leaf dictionary state and flipped its
+      // kinds to GLOBAL, and resetForBuilderReuse restores neither — a reused page would try to
+      // intern the next leaf's rows against an encoder it was never given. A fresh page per row
+      // group costs one allocation per 1,024 rows, which is not worth a resurrection path.
+      reusableLeaf = null;
+      leavesEmitted++;
       return;
     }
     reusableLeaf = emitBorrowedLeafForReuse(currentLeaf, globalDictionaryEncoders, leafSink);

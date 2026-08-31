@@ -1711,9 +1711,17 @@ public final class ProjectionIndexRowGroupPage {
    * flips the extractor's array so that later leaves are built as global from the start.
    *
    * @param c the column to convert
-   * @param dictionary the resource-wide dictionary to intern into
+   * <p>
+   * Takes the ENCODER interface rather than the concrete writer, because the same conversion serves
+   * two callers with opposite dictionary lifetimes: the builder's promotion, which mints ids into a
+   * dictionary it is still filling, and a build against a dictionary that is already complete, where
+   * {@code intern} resolves and refuses an unknown value instead of appending one. The body only ever
+   * calls {@code intern}, so the distinction belongs to the encoder and not here.
+   * </p>
+   *
+   * @param dictionary the resource-wide dictionary to resolve against
    */
-  void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryWriter dictionary) {
+  void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryEncoder dictionary) {
     checkColumn(c);
     if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
