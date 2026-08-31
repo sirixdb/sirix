@@ -303,3 +303,29 @@ rather than 4 but does not close it — it still rests on exact slot sizing on e
 equal to `entryCount` would make `isFullyOrdered()` true for an intern-ordered dictionary, i.e. silent
 wrong-order output on an old database); the header-anchor route witness; the maintenance-anchor pin; the
 orphaned-Bloom byte accounting; the two `overflow.compress` arms.
+
+## USER RULING 2026-08-31: no users — formats change freely
+
+> "we have no users, we can simply switch formats"
+
+Backward compatibility is **not a requirement**. Every database in existence is a benchmark or test artifact
+regenerable from its corpus, so complexity spent preserving an older layout is pure cost: more code on a
+serialization path, a wider misparse surface, and a length probe per record done for nobody.
+
+**Consequences for this work:**
+- **Write and read new fields unconditionally.** The conditional trailer (both fields or neither, emitted when
+  non-zero, read as a pair) is a compatibility mechanism and should collapse to plain unconditional
+  read/write. That deletes the pairing rule, the `remaining()` probe and an entire misparse class.
+- **The defensive-read witness is CANCELLED.** It existed to prove a pre-P2 resource still reads correctly;
+  the hazard it guarded (a padded slot letting an old header read garbage as its ordering boundary, making
+  `isFullyOrdered()` true for an intern-ordered dictionary) cannot occur if no old-format record is read.
+- **Rebuild instead of migrating.** Extends the standing "no format-version machinery, reuse V0" ruling and
+  supplies its reason.
+- **Unchanged:** the kill switch, which gates BEHAVIOUR — and decoders are still never gated, since a switch
+  that made written data unreadable would be a data-loss lever whatever the compatibility policy. The witness
+  reverts to route identity exact plus a byte delta accounted for exactly (12 B × dictionary headers), an
+  unexplained byte being a failure.
+
+The §3.1 finding above keeps its value as an observation — *"writer unconditional, reader defensive" is right
+for compatibility and wrong for a kill switch* — it is simply moot here, which is the best way for a finding
+to be retired.
