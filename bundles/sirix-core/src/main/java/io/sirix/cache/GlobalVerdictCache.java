@@ -47,22 +47,38 @@ public final class GlobalVerdictCache implements Cache<GlobalVerdictCacheKey, lo
     cache.invalidateAll();
   }
 
+  /**
+   * The verdict for {@code key}, or {@code null}.
+   *
+   * <p>
+   * A COPY. The kernels bit-test the array they are handed in their innermost loop, so the array
+   * itself has to stay a plain {@code long[]} — an immutable wrapper with a {@code test(id)} call
+   * would put a method call inside a per-row loop, which is what the bitset shape exists to avoid.
+   * Copying once per predicate protects the cached array from any future consumer instead: at a
+   * million distinct values that is 34 KB against the ~58 ms sweep it replaces, and even at a
+   * hundred million it is ~2.3 MB against the same sweep — roughly 250x cheaper than recomputing,
+   * so correctness here costs a rounding error.
+   * </p>
+   */
   @Override
   public long[] get(final GlobalVerdictCacheKey key) {
-    return cache.getIfPresent(key);
+    final long[] cached = cache.getIfPresent(key);
+    return cached == null ? null : cached.clone();
   }
 
+  /**
+   * REFUSED. The mapping function for a verdict is a full sweep of every distinct value, and
+   * {@code asMap().compute()} runs it under the bin lock — so a second thread asking the same
+   * question would block for the length of a sweep instead of running its own, and a third asking a
+   * DIFFERENT question that happens to hash to the same bin would block for no reason at all. Use
+   * {@link #get(GlobalVerdictCacheKey)} then {@link #put}: two callers may both compute on a miss,
+   * which costs a duplicated sweep at worst and never a stall.
+   */
   @Override
   public long[] get(final GlobalVerdictCacheKey key,
       final BiFunction<? super GlobalVerdictCacheKey, ? super long[], ? extends long[]> mappingFunction) {
-    // getIfPresent first, deliberately: asMap().compute() locks the bin AND runs the mapping
-    // function even on a hit, and this function is a full sweep of every distinct value — exactly
-    // the work the cache exists to avoid. Same defect already fixed in NamesCache and PageCache.
-    final long[] hit = cache.getIfPresent(key);
-    if (hit != null) {
-      return hit;
-    }
-    return cache.asMap().compute(key, mappingFunction);
+    throw new UnsupportedOperationException(
+        "compute-under-bin-lock is refused for verdicts: use get(key) then put(key, verdict)");
   }
 
   /** No second tier: a verdict is cheap to recompute relative to promoting it anywhere. */
