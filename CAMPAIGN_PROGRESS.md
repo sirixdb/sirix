@@ -2730,3 +2730,17 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   earn the default back: a cache of DECODED payloads, since the miss is that only the compressed form is cached, so
   the work repeats per pass instead of per page.
 - 03:05 **Ingestion D4 gated and committed with it** (full core rc=0 covering both).
+- 04:12 **FINAL VERIFICATION RUN at the shipped commit `f43a6a3a7` (compression opt-in, default OFF).**
+  `sirix.data` = 69,625,839,616 B — **byte-identical to rebuild #2**, which proves at 100M what the agent could
+  only argue from the code path: the overflow kill switch restores the prior layout exactly. 43-query leg exit 0,
+  every query on a vectorized route under strict serving, **43/43 dumps byte-identical to this morning**.
+  **Totals vs this morning: cold 807.1 → 537.1 s (1.50×), hot 705.1 → 417.1 s (1.69×);** vs the previous leg on the
+  same DB size, cold 1.03× and hot 1.16× (the q42 fix plus tonight's write-path work). The single flagged
+  regression, q17 at 37.26 s hot, is a POSITION-IN-LEG artefact, not code: measured alone on the same database it
+  is 23.85 cold / 20.88 hot, in line with this morning's 21.2 and rebuild #2's 20.5 — it only reads 37–38 s after
+  the heavy q13–q16 group-bys have loaded the heap, the same pattern proved for q8/q33/q34 at 00:03. **No
+  code-caused query regression survives isolation.**
+- 04:12 **NIGHT'S RESULT.** Storage 131.9 → **69.6 GB (−47.2 %)** shipped, 64.9 GB (−50.8 %) with overflow
+  compression opted in. Queries 1.50× cold / 1.69× hot with identical answers. Ingest 46 min unchanged, with
+  −9.4 % from the flush fix and −40.5 % of heap allocation removed. Leaderboard: rank ~115/132 by size (median is
+  15.3 GB, so mid-table needs ~15 GB and remains a multi-night program), ~106/133 by hot time.
