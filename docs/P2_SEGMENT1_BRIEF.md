@@ -863,3 +863,18 @@ Standing state: three global columns landed default-off behind the master switch
 43/43 every leg, 320 MiB memory ceiling. Open: H1's one-line guard-form change, V2/V3/V5 hygiene, the §6.4
 length-table answer, the census run — and **the critical path, not yet started: the q20 first-execution
 decomposition** that the user's fix-cold-first ruling gates 100M on.
+
+### V2/V3 closed (04a69f670) — V2 by an accepted substitution
+
+**V3 as ruled:** the compute overload now refuses — `asMap().compute` would run a full O(distinct) sweep
+under the CHM bin lock, stalling same-bin strangers; get-then-put duplicates a sweep at worst and never
+stalls. **V2 by substitution, accepted:** instead of a `test(id)` wrapper — a method call in the kernels'
+innermost per-row loop, which must be MEASURED against the three arms rather than assumed free — the cache
+**copies the verdict on the way out**: the same invariant (nothing a consumer holds is the cached array) at a
+place where the cost is a rounding error (34 KB at 1M / 2.3 MB at 100M per cache exit, ~250× cheaper than the
+sweep it replaces). Substituting openly with reasoning, rather than quietly doing neither, is the standard.
+
+**Correction to the same report's closing claim:** "everything closed except two segment-5 numbers" is wrong —
+the USER'S FIX-COLD-FIRST RULING remains open (the report still calls q20/q22 a pre-authorised exception; the
+user rejected the exception), along with H1's guard-form change, the census run, and the §6.4 one-liner. The
+q20 first-execution decomposition is the critical path and had not started as of this report.
