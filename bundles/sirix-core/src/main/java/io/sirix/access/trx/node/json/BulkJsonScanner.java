@@ -4,6 +4,7 @@
 package io.sirix.access.trx.node.json;
 
 import io.sirix.service.json.JsonNumber;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -61,6 +62,19 @@ final class BulkJsonScanner {
 
   private static final int DEFAULT_BUFFER_CHARS = 1 << 16;
 
+  /**
+   * Whether field names are canonicalised from the decode buffer instead of through a String-keyed
+   * map. Kill switch {@code -Dsirix.ingest.internTable=false} restores the map, and with it one
+   * transient String plus its value array per key OCCURRENCE.
+   */
+  private static final boolean INTERN_TABLE_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.ingest.internTable"));
+
+  /** The default refill-buffer size, for callers that must name the shared-name-table constructor. */
+  static int defaultBufferChars() {
+    return DEFAULT_BUFFER_CHARS;
+  }
+
   private final Reader in;
   private final char[] buffer;
   private int position;
@@ -83,8 +97,19 @@ final class BulkJsonScanner {
   private byte[] scratchUtf8 = new byte[512];
   private int scratchUtf8Length;
 
-  /** Canonical name strings, one allocation per distinct field name. */
-  private final Map<String, String> nameInterns = new HashMap<>();
+  /**
+   * Canonical name strings looked up straight from {@link #token}, so a repeat field-name occurrence
+   * allocates nothing. Shared across the import when the importer supplies one, which is what makes
+   * the canonical instance global rather than per chunk.
+   */
+  private final NameInternTable nameInternTable;
+
+  /**
+   * Legacy lane, allocated only when {@code -Dsirix.ingest.internTable=false} selects it: a map keyed
+   * by String, which must BUILD one to look one up. Kept so the lever has an off position that is
+   * the previous behaviour exactly, not an approximation of it.
+   */
+  private final Map<String, String> nameInterns;
 
   private String currentName;
   private Number currentNumber;
@@ -103,13 +128,31 @@ final class BulkJsonScanner {
   private int peekedEvent = -1;
 
   BulkJsonScanner(final Reader in) {
-    this(in, DEFAULT_BUFFER_CHARS);
+    this(in, DEFAULT_BUFFER_CHARS, null);
   }
 
   /** Buffer size is a test seam: tiny buffers force refills inside tokens. */
   BulkJsonScanner(final Reader in, final int bufferChars) {
+    this(in, bufferChars, null);
+  }
+
+  /**
+   * @param in the character source
+   * @param bufferChars refill-buffer size; a test seam, tiny buffers force refills inside tokens
+   * @param sharedNames the import-wide canonical-name table, or {@code null} to own a private one
+   */
+  BulkJsonScanner(final Reader in, final int bufferChars, final @Nullable NameInternTable sharedNames) {
     this.in = in;
     this.buffer = new char[Math.max(16, bufferChars)];
+    if (INTERN_TABLE_ENABLED) {
+      this.nameInternTable = sharedNames != null
+          ? sharedNames
+          : new NameInternTable();
+      this.nameInterns = null;
+    } else {
+      this.nameInternTable = null;
+      this.nameInterns = new HashMap<>();
+    }
   }
 
   int peek() throws IOException {
@@ -429,13 +472,36 @@ final class BulkJsonScanner {
     return true;
   }
 
+  /**
+   * The canonical instance for the field name currently in {@link #token}.
+   *
+   * <p>
+   * Both lanes keep the CANONICAL instance stable, so the downstream maps (PCR memo, name memo) see
+   * the same object for every occurrence of a name and their first equality test is a pointer
+   * comparison. They differ in what that costs. The char-slice table hashes and compares the decode
+   * buffer in place, so a repeat occurrence allocates nothing; the legacy map is keyed by
+   * {@code String} and so must BUILD one — a String plus its Latin-1 value array — merely to look
+   * one up, then drop it. That was 105,000,000 transient Strings and 5.39 GB on a 1M-row load, 35 %
+   * of everything the load allocated.
+   * </p>
+   */
   private String intern(final char[] chars, final int length) {
-    // One transient String per LOOKUP would defeat the point for repeats; but name lookups need a
-    // map key. A tiny open-addressing char-slice table would avoid it entirely — measured later;
-    // v1 accepts one short-lived String per name occurrence and keeps the CANONICAL instance
-    // stable so downstream maps (PCR memo, name memo) hash the same object every time.
+    if (nameInternTable != null) {
+      final String canonical = nameInternTable.intern(chars, 0, length);
+      if (BulkImportAllocationDiag.ENABLED) {
+        // A hit here allocates NOTHING, which is the whole point; the counter still records the
+        // occurrence so the before/after is measured on the same denominator.
+        BulkImportAllocationDiag.recordCanonicalNameLookup(length);
+      }
+      return canonical;
+    }
     final String candidate = new String(chars, 0, length);
     final String canonical = nameInterns.get(candidate);
+    if (BulkImportAllocationDiag.ENABLED) {
+      // Diagnostic only: prices the transient String and its Latin-1 byte[] that this method mints
+      // per OCCURRENCE. Gated on a static final read, so the branch folds away when it is off.
+      BulkImportAllocationDiag.recordNameIntern(length, canonical != null);
+    }
     if (canonical != null) {
       return canonical;
     }

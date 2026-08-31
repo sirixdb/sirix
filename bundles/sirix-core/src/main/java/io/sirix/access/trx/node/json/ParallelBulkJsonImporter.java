@@ -111,6 +111,15 @@ public final class ParallelBulkJsonImporter {
   private final ResourceConfiguration resourceConfig;
   private final int chunkCharBudget;
 
+  /**
+   * One canonical-name table for the WHOLE import. Every chunk gets its own scanner, so a
+   * per-scanner table canonicalises only within a chunk — at 1M rows that minted the same 105 field
+   * names 560 times over. Shared, the canonical instance is global, which is what the PCR and name
+   * memos want: their first equality test becomes a pointer comparison. The table is thread-safe by
+   * construction; chunk builders run concurrently on the worker pool.
+   */
+  private final NameInternTable sharedNames = new NameInternTable();
+
   /** Interned dictionary keys by the feeder's STABLE dense name id, in first-occurrence order. */
   private final ArrayList<String> nameById = new ArrayList<>(64);
   private final IntArrayList nameKeyById = new IntArrayList(64);
@@ -812,7 +821,8 @@ public final class ParallelBulkJsonImporter {
       // refill buffer, so decode never needs a chunk-sized char[] and the worker still avoids a
       // String or full-chunk copy.
       final BulkJsonTreeAssembler building = new BulkJsonTreeAssembler(builder, null, buildPathSummary,
-          new BulkJsonScanner(new InputStreamReader(chunkBytes.prepareRead(chunkByteLength), StandardCharsets.UTF_8)),
+          new BulkJsonScanner(new InputStreamReader(chunkBytes.prepareRead(chunkByteLength), StandardCharsets.UTF_8),
+              BulkJsonScanner.defaultBufferChars(), sharedNames),
           firstKey, true, rootArrayKey, rootArrayPcr, leftBoundaryKey, trailingSiblingKey);
       building.prefillPcrMemo(memoSnapshot);
       if (builder.pathStatsBatch() != null) {

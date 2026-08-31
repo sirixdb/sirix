@@ -7925,9 +7925,28 @@ public enum PageKind {
    * above {@link io.sirix.settings.Constants#MAX_RECORD_SIZE} — reached the disk verbatim. Measured
    * at 100M it is 17.45 GB, a quarter of the database.
    * </p>
+   *
+   * <p>
+   * <b>Opt-IN, and measured that way.</b> Compressing them costs 4.69 GB of that class at 100M
+   * (ratio 0.731) and makes COLD queries faster — the 43-query sum went 555.7 s to 447.4 s, because a
+   * scan reads fewer bytes — but it makes a REPEATED scan slower, and that is what decided the
+   * default. The OS page cache holds the payload compressed, so every pass decodes again, where an
+   * uncompressed page was free on the second read: q16 went 20.68 s to 38.15 s hot and q17 20.49 s to
+   * 38.12 s, their hot time collapsing onto their cold time, while their cold times were unchanged or
+   * better. Two queries 85 % slower is a slowdown whatever the totals say, and the totals were a wash
+   * (hot 483.5 s against 480.1 s).
+   * </p>
+   *
+   * <p>
+   * What would earn the default back is a cache of DECODED payloads — the miss is that only the
+   * compressed form is cached, so the work is repeated per pass rather than per page. With that in
+   * place this is 4.69 GB and a cold-scan win for one line. Turn it on with
+   * {@code -Dsirix.page.overflow.compress=true}; a resource written with it cannot be read by a build
+   * that predates the flag bit.
+   * </p>
    */
   private static final boolean OVERFLOW_PAYLOAD_COMPRESSION_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.page.overflow.compress", "true"));
+      Boolean.parseBoolean(System.getProperty("sirix.page.overflow.compress", "false"));
 
   /**
    * Below this the three encode passes cost more than the bytes they could save, and the 5-byte

@@ -2714,3 +2714,19 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   the noise and explicitly not claimed (both A/B campaigns contaminated in opposite directions, min-of-6 differing
   0.9 s against a ±16 % floor). The bounded fallback (fresh String past 8 probes) is safe only because the PCR and
   name memos are value-equality maps — checked before it was written.
+- 03:05 **REBUILD #3 (`911b8d650`, overflow compression ON): 64,936,607,744 B = 64.9 GB, load 45m19s.** Page classes:
+  OverflowPage 17.45 → 12.76 GB (−4.69 GB, ratio 0.731 — lower than 1M's 0.621 because at 100M this class is
+  dominated by FOR-packed projection segments, not dictionary blocks), KeyValueLeafPage and HOT unchanged. Ingest
+  did NOT pay for it at scale: 45m19s against rebuild #2's 46m10s, the flush fix and the I/O saving absorbing the
+  compression CPU. **43-query leg: cold 555.7 → 447.4 s (1.24×) and hot 483.5 → 480.1 s (1.01×) against the
+  uncompressed 69.6 GB DB; against this morning cold 807.1 → 447.5 (1.80×) and hot 705.1 → 480.2 (1.47×); 43 dumps
+  produced.** But TWO queries regress and the mechanism is real, not contention: q16 hot 20.68 → 38.15 and q17
+  20.49 → 38.12, their hot times collapsing ONTO their cold times (21.89 / 21.17), which are unchanged or better
+  (q17 cold 36.96 → 21.17). The OS page cache holds the payload COMPRESSED, so every repeated pass decodes again
+  where an uncompressed page was free on the second read — it hits exactly the two queries whose working set used
+  to fit in cache. **RULING: the lever ships OPT-IN (`-Dsirix.page.overflow.compress=true`), default off.** Two
+  queries 85 % slower is a slowdown whatever the totals say, and the totals were a wash on hot; 4.69 GB does not
+  buy that. Every line of the lever, its tests and this measurement stay in place, and the javadoc names what would
+  earn the default back: a cache of DECODED payloads, since the miss is that only the compressed form is cached, so
+  the work repeats per pass instead of per page.
+- 03:05 **Ingestion D4 gated and committed with it** (full core rc=0 covering both).
