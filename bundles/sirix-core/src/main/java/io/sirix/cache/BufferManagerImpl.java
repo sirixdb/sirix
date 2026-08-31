@@ -232,10 +232,19 @@ public final class BufferManagerImpl implements BufferManager {
   private static final long GLOBAL_VERDICT_CACHE_BYTES =
       Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
 
+  /**
+   * Decoded dictionary bytes retained across transactions. Sized to hold a mid-cardinality
+   * column's blocks outright; above that it degrades to the hit rate its weight supports,
+   * which is the point of metering it rather than sizing it from the dictionary.
+   */
+  private static final long GLOBAL_DICTIONARY_RECORD_CACHE_BYTES =
+      Long.getLong("sirix.projection.globalDict.recordCacheBytes", 256L << 20);
+
   private final HOTLookupCache hotLookupCache;
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
   private final GlobalVerdictCache globalVerdictCache;
+  private final GlobalDictionaryRecordCache globalDictionaryRecordCache;
 
   // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
   // Started when BufferManager is initialized, run until shutdown
@@ -326,6 +335,7 @@ public final class BufferManagerImpl implements BufferManager {
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
     globalVerdictCache = new GlobalVerdictCache(GLOBAL_VERDICT_CACHE_BYTES);
+    globalDictionaryRecordCache = new GlobalDictionaryRecordCache(GLOBAL_DICTIONARY_RECORD_CACHE_BYTES);
 
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
     this.clockSweeperThreads = new ArrayList<>();
@@ -383,6 +393,11 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public GlobalVerdictCache getGlobalVerdictCache() {
     return globalVerdictCache;
+  }
+
+  @Override
+  public GlobalDictionaryRecordCache getGlobalDictionaryRecordCache() {
+    return globalDictionaryRecordCache;
   }
 
   @Override
@@ -521,6 +536,7 @@ public final class BufferManagerImpl implements BufferManager {
       revisionRootPageCache.clear();
       namesCache.clear();
       globalVerdictCache.clear();
+      globalDictionaryRecordCache.clear();
       pathSummaryCache.clear();
     } finally {
       hotLookupCache.clear();

@@ -4,6 +4,8 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
 import io.sirix.cache.HOTLookupCache;
+import io.sirix.cache.GlobalDictionaryRecordCacheKey;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.cache.GlobalVerdictCacheKey;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PathSummaryCacheKey;
@@ -34,6 +36,9 @@ public final class EmptyBufferManager implements BufferManager {
   private static final EmptyCache<NamesCacheKey, Names> NAMES_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<GlobalVerdictCacheKey, long[]> GLOBAL_VERDICT_CACHE = new EmptyCache<>();
+
+  private static final EmptyCache<GlobalDictionaryRecordCacheKey, DataRecord> GLOBAL_DICT_RECORD_CACHE =
+      new EmptyCache<>();
 
   private static final EmptyCache<PathSummaryCacheKey, PathSummaryData> PATH_SUMMARY_CACHE = new EmptyCache<>();
 
@@ -82,6 +87,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache() {
     return GLOBAL_VERDICT_CACHE;
+  }
+
+  @Override
+  public Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache() {
+    return GLOBAL_DICT_RECORD_CACHE;
   }
 
   @Override

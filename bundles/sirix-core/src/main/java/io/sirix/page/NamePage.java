@@ -50,6 +50,7 @@ import org.roaringbitmap.longlong.Roaring64Bitmap;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
+import io.sirix.cache.GlobalDictionaryRecordCacheKey;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -910,10 +911,26 @@ public final class NamePage extends AbstractForwardingPage {
     if (cached != null) {
       return cached;
     }
+    // Cross-TRANSACTION retention. The memo above belongs to one writer; a read view retains blocks
+    // only for its own lifetime and is rebuilt per query execution, so without this every execution
+    // re-decodes the dictionary material it touches -- measured as 26,300 LZ77 decode dispatches
+    // over a 43-query leg with three global columns against 125 with none. Keyed by revision as
+    // well as node key: the sub-trie is copy-on-write with fresh keys, and the one record rewritten
+    // under a stable key (the generation header) is evicted by the put path below.
+    final GlobalDictionaryRecordCacheKey recordCacheKey =
+        new GlobalDictionaryRecordCacheKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(),
+            storageEngineReader.getRevisionNumber(), nodeKey);
+    final Cache<GlobalDictionaryRecordCacheKey, DataRecord> recordCache =
+        storageEngineReader.getBufferManager().getGlobalDictionaryRecordCache();
+    final DataRecord retained = recordCache.get(recordCacheKey);
+    if (retained != null) {
+      return retained;
+    }
     final DataRecord record =
         storageEngineReader.getRecord(nodeKey, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
     if (record != null) {
       storageEngineReader.cacheProjectionDictionaryRecord(nodeKey, record);
+      recordCache.put(recordCacheKey, record);
     }
     return record;
   }
@@ -943,6 +960,13 @@ public final class NamePage extends AbstractForwardingPage {
     // the generation header is rewritten under its stable key, and a memoized pre-rewrite header
     // would resurrect a stale entry count on the next read.
     storageEngineWriter.evictProjectionDictionaryRecord(record.getNodeKey());
+    // The cross-transaction cache needs the same eviction, and for the same record: the
+    // generation header is the one key that is rewritten in place.
+    storageEngineWriter.getBufferManager()
+                       .getGlobalDictionaryRecordCache()
+                       .remove(new GlobalDictionaryRecordCacheKey(storageEngineWriter.getDatabaseId(),
+                           storageEngineWriter.getResourceId(), storageEngineWriter.getRevisionNumber(),
+                           record.getNodeKey()));
     createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
     storageEngineWriter.persistRecord(record, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
   }

@@ -7,6 +7,8 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 
+import io.sirix.node.interfaces.DataRecord;
+
 public interface BufferManager extends AutoCloseable {
   Cache<PageReference, KeyValueLeafPage> getRecordPageCache();
 
@@ -57,6 +59,16 @@ public interface BufferManager extends AutoCloseable {
    * </p>
    */
   Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache();
+
+  /**
+   * Decoded global-dictionary records, retained across transactions.
+   *
+   * <p>
+   * A read view retains blocks only for its own lifetime and is built per query execution, so
+   * without this every execution re-decodes the dictionary material it touches. Missing is safe.
+   * </p>
+   */
+  Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache();
 
   void clearAllCaches();
 
