@@ -1108,3 +1108,26 @@ instance tonight; a green result from a build not confirmed compiled is not a re
 **184.0 B** — the gate's distinct-weighted mean reproduced by a different instrument — and the cold story's
 sweep ratio is now MEASURED at 18.34M/99.93M = **0.184** (quoted until now as ~0.19 derived). Disk after
 URL: 105 GB free; three value files ~7–8 GB total against an expected ~64–70 GB DB.
+
+## All three columns extracted at 100M (18.5 min); load launched 23:36
+
+| column | distinct | distinct bytes | present | dist-wtd mean |
+|---|---|---|---|---|
+| URL | 18,342,022 | 3,374,063,038 | 99,929,734 | 184.0 B |
+| Title | 9,425,427 | 1,256,841,188 | 85,087,080 | 133.4 B |
+| Referer | **19,720,797** | 2,689,028,780 | 81,032,736 | 136.4 B |
+| Σ | | **7,319,933,006** | | |
+
+**Three findings above the run itself:**
+1. **The gate's central number holds: 7.32 GB measured against 7.75 predicted** (5.5 % low), by a different
+   instrument, months of argument apart.
+2. **Referer is the HIGHEST-cardinality column in the corpus** — 19.7M distinct against URL's 18.3M, at
+   shorter values — inverting the all-night ordering assumption. With its dictionary already eating half its
+   saving at 1M, the marginal-column test may go AGAINST Referer at 100M. **Decision rule pre-positioned: if
+   the storage number decomposes to a net-negative Referer, the follow-up is a two-column arm next session —
+   the fresh route is per-column configurable, so dropping a column is a rebuild, not a design change.**
+3. The cold story's sweep ratio is measured on both ends now: 0.68 at 1M → **0.184** at 100M.
+
+Load: document-only, protocol envelope, census gates ON, started 23:36, ~46 min expected. Disk 102 GB free
+after 7.4 GB of value files; 32–38 GB of margin expected at completion. Sequence: load result → storage
+number before any leg → projection build → legs; build overrun past 03:15 falls to load-only without asking.
