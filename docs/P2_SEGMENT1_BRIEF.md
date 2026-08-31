@@ -1020,3 +1020,17 @@ verify-don't-assert treatment as any other claim — rulings arrive pre-trusted,
 **Final pre-launch list, four items:** W1 (per-resource warm plan), W1b (residency counter), the
 `WARMED_DICTIONARIES` relocation, the V2 miss-path clone. Hashes in, launch immediately — impl-ingest's
 mechanical verification of `9799bb10f` + the four runs in parallel and gates the LANDING, not the launch.
+
+### 9799bb10f verified; the ratio misread's ROOT CAUSE closed (3cd2de6cb)
+
+H1 is character-for-character the `:526` test — the two caches in one file now answer the same question the
+same way. F3's invariant is enforceable, F4's aggregate ceiling bounds BYTES (the old cap bounded array
+length; a mistyped property could legally request 64 GiB of references).
+
+**`3cd2de6cb` closes the door the 12× error came through rather than only striking the instance:** the
+instrument printed two ratios lines apart — the body-wide `wire/staging` FIRST and unscoped, each region's
+own `raw→written` after — so anyone scanning for "the ratio" hit the wrong one. The body line now states its
+scope and that it applies to no region. **The generalised rule, third instance tonight: when a number is
+misread, ask whether the OUTPUT invited it** (the residual line, the believe-the-residual contract, the
+ratio scope — all the same move: fix the instrument, not the reader). Landed comment-only before the launch
+so the build carries it.
