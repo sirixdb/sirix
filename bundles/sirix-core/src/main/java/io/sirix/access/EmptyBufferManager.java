@@ -40,6 +40,9 @@ public final class EmptyBufferManager implements BufferManager {
   private static final EmptyCache<GlobalDictionaryRecordCacheKey, DataRecord> GLOBAL_DICT_RECORD_CACHE =
       new EmptyCache<>();
 
+  private static final EmptyCache<GlobalDictionaryRecordCacheKey, Boolean> GLOBAL_DICT_WARM_MARKERS =
+      new EmptyCache<>();
+
   private static final EmptyCache<PathSummaryCacheKey, PathSummaryData> PATH_SUMMARY_CACHE = new EmptyCache<>();
 
   EmptyBufferManager() {}
@@ -92,6 +95,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache() {
     return GLOBAL_DICT_RECORD_CACHE;
+  }
+
+  @Override
+  public Cache<GlobalDictionaryRecordCacheKey, Boolean> getGlobalDictionaryWarmMarkers() {
+    return GLOBAL_DICT_WARM_MARKERS;
   }
 
   @Override

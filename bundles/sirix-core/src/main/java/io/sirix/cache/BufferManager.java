@@ -70,6 +70,18 @@ public interface BufferManager extends AutoCloseable {
    */
   Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache();
 
+  /**
+   * Dictionaries already warmed, keyed with the dictionary's header key in the node-key slot.
+   *
+   * <p>
+   * On the buffer manager rather than in a static so it inherits
+   * {@link #clearCachesForResource(long, long)}: a resource deleted and recreated with the same ids
+   * must not find a surviving marker and conclude its dictionaries are warm when the caches holding
+   * them were just swept.
+   * </p>
+   */
+  Cache<GlobalDictionaryRecordCacheKey, Boolean> getGlobalDictionaryWarmMarkers();
+
   void clearAllCaches();
 
   /**

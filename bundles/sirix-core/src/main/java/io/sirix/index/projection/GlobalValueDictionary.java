@@ -14,6 +14,10 @@ import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.ValueDictionaryValueBlockNode;
 import io.sirix.node.ValueDictionaryValueBucketNode;
+import io.sirix.cache.Cache;
+import io.sirix.cache.GlobalDictionaryRecordCacheKey;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
 import io.sirix.settings.Constants;
@@ -741,22 +745,29 @@ public final class GlobalValueDictionary {
     }
   }
 
-  /** Identity of one warmed dictionary: the four facts that decide whether a walk is needed again. */
-  private record WarmKey(long databaseId, long resourceId, int revision, long headerNodeKey) {
-  }
-
-  /** Dictionaries already warmed. Bounded; an evicted marker costs a redundant walk, nothing more. */
-  private static final java.util.Set<WarmKey> WARMED_DICTIONARIES = java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-  private static final int MAX_WARM_MARKERS = 256;
-
   /** Blocks the warmer has decoded into the record cache; the engagement witness. */
-  private static final java.util.concurrent.atomic.AtomicLong WARMED_BLOCKS =
-      new java.util.concurrent.atomic.AtomicLong();
+  private static final AtomicLong WARMED_BLOCKS = new AtomicLong();
+
+  /**
+   * Blocks STILL RESIDENT when their warm pass finished — the number that says what warming bought.
+   *
+   * <p>
+   * Separate from {@link #WARMED_BLOCKS} because they answer different questions and only the second
+   * can see eviction: a pass that warms 96,000 blocks and evicts 60,000 of them reports an identical
+   * warmed count to one that keeps every block. At a cardinality that fits they are equal; at one
+   * that does not, the gap between them IS the finding.
+   * </p>
+   */
+  private static final AtomicLong RESIDENT_BLOCKS = new AtomicLong();
 
   /** @return blocks warmed into the record cache since JVM start; {@code 0} means the warmer never ran. */
   public static long warmedBlockCount() {
     return WARMED_BLOCKS.get();
+  }
+
+  /** @return warmed blocks still resident when their pass ended; below {@link #warmedBlockCount()} means churn. */
+  public static long residentBlockCount() {
+    return RESIDENT_BLOCKS.get();
   }
 
   /**
@@ -796,28 +807,33 @@ public final class GlobalValueDictionary {
   public static long warmDictionaryBlocks(final long headerNodeKey, final StorageEngineReader reader,
       final long budgetBytes) {
     Objects.requireNonNull(reader, "reader must not be null");
-    // ONCE per (database, resource, revision, dictionary). The caller cannot dedupe this itself: the
-    // query engine builds an executor per EXECUTION, so an executor-scoped guard let the walk repeat
-    // once per query — 43 times over a 43-query leg, ~96k redundant lookups. They were pure cache
-    // hits (decode count never moved), but they ran on the warm pool beside the queries and showed
-    // up as a stable cold regression on the earliest one. The marker set is bounded and holds only
-    // identities; losing an entry costs one extra walk, never a wrong answer.
-    final WarmKey warmKey =
-        new WarmKey(reader.getDatabaseId(), reader.getResourceId(), reader.getRevisionNumber(), headerNodeKey);
-    if (!WARMED_DICTIONARIES.add(warmKey)) {
+    // ONCE per (database, resource, revision, dictionary), claimed through the BUFFER MANAGER. The
+    // caller cannot dedupe this itself: the engine builds an executor per EXECUTION, so an
+    // executor-scoped guard let the walk repeat once per query — 43 times over a 43-query leg, each
+    // repeat also opening and closing a read-only transaction, which showed up as a stable cold
+    // regression on the earliest query. The marker belongs beside the caches it describes rather
+    // than in a static, so a resource deleted and recreated with the same ids has its marker swept
+    // with its data; a surviving marker would report "already warm" over an empty cache and disable
+    // the warmer for the life of the process.
+    final GlobalDictionaryRecordCacheKey warmKey = new GlobalDictionaryRecordCacheKey(reader.getDatabaseId(),
+        reader.getResourceId(), reader.getRevisionNumber(), headerNodeKey);
+    final Cache<GlobalDictionaryRecordCacheKey, Boolean> markers =
+        reader.getBufferManager().getGlobalDictionaryWarmMarkers();
+    if (markers.get(warmKey) != null) {
       return 0L;
     }
-    if (WARMED_DICTIONARIES.size() > MAX_WARM_MARKERS) {
-      // A resource cycling through revisions must not grow this without bound; dropping the whole
-      // set costs at most one redundant walk per live dictionary.
-      WARMED_DICTIONARIES.clear();
-    }
+    // Claimed on the interface rather than through a concrete putIfAbsent, so a no-op buffer manager
+    // stays a no-op. The window between the check and the put lets two callers walk the same
+    // dictionary at once, which is idempotent — both decode the same immutable blocks into the same
+    // keys — and costs one redundant walk in a race that only the first query per resource can hit.
+    markers.put(warmKey, Boolean.TRUE);
     final ReadView view = readView(headerNodeKey, reader);
     if (view == null || view.entryCount() <= 0) {
       return 0L;
     }
     long warmed = 0L;
     long bytes = 0L;
+    final LongArrayList warmedKeys = new LongArrayList();
     final int bucketCount = (view.entryCount() - 1 >>> 8) + 1;
     try {
       for (int bucket = 0; bucket < bucketCount && bytes < budgetBytes; bucket++) {
@@ -835,6 +851,7 @@ public final class GlobalValueDictionary {
             continue;
           }
           bytes += node.rawBytes().length;
+          warmedKeys.add(bucketNode.blockKey(block));
           warmed++;
         }
       }
@@ -843,6 +860,18 @@ public final class GlobalValueDictionary {
       // A resource closing under a background walk must never surface as a query error.
     }
     WARMED_BLOCKS.addAndGet(warmed);
+    // What SURVIVED the pass. Re-reading each key is a cache lookup, so this costs a walk of the
+    // keys and no I/O; the gap against `warmed` is the eviction the warmed count cannot see.
+    final Cache<GlobalDictionaryRecordCacheKey, DataRecord> records =
+        reader.getBufferManager().getGlobalDictionaryRecordCache();
+    long resident = 0L;
+    for (int i = 0; i < warmedKeys.size(); i++) {
+      if (records.get(new GlobalDictionaryRecordCacheKey(reader.getDatabaseId(), reader.getResourceId(),
+          reader.getRevisionNumber(), warmedKeys.getLong(i))) != null) {
+        resident++;
+      }
+    }
+    RESIDENT_BLOCKS.addAndGet(resident);
     return warmed;
   }
 

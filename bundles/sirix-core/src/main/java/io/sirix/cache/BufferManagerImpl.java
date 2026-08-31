@@ -245,6 +245,7 @@ public final class BufferManagerImpl implements BufferManager {
   private final PathSummaryCache pathSummaryCache;
   private final GlobalVerdictCache globalVerdictCache;
   private final GlobalDictionaryRecordCache globalDictionaryRecordCache;
+  private final GlobalDictionaryWarmMarkerCache globalDictionaryWarmMarkers;
 
   // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
   // Started when BufferManager is initialized, run until shutdown
@@ -336,6 +337,7 @@ public final class BufferManagerImpl implements BufferManager {
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
     globalVerdictCache = new GlobalVerdictCache(GLOBAL_VERDICT_CACHE_BYTES);
     globalDictionaryRecordCache = new GlobalDictionaryRecordCache(GLOBAL_DICTIONARY_RECORD_CACHE_BYTES);
+    globalDictionaryWarmMarkers = new GlobalDictionaryWarmMarkerCache();
 
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
     this.clockSweeperThreads = new ArrayList<>();
@@ -398,6 +400,34 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public GlobalDictionaryRecordCache getGlobalDictionaryRecordCache() {
     return globalDictionaryRecordCache;
+  }
+
+  @Override
+  public GlobalDictionaryWarmMarkerCache getGlobalDictionaryWarmMarkers() {
+    return globalDictionaryWarmMarkers;
+  }
+
+  /**
+   * Drops this resource's dictionary-derived state: verdicts, decoded records and warm markers.
+   *
+   * <p>
+   * All three are keyed by {@code (databaseId, resourceId, ...)}, so a resource recreated with the
+   * same ids would otherwise be served its predecessor's answers -- the pollution
+   * {@code clearCachesForResource}'s own comment exists to prevent. The marker is the worst of the
+   * three: surviving alone it reports "already warm" over caches that were just swept, and the
+   * warmer never runs again for that resource.
+   * </p>
+   */
+  private void clearDictionaryCachesForResource(final long databaseId, final long resourceId) {
+    globalVerdictCache.asMap()
+                      .keySet()
+                      .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+    globalDictionaryRecordCache.asMap()
+                               .keySet()
+                               .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+    globalDictionaryWarmMarkers.asMap()
+                               .keySet()
+                               .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
   }
 
   @Override
@@ -537,6 +567,7 @@ public final class BufferManagerImpl implements BufferManager {
       namesCache.clear();
       globalVerdictCache.clear();
       globalDictionaryRecordCache.clear();
+      globalDictionaryWarmMarkers.clear();
       pathSummaryCache.clear();
     } finally {
       hotLookupCache.clear();
@@ -713,6 +744,10 @@ public final class BufferManagerImpl implements BufferManager {
 
   @Override
   public void clearCachesForResource(long databaseId, long resourceId) {
+    // Before anything else, and unconditionally: the dictionary-derived caches are keyed by
+    // (databaseId, resourceId, ...) and a resource recreated with the same ids would otherwise be
+    // served its predecessor's verdicts, records and warm markers.
+    clearDictionaryCachesForResource(databaseId, resourceId);
     // try/catch/finally around the WHOLE body, not just around the HOT page sweep. The body's
     // exception is CAPTURED rather than left to propagate on its own, because a bare finally that
     // itself throws discards it outright — not even as a suppressed cause — and the body's failure is

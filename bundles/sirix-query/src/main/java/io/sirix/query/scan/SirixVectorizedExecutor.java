@@ -809,8 +809,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static final long GLOBAL_DICT_WARM_BYTES =
       Long.getLong("sirix.projection.globalDict.warmBytes", 192L << 20);
 
+  /**
+   * The record cache's own bound, which the warm pass must be planned against as a WHOLE.
+   *
+   * <p>
+   * Read from the same property the cache sizes itself from, because the two numbers have to agree:
+   * the warm budget is per DICTIONARY and the cache bound is per RESOURCE, so warming each
+   * dictionary to its own budget asks for {@code anchors x warmBytes} into a single bound. With
+   * three converted columns that is 576 MiB into 256 MiB — the third dictionary evicts the first,
+   * and the resident set becomes whichever column warmed last. It is invisible at a cardinality
+   * where everything fits (~36 MB per dictionary at 1M, three inside 256 MiB) and decides the
+   * outcome at one where nothing does.
+   * </p>
+   */
+  private static final long GLOBAL_DICT_RECORD_CACHE_BYTES =
+      Long.getLong("sirix.projection.globalDict.recordCacheBytes", 256L << 20);
+
+  /** Share of the record cache the warm pass may claim, leaving room for query-driven entries. */
+  private static final double GLOBAL_DICT_WARM_SHARE = 0.75d;
+
   /** Dictionary anchors this executor has already submitted, so a warm is kicked once per anchor. */
-  private final java.util.Set<Long> warmedDictionaries = ConcurrentHashMap.newKeySet();
+  private final Set<Long> warmedDictionaries = ConcurrentHashMap.newKeySet();
 
   private final ConcurrentHashMap<String, long[]> aggregateCache = new ConcurrentHashMap<>();
 
@@ -8465,7 +8484,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     long[] verdict = reader.getBufferManager().getGlobalVerdictCache().get(cacheKey);
     if (verdict == null) {
       verdict = view.stringOpVerdict(op, literalUtf8);
-      reader.getBufferManager().getGlobalVerdictCache().put(cacheKey, verdict);
+      // Clone on the way IN as well as out, so the cached array has no external reference at all.
+      // get() already copies for readers 2..N; without this the caller that POPULATED the entry
+      // still holds the very array the cache keeps, which is the aliasing the copy exists to
+      // prevent. The extra clone lands on the miss path, which has just paid an O(distinct) sweep.
+      reader.getBufferManager().getGlobalVerdictCache().put(cacheKey, verdict.clone());
     }
     return ProjectionIndexScan.ColumnPredicate.globalStringVerdict(column, op, literalUtf8, verdict,
         view.entryCount());
@@ -8711,6 +8734,21 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return;
     }
     final long[] anchors = resolved.valueDictionaryAnchors();
+    int anchorCount = 0;
+    for (final long anchor : anchors) {
+      if (anchor > 0L) {
+        anchorCount++;
+      }
+    }
+    if (anchorCount == 0) {
+      return;
+    }
+    // ONE plan for the pass: every dictionary gets an equal share of what the cache will hold, so
+    // the pass stops at the bound instead of each dictionary stopping at its own and evicting its
+    // predecessors. Equal shares rather than priority order because nothing here knows which column
+    // a query will ask about first, and an equal split is the allocation that is never badly wrong.
+    final long perAnchorBudget =
+        Math.min(GLOBAL_DICT_WARM_BYTES, (long) (GLOBAL_DICT_RECORD_CACHE_BYTES * GLOBAL_DICT_WARM_SHARE) / anchorCount);
     final var warmSession = session;
     final int warmRevision = revision;
     for (final long anchor : anchors) {
@@ -8720,7 +8758,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       try {
         projectionWarmupPool.execute(() -> {
           try (var trx = warmSession.beginNodeReadOnlyTrx(warmRevision)) {
-            GlobalValueDictionary.warmDictionaryBlocks(anchor, trx.getStorageEngineReader(), GLOBAL_DICT_WARM_BYTES);
+            GlobalValueDictionary.warmDictionaryBlocks(anchor, trx.getStorageEngineReader(), perAnchorBudget);
           } catch (final RuntimeException swallowed) {
             // Best effort: a resource closing under the warmer must not surface as a query error.
           }
