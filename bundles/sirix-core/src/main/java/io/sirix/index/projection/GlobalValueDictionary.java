@@ -122,6 +122,65 @@ public final class GlobalValueDictionary {
   /** Decoded sub-blocks a read view retains; each covers many consecutive ids. */
   private static final int READ_VIEW_BLOCK_CACHE_SIZE = 16;
 
+  /**
+   * Byte budget for one view's resident decoded blocks; {@code 0} keeps the fixed 16-slot table.
+   *
+   * <p>
+   * RESIDENCY BY FIT, never unconditional. A decoded block is up to
+   * {@link ValueDictionaryValueBlockNode#MAX_BLOCK_BYTES}, so the budget divided by that bound gives
+   * the number of slots the view may hold, and the table being DIRECT-MAPPED is what makes the
+   * budget a real bound rather than a hope — a slot holds at most one block, so resident bytes can
+   * never exceed slots times the bound, and a collision simply re-decodes through the path that
+   * already exists. There is no eviction policy to get wrong because there is no eviction: the map
+   * overwrites, and being wrong about what to keep costs a decode, never an answer.
+   * </p>
+   *
+   * <p>
+   * The default sits at the MEASURED knee. On a 275,494-entry URL dictionary (1,077 blocks) a random
+   * point read costs 24.0 us with the old 16-slot table, 19.8 us at 256 slots, and 0.42 us at 2,048
+   * slots, with nothing further from 4,096 or 8,192 — so roughly twice the block count is where
+   * collisions stop mattering, and 128 MiB buys that. The budget is a BOUND, not an allocation: the
+   * arrays hold references (2,048 of them, some kilobytes) and blocks are retained only as they are
+   * touched, so a dictionary smaller than the budget never costs the budget. At a cardinality whose
+   * blocks do not fit, the same table degrades smoothly to the hit rate its slots can support, which
+   * is the point of metering it rather than sizing it from the dictionary.
+   * </p>
+   */
+  private static final long READ_VIEW_RESIDENT_BLOCK_BYTES =
+      Long.getLong("sirix.projection.globalDict.residentBlockBytes", 128L << 20);
+
+  /** Slots the budget affords, rounded DOWN to a power of two so the index stays a mask. */
+  private static final int READ_VIEW_BLOCK_SLOTS = blockSlotsForBudget(READ_VIEW_RESIDENT_BLOCK_BYTES);
+
+  /**
+   * Reverse-bucket slots, matched to the block slots.
+   *
+   * <p>
+   * The two caches sit in series on a point read — a bucket must be resolved to learn which block
+   * covers an id — so sizing only the blocks moves the cost rather than removing it. Measured: with
+   * 2048 block slots and the bucket table left at 16, a random read fell from 23.9 us to 1.7 us and
+   * STOPPED there, because every read still decoded its bucket. A bucket record is far smaller than
+   * a block (it holds references, not values), so matching the counts costs a small fraction of the
+   * block budget and is not metered separately.
+   * </p>
+   */
+  private static final int READ_VIEW_BUCKET_SLOTS =
+      Math.max(READ_VIEW_BUCKET_CACHE_SIZE, READ_VIEW_BLOCK_SLOTS);
+
+  private static int blockSlotsForBudget(final long budgetBytes) {
+    if (budgetBytes <= 0L) {
+      return READ_VIEW_BLOCK_CACHE_SIZE;
+    }
+    final long affordable = budgetBytes / ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES;
+    if (affordable <= READ_VIEW_BLOCK_CACHE_SIZE) {
+      return READ_VIEW_BLOCK_CACHE_SIZE;
+    }
+    // Highest power of two not exceeding what the budget affords, capped so a mistyped property
+    // cannot ask for an array of references larger than any dictionary could fill.
+    final long capped = Math.min(affordable, 1L << 20);
+    return Integer.highestOneBit((int) capped);
+  }
+
   private GlobalValueDictionary() {
     throw new AssertionError("no instances");
   }
@@ -191,17 +250,17 @@ public final class GlobalValueDictionary {
      */
     private final ValueDictionaryEntryNode[] cachedSpills = new ValueDictionaryEntryNode[READ_VIEW_CACHE_SIZE];
     /** Direct-mapped reverse-bucket retention; {@code -1} marks an unused slot. */
-    private final int[] cachedBuckets = new int[READ_VIEW_BUCKET_CACHE_SIZE];
+    private final int[] cachedBuckets = new int[READ_VIEW_BUCKET_SLOTS];
     private final ValueDictionaryValueBucketNode[] cachedBucketNodes =
-        new ValueDictionaryValueBucketNode[READ_VIEW_BUCKET_CACHE_SIZE];
+        new ValueDictionaryValueBucketNode[READ_VIEW_BUCKET_SLOTS];
     /**
      * Direct-mapped retention of decoded SUB-BLOCKS, keyed by record key. A block is up to 64 KiB
      * and packs many consecutive ids, so decoding one per probe dominated the miss path; holding a
      * few costs a fixed number of references and no per-id state.
      */
-    private final long[] cachedBlockKeys = new long[READ_VIEW_BLOCK_CACHE_SIZE];
+    private final long[] cachedBlockKeys = new long[READ_VIEW_BLOCK_SLOTS];
     private final ValueDictionaryValueBlockNode[] cachedBlocks =
-        new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_CACHE_SIZE];
+        new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_SLOTS];
     /**
      * Separator array over the ordered prefix, loaded ONCE per view and then kept. It is the whole
      * point of the structure: without it a binary-search probe decodes one block per step, with it
@@ -549,7 +608,7 @@ public final class GlobalValueDictionary {
         return slot;
       }
       final int bucket = (id - 1) >>> 8;
-      final int bucketSlot = bucket & (READ_VIEW_BUCKET_CACHE_SIZE - 1);
+      final int bucketSlot = bucket & (READ_VIEW_BUCKET_SLOTS - 1);
       ValueDictionaryValueBucketNode bucketNode = cachedBuckets[bucketSlot] == bucket
           ? cachedBucketNodes[bucketSlot]
           : null;
@@ -564,7 +623,7 @@ public final class GlobalValueDictionary {
       }
       final long blockKey = bucketNode.blockKeyCovering(id);
       if (blockKey != 0L) {
-        final int blockSlot = (int) (blockKey ^ blockKey >>> 32) & (READ_VIEW_BLOCK_CACHE_SIZE - 1);
+        final int blockSlot = (int) (blockKey ^ blockKey >>> 32) & (READ_VIEW_BLOCK_SLOTS - 1);
         ValueDictionaryValueBlockNode block = cachedBlockKeys[blockSlot] == blockKey
             ? cachedBlocks[blockSlot]
             : null;
