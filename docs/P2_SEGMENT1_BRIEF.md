@@ -260,3 +260,46 @@ End to end: the rank pass builds the array in S2, and converting Title on the st
 **Deferred deliberately:** the heap-output LZ77 decode defect (`SirixLZ77Codec` silently taking the Java
 decoder, 3.0 vs 16.9 GB/s). It divides both probe arms and so changes no acceptance; the absolute win belongs
 to the maintenance interner. Follow-up, not a W18 fix.
+
+## Kill switch proven, 2026-08-31 — and the byte half caught a defect nothing else could
+
+Against a `git archive HEAD`-compiled control, fresh 1M ClickBench load, switch off:
+
+| page class | HEAD | with segment 1, switch off |
+|---|---|---|
+| KeyValueLeafPage | 477,867,584 | 477,867,584 |
+| OverflowPage | 664,392,355 | 664,392,355 |
+| NamePage | 453 | 453 |
+| RevisionRootPage | 514 | 514 |
+| **total** | **1,166,924,421** | **1,166,924,421** |
+
+Plus route identity: `# served` identical field for field, all 43 `route=` lines identical, 43/43 dumps
+identical.
+
+**THE DEFECT ONLY THE BYTE HALF COULD FIND.** The first run differed by 2 bytes on KeyValueLeafPage. The cause
+was §3.1's own instruction — *"the writer emits the field unconditionally; the reader takes it defensively"*,
+described there as "the whole mechanism". **That is right for compatibility and wrong for a kill switch:** the
+4-byte `orderedPrefixCount` and 8-byte `blockIndexKey` were written into every dictionary header even on a
+build that had never run the pass, so 12 raw bytes reached the codec and emerged as 2. A route witness would
+have passed. A dump comparison would have passed.
+Fixed by a **conditional trailer — both fields together or neither**, emitted only when either is non-zero and
+read as a pair when the exactly-sized slot has room for both. Read independently they would misparse a zero
+prefix count followed by a non-zero index key. Eliminating the delta beats accounting for it, which is what
+the restated clause had settled for.
+
+**Gating:** one switch, `-Dsirix.projection.globalDict.rank`, **default off**, covering the pass AND the block
+encoder together — the compact forms only pay in rank order, so letting them be enabled independently would be
+a way to change bytes without changing anything else. **Decoders are never gated**: a resource written with
+the switch on stays readable with it off, or the switch would be a data-loss lever rather than a kill switch.
+W17 passes in **both** switch states, so the differential covers both storage forms rather than only the
+default's.
+
+**A SHA of `sirix.data` is not a witness** — commit timestamps live in the file, so two runs of the *same*
+build differ. Per-page-class written bytes is the strongest byte-level pin this store admits. (Second
+independent confirmation; the first came from the flush-refusal work.)
+
+**STILL OPEN:** the defensive-read witness (the conditional trailer *reduces* the hazard to 12 bytes of slack
+rather than 4 but does not close it — it still rests on exact slot sizing on every path, and a garbage value
+equal to `entryCount` would make `isFullyOrdered()` true for an intern-ordered dictionary, i.e. silent
+wrong-order output on an old database); the header-anchor route witness; the maintenance-anchor pin; the
+orphaned-Bloom byte accounting; the two `overflow.compress` arms.
