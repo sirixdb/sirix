@@ -9,6 +9,7 @@ import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import io.sirix.node.LE;
+import io.sirix.page.PageSectionDiag;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -1540,9 +1541,11 @@ public final class StringRegion {
           }
         }
       }
+      final int dictBase = pos;
       for (int r = 0; r < ps; r++) {
         final int t = retained[r];
         final int sz = tagDictSize[t];
+        final int tagLengthBase = pos;
         for (int i = 0; i < sz; i++) {
           // Sign bit carries the per-entry FSST flag; consumers read Math.abs for the length.
           final int len = tagLengths[t][i];
@@ -1551,11 +1554,23 @@ public final class StringRegion {
               : len);
           pos += 4;
         }
+        final int tagValueBase = pos;
         for (int i = 0; i < sz; i++) {
           final int len = tagLengths[t][i];
           tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
           pos += len;
         }
+        if (PageSectionDiag.STRING_TAG_DIAG) {
+          // [DIAG] Measured write positions, not a formula — an attribution derived from the layout
+          // twice can disagree with itself; this one cannot.
+          final int values = tagDictIds[t].size();
+          PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), values, sz,
+              tagValueBase - tagLengthBase, pos - tagValueBase, (long) values * bitWidth,
+              (long) values * forWidth(sz));
+        }
+      }
+      if (PageSectionDiag.STRING_TAG_DIAG) {
+        PageSectionDiag.recordStringRegionCensus(dictBase, valueDictIdBytes, totalLength);
       }
       int bitPos = 0;
       final int valueDictIdsBase = pos;
@@ -1676,10 +1691,12 @@ public final class StringRegion {
           previousSuppressed = tagValue;
         }
       }
+      final int dictBase = pos;
       for (int r = 0; r < ps; r++) {
         final int t = retained[r];
         final int sz = tagDictSize[t];
         final int width = widths[r];
+        final int tagLengthBase = pos;
         for (int i = 0; i < sz; i++) {
           // The sign carries the FSST flag at every width, exactly as the four-byte field did.
           StringRegion.writeLengthField(output, pos, width, tagCompressed[t][i]
@@ -1687,11 +1704,26 @@ public final class StringRegion {
               : tagLengths[t][i]);
           pos += width;
         }
+        final int tagValueBase = pos;
         for (int i = 0; i < sz; i++) {
           final int len = tagLengths[t][i];
           tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
           pos += len;
         }
+        if (PageSectionDiag.STRING_TAG_DIAG) {
+          // A PLAIN tag stores no ids at all — its values ARE its dictionary — so it contributes
+          // nothing to either lane figure. Counting it would invent a lane that is not there.
+          final int values = tagDictIds[t].size();
+          PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), values, sz,
+              tagValueBase - tagLengthBase, pos - tagValueBase, plain[r]
+                  ? 0L
+                  : (long) values * bitWidth, plain[r]
+                      ? 0L
+                      : (long) values * forWidth(sz));
+        }
+      }
+      if (PageSectionDiag.STRING_TAG_DIAG) {
+        PageSectionDiag.recordStringRegionCensus(dictBase, laneBytes, totalLength);
       }
       final int laneBase = pos;
       // bitPackAppend ORs lanes into the destination, so the reused buffer's high bits from the
@@ -1719,6 +1751,17 @@ public final class StringRegion {
       }
       encodedLength = totalLength;
       return totalLength;
+    }
+
+    /**
+     * Bits one id needs at a tag's OWN dictionary size — the width a per-tag (FOR-packed) lane would
+     * use, against the page-wide width the shared lane is forced to.
+     *
+     * @param dictSize the tag's local dictionary size
+     * @return bits per id, at least one
+     */
+    private static int forWidth(final int dictSize) {
+      return Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, dictSize - 1)));
     }
 
     /** {@code tagMeta}: plain flag, length-width code, and the dictionary size of a dict-lane tag. */

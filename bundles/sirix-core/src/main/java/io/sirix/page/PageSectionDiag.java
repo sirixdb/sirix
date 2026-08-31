@@ -8,6 +8,8 @@ import io.sirix.node.NodeKind;
 import io.sirix.page.pax.RegionTable;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -455,6 +457,116 @@ public final class PageSectionDiag {
   private static volatile int flushEpoch;
 
   // ==================================================================================
+  // U7 — the string region, split by TAG (i.e. by column).
+  //
+  // The string region is the single largest thing the trie leaf stores (17.3 GB at 100M), and every
+  // byte of it belongs to some column — but the region is written as ONE blob, so no existing
+  // counter can say which column owns which bytes. The trie-lane design needs exactly that split:
+  // what share belongs to the four fat columns whose resource-wide dictionaries exist or are coming,
+  // and what a FOR-packed id lane would cost to replace them with.
+  //
+  // The region is per LEAF, so a column's real figure is its per-tag bytes summed over every leaf,
+  // which is what these lanes accumulate. Three quantities per tag, because they move independently
+  // under the lever: the per-tag local dictionary's LENGTH table, its VALUE bytes (the thing a
+  // resource-wide dictionary deletes outright), and the id lane (the thing that stays, and shrinks
+  // only if it is re-packed per tag).
+  //
+  // BYTES HERE ARE RAW — the region's pre-codec payload. The region is LZ77'd as a whole, so a
+  // per-tag figure AS WRITTEN is not separable; the report prints the region's measured raw→written
+  // ratio beside the split so a raw number can be scaled to disk, and any lever priced off these
+  // numbers must be scaled that way. Judging a trie lever by staged bytes is precisely the error
+  // this campaign has already made once.
+  // ==================================================================================
+
+  /** Sub-gate: the per-tag lane adds work per tag per page, so it is opt-in even under the diag. */
+  public static final boolean STRING_TAG_DIAG = ENABLED && Boolean.getBoolean("sirix.pageSectionDiag.stringTags");
+
+  /**
+   * Tags are nameKeys or pathNodeKeys; both are small dense ints, so a direct array indexes them.
+   *
+   * <p>
+   * ZERO when the sub-gate is off, which is what keeps the table from being ALLOCATED in a
+   * production JVM. The recording branch already folds away — both gates are {@code static final} —
+   * but a table sized from a constant would still be built at class initialisation, and "off" has to
+   * mean no footprint, not merely no per-call work. With no slots every tag routes to the overflow
+   * accumulator, which nothing under the gate ever reaches.
+   * </p>
+   */
+  private static final int STRING_TAG_SLOTS = STRING_TAG_DIAG
+      ? 1 << 12
+      : 0;
+
+  /** One accumulator set per tag kind ({@code 0} = nameKey, {@code 1} = pathNodeKey). */
+  private static final int STRING_TAG_KINDS = 2;
+
+  /**
+   * Per-tag accumulators, allocated on first sight so a run pays only for the tags it meets. A tag
+   * at or beyond {@link #STRING_TAG_SLOTS} lands in the overflow accumulator rather than growing the
+   * table — the census stays bounded, and the report says how much it could not attribute.
+   */
+  private static final AtomicReferenceArray<StringTagStats> STRING_TAG_STATS =
+      new AtomicReferenceArray<>(STRING_TAG_KINDS * STRING_TAG_SLOTS);
+
+  /** Bytes belonging to tags the table could not address. */
+  private static final StringTagStats STRING_TAG_OVERFLOW = new StringTagStats(-1, -1);
+
+  /** Region bytes that belong to no tag: the encoding kind, the tag directory, the suppressed list. */
+  private static final LongAdder STRING_REGION_FRAMING_BYTES = new LongAdder();
+
+  /** Id-lane bytes as the ENCODER rounded them, per region — one rounding each, summed here. */
+  private static final LongAdder STRING_REGION_LANE_BYTES = new LongAdder();
+
+  /** Regions the per-tag census covered, so the framing average has a denominator. */
+  private static final LongAdder STRING_REGION_CENSUS_PAGES = new LongAdder();
+
+  /** Raw region bytes the census walked; must equal framing + every tag's bytes. */
+  private static final LongAdder STRING_REGION_CENSUS_BYTES = new LongAdder();
+
+  /** One column's string-region cost, summed over every leaf that carries it. */
+  private static final class StringTagStats {
+
+    private final int tagKind;
+
+    private final int tag;
+
+    /** Leaves whose string region carries this tag. */
+    private final LongAdder pages = new LongAdder();
+
+    /** Values stored under this tag, over all those leaves. */
+    private final LongAdder values = new LongAdder();
+
+    /** Per-leaf local-dictionary entries, summed — NOT the resource-wide distinct count. */
+    private final LongAdder distinct = new LongAdder();
+
+    /** The per-tag length table: 4 B/entry on the bit-packed lane, 1/2/4 on the varint lane. */
+    private final LongAdder dictLengthBytes = new LongAdder();
+
+    /** The per-tag value bytes — what a resource-wide dictionary removes outright. */
+    private final LongAdder dictValueBytes = new LongAdder();
+
+    /** Id-lane BITS at the page-wide width. Bits, not bytes: the lane is packed across tags. */
+    private final LongAdder idLaneBits = new LongAdder();
+
+    /** Id-lane BITS this tag would occupy at its OWN width — the FOR-packed lane's price. */
+    private final LongAdder forIdLaneBits = new LongAdder();
+
+    private StringTagStats(final int tagKind, final int tag) {
+      this.tagKind = tagKind;
+      this.tag = tag;
+    }
+
+    /**
+     * This tag's bytes expressed in BITS, because the id lane is packed across tags and the region
+     * rounds it to bytes exactly ONCE, at the end. Rounding each tag up on its own over-counts by up
+     * to seven bits per tag — which is precisely what the census-identity line caught the first time
+     * this report ran, so the identity is checked in bits and converted once, like the encoder does.
+     */
+    private long rawBits() {
+      return (dictLengthBytes.sum() + dictValueBytes.sum()) * 8L + idLaneBits.sum();
+    }
+  }
+
+  // ==================================================================================
   // U4 — post-envelope region bytes.
   //
   // {@link #REGION_BYTES_BY_KIND} counts a region's RAW payload; what the file pays is the payload
@@ -643,6 +755,138 @@ public final class PageSectionDiag {
         : 3;
   }
 
+  // ─────────────────────────────────── U7 recording API
+
+  /**
+   * Record one tag's share of one leaf's string region.
+   *
+   * <p>
+   * Called once per retained tag per encoded region, from inside the encoder's own per-tag loop, so
+   * the dictionary figures are measured write positions rather than a formula that can drift from
+   * the layout. The id lane is reported in BITS because it is bit-packed ACROSS tags: a tag's share
+   * of the packed array is exact in bits and only becomes approximate if rounded to bytes per tag.
+   * </p>
+   *
+   * @param tagKind {@code 0} for a nameKey tag, {@code 1} for a pathNodeKey tag
+   * @param tag the tag value — the column identity within the resource
+   * @param values values stored under this tag on this leaf
+   * @param distinct this leaf's local dictionary size for this tag
+   * @param dictLengthBytes bytes the leaf spent on this tag's length table
+   * @param dictValueBytes bytes the leaf spent on this tag's value payload
+   * @param idLaneBits bits this tag occupies in the leaf's packed id lane, at the page-wide width
+   * @param forIdLaneBits bits it would occupy at its OWN width — the FOR-packed alternative
+   */
+  public static void recordStringRegionTag(final int tagKind, final int tag, final long values,
+      final long distinct, final long dictLengthBytes, final long dictValueBytes, final long idLaneBits,
+      final long forIdLaneBits) {
+    final StringTagStats stats = stringTagStats(tagKind, tag);
+    stats.pages.increment();
+    stats.values.add(values);
+    stats.distinct.add(distinct);
+    stats.dictLengthBytes.add(dictLengthBytes);
+    stats.dictValueBytes.add(dictValueBytes);
+    stats.idLaneBits.add(idLaneBits);
+    stats.forIdLaneBits.add(forIdLaneBits);
+  }
+
+  /**
+   * Record one encoded string region's tag-independent bytes and its total, closing the census.
+   *
+   * <p>
+   * The report checks framing plus every tag's bytes against {@code regionRawBytes}. That identity is
+   * the census's own witness: a layout change that this instrument does not follow shows up as a
+   * residual instead of as a quietly wrong share.
+   * </p>
+   *
+   * @param framingBytes encoding kind, tag directory, suppressed-tag list — bytes belonging to no tag
+   * @param laneBytes the packed id lane as the encoder rounded it, for THIS region
+   * @param regionRawBytes the region's whole pre-codec length
+   */
+  public static void recordStringRegionCensus(final long framingBytes, final long laneBytes,
+      final long regionRawBytes) {
+    STRING_REGION_FRAMING_BYTES.add(framingBytes);
+    // Taken from the encoder rather than summed from the per-tag bits: the lane is rounded to bytes
+    // once PER REGION, so a bit-sum across regions loses up to seven bits each and the census
+    // identity drifts by exactly the number of regions. The per-tag bits stay exact and unrounded —
+    // they price the FOR lane, they do not reconstruct the file.
+    STRING_REGION_LANE_BYTES.add(laneBytes);
+    STRING_REGION_CENSUS_BYTES.add(regionRawBytes);
+    STRING_REGION_CENSUS_PAGES.increment();
+  }
+
+  /** The accumulator for one tag, allocated on first sight; out-of-range tags share the overflow. */
+  private static StringTagStats stringTagStats(final int tagKind, final int tag) {
+    if (tagKind < 0 || tagKind >= STRING_TAG_KINDS || tag < 0 || tag >= STRING_TAG_SLOTS) {
+      return STRING_TAG_OVERFLOW;
+    }
+    final int index = tagKind * STRING_TAG_SLOTS + tag;
+    final StringTagStats resident = STRING_TAG_STATS.getAcquire(index);
+    if (resident != null) {
+      return resident;
+    }
+    final StringTagStats minted = new StringTagStats(tagKind, tag);
+    final StringTagStats winner = STRING_TAG_STATS.compareAndExchange(index, null, minted);
+    return winner == null
+        ? minted
+        : winner;
+  }
+
+  static long stringTagRawBits(final int tagKind, final int tag) {
+    return stringTagStats(tagKind, tag).rawBits();
+  }
+
+  static long stringTagValues(final int tagKind, final int tag) {
+    return stringTagStats(tagKind, tag).values.sum();
+  }
+
+  static long stringTagDictValueBytes(final int tagKind, final int tag) {
+    return stringTagStats(tagKind, tag).dictValueBytes.sum();
+  }
+
+  static long stringTagIdLaneBits(final int tagKind, final int tag) {
+    return stringTagStats(tagKind, tag).idLaneBits.sum();
+  }
+
+  static long stringTagForIdLaneBits(final int tagKind, final int tag) {
+    return stringTagStats(tagKind, tag).forIdLaneBits.sum();
+  }
+
+  /** Every tag's bits, for the census identity the report and the witness both check. */
+  static long stringTagRawBitsTotal() {
+    long total = STRING_TAG_OVERFLOW.rawBits();
+    for (int i = 0; i < STRING_TAG_STATS.length(); i++) {
+      final StringTagStats stats = STRING_TAG_STATS.getAcquire(i);
+      if (stats != null) {
+        total += stats.rawBits();
+      }
+    }
+    return total;
+  }
+
+  static long stringRegionCensusBytes() {
+    return STRING_REGION_CENSUS_BYTES.sum();
+  }
+
+  static long stringRegionFramingBytes() {
+    return STRING_REGION_FRAMING_BYTES.sum();
+  }
+
+  static long stringRegionLaneBytes() {
+    return STRING_REGION_LANE_BYTES.sum();
+  }
+
+  /** Every tag's DICTIONARY bytes — length tables plus value payload, no lane. */
+  static long stringTagDictBytesTotal() {
+    long total = STRING_TAG_OVERFLOW.dictLengthBytes.sum() + STRING_TAG_OVERFLOW.dictValueBytes.sum();
+    for (int i = 0; i < STRING_TAG_STATS.length(); i++) {
+      final StringTagStats stats = STRING_TAG_STATS.getAcquire(i);
+      if (stats != null) {
+        total += stats.dictLengthBytes.sum() + stats.dictValueBytes.sum();
+      }
+    }
+    return total;
+  }
+
   // ─────────────────────────────────── U6 recording API
 
   /**
@@ -826,6 +1070,91 @@ public final class PageSectionDiag {
 
   static long crossEpochRepeatEncodes() {
     return CROSS_EPOCH_REPEAT_ENCODES.sum();
+  }
+
+  /**
+   * Print the string region split by tag — which column owns which bytes, and what a FOR-packed id
+   * lane would cost. Raw (pre-codec) bytes throughout, with the measured raw→written ratio printed
+   * beside them so any lever priced from this table is scaled to disk rather than to staging.
+   */
+  private static void dumpStringRegionByTag() {
+    final long censusBytes = STRING_REGION_CENSUS_BYTES.sum();
+    if (censusBytes == 0L) {
+      return;
+    }
+
+    final ArrayList<StringTagStats> present = new ArrayList<>();
+    for (int i = 0; i < STRING_TAG_STATS.length(); i++) {
+      final StringTagStats stats = STRING_TAG_STATS.getAcquire(i);
+      if (stats != null) {
+        present.add(stats);
+      }
+    }
+    if (STRING_TAG_OVERFLOW.pages.sum() != 0L) {
+      present.add(STRING_TAG_OVERFLOW);
+    }
+    present.sort((left, right) -> Long.compare(right.rawBits(), left.rawBits()));
+
+    long taggedBits = 0L;
+    long idLaneBits = 0L;
+    long forIdLaneBits = 0L;
+    for (final StringTagStats stats : present) {
+      taggedBits += stats.rawBits();
+      idLaneBits += stats.idLaneBits.sum();
+      forIdLaneBits += stats.forIdLaneBits.sum();
+    }
+    final long framing = STRING_REGION_FRAMING_BYTES.sum();
+    final long laneBytes = STRING_REGION_LANE_BYTES.sum();
+    final long dictBytes = stringTagDictBytesTotal();
+    final long taggedBytes = dictBytes + laneBytes;
+    final long residual = censusBytes - framing - taggedBytes;
+
+    // The region is one LZ77 blob, so per-tag WRITTEN bytes do not exist. This ratio is how a raw
+    // number from the table below is turned into a number about the file.
+    final long rawRegion = REGION_BYTES_BY_KIND[RegionTable.KIND_STRING].sum();
+    final long writtenRegion = REGION_WRITTEN_BYTES_BY_KIND[RegionTable.KIND_STRING].sum();
+    final double writtenRatio = rawRegion == 0L
+        ? 0.0d
+        : (double) writtenRegion / rawRegion;
+
+    System.out.printf(
+        "[PageSectionDiag] stringRegion by TAG over %,d regions: raw=%,d B  framing=%,d B (%.1f%%)"
+            + "  dictionaries=%,d B (%.1f%%)  idLane=%,d B (%.1f%%)  residual=%,d B%s%n",
+        STRING_REGION_CENSUS_PAGES.sum(), censusBytes, framing, pct(framing, censusBytes), dictBytes,
+        pct(dictBytes, censusBytes), laneBytes, pct(laneBytes, censusBytes), residual, residual == 0L
+            ? " (census EXACT)"
+            : "  <<< CENSUS INCOMPLETE — the encoder layout moved and this table under-attributes");
+    System.out.printf(
+        "[PageSectionDiag]   region as WRITTEN: raw=%,d B -> written=%,d B (ratio %.3f)."
+            + " Every raw figure below scales by that ratio to reach the file.%n", rawRegion, writtenRegion,
+        writtenRatio);
+    System.out.printf(
+        "[PageSectionDiag]   id lane, per-tag basis (unrounded bits; differs from the census lane figure"
+            + " by the per-region rounding): pageWideWidth=%,d B  perTagWidth(FOR)=%,d B  saving=%,d B (%.1f%%)%n",
+        (idLaneBits + 7L) / 8L, (forIdLaneBits + 7L) / 8L, (idLaneBits - forIdLaneBits) / 8L,
+        pct(idLaneBits - forIdLaneBits, idLaneBits));
+
+    for (final StringTagStats stats : present) {
+      final long raw = stats.rawBits() / 8L;
+      if (stats.rawBits() == 0L) {
+        continue;
+      }
+      final long values = stats.values.sum();
+      // Floor-divided for display; only the reconciliation above needs bit exactness.
+      final long tagIdLane = stats.idLaneBits.sum() / 8L;
+      final long tagForLane = stats.forIdLaneBits.sum() / 8L;
+      System.out.printf(
+          "[PageSectionDiag]   tag %-5s %-8d raw=%,15d B (%5.1f%%)  leaves=%,9d  values=%,12d"
+              + "  localDictEntries=%,11d  dictValues=%,14d B  dictLengths=%,11d B  idLane=%,11d B"
+              + "  idLaneFOR=%,11d B  B/value=%.2f%n",
+          stats.tagKind == 0
+              ? "name"
+              : (stats.tagKind == 1
+                  ? "path"
+                  : "over"), stats.tag, raw, pct(raw, censusBytes), stats.pages.sum(), values,
+          stats.distinct.sum(), stats.dictValueBytes.sum(), stats.dictLengthBytes.sum(), tagIdLane, tagForLane,
+          perRecord(raw, values));
+    }
   }
 
   /**
@@ -1157,6 +1486,10 @@ public final class PageSectionDiag {
     // relying on PrintStream's per-call lock, which permits line-level interleaving.
     synchronized (System.out) {
       dumpStatsLocked();
+      // Outside dumpStatsLocked's `pages == 0` guard on purpose: the per-tag census has its own
+      // denominator, and a run that encodes regions without completing a page serialization must
+      // still report what it measured rather than silently printing nothing.
+      dumpStringRegionByTag();
     }
   }
 
