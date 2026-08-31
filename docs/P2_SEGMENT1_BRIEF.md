@@ -642,3 +642,40 @@ fixed: `|| true` was masking javac failures and `set -e` was killing it silently
 
 **Order:** cold page-read counts + hot-set stability → length table (buffer-manager pattern; Referer's q28
 blocker, the holder's third tenant) → Referer + full leg → clause verdict compiled for the user.
+
+## impl-ingest delivers: the per-tag census instrument, and the fe02e228c review
+
+**The census (task 1)** records inside the encoder's own per-tag loop on both string-region lanes — measured
+write positions, not a formula — reporting per tag: leaves, values, local-dict entries, dictionary
+length-table and VALUE bytes (what a resource-wide dictionary deletes), and the id lane at both the page-wide
+and the tag's OWN width (the FOR price). Sub-gated behind `-Dsirix.pageSectionDiag.stringTags=true`, zero
+cost off (both gates static final). **The load-bearing line is the census identity — framing + dictionaries +
+id lane must equal the region's own encoded length, `residual=0 B (census EXACT)` or shout** — and it caught
+its own two rounding defects while being built (per-tag bit rounding = −1; one-global rounding = +3; the lane
+bytes now come from the encoder, per-tag BITS kept only for FOR pricing). Witness 5/5 including
+bytes-land-on-the-OWNING-tag, plus a **negative control run**: sub-gate off ⇒ all five FAIL loudly. The
+output prints the region's raw→written ratio because per-tag written bytes cannot exist (one LZ77 blob) —
+**scale raw by that ratio before pricing anything**. Run: add both -D gates to a normal 1M load; map tag ids
+to columns via PathDump.
+
+**The review (task 2): fe02e228c is SOUND — no staleness path, structurally.** Decoded blocks are
+fresh-allocated private heap adopted via the explicitly-named `takeOwnership` (public constructor CLONES);
+block keys are write-once (`cursor.next()` mints all, including tail-extension); `readView` re-checks
+revision after loading; tables are per-ReadView. Findings and rulings:
+- **F1 (binding on the surviving holder):** cache the decoded block form ONLY, never the ReadView — it holds
+  the `StorageEngineReader` and NamePage; retention pins a reader past its transaction. *"Cache the value,
+  never the accessor."*
+- **F2 (binding):** the separator array and `entryCount` are revision-scoped; under a surviving holder they
+  sit UNDER the revision key, and the revision-changed→null check survives any short-circuit.
+- **F3 (fix now):** `x & (SLOTS-1)` is a hash only for power-of-two SLOTS; nothing asserts it — silent
+  degradation to a bad hash on a future edit. One static check.
+- **F4 (fix FIRST):** the tables are allocated EAGERLY per ReadView — ~40 KB/view since 16→2048 (~125×),
+  ×10+ `readView` sites per execution incl. an `aggViews[]` array ⇒ 1.5–3 MB of eager garbage per execution,
+  **paid by exactly the queries the change did not help** (q20–q23 unchanged), on the allocation-rate axis
+  that produced the 763 s concurrent mark at 100M. Fix: lazy allocation on first miss, plus an aggregate
+  bound (the 1<<20 cap bounds the array, not the total — a mistyped budget makes ~28 MB/view legal).
+- **F5:** inline `java.util.Arrays.fill` FQN (CLAUDE.md), and `READ_VIEW_BLOCK_CACHE_SIZE` now means
+  "floor" — rename.
+
+`7044fc9a3` (the verdict cache — the holder's first landed tenant) postdates the review base and goes to
+impl-ingest against F1/F2. The census 1M run slots into impl-p2s1's next gap.
