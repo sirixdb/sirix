@@ -136,18 +136,25 @@ public final class GlobalValueDictionary {
    * </p>
    *
    * <p>
-   * The default sits at the MEASURED knee. On a 275,494-entry URL dictionary (1,077 blocks) a random
-   * point read costs 24.0 us with the old 16-slot table, 19.8 us at 256 slots, and 0.42 us at 2,048
-   * slots, with nothing further from 4,096 or 8,192 — so roughly twice the block count is where
-   * collisions stop mattering, and 128 MiB buys that. The budget is a BOUND, not an allocation: the
-   * arrays hold references (2,048 of them, some kilobytes) and blocks are retained only as they are
-   * touched, so a dictionary smaller than the budget never costs the budget. At a cardinality whose
-   * blocks do not fit, the same table degrades smoothly to the hit rate its slots can support, which
-   * is the point of metering it rather than sizing it from the dictionary.
+   * <b>DEFAULT OFF, because the shared record cache superseded it.</b> Sized from a budget this was
+   * worth 24.0 us -> 0.42 us on a random point read, measured at the knee of 2,048 slots. Then
+   * {@code BufferManager#getGlobalDictionaryRecordCache} began retaining decoded records ACROSS
+   * transactions, which serves the same misses from one place instead of once per view — and with it
+   * present the per-view table is worth 381 ns against 312 ns on the same point read, and nothing at
+   * all on the 43-query leg (cold 6.786 against 6.744, hot 1.288 against 1.302, min of three legs
+   * each, where the spread WITHIN each configuration is larger than the difference between them).
+   * A per-view budget is also the wrong shape at scale: it is claimed once per view, so ten views
+   * would claim it ten times for one dictionary, where the shared cache claims it once.
+   *
+   * <p>
+   * The knob stays because the arithmetic behind it is still true where no shared cache is
+   * available. Set it to a byte budget to restore the sized table; the budget divided by
+   * {@link ValueDictionaryValueBlockNode#MAX_BLOCK_BYTES} gives the slot count, and the table being
+   * DIRECT-MAPPED is what makes it a bound rather than a hope.
    * </p>
    */
   private static final long READ_VIEW_RESIDENT_BLOCK_BYTES =
-      Long.getLong("sirix.projection.globalDict.residentBlockBytes", 128L << 20);
+      Long.getLong("sirix.projection.globalDict.residentBlockBytes", 0L);
 
   /** Slots the budget affords, rounded DOWN to a power of two so the index stays a mask. */
   private static final int READ_VIEW_BLOCK_SLOTS = blockSlotsForBudget(READ_VIEW_RESIDENT_BLOCK_BYTES);
