@@ -166,3 +166,62 @@ a decline there indicts **rank ordering itself** (a gate keyed on `globalIdsAreO
 index) rather than a missing arm; (b) a per-column screen over all four, since a partial default that
 regresses nothing beats a complete one that cannot ship — Title alone is worth 16.9 B/row and URL 17.4 of the
 46.9 B/row total.
+
+## Screens, 2026-08-31 — rank ordering is free, and segment 2 is two items
+
+**(a) Rank ordering costs nothing.** Stock 1M default (URL kind 5, intern-ordered, forward index) against the
+same database with URL converted rank-ordered, every other column kind 2 in both — so ordering and the absent
+forward index are the only variables. **`# served` identical field for field** (countDistinct 6,
+groupAggregates 84, groupDistinct 18, sortedScans 12, `route=NONE` on q42 in both, already NONE at baseline),
+43/43 dumps byte-identical, cold +3.9 %, hot −0.7 %. The arms did not merely cope — they did not notice.
+**Nothing is keyed on `globalIdsAreOrdered` or on the forward index existing.**
+
+**(d) Per-column screen from the shipped default, one column each:**
+
+| arm | cold Δ | hot Δ | route=NONE | dominant cost |
+|---|---|---|---|---|
+| URL rank-ordered | +3.9 % | −0.7 % | 1 (unchanged) | **clean** |
+| Title | −0.9 % | +1.0 % | 1 (unchanged) | **clean** |
+| Referer | +39.8 % | +52.6 % | 1 (unchanged) | q28 0.26 → 4.71 s |
+| SearchPhrase | +120.2 % | +156.3 % | **4** | q5 0.08 → 5.53 s |
+
+Referer keeps every served route identical and is still 40 % slower — one query, §6.4's `AVG(STRLEN)` length
+table (`new int[entryCount]` plus a D-iteration sweep per query). Only SearchPhrase actually loses arms.
+**So segment 2 is two items: §6.1's A1 (ungrouped COUNT(DISTINCT)) and §6.4's length table** — not "build
+all of §6.1", which is what the +179 % four-column number implied.
+
+**Target default: promote URL + Title, leave Referer and SearchPhrase per-leaf until those two items exist.**
+Nothing to enable yet — the pass is a retrofit and the builder still declines promotion at 100M — so segment 1
+still lands disabled; the screen defines the target.
+
+**Mixed kinds are legal, asserted not assumed:** `RowGroupDescriptor.kindsAgree` compares the whole kinds
+array across LEAVES (the invariant S4's per-column commit preserves), not columns against each other, and
+every screen arm above is a mixed store (URL kind 5 beside Title kind 2) serving 43 queries cold.
+
+**Exact 1M cardinalities, the first this campaign has had** — these RETIRE the 20k-row head sample:
+
+| column | distinct | distinct-weighted mean | head sample said |
+|---|---|---|---|
+| URL | 275,494 | 128.25 B | 184.01 |
+| Referer | 227,319 | 125.58 B | 136.60 |
+| Title | 73,970 | 170.80 B | 132.79 |
+| SearchPhrase | 18,316 | 56.90 B | 65.27 |
+
+They do not merely refine the sample, they **reorder** it: Title is the longer of the two at 1M. Distinct-
+weighted length grows with D so the 100M values may yet approach the sampled ones — but the ≤27 B/row
+acceptance was derived from those sampled lengths, which is one more reason it stays **undecided**.
+
+## OPEN: the streaming global-dictionary path costs ~9× its dictionary
+
+Observed in the same run and **not yet diagnosed**. Stock `auto` 1M build **1,091.8 MB** against **612.6 MB**
+for `globalDict=never` — the shipped default is **78 % larger** than the same corpus with global dictionaries
+off — and the delta is almost all OverflowPage, **134.7 → 589.2 MB (4.4×)**, to hold a URL dictionary that
+weighs **54 MB** when the rank pass builds it and ~33 MB per-leaf.
+
+This outranks the rest of the queue because it may invert P2's premise: the thesis is that a resource-wide
+dictionary is smaller than per-leaf ones, and the *streaming* implementation of that idea measures
+dramatically larger. Candidate causes: abandoned promotion-sample garbage, orphaned generations, or the COW
+rewrite per bounded append the segment 0 gate already priced at 64.7 B/entry (D=275K) and 173 B/entry
+(D=2.62M). It also gates the fresh-build plan, which promotes columns globally at 100M — a 9× tax there adds
+hundreds of GB instead of removing five. Time-boxed to a diagnosis: attribute the 454 MB by page class and
+index type, name the owner, report. Do not difference two builds for any storage claim until this is closed.
