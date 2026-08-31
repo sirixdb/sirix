@@ -128,3 +128,41 @@ order and can emit the id lane once ranks exist — ~1.6 GB of sequential spill 
 Measured against the shipped default (`sirix.page.overflow.compress=false`, opt-in since `8cfeb2207`), so the
 gate's 9.57 GB baseline stands; report the compression-on arm too, since P2 changes which bytes remain in that
 class and may change that lever's verdict.
+
+## 1M measurement, 2026-08-31 — storage strong, latency fails, LANDS DISABLED
+
+Baseline forced to per-leaf with `-Dsirix.projection.globalDict=never` so all four fat columns start as
+`STRING_DICT`. Instrument: sum of row-group descriptor `byteLen`, as ruled above.
+
+| | URL | Title | Referer | SearchPhrase | Σ |
+|---|---|---|---|---|---|
+| before (per-leaf DICT+BLOOM+DICT_HASHES+lanes) | 32.878 | 23.367 | 27.180 | 2.390 | **85.815** |
+| after (id lanes only) | 2.346 | 2.155 | 2.282 | 1.820 | **8.603** |
+| rank-ordered dictionary | 13.138 | 4.279 | 12.375 | 0.488 | **30.280** |
+
+Whole projection index **131.838 → 54.625 B/row**. The dictionary figures reproduce the segment 0 gate's
+numbers to within the appended `orderedPrefixCount` int per generation — two independent implementations
+agreeing, which is worth more than either alone.
+
+**Correctness: 43/43 dumps byte-identical twice** — after converting Title alone, and after all four.
+
+**≤ 27 B/row is UNDECIDED, not met.** Measured 30.28 at 1M where D/rows = 0.28 against 0.18 at 100M, so the
+100M regime is easier and the clause probably passes there — but that is a slope through two scales, the exact
+error that killed gate 0 (§18.4). Carry it open until 100M measures it.
+
+**The latency clause FAILS and a fresh build fails it identically.** Cold Σ 12.134 → 33.861 s (+179 %, 20/43
+regress >10 %), hot Σ 7.433 → 25.664 s (+245 %, 15/43). Worst q22 0.033 → 4.306, q21 0.085 → 4.294,
+q5 1.098 → 9.249, q28 0.458 → 4.721. The `# served` counters name the cause: `projectionCountDistinct` 2 → 1,
+`groupDistinct` 6 → 5, `groupAggregates` 28 → 26, and q5/q21/q22 fall to `route=NONE`.
+
+**The general lesson: a storage lever that changes a column's KIND relocates it to a different set of serving
+arms, and the missing arms are invisible until measured.** Segment 1 moves four columns into kind 5, whose
+grouped and distinct arms are segment 2's work. No build route changes this.
+
+**RULING: segment 1 lands DISABLED** — no pass, no promotion, no regression, clause satisfied honestly rather
+than waived. Before segment 2 is scoped, two screens: (a) convert **URL alone, rank-ordered**, against the
+stock default where AUTO already elects URL as kind 5 *intern*-ordered — same column, same kind, same arms, so
+a decline there indicts **rank ordering itself** (a gate keyed on `globalIdsAreOrdered` or on the forward
+index) rather than a missing arm; (b) a per-column screen over all four, since a partial default that
+regresses nothing beats a complete one that cannot ship — Title alone is worth 16.9 B/row and URL 17.4 of the
+46.9 B/row total.
