@@ -727,3 +727,29 @@ cross-resource correct. Findings and rulings:
   also the strongest argument for promoting the block table into the shared cross-execution holder.
 - **V5:** unreachable `toSecondCache()`, and the Caffeine inline FQN gets a comment naming the
   `io.sirix.cache.Cache` collision (Java has no import alias; justified exception over silent one).
+
+## Cold hypothesis CONFIRMED and fixed (5d4f33fa4): hot −33 %, cold at parity
+
+**The count that settled it: 26,300 LZ77 decode dispatches per cold leg on the three-column build against
+125 on `never`** — 26,175 extra dictionary decodes, because the read view retains decoded blocks only for its
+own lifetime and the engine builds one view per execution. Fix: a buffer-manager cache of decoded dictionary
+records consulted by `NamePage#getProjectionValueDictionaryRecord` after the writer memo — same shape as the
+verdict cache; the generation header (the one stable-key rewrite) is **evicted at the same put-path point
+that evicts the writer memo**, with revision in the key as the second line; weight-bounded in decoded bytes
+(64 KiB value block vs a radix node's references), default 256 MiB.
+
+| | decodes/leg | cold Σ | hot Σ |
+|---|---|---|---|
+| rank3 before | 26,300 | 6.351 | 1.126 |
+| **rank3 after** | **2,455** | **6.281** | **0.902** |
+| never | 125 | 6.307 | 1.354 |
+
+**Three-column build: −8.7 % storage, hot −33 %, cold PARITY, 43/43 byte-identical.** Hot regressions are
+down to one (q29 +20 ms — noting the hot straggler has changed identity three times, which smells of noise);
+cold's 12-query set **shifts membership while its total stays flat, the noise signature**. Ruling: ≥5
+interleaved pairs classify every remaining regression STABLE vs UNSTABLE; only stable members enter the
+clause verdict. The holder landed without its ordered pre-review — local and revisable; impl-ingest reviews
+`5d4f33fa4`+`7044fc9a3` from git now, including the generation-header eviction (the write-once exception, now
+load-bearing twice), key completeness at the consumers, and whether this cache makes the per-view block
+tables partially redundant (a V4 budget and deletion question). The V4 table gains a fourth budget: 256 MiB
+records + 64 MiB verdicts + 128 MiB/view blocks + page caches vs the 8 GB query heap.
