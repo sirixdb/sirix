@@ -91,3 +91,20 @@ already optimal** (exactly one 1 B entry per leaf — every row in a leaf shares
 the temporal sub-lever, which is therefore the three timestamp columns (17.6 %), not four. Caveat pinned:
 the census's `localDictEntries` is the SUM of per-leaf sizes, never a resource-wide distinct count — global
 cardinality still comes from the HLL pass.
+
+### Correction to the correction: both region figures are WRITTEN — and the measured 100M value is 19.31 GB
+
+Traced to source (read-only): `P2_GLOBAL_DICTIONARY_DESIGN.md:149` records the 100M string region as
+**written 19,313,068,264 B (193.1 B/row)** with raw 29.63 GB and LZ77 **0.652** kept beside it, cited to the
+load log; and `STORAGE_TO_MID_TABLE.md`'s 17.3 GB is the 1M WRITTEN figure (1.52 B/record × 113.6 — the
+census independently reproduces 1.522 B/record). **So the raw-derivation fear above does not apply; the
+−15 GB does not need re-deriving on that ground.** The real error is smaller and favourable: **17.3 was a 1M
+measurement ×100 where 19.31 is the measured 100M value — the extrapolation was 11.6 % LOW**, because the
+per-row cost genuinely grows with scale (173 → 193.1 B/row). The no-slope-through-two-scales rule is
+vindicated by its own violation. Stage B quotes **19.31 GB measured** and gains ~2 GB of headroom.
+
+**What remains 1M-derived and is confirmed for free at the 100M build:** the per-column SHARES (63.0 % /
+8.5 % / 17.6 %) — the census instrument rides the build, so the 100M split arrives with the run; the total
+no longer waits on it. Cross-validation banked: the load log's 0.652 region ratio against the census's
+0.644 at 1M — two instruments sharing no code, two scales, 1.2 % apart — is the census's strongest witness
+yet.
