@@ -1072,3 +1072,19 @@ one never-run-at-100M step — extracting sorted distinct values per column — 
 ~6 min/column measured by extrapolation from 3.4 s at 1M, run with a ~20 GB heap so an OOM would indict the
 design rather than the room. Projection build budgeted at ~100 min as an honestly-flagged one-scale slope;
 overrun falls to the load-only tier.
+
+### 9234502b3 verified green; the post-run list; the trust-chain lesson completed
+
+Baseline table fully green at the launch commits. **Post-run list (neither a blocker, neither touched before
+the run):** the executor's duplicate `GLOBAL_DICT_RECORD_CACHE_BYTES` declaration (ask the buffer manager for
+its bound), and the new dictionary sweep sitting outside `removeResource`'s try/catch while the comment below
+argues sweeps must not depend on each other (the file's own standard applied to its newest line).
+
+**The trust-chain lesson, now attached to all three roles:** the lead's ruling stated a cost claim as fact
+("zero cost" — a JIT-inlining bet); the reviewer's prescription stated an inheritance claim from plausibility
+("inherits the clearing for free" — the contract, unopened, swept neither new cache); the implementer's
+premise read a codec state from a launcher. One family — trusting a description of code instead of the code —
+and each catch came from whoever went and read it. Standing rule, all roles: **a prescription, a ruling's
+cost claim, and a premise each take the same verify-don't-assert standard as a finding; if the check is not
+worth making, hand over the claim unmade.** And a finding that leads someone to a bigger finding did its job
+twice: the marker was the door to the wrong-answer sweep gap.
