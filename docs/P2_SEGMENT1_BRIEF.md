@@ -445,3 +445,38 @@ backlog: without it the 40 MB cannot ship.
 
 **Do not extrapolate −6.6 % to 100M.** D/rows is 0.28 here against 0.18 there, and fitting a slope through two
 scales is what failed the original gate.
+
+## CORRECTION to Deliverable 1: the codec was ON, and it is 80 % of the win
+
+The section above says the block codec was off and 573.3 MB is an uncompressed floor. **Both claims are
+wrong.** The codec state was inferred from `FreshBuildMain`'s source rather than verified against the running
+build; a call-site counter settled it. The tell that should have been believed immediately: the "codec-on"
+comparison arm came out **byte-identical to the byte** — an A/B that matches exactly is telling you the two
+arms are the same arm, not that the effect is zero.
+
+**Corrected matrix** (same code, same corpus, written high-water bytes):
+
+| arm | bytes | vs `never` |
+|---|---|---|
+| stock `auto` | 1,169,646,361 | +90.6 % |
+| `never` | 613,610,513 | — |
+| fresh rank-ordered, codec **OFF** | 605,475,801 | −1.3 % |
+| fresh rank-ordered, codec **ON** | **573,331,369** | **−6.6 %** |
+
+Isolation (one load forked, pre-pass only): dictionary 49,816,216 B plain → 17,671,784 B with the codec
+(**0.355**, inside the 0.331–0.372 band the segment-0 gate measured across three cardinality decades — a third
+independent confirmation the gate path and the product path are the same path). The projection half is
+**identical to the byte** in both arms. Codec election in a real build: `calls=1416 won=1415`.
+
+**Attribution, stated so it cannot mislead:** the ordering buys 8.1 MB directly **and makes the other 32.1 MB
+possible** — front coding cannot exist over an intern-ordered dictionary. "Rank alone = 1.3 %" is numerically
+true and causally wrong; the codec's shrink is the yield of the ordering, not an independent lever. There is
+no configuration where "rank on, codec off" is the right ship, which is why both stay behind ONE switch.
+
+**Still open before commit:** name the mechanism by which the codec ran with `sirix.projection.globalDict.rank`
+unset. The kill-switch contract is that bytes cannot change without the switch; either the injection path arms
+the encoder through another door (then the contract must say so) or the gate does not cover the fresh path
+(then it is a gating bug, opt-in tool or not). The 43-query leg above was run on the codec-ON database, so its
+regressions describe the shippable configuration; q20's fix is being decomposed (block decodes per execution,
+decode vs expansion vs scan) before choosing between a block-wise sweep and a verdict cache — the cache alone
+leaves cold at 52 ms and the clause is hot AND cold.
