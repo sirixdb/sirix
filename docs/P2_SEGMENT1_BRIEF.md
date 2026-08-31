@@ -497,3 +497,35 @@ A permanent fork-JVM gate test (property set before class load, both switch stat
 authorized to touch `build.gradle`, following the existing contract style at `:155`; setup-time `setProperty`
 is NOT an acceptable shape, since `ENABLED` is `static final` and that test would rot on class-load ordering.
 Commit `d8f3c99dc` was amended (unpushed) to `df9bdf6c4` to state the gating truthfully.
+
+## q20 decomposed (2026-08-31): the cost is re-decoding 36 MB per execution, not per-id resolution
+
+The per-id-re-decode hypothesis is **falsified by counter**: 1,083 LZ77 decodes per execution against 1,077
+blocks (99.9 % native), because `sliceSlot`'s 16-slot block cache makes an ascending sweep fetch each block
+once. The decomposition (min of three interleaved runs, codec on): CONTAINS 61.05 ms = EQ 26.56 (block load +
+decode + iterate) + substring scan 34.49; the coded-vs-plain EQ gap is 11.10 ms of decode + front expansion.
+The sharp finding: **the same substring scan over the same ~36 MB costs 7.8 ms on warm plain bytes and 33.0 ms
+on freshly decoded ones** — every execution re-decodes and re-allocates the whole dictionary, so the scan runs
+over cache-cold memory. `never` wins structurally because its per-leaf dictionaries are small, stable and
+already resident, NOT because it sweeps fewer values (it sweeps more: 406k vs 275k).
+
+Block-wise sweep landed (`afbf8c3b3`): worth 5–13 %, witnessed by a no-shared-code oracle (the pre-pass's
+sorted value file, ops evaluated by `java.lang.String`) — four ops × 275,494 entries × both storage forms,
+zero mismatches; 43/43 leg unchanged. Two harness errors self-caught by re-running: an EQ misread (predicted
+25 ms recovery, got 2 — both paths pay block deserialization) and a warm-up-contaminated first measurement
+that looked like a regression.
+
+**Ranked fixes, residency FIRST (reordering the earlier cache-first instinct — residency is the only lever
+that fixes cold):**
+1. **Budget-bounded block residency** — decoded blocks resident by FIT, never unconditionally (1M: ~36 MB,
+   trivial; 100M: URL alone ~2.3 GB decoded, all four columns 7.75 GB against an 8 GB query heap), LRU or
+   generation-pinned under the same budget regime as the other caches, decode-on-demand as the witnessed
+   fallback. Worth the 11.1 ms decode plus most of the ~25 ms cache-cold scan penalty.
+2. **Verdict cache** keyed (headerKey, revision, op, literal) — 34 KB per literal at 1M, ~2.3 MB at 100M;
+   takes repeats to zero at every scale and protects hot at 100M where full residency may not fit.
+3. Vectorized scan last — warm plain scan already runs 4.6 GB/s.
+
+**Flagged in advance:** even with residency, q20 COLD at 1M may floor at ~10–15 ms against `never`'s ~6 —
+the 1M shape of a design whose payoff is O(distinct) vs O(rows) and which meets `never` on different terms at
+100M (18M distinct vs 95M per-leaf entries). If it materialises it goes to the user as a per-query exception
+with both scales' arithmetic, not buried and not hunted as a defect.
