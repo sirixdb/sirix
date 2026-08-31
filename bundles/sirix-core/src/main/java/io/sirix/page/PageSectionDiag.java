@@ -1532,7 +1532,7 @@ public final class PageSectionDiag {
     final long records = RECORDS.sum();
     System.out.printf(
         "[PageSectionDiag] encodedBody on wire=%,d B; pre-compression staging=%,d B = compactDir %,d (%.1f%%)"
-            + " + templatePool+slotIds %,d (%.1f%%) + heap %,d (%.1f%%); wire/staging=%.3f%n",
+            + " + templatePool+slotIds %,d (%.1f%%) + heap %,d (%.1f%%); BODY wire/staging=%.3f  <<< this ratio is the encoded BODY only. It does NOT apply to any region: each region prints its own measured raw->written ratio below.%n",
         wire, staging, cd, pct(cd, staging), tp, pct(tp, staging), rawHeap, pct(rawHeap, staging),
         staging == 0 ? 0.0 : wire / (double) staging);
     if (records > 0) {
