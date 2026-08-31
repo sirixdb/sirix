@@ -329,3 +329,33 @@ serialization path, a wider misparse surface, and a length probe per record done
 The §3.1 finding above keeps its value as an observation — *"writer unconditional, reader defensive" is right
 for compatibility and wrong for a kill switch* — it is simply moot here, which is the best way for a finding
 to be retired.
+
+## Orphaned Bloom chunks — and a blind spot in the acceptance instrument
+
+**Measured, fixed, verified 2026-08-31.** Converting all four fat columns from per-leaf `STRING_DICT` to
+rank-ordered `STRING_GLOBAL` left their Bloom bytes **byte for byte unchanged**: Title 376,503 · URL 742,839 ·
+Referer 615,799 · SearchPhrase 85,943 = **1,821,084 B at 1M** (~180 MB at 100M) — written, paid for, reachable
+by nothing, and sitting inside the clause this work is trying to get under.
+
+**Why ordinary maintenance cannot clean it, and why the obvious fix is not one:**
+`ProjectionBloomChunks.rewriteTouchedChunks` skips any column whose kind fails `isStringKind`, and that
+predicate is `STRING_DICT || STRING_SET` — it excludes `STRING_GLOBAL`. So the instant the flip lands,
+maintenance stops looking at that column's chunks forever. **Calling `rewriteTouchedChunks` with the NEW kinds
+would skip the column for exactly the same reason.** The chunks must be dropped explicitly at the flip, by the
+code doing the flipping: `ProjectionBloomChunks.dropColumn(storage, column, physicalRowGroupCount)`, called by
+S4 before the kind flip in the same commit. Witnessed both ways — "released 5 Bloom blobs" per column, and
+76,279 B remaining afterwards, all of it MobilePhoneModel, which is still `STRING_DICT` and correctly
+untouched. 43/43 dumps byte-identical.
+
+### The instrument has a blind spot, and it changes what the numbers mean
+
+**Bloom chunks live in their own slots, not in row-group descriptors, so the descriptor-`byteLen` sum — the
+instrument accepted for ≤27 and ≤40 B/row — never saw these bytes, in either direction.** That ruling was
+made without knowing this. Consequence, stated plainly:
+
+> **Every ≤27 / ≤40 B/row figure reported so far is a LOWER BOUND, not a total. Anything addressed by its own
+> slot rather than by a descriptor entry is unmeasured by what we have been using.**
+
+Enumerating the other structures with that property is required before any 100M number is taken as the answer.
+It is also the first place to look for the OPEN 454 MB anomaly above: a gap between what the file weighs and
+what we believe we store is exactly the shape of a slot-addressed structure nobody is counting.
