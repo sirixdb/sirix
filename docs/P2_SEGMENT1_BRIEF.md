@@ -576,3 +576,37 @@ front-expanded (offsets, bytes) block form keyed by block node key, generation h
 stable-key rewrite; no writer hooks on the read path), budget from the cache-grant regime, decode-on-demand
 as the witnessed fallback. `impl-ingest` reviews the diff before it lands (their seam; the specific question:
 does anything in the flush lifecycle invalidate a decoded block under a read-only trx).
+
+## Residency landed (fe02e228c): 58× on point reads, NOT the q20 fix — and the segment-5 tax is measured
+
+**The staleness guard is in the script and fired on first use** (`rig-guard.sh`, exit 90, offending files
+named; `rebuild.sh` the only sanctioned satisfier) — catching a `git restore` residue in the rig that neither
+review nor memory would have.
+
+**The segment-5 point-read tax, measured** (the trie lane's gating number): random id→value **24,043 →
+417 ns (58×)**, sequential **140 → 75 ns**. The finding is the **320× spread between shapes** — a trie
+id-lane materialising in trie order pays the random number, and at 24 µs segment 5 was dead; at 417 ns it is
+arguable. Mechanism: direct-mapped decoded-block table, budget/`MAX_BLOCK_BYTES` slots, **no eviction policy
+to get wrong** (collision overwrites; a miss re-decodes through the existing path). Default 128 MiB at the
+measured knee (256 slots → 19.8 µs, 2,048 → 0.42 µs, flat beyond); the block table and bucket table sit in
+series and both had to be sized. Eviction witness: 50,000 random reads at four budgets (16→2,048 slots)
+against the no-shared-code oracle, zero mismatches — the small budgets are the point, they exercise the miss
+path. 43/43 leg byte-identical.
+
+**Residency does NOT fix q20** (0.059 with, 0.058 without): the verdict sweep walks every block once in id
+order — 1,077 decodes regardless of table size; a one-pass sweep has nothing to reuse within an execution.
+Predictable from the decomposition; predicted by neither builder nor lead. What q20 needs is what the dead
+executor-scoped verdict cache also needed: **a per-(resource, headerKey, revision) holder that outlives
+executors** — `readView()` today constructs a fresh view per call and dies with it. That holder is the next
+build and absorbs three tenants under one budget: the decoded-block table (scope promoted), the verdict
+bitsets keyed (op, literal), and **§6.4's length table, which is Referer's q28 blocker** — so Referer
+converts AFTER the holder, or its leg measures a regression whose fix is already designed. Revision in the
+identity is the invalidation (COW-immutable per revision; superseded, never invalidated in place); cold
+stays honest — the first execution still decodes 1,077 blocks, and if post-holder q20 cold trails `never`,
+it goes to the user as the flagged exception, not into a hunt.
+
+**Corrected suite, current rig:** cold rank 6.913 vs never 7.387, hot 2.661 vs 3.086 — rank wins both
+temperatures. Remaining hot regressions: q20 +47 ms, q22 +39, q21 +35, q23 +17 (q16 +45 touches neither
+converted column). `impl-ingest` is engaged compile-only: the per-tag string-region instrument in
+`PageSectionDiag` (segment-5 sizing questions (1)–(2)), and the flush-lifecycle review of `fe02e228c` plus
+the holder diff. Machine ownership stays with impl-p2s1's legs.
