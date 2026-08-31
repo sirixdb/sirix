@@ -2744,3 +2744,14 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   compression opted in. Queries 1.50× cold / 1.69× hot with identical answers. Ingest 46 min unchanged, with
   −9.4 % from the flush fix and −40.5 % of heap allocation removed. Leaderboard: rank ~115/132 by size (median is
   15.3 GB, so mid-table needs ~15 GB and remains a multi-night program), ~106/133 by hot time.
+- 04:22 **GOAL STATUS, stated plainly: the storage clause is NOT met.** Mid-table is 15.3 GB (median of 132
+  published systems); we shipped 69.6 GB. `docs/STORAGE_TO_MID_TABLE.md` records the measured budget and the
+  arithmetic: the leaf class is 49.9 GB of which the string region is 17.3 and the other regions plus body and
+  header are ~22.7, and the overflow class is 17.4. Every lever currently on the table — P2's projection half
+  (−5.6 measured), P2's trie lane (−15 derived), overflow compression (−4.7 measured, shipped off), L1 bigger
+  leaves (−4.7 to −8.1 measured) — **sums to ~40–45 GB, still 3× mid-table.** The gap is structural: a ClickBench
+  row is 106 fused records, so every row pays 106 directory entries, name-keys, ordinals and body framings, while
+  ClickHouse pays none at 153 B/row. The only candidate that attacks the multiplicand rather than its costs is
+  storing an object's scalars as ONE record with an internal layout (the parked data-model change), with
+  column-major leaf grouping as the less invasive middle step. Sequence recorded as dictionaries → column-major
+  leaves → fewer records per row, each with its own rebuild-and-leg gate and the standing per-query latency rule.
