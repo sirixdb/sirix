@@ -1088,3 +1088,23 @@ and each catch came from whoever went and read it. Standing rule, all roles: **a
 cost claim, and a premise each take the same verify-don't-assert standard as a finding; if the check is not
 worth making, hand over the claim unmade.** And a finding that leads someone to a bigger finding did its job
 twice: the marker was the door to the wrong-answer sweep gap.
+
+## The fail-fast fired: S1's arena overflowed int at 100M — fixed in 20 minutes instead of after a wasted load
+
+All three extractions died with `NegativeArraySizeException: -2147483648`: the harness extractor's value
+arena was a single `byte[]` with `int[]` offsets doubling on demand, and URL's distinct set at 100M is
+3,374,063,038 bytes — the doubling overflowed `Integer.MAX_VALUE`. **This is the product's own historical
+bug re-materialised in the harness**: the `arena.length << 1` int-overflow that killed load100c months ago
+(recorded in `globaldict-promotion-budget-crossover`). Same class, new instance; growth arithmetic in `int`
+is a recurring species. Fix: a chunked 256 MiB `byte[][]` arena with `long[]` offsets, values never
+straddling a chunk; the flat gate path now REFUSES loudly past 2 GiB instead of overflowing.
+
+**A false pass nearly accepted, self-caught:** the first "byte-identical at 1M" verification ran while the
+compile was still failing one line further down — it had silently used the OLD class. Third staleness
+instance tonight; a green result from a build not confirmed compiled is not a result.
+
+**URL at 100M, the first 100M pre-pass ever:** 18,342,022 distinct / 99,929,734 present, distinct bytes
+3,374,063,038, zero malformed UTF-8, 376 s. **Two independent confirmations:** 3,374,063,038 / 18,342,022 =
+**184.0 B** — the gate's distinct-weighted mean reproduced by a different instrument — and the cold story's
+sweep ratio is now MEASURED at 18.34M/99.93M = **0.184** (quoted until now as ~0.19 derived). Disk after
+URL: 105 GB free; three value files ~7–8 GB total against an expected ~64–70 GB DB.
