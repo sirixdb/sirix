@@ -398,3 +398,50 @@ also not a clean A/B — `core9` was rebuilt between the two loads — so its on
 4. **It re-prices the promotion gate.** That gate's `PER_ENTRY_OVERHEAD_BYTES = 52` is a HEAP estimate of this
    same forward index; the STORAGE cost of building it is **1,650 B/entry — 32× what the gate believes it is
    admitting.** Any re-derivation of the gate has to price both.
+
+## Deliverable 1, 2026-08-31 — the first fresh build SMALLER than its baseline
+
+Route: load with `-Dclickbench.projection=false`, a pre-pass builds both dictionaries from sorted value files,
+then the walking builder runs with `PrebuiltGlobalDictionary` injected. **No retrofit anywhere.**
+
+| arm (all rebuilt with current code) | bytes | vs `never` |
+|---|---|---|
+| stock `auto` | 1,169,646,361 | +90.6 % |
+| `never` | 613,610,513 | — |
+| **fresh, URL+Title rank-ordered** | **573,331,369** | **−40,279,144 (−6.6 %)** |
+
+`never` reproduced its earlier byte count **exactly** (613,610,513 twice), so the baseline is deterministic and
+the delta is real. Column store confirms the shape — URL and Title kind 5 with **BODY only**, `DICT`/`BLOOM`/
+`DICTHASH` all zero (2.346 and 2.155 B/row); Referer is the untouched control, still paying **27.180 B/row**
+and therefore a bigger prize than either column converted.
+
+**THE BLOCK CODEC WAS OFF.** `FreshBuildMain` never sets the master switch, so every dictionary block reached
+disk PLAIN — no front coding, no LZ77. **573.3 MB is the floor with an uncompressed dictionary**; that lever
+is entirely unspent.
+
+**Correctness: 43/43 result files byte-identical.** A rank-ordered dictionary reassigns every id, so any query
+leaking an id would have shown here.
+
+**Latency: overall a win, per-query clause NOT met.** Min across 3 legs × 5 tries, interleaved: cold Σ 12.206
+vs 12.701 s (−3.9 %), hot Σ 6.707 vs 6.899 s (−2.8 %). (A single 3-try leg said −8.3/−12.4 % and overstated
+it; the 3-leg min is the number to quote.) Regressions q20 +766 %, q21 +132 %, q22 +82 %, q23 +51 %,
+q38 +100 %; wins q5 −87 %, q33 −61 %, q27 −57 %, q17 −40 %, q39 −29 %, q28 −15 %, q42 −1.7 % (q42 is 5.5 s so
+its −98 ms is most of the suite total). q16 touches **neither** converted column and swung 0.264 → 0.064 across
+legs — recorded as unstable, deliberately not attributed.
+
+**Cause of q20–q23, and the hypothesis to test first.** Those keep the SAME route in both arms, so it is cost
+per value, not a routing flip: `GlobalValueDictionary.ReadView.stringOpVerdict` loops
+`for (int id = 1; id <= entryCount; id++)` over all 275,494 entries per execution, uncached. But note the
+arithmetic — **`never` sweeps 406,029 per-leaf URL entries, MORE values than the global arm's 275,494, and is
+8.7× faster.** Fewer values cannot be slower unless the per-value cost is structurally different, which points
+at the loop resolving **per id** rather than block-at-a-time — the same defect that made W18 39× before the
+cached `ReadView` took it to 26×.
+
+So: **sweep block-wise (one fetch per 256 values), do not start with a cache.** A verdict cache leaves the
+first execution paying full price and the clause is per-query hot *and* cold. It also disarms the prediction
+that front-coding will make these worse — true if decoding per id, much smaller if each block is decoded once
+and scanned. **Run the codec-on arm after the sweep, not before.** This is on the critical path, not segment 2
+backlog: without it the 40 MB cannot ship.
+
+**Do not extrapolate −6.6 % to 100M.** D/rows is 0.28 here against 0.18 there, and fitting a slope through two
+scales is what failed the original gate.
