@@ -2,8 +2,11 @@ package io.sirix.node;
 
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.SirixLZ77Codec;
+import io.sirix.page.SirixLZ77NativeDecoder;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 /**
  * The compact storage forms of {@link ValueDictionaryValueBlockNode}, and the only place that knows
@@ -183,11 +186,69 @@ final class ValueDictionaryValueBlockCodec {
     final byte[] compressed = new byte[compressedLength + SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK];
     source.read(compressed, 0, compressedLength);
     final byte[] payload = new byte[payloadLength];
-    final int decoded = SirixLZ77Codec.decode(compressed, 0, compressedLength, MemorySegment.ofArray(payload), 0L);
+    final int decoded = decodeInto(compressed, compressedLength, payload, payloadLength);
     if (decoded != payloadLength) {
       throw new IllegalStateException("compressed value dictionary value block decoded to the wrong length");
     }
     return decodeFrontCoded(new ArrayCursor(payload), recordID, firstId, count, -1);
+  }
+
+  /**
+   * Per-thread NATIVE landing area for a frame being decoded.
+   *
+   * <p>
+   * {@link SirixLZ77Codec#decode} dispatches to the C decoder only when its output is native-backed
+   * with tail slack; a heap output silently takes the Java decoder, measured at <b>3.0 GB/s against
+   * 16.9</b> on a 32 KB frame — and a 256-value block is ~33 KB, squarely in that regime. This is
+   * not only the probe path: it is reached by EVERY read of a compressed block, so it is paid by any
+   * query that materialises strings from a global-dictionary column.
+   * </p>
+   *
+   * <p>
+   * {@link Arena#ofAuto()} rather than a confined arena: the segment is reachable only from this
+   * thread-local, so it is freed with the thread and there is no {@code close()} to get wrong on a
+   * pool thread that outlives any one record.
+   * </p>
+   */
+  private static final ThreadLocal<MemorySegment> NATIVE_LANDING =
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1 << 16));
+
+  /** Below this the detour's extra copy costs more than the faster decoder saves. */
+  private static final int NATIVE_DECODE_MIN_BYTES = 1 << 10;
+
+  /**
+   * Decodes one frame into {@code target}, through a native landing area when that is faster.
+   *
+   * <p>
+   * <b>The landing area never escapes this method.</b> It is a reused per-thread buffer, so handing a
+   * slice of it to a cached page or a retained block view would be a use-after-free the moment the
+   * next record decodes on the same thread. The bytes are copied out and the view is dropped; the
+   * copy runs at memcpy speed and is bought back several times over (0.16 ns/B for native decode plus
+   * the copy, against 0.33 ns/B for a heap decode).
+   * </p>
+   *
+   * @return the number of bytes produced, which the caller checks against what the writer recorded
+   */
+  private static int decodeInto(final byte[] compressed, final int compressedLength, final byte[] target,
+      final int targetLength) {
+    if (targetLength < NATIVE_DECODE_MIN_BYTES || !SirixLZ77NativeDecoder.isAvailable()) {
+      return SirixLZ77Codec.decode(compressed, 0, compressedLength, MemorySegment.ofArray(target), 0L);
+    }
+    MemorySegment landing = NATIVE_LANDING.get();
+    // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant — the dispatch tests
+    // `outputOff + uncompressed + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()`, and the two
+    // constants differ (64 against 16). Sizing the landing with the input slack leaves it 48 bytes
+    // short, the dispatch silently declines, and the whole detour buys nothing while costing a copy.
+    final long needed = (long) targetLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
+    if (landing.byteSize() < needed) {
+      landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
+      NATIVE_LANDING.set(landing);
+    }
+    final int produced = SirixLZ77Codec.decode(compressed, 0, compressedLength, landing, 0L);
+    if (produced == targetLength) {
+      MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, target, 0, targetLength);
+    }
+    return produced;
   }
 
   private static int writeVarIntTo(final byte[] sink, final int at, final int value) {

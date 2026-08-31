@@ -8092,9 +8092,10 @@ public enum PageKind {
     final int produced;
     if (codec == 3 && decodedLength >= OVERFLOW_NATIVE_DECODE_MIN_BYTES && SirixLZ77NativeDecoder.isAvailable()) {
       MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
-      // The native decoder writes past the frame, so the landing area carries the same tail slack the
-      // codec documents; sized exactly it would fall back to the Java decoder it exists to avoid.
-      final long needed = (long) decodedLength + SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK;
+      // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant: the dispatch tests the OUTPUT against 64
+      // bytes of slack and the input against 16. This read INPUT until it was measured, which left
+      // the landing 48 bytes short and the native path silently declined — the detour was inert.
+      final long needed = (long) decodedLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
       if (landing.byteSize() < needed) {
         landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
         OVERFLOW_DECODE_NATIVE.set(landing);
