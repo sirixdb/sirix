@@ -1682,8 +1682,28 @@ public enum NodeKind implements DeweyIdSerializer {
         return ValueDictionaryHeaderNode.unknownLayout(recordID, version);
       }
       final int entryCount = source.readInt();
-      return new ValueDictionaryHeaderNode(recordID, version, entryCount, source.readLong(), source.readLong(),
-          source.readInt());
+      final long forwardRootKey = source.readLong();
+      final long reverseRootKey = source.readLong();
+      final int generation = source.readInt();
+      // The ordered-prefix boundary is APPENDED and read DEFENSIVELY, which is the whole mechanism
+      // that lets a P2 build read a pre-P2 resource without a version bump. The slot is exactly
+      // sized (PageLayout#allocateHeap allocates precisely `size`; getRecordOnlyLength returns the
+      // record's own byte length), so a header written before this field leaves remaining() == 0
+      // here, and 0 is its semantically correct value: the streaming mint's ids are in intern order,
+      // so its ordered prefix is genuinely empty.
+      // The rank-pass trailer is present ONLY when it says something — both fields together or
+      // neither, so "absent" is decidable from the exactly-sized slot without a version bump AND a
+      // dictionary the pass never touched is byte-identical to one written before the pass existed.
+      // Reading them independently would misparse a zero prefix count followed by an index key.
+      final boolean hasRankTrailer = source.remaining() >= Integer.BYTES + Long.BYTES;
+      final int orderedPrefixCount = hasRankTrailer
+          ? source.readInt()
+          : 0;
+      final long blockIndexKey = hasRankTrailer
+          ? source.readLong()
+          : 0L;
+      return new ValueDictionaryHeaderNode(recordID, version, entryCount, forwardRootKey, reverseRootKey, generation,
+          orderedPrefixCount, blockIndexKey);
     }
 
     @Override
@@ -1700,6 +1720,15 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeLong(node.getForwardRootKey());
       sink.writeLong(node.getReverseRootKey());
       sink.writeInt(node.getGeneration());
+      // Written UNCONDITIONALLY against a DEFENSIVE read. The asymmetry is deliberate and is what
+      // buys pre-P2 compatibility without a version bump: old readers are gone (this is the only
+      // reader), old data is short and reads as 0.
+      // Emitted only when the dictionary has something to say, so the kill switch's "off" state is
+      // byte-for-byte what this arm wrote before the rank pass existed.
+      if (node.getOrderedPrefixCount() != 0 || node.getBlockIndexKey() != 0L) {
+        sink.writeInt(node.getOrderedPrefixCount());
+        sink.writeLong(node.getBlockIndexKey());
+      }
     }
   },
 
@@ -1872,15 +1901,27 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final int firstId = source.readInt();
       final int count = source.readInt();
+      // A NEGATIVE count discriminates the front-coded + LZ77 form, a NEGATIVE byteLength the
+      // front-coded one; both are decoded by ValueDictionaryValueBlockCodec into the same
+      // (offsets, bytes) shape this arm has always produced. Intercepted before the plain form's
+      // validation because that validation is what the sign would otherwise trip.
+      if (count < 0 && count != Integer.MIN_VALUE && firstId > 0
+          && -count <= ValueDictionaryValueBlockNode.MAX_BLOCK_VALUES) {
+        return ValueDictionaryValueBlockCodec.deserializeCompressed(source, recordID, firstId, -count);
+      }
       final int byteLength = source.readInt();
-      if (firstId <= 0 || count <= 0 || count > ValueDictionaryValueBlockNode.MAX_BLOCK_VALUES || byteLength < 0
-          || byteLength > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES) {
+      if (firstId <= 0 || count <= 0 || count > ValueDictionaryValueBlockNode.MAX_BLOCK_VALUES
+          || byteLength == Integer.MIN_VALUE
+          || Math.abs(byteLength) > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES) {
         throw new IllegalStateException("invalid value dictionary value block header");
       }
       // The id range must fit an int: a corrupt firstId near MAX_VALUE would otherwise construct a
       // block whose last id wraps negative and silently stops covering anything.
       if ((long) firstId + count - 1L > Integer.MAX_VALUE) {
         throw new IllegalStateException("value dictionary value block overruns the id space");
+      }
+      if (byteLength < 0) {
+        return ValueDictionaryValueBlockCodec.deserializeFrontCoded(source, recordID, firstId, count, -byteLength);
       }
       // Bound the claimed sizes against what the source can actually still hold BEFORE allocating,
       // so a corrupt or truncated record cannot make this reserve arbitrary memory.
@@ -1902,6 +1943,11 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ValueDictionaryValueBlockNode node = (ValueDictionaryValueBlockNode) record;
+      // Election is per block, by measured size; with the kill switch off no candidate is built and
+      // this arm emits exactly the plain form it always did.
+      if (ValueDictionaryValueBlockCodec.ENABLED && ValueDictionaryValueBlockCodec.serializeIfSmaller(sink, node)) {
+        return;
+      }
       final byte[] bytes = node.rawBytes();
       final int count = node.size();
       sink.writeInt(node.getFirstId());
@@ -1912,6 +1958,74 @@ public enum NodeKind implements DeweyIdSerializer {
         sink.writeInt(node.offsetAt(i));
       }
       sink.write(bytes);
+    }
+  },
+
+  /**
+   * The separator array over a rank-ordered dictionary's value blocks — see
+   * {@link ValueDictionaryBlockIndexNode} for why a sorted-string dictionary needs one.
+   */
+  VALUE_DICTIONARY_BLOCK_INDEX((byte) 60) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID, final byte[] deweyID,
+        final ResourceConfiguration resourceConfiguration) {
+      final int count = source.readInt();
+      if (count <= 0 || count > ValueDictionaryBlockIndexNode.MAX_ENTRIES) {
+        throw new IllegalStateException("invalid value dictionary block index count " + count);
+      }
+      // Two ints per entry is the floor of the varint framing, so a claimed count that cannot fit
+      // in what remains is refused BEFORE the arrays are sized.
+      if ((long) count * 2L > source.remaining()) {
+        throw new IllegalStateException("value dictionary block index overruns its record");
+      }
+      final int[] firstIds = new int[count];
+      final int[] offsets = new int[count + 1];
+      int firstId = 0;
+      long separatorBytes = 0;
+      for (int i = 0; i < count; i++) {
+        firstId += readUnsignedVarInt(source);
+        firstIds[i] = firstId;
+        final int length = readUnsignedVarInt(source);
+        separatorBytes += length;
+        if (separatorBytes > source.remaining()) {
+          throw new IllegalStateException("value dictionary block index separators overrun its record");
+        }
+        offsets[i + 1] = (int) separatorBytes;
+      }
+      final byte[] separators = new byte[(int) separatorBytes];
+      if (separatorBytes > 0) {
+        source.read(separators, 0, (int) separatorBytes);
+      }
+      return ValueDictionaryBlockIndexNode.takeOwnership(recordID, firstIds, separators, offsets);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryBlockIndexNode node = (ValueDictionaryBlockIndexNode) record;
+      final int count = node.size();
+      sink.writeInt(count);
+      int previousFirstId = 0;
+      for (int i = 0; i < count; i++) {
+        writeUnsignedVarInt(sink, node.firstId(i) - previousFirstId);
+        previousFirstId = node.firstId(i);
+        writeUnsignedVarInt(sink, node.separatorLength(i));
+      }
+      final byte[] separators = node.separatorBytes();
+      if (separators.length > 0) {
+        sink.write(separators);
+      }
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
     }
   },
 
@@ -2632,4 +2746,29 @@ public enum NodeKind implements DeweyIdSerializer {
       throw new UnsupportedOperationException();
     }
   }
+  /** LEB128, shared by the arms that frame variable-width tables. */
+  private static void writeUnsignedVarInt(final BytesOut<?> sink, final int value) {
+    int remaining = value;
+    while ((remaining & ~0x7F) != 0) {
+      sink.writeByte((byte) ((remaining & 0x7F) | 0x80));
+      remaining >>>= 7;
+    }
+    sink.writeByte((byte) remaining);
+  }
+
+  private static int readUnsignedVarInt(final BytesIn<?> source) {
+    int result = 0;
+    for (int shift = 0; shift <= 28; shift += 7) {
+      final int read = source.readByte() & 0xFF;
+      result |= (read & 0x7F) << shift;
+      if ((read & 0x80) == 0) {
+        if (result < 0) {
+          throw new IllegalStateException("varint overflows an int");
+        }
+        return result;
+      }
+    }
+    throw new IllegalStateException("varint is not terminated");
+  }
+
 }

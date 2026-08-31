@@ -1758,6 +1758,85 @@ public final class ProjectionIndexRowGroupPage {
       columnMin[c] = min;
       columnMax[c] = max;
     }
+    installGlobalIdLane(c, converted);
+  }
+
+  /**
+   * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_GLOBAL} using
+   * ids this leaf's entries were ALREADY assigned, rather than interning them now.
+   *
+   * <p>
+   * This is the rank pass's half of {@link #convertStringDictColumnToGlobal}. The two differ in
+   * exactly one thing and it is the whole point of the pass: interning assigns ids in first-seen
+   * order, which no amount of bookkeeping makes a rank, whereas a rank is a property of the whole
+   * value set and can only be known after every leaf has been read. So the pass computes the mapping
+   * globally and hands it back here per leaf.
+   * </p>
+   *
+   * <p>
+   * The mapping is by LOCAL DICTIONARY ENTRY, not by row, and it is required to be TOTAL over the
+   * entries this leaf actually references: a missing entry is a defect in the pass that produced it,
+   * and silently writing id 0 would turn a present value into an absent cell — a wrong answer that
+   * no later stage could detect. It is therefore refused by name.
+   * </p>
+   *
+   * @param c the column to convert
+   * @param localToGlobal global id per local dictionary entry, indexed by local id
+   */
+  void remapStringDictColumnToGlobal(final int c, final int[] localToGlobal) {
+    checkColumn(c);
+    if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
+    }
+    if (localToGlobal == null) {
+      throw new NullPointerException("localToGlobal must not be null");
+    }
+    final long[] converted = new long[MAX_ROWS];
+    if (rowCount > 0) {
+      final int entries = stringDictionarySize(c);
+      if (localToGlobal.length < entries) {
+        throw new IllegalStateException(
+            "rank mapping covers " + localToGlobal.length + " entries, leaf column " + c + " has " + entries);
+      }
+      final int[] ids = stringDictIdCols[c];
+      final long[] presence = presenceCols[c];
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      for (int row = 0; row < rowCount; row++) {
+        if ((presence[row >>> 6] & (1L << (row & 63))) == 0) {
+          converted[row] = 0L;
+          continue;
+        }
+        final int local = ids[row];
+        final int global = localToGlobal[local];
+        if (global <= 0) {
+          throw new IllegalStateException(
+              "rank mapping has no id for local entry " + local + " of column " + c + ", referenced by row " + row);
+        }
+        converted[row] = global;
+        if (global < min) {
+          min = global;
+        }
+        if (global > max) {
+          max = global;
+        }
+      }
+      columnMin[c] = min;
+      columnMax[c] = max;
+    }
+    installGlobalIdLane(c, converted);
+  }
+
+  /**
+   * Install the id lane and drop every per-leaf dictionary structure the column no longer owns.
+   *
+   * <p>
+   * Shared by both conversions so the teardown cannot drift between them — a stale
+   * {@code stringDictHashes} left behind on one path would be read by a consumer that dispatches on
+   * the NEW kind and finds the OLD side tables still populated.
+   * </p>
+   */
+  private void installGlobalIdLane(final int c, final long[] converted) {
     numericCols[c] = converted;
     stringDictIdCols[c] = null;
     stringDicts[c] = null;

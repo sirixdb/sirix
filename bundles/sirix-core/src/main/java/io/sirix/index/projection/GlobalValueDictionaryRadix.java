@@ -145,14 +145,42 @@ final class GlobalValueDictionaryRadix {
   static Roots append(final long oldForwardRoot, final long oldReverseRoot, final int oldEntryCount,
       final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter writer, final TransactionIntentLog log) {
+    return append(oldForwardRoot, oldReverseRoot, oldEntryCount, additions, namePage, databaseType, writer, log, true);
+  }
+
+  /**
+   * Appends {@code additions}, optionally WITHOUT a forward hash index.
+   *
+   * <p>
+   * A rank-ordered dictionary does not need one: "which id holds this value" is a binary search over
+   * the reverse index, which is already sorted by value because ids were minted in collation order.
+   * Skipping it is not a minor saving — the forward index measured 64.7 B/entry at D = 275K and
+   * 173 B/entry at D = 2.62M, because each bounded append writes a fresh set of forward radix nodes
+   * at new keys and copy-on-write retains every one of them. The caller is responsible for the
+   * ordering claim; {@code ValueDictionaryHeaderNode} refuses a zero forward root on any dictionary
+   * that is not fully ordered, so a wrong claim fails loudly at the header rather than silently
+   * producing a dictionary nothing can probe.
+   * </p>
+   *
+   * @param buildForwardIndex {@code false} only for a rank-ordered build
+   */
+  static Roots append(final long oldForwardRoot, final long oldReverseRoot, final int oldEntryCount,
+      final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineWriter writer, final TransactionIntentLog log, final boolean buildForwardIndex) {
     if (additions.entryCount() == 0) {
       return new Roots(oldForwardRoot, oldReverseRoot);
     }
     final int finalEntryCount = Math.addExact(oldEntryCount, additions.entryCount());
 
+    // Left EMPTY when no forward index is wanted: every forward structure below is driven by this
+    // map, so the planning loop, the bucket writes and RadixPlan all become no-ops without a
+    // second code path to keep in step.
     final TreeMap<Integer, IntList> additionsByPrimary = new TreeMap<>();
-    for (int localId = 1; localId <= additions.entryCount(); localId++) {
-      additionsByPrimary.computeIfAbsent(hashBucket(additions.hashAt(localId)), ignored -> new IntList()).add(localId);
+    if (buildForwardIndex) {
+      for (int localId = 1; localId <= additions.entryCount(); localId++) {
+        additionsByPrimary.computeIfAbsent(hashBucket(additions.hashAt(localId)), ignored -> new IntList())
+                          .add(localId);
+      }
     }
     final int firstReverseBucket = oldEntryCount >>> 8;
     final int lastReverseBucket = (finalEntryCount - 1) >>> 8;

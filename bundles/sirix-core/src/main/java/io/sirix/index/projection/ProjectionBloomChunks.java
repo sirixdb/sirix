@@ -62,6 +62,39 @@ public final class ProjectionBloomChunks {
   private ProjectionBloomChunks() {}
 
   /** Number of fixed chunks needed for {@code rowGroupCount}. */
+  /**
+   * Drops every Bloom byte a column owns, for a column that is ceasing to be a string kind.
+   *
+   * <p>
+   * Needed because {@link #rewriteTouchedChunks} SKIPS any column whose kind is not a string kind —
+   * so once a column has been flipped to {@code COLUMN_KIND_STRING_GLOBAL} the ordinary maintenance
+   * path will never look at its chunks again, and they become bytes that are stored, paid for, and
+   * unreachable. **[M]** at 1M that is 1.82 MB across the four ClickBench fat columns, silently.
+   * A storage lever that leaks bytes is not a storage lever, so the flip drops them explicitly.
+   * </p>
+   *
+   * @param physicalRowGroupCount how many row groups the index holds, which bounds the chunk ids
+   * @return the number of blobs tombstoned
+   */
+  static int dropColumn(final ProjectionIndexHOTStorage storage, final int column,
+      final int physicalRowGroupCount) {
+    int dropped = 0;
+    final long manifestSlot = ProjectionIndexHOTStorage.bloomBlockSlotKey(column);
+    if (storage.getBlob(manifestSlot) != null) {
+      storage.tombstoneBlob(manifestSlot);
+      dropped++;
+    }
+    final int chunks = chunkCount(physicalRowGroupCount);
+    for (int chunkId = 0; chunkId < chunks; chunkId++) {
+      final long chunkSlot = chunkSlotKey(column, chunkId);
+      if (storage.getBlob(chunkSlot) != null) {
+        storage.tombstoneBlob(chunkSlot);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   static int chunkCount(final int rowGroupCount) {
     checkRowGroupCount(rowGroupCount);
     return (rowGroupCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;

@@ -7,6 +7,9 @@ import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.HashAccesses;
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.TransactionIntentLog;
+import io.sirix.node.ValueDictionaryBlockIndexNode;
 import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.ValueDictionaryValueBlockNode;
@@ -153,8 +156,13 @@ public final class GlobalValueDictionary {
       return null;
     }
     return new ReadView(headerNodeKey, header.getReverseRootKey(), header.getEntryCount(), revision, namePage,
-        databaseType, reader);
+        databaseType, reader, header.getBlockIndexKey());
   }
+
+  /** Ids per separator-array entry; one reverse bucket, so the partition needs no spill handling. */
+  private static final int VALUES_PER_INDEXED_RANGE = ValueDictionaryValueBucketNode.VALUES_PER_BUCKET;
+
+  private static final byte[] EMPTY_SEPARATOR = new byte[0];
 
   /** Revision-bound, fixed-memory reverse-dictionary access for scan kernels. */
   public static final class ReadView {
@@ -194,6 +202,17 @@ public final class GlobalValueDictionary {
     private final long[] cachedBlockKeys = new long[READ_VIEW_BLOCK_CACHE_SIZE];
     private final ValueDictionaryValueBlockNode[] cachedBlocks =
         new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_CACHE_SIZE];
+    /**
+     * Separator array over the ordered prefix, loaded ONCE per view and then kept. It is the whole
+     * point of the structure: without it a binary-search probe decodes one block per step, with it
+     * one block per probe, and re-reading it per probe would give back exactly what it saves.
+     */
+    private final long blockIndexKey;
+
+    private @Nullable ValueDictionaryBlockIndexNode blockIndex;
+
+    private boolean blockIndexLoaded;
+
     private int @Nullable [] transformedIds;
     private int @Nullable [] transformedStarts;
     private int @Nullable [] transformedLengths;
@@ -201,7 +220,9 @@ public final class GlobalValueDictionary {
     private long @Nullable [] transformedValues;
 
     private ReadView(final long headerNodeKey, final long reverseRootKey, final int entryCount, final int revision,
-        final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+        final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader,
+        final long blockIndexKey) {
+      this.blockIndexKey = blockIndexKey;
       this.headerNodeKey = headerNodeKey;
       this.reverseRootKey = reverseRootKey;
       this.entryCount = entryCount;
@@ -381,6 +402,60 @@ public final class GlobalValueDictionary {
       return rightSpill == null
           ? leftSpill.compareToRange(rightBacking, cachedOffsets[rightSlot], cachedLengths[rightSlot])
           : leftSpill.compareValueUtf16(rightSpill);
+    }
+
+    /**
+     * Compare the value behind {@code id} to a caller-owned byte range, under the same collation.
+     *
+     * <p>
+     * The binary-search probe's inner loop. It exists so that searching an ordered prefix reuses this
+     * view's caches — the bucket, the decoded block and the resolved slice — instead of walking the
+     * reverse radix and decoding a 33 KB block from scratch for every one of its ~18 steps, which is
+     * what the stateless per-id read does and what made the search 39x the hash probe when measured.
+     * Allocation-free by the same construction as {@link #compareIds}.
+     * </p>
+     *
+     * @return negative, zero or positive as the stored value orders before, with, or after the range
+     */
+    public int compareIdToValue(final int id, final byte[] utf8, final int offset, final int length) {
+      final int slot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+      return spill == null
+          ? ValueDictionaryEntryNode.compareUtf16Range(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot],
+              utf8, offset, length)
+          : spill.compareToRange(utf8, offset, length);
+    }
+
+    /**
+     * The id range that can hold {@code utf8}, narrowed by the separator array when there is one.
+     *
+     * <p>
+     * Returns {@code (low << 32) | high} packed, because this is on the probe path and a record here
+     * would allocate per probe. Without a separator array the range is the whole ordered prefix,
+     * which is correct and merely slower — the array is an accelerator, never a source of truth.
+     * </p>
+     */
+    long candidateIdRange(final byte[] utf8, final int offset, final int length, final int boundary) {
+      if (!blockIndexLoaded) {
+        blockIndexLoaded = true;
+        if (blockIndexKey != 0L) {
+          final DataRecord record =
+              namePage.getProjectionValueDictionaryRecord(blockIndexKey, databaseType, reader);
+          if (record instanceof ValueDictionaryBlockIndexNode index) {
+            blockIndex = index;
+          }
+        }
+      }
+      final ValueDictionaryBlockIndexNode index = blockIndex;
+      if (index == null) {
+        return ((long) 1 << 32) | (boundary & 0xFFFFFFFFL);
+      }
+      final int block = index.blockOf(utf8, offset, length);
+      final int low = index.firstId(block);
+      final int high = block + 1 < index.size()
+          ? Math.min(index.firstId(block + 1) - 1, boundary)
+          : boundary;
+      return ((long) low << 32) | (high & 0xFFFFFFFFL);
     }
 
     /** Allocation-free {@code xs:integer(substring(value, start, length))}. */
@@ -723,12 +798,155 @@ public final class GlobalValueDictionary {
     }
     final DatabaseType databaseType = databaseTypeOf(reader);
     final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
+    // The ordered prefix is probed by BINARY SEARCH over the reverse index, which is sorted by value
+    // because its ids were minted in collation order. That is what lets a rank-ordered dictionary
+    // carry no forward hash index at all. A dictionary with an unordered tail must try BOTH: the
+    // value may be in either half, and answering ABSENT after searching only the prefix would be a
+    // wrong answer, not a slow one.
+    final int boundary = header.getOrderedPrefixCount();
+    if (boundary > 0) {
+      // ONE view for the whole search: its bucket, block and slice caches are what make the ~18
+      // steps cost far less than 18 independent reads, and they are useless if a view is built per
+      // step. A caller that interns many values should hold a view across them for the same reason.
+      final ReadView view = readView(headerNodeKey, reader);
+      if (view == null) {
+        return ID_UNKNOWN;
+      }
+      final int ordered = searchOrderedPrefix(view, boundary, utf8, offset, length);
+      if (ordered != ID_ABSENT) {
+        return ordered;
+      }
+      if (header.isFullyOrdered()) {
+        return ID_ABSENT;
+      }
+    }
+    if (header.getForwardRootKey() == 0) {
+      // Only a fully ordered dictionary may omit the forward index, and that case returned above.
+      return ID_UNKNOWN;
+    }
     final long wanted = valueHash(utf8, offset, length);
     final long secondary = secondaryValueHash(utf8, offset, length);
     final GlobalValueDictionaryRadix.ProbeResult result =
         GlobalValueDictionaryRadix.probe(header.getForwardRootKey(), header.getReverseRootKey(), header.getEntryCount(),
             wanted, secondary, utf8, offset, length, namePage, databaseType, reader);
     return recordProbeResult(result.id(), result.units());
+  }
+
+  /**
+   * Builds the separator array over a fully ordered dictionary and returns its record key.
+   *
+   * <p>
+   * Partitions on REVERSE BUCKET boundaries (256 ids), not on block boundaries. The two are nearly
+   * the same partition, and the bucket one is total by construction — a bucket covers its ids
+   * whether they are packed in blocks or spilled to their own records, so the search's within-range
+   * step handles a spilled value with no special case.
+   * </p>
+   *
+   * @return the record key of the separator array, or 0 when the dictionary is too small to index
+   */
+  public static long buildBlockIndex(final long headerNodeKey, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineWriter writer, final TransactionIntentLog log) {
+    final ValueDictionaryHeaderNode header = header(headerNodeKey, writer);
+    if (header == null || !header.isFullyOrdered() || header.getEntryCount() <= VALUES_PER_INDEXED_RANGE) {
+      return 0L;
+    }
+    final int entryCount = header.getEntryCount();
+    final int ranges = (entryCount + VALUES_PER_INDEXED_RANGE - 1) / VALUES_PER_INDEXED_RANGE;
+    final int[] firstIds = new int[ranges];
+    final int[] offsets = new int[ranges + 1];
+    final byte[][] separators = new byte[ranges][];
+    int totalSeparatorBytes = 0;
+    for (int i = 0; i < ranges; i++) {
+      final int firstId = i * VALUES_PER_INDEXED_RANGE + 1;
+      firstIds[i] = firstId;
+      if (i == 0) {
+        separators[i] = EMPTY_SEPARATOR;
+      } else {
+        final byte[] previous = valueBytes(headerNodeKey, firstId - 1, writer);
+        final byte[] next = valueBytes(headerNodeKey, firstId, writer);
+        if (previous == null || next == null) {
+          throw new IllegalStateException("the dictionary lost id " + firstId + " while its index was being built");
+        }
+        separators[i] = shortestSeparator(previous, next);
+      }
+      totalSeparatorBytes = Math.addExact(totalSeparatorBytes, separators[i].length);
+      offsets[i + 1] = totalSeparatorBytes;
+    }
+    final byte[] packed = new byte[totalSeparatorBytes];
+    for (int i = 0; i < ranges; i++) {
+      System.arraycopy(separators[i], 0, packed, offsets[i], separators[i].length);
+    }
+    final long indexKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
+    namePage.putProjectionValueDictionaryRecord(
+        ValueDictionaryBlockIndexNode.takeOwnership(indexKey, firstIds, packed, offsets), databaseType, writer, log);
+    namePage.putProjectionValueDictionaryRecord(
+        new ValueDictionaryHeaderNode(header.getNodeKey(), ValueDictionaryHeaderNode.VERSION, entryCount,
+            header.getForwardRootKey(), header.getReverseRootKey(), header.getGeneration(),
+            header.getOrderedPrefixCount(), indexKey),
+        databaseType, writer, log);
+    return indexKey;
+  }
+
+  /**
+   * The shortest prefix of {@code next} that still orders after {@code previous}.
+   *
+   * <p>
+   * Cut at a UTF-8 code-point boundary, because a prefix that splits a character is not a value the
+   * collation can compare, and VERIFIED against the comparator before it is used — if the short form
+   * does not separate, the whole value is stored. A separator array is an accelerator, so it may be
+   * larger than necessary but must never be wrong.
+   * </p>
+   */
+  static byte[] shortestSeparator(final byte[] previous, final byte[] next) {
+    int common = 0;
+    final int limit = Math.min(previous.length, next.length);
+    while (common < limit && previous[common] == next[common]) {
+      common++;
+    }
+    int cut = Math.min(common + 1, next.length);
+    while (cut < next.length && (next[cut] & 0xC0) == 0x80) {
+      cut++;
+    }
+    final byte[] candidate = java.util.Arrays.copyOf(next, cut);
+    return ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, candidate, 0, candidate.length) < 0
+        ? candidate
+        : next.clone();
+  }
+
+  /**
+   * Binary search for {@code utf8} over ids {@code 1..boundary}, which are in collation order.
+   *
+   * <p>
+   * The comparator MUST be {@link ValueDictionaryEntryNode#compareUtf16Range} and not unsigned byte
+   * order: the two differ for supplementary characters, which sort after U+E000..U+FFFF in UTF-8
+   * bytes but before them in UTF-16. The rank pass sorts with a byte substitution that is provably
+   * equivalent to this comparator, so searching with anything else would look up a value in an order
+   * it was not stored in and answer ABSENT for a value that is present.
+   * </p>
+   *
+   * @return the id, or {@link #ID_ABSENT} when the prefix provably does not hold the value, or
+   *         {@link #ID_UNKNOWN} when a value could not be read
+   */
+  private static int searchOrderedPrefix(final ReadView view, final int boundary, final byte[] utf8, final int offset,
+      final int length) {
+    // The separator array narrows the search to ONE block before a single value is read; without it
+    // the range is the whole prefix and every step decodes a different block.
+    final long range = view.candidateIdRange(utf8, offset, length, boundary);
+    int low = (int) (range >>> 32);
+    int high = (int) range;
+    while (low <= high) {
+      final int mid = (low + high) >>> 1;
+      final int comparison = view.compareIdToValue(mid, utf8, offset, length);
+      if (comparison == 0) {
+        return mid;
+      }
+      if (comparison < 0) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return ID_ABSENT;
   }
 
   private static int recordProbeResult(final int result, final int probeUnits) {

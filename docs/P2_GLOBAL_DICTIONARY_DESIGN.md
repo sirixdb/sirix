@@ -647,6 +647,20 @@ leaves a perfectly good per-leaf projection behind.
 The existing streaming mint stays exactly as it is, for the resources it already serves (a few million distinct):
 its dictionaries simply carry `orderedPrefixCount = 0` and get the equality-only half of §3.2.
 
+**A CONVERSION PASS OVER AN EXISTING DATABASE COSTS BYTES. It cannot be a storage lever, and anyone proposing one
+has to answer this paragraph first.** **[M]** converting Title on a 1 M ClickBench database GREW `sirix.data` from
+1,094.5 MB to **1,105.1 MB**, +10.6 MB. That is correct and structural, not a defect: Sirix is append-only, so
+dropping a column's `DICT`/`BLOOM`/`DICT_HASHES` removes the *reference* from the new leaf version while the
+superseded bytes stay at their durable offsets — which is exactly what lets revision *N* keep reading, and is
+proven per `VersioningType` by `ProjectionSideReferenceVersioningMatrixTest`. What the retrofit buys is the query
+SHAPE (and it buys it exactly: **[M]** 43/43 dumps byte-identical afterwards, twice). What it cannot buy is a
+smaller file.
+
+The storage number therefore comes from a **fresh build**, and that path is open: `requireVirginTreeForInitialBuild`
+(`ProjectionIndexHOTStorage:205`) forbids re-running the builder over a *populated* projection tree, and a freshly
+loaded database is a virgin tree. S3 and S4 are the retrofit for databases that already exist; a fresh build has
+the finished rank-ordered dictionary before it starts and writes final ids directly, superseding nothing.
+
 ### 5.2 The four stages
 
 Per elected column, one at a time (so the spill peak is one column's, not four):
@@ -676,9 +690,9 @@ S4 REMAP        stream row groups in physical order, consuming the matching trip
                   build the new BODY long lane from the leaf's local ids via the triples
                   re-encode the column, drop DICT / BLOOM / DICT_HASHES
                   putRowGroupAsColumnSegmentSlots(slot, encoded, changedColumnWords, keysChanged=false)
-                COMMIT every rowGroupsPerCommit row groups (§5.5).
-                FINAL commit only: flip the column's kind in the metadata blob and record
-                the header key — so a crash mid-S4 leaves a still-per-leaf column (§5.5).
+                ONE COMMIT for the whole column, carrying every descriptor, the kind flip in
+                the metadata blob and the dictionary anchor together (§5.5 — a per-epoch S4
+                is NOT possible, and the reason is worth reading before changing this).
 ```
 
 ### 5.3 `intern` in rank order mints the rank — but the append path must be front-less
@@ -788,13 +802,29 @@ held at once. The design therefore **commits per epoch**:
   generation is already an immutable segment, so that is exactly the boundary `flushAppend` defines: a crash
   between generations leaves a shorter but internally consistent dictionary, with `orderedPrefixCount` still at its
   old value and therefore no reader believing the prefix is sorted.
-- **S4 commits every `sirix.projection.globalDict.rankPass.rowGroupsPerCommit` row groups** (default **1,024**; at
-  ~24 KB of rewritten segments per row group that is ~25 MB of log per epoch). A crash mid-S4 leaves some row
-  groups converted and some not — handled because the column's kind flip and the header's `orderedPrefixCount` are
-  published in the **final** commit, so until then every reader still sees a per-leaf column and the partial work
-  is invisible.
-- Peak intent log is therefore **one epoch, ≈ 25–50 MB**, and the `-Dsirix.til.diag` census staying flat across the
-  pass is W6's second assertion.
+- **S4 commits ONCE per column.** An earlier draft of this document instructed a per-epoch S4 that flipped the
+  kind only in the final commit, "so until then every reader still sees a per-leaf column". **That is impossible,
+  and it was corrected against the code rather than reasoned about:** the column kind lives in EVERY
+  `RowGroupDescriptor` (`OFF_KINDS = 27`), not only in the resource-level metadata blob, and
+  `ProjectionColumnStore`'s constructor runs `verifyEveryLeafAgreesWithLeafZero`, which throws
+  `ProjectionStoreInconsistentException` the moment leaf 0 disagrees with any other leaf (`kindsAgree` compares the
+  whole kinds array). A per-epoch S4 would therefore leave every intermediate revision with a store that REFUSES
+  TO BUILD — not one that quietly serves the old form. There is a task-#45 post-mortem comment at that call site
+  about precisely this split brain.
+- **The fear that motivated the per-epoch cadence does not apply to S4.** §5.5's worry was one transaction holding
+  "the entire rewritten dictionary plus every rewritten row group". But S2 commits the dictionary per generation and
+  is FINISHED before S4 starts, and `changedColumnWords` scopes S4's rewrite to the one column. So S4's dirty set is
+  the id lane alone: at 100 M that is 97,654 row groups × 1,024 rows × 25 bits ≈ **312 MB** for URL, plus
+  descriptors, minus the tombstoned DICT/BLOOM/DICT_HASHES. Four columns are converted one at a time, so those
+  never sum. **[M]** the whole pass over a 1 M database takes 1.4–9.7 s per column.
+- A crash mid-S4 therefore rolls back to a still-per-leaf column, which is the property the per-epoch cadence was
+  reaching for and gets more simply.
+- Peak intent log is **S2's one generation (≈ 2.4 MB) or S4's one column (≈ 350 MB at 100 M)**, and the
+  `-Dsirix.til.diag` census staying flat across S2 is W6's second assertion.
+- **Mixed kinds across COLUMNS are fine and are exercised:** `kindsAgree` requires every LEAF to agree, and says
+  nothing about columns agreeing with each other, so a store with URL at `STRING_GLOBAL` beside Title at
+  `STRING_DICT` is legal. **[M]** every arm of the per-column screen is such a store, opened cold and serving all
+  43 queries correctly.
 
 `GlobalValueDictionaryRadix.reservationBytesForAppend` already models `pageAndIntentLogBytes` as
 `2 × (encodedBytes + records × RECORD_STRIDE)` for a *single* append and preflights it through

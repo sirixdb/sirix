@@ -688,6 +688,29 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
    * @param log the transaction intent log of the revision being built
    * @return the header's node key, which is what a reader needs to find this dictionary again
    */
+  /**
+   * Set by the rank pass, which feeds a MERGED SORTED stream so {@code intern} mints {@code id ==
+   * rank}. It changes two things and nothing else: the forward hash index is not built (§3.3.2), and
+   * the header records the whole dictionary as ordered.
+   */
+  private boolean rankOrdered;
+
+  /**
+   * Declare that every value handed to this writer arrives in ascending collation order.
+   *
+   * <p>
+   * Package-private: only the rank pass can make this claim, because only a merged sorted stream can
+   * honour it. It is checked where it can be — the header refuses a missing forward index on a
+   * dictionary that is not fully ordered — but the ORDER itself is the caller's obligation.
+   * </p>
+   */
+  void markRankOrdered() {
+    if (entryCount != 0) {
+      throw new IllegalStateException("rank order must be declared before the first value is interned");
+    }
+    rankOrdered = true;
+  }
+
   public long flush(final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
     if (released) {
@@ -698,10 +721,11 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
       namePage.createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
 
       final long headerKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
-      final GlobalValueDictionaryRadix.Roots roots =
-          GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage, databaseType, storageEngineWriter, log);
+      final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage,
+          databaseType, storageEngineWriter, log, !rankOrdered);
       final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey,
-          ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0);
+          ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0,
+          rankOrdered ? entryCount : 0);
       namePage.putProjectionValueDictionaryRecord(header, databaseType, storageEngineWriter, log);
       return headerKey;
     } catch (final RuntimeException | Error failure) {
@@ -725,12 +749,17 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     final int totalEntries = Math.toIntExact(Math.addExact((long) baseHeader.getEntryCount(), entryCount));
     ensureFlushFitsBudget(reservationBytesForFlushAppend(baseHeader));
     try {
+      // The result is ordered only if BOTH the base and this generation are: a rank pass appending to
+      // an intern-ordered base would produce a sorted run above an unsorted one, which is exactly the
+      // state orderedPrefixCount exists to describe rather than to claim away.
+      final boolean ordered = rankOrdered && baseHeader.isFullyOrdered();
       final GlobalValueDictionaryRadix.Roots roots =
           GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(),
-              baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log);
+              baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log, !ordered);
       namePage.putProjectionValueDictionaryRecord(
           new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
-              roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1)),
+              roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1),
+              ordered ? totalEntries : baseHeader.getOrderedPrefixCount()),
           databaseType, storageEngineWriter, log);
       return baseHeader.getNodeKey();
     } catch (final RuntimeException | Error failure) {
