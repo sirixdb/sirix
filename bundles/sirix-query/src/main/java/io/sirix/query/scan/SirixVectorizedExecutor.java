@@ -49,6 +49,7 @@ import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.cache.GlobalVerdictCacheKey;
 import io.sirix.index.projection.GlobalValueDictionary;
 import io.sirix.index.projection.GroupDistinctAccumulator;
 import io.sirix.index.projection.GroupTableSpill;
@@ -132,6 +133,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
@@ -8429,7 +8431,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return null;
     }
-    final long[] verdict = view.stringOpVerdict(op, literalUtf8);
+    // The verdict is a pure function of (dictionary, revision, op, literal) and costs a sweep of
+    // every distinct value -- 58 ms on a 275,494-entry URL dictionary, which measured as essentially
+    // the whole cost of the substring queries. It is cached on the BUFFER MANAGER rather than on
+    // this executor because the engine builds a new executor per execution: an executor-held cache
+    // was measured never to be reused (15 sweeps over a 43-query, 3-try leg, 12 distinct executor
+    // instances). Sharing the array is safe -- every consumer only bit-TESTS globalIdVerdict.
+    final StorageEngineReader reader = workerTrx().getStorageEngineReader();
+    final GlobalVerdictCacheKey cacheKey = new GlobalVerdictCacheKey(reader.getDatabaseId(), reader.getResourceId(),
+        view.revision(), headerKey, op.name(), HexFormat.of().formatHex(literalUtf8));
+    long[] verdict = reader.getBufferManager().getGlobalVerdictCache().get(cacheKey);
+    if (verdict == null) {
+      verdict = view.stringOpVerdict(op, literalUtf8);
+      reader.getBufferManager().getGlobalVerdictCache().put(cacheKey, verdict);
+    }
     return ProjectionIndexScan.ColumnPredicate.globalStringVerdict(column, op, literalUtf8, verdict,
         view.entryCount());
   }

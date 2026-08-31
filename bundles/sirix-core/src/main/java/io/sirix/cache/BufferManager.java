@@ -47,6 +47,17 @@ public interface BufferManager extends AutoCloseable {
 
   Cache<PathSummaryCacheKey, PathSummaryData> getPathSummaryCache();
 
+  /**
+   * Verdict bitsets for string predicates over global projection value dictionaries.
+   *
+   * <p>
+   * Resource-scoped rather than executor-scoped by necessity: a verdict costs a sweep of every
+   * distinct value, and the query engine builds a NEW executor per execution, so an executor-held
+   * cache is measurably never reused. Missing is always safe -- the caller recomputes.
+   * </p>
+   */
+  Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache();
+
   void clearAllCaches();
 
   /**

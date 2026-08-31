@@ -224,9 +224,18 @@ public final class BufferManagerImpl implements BufferManager {
   private final RevisionRootPageCache revisionRootPageCache;
   // Memoized HOT point-lookup answers. Sized independently of the page caches: entries are a key
   // plus a bounded long[], so this is kilobytes where the page caches are megabytes.
+  /**
+   * Verdict-cache budget. A verdict is one bit per dictionary id, so this is tens of kilobytes at
+   * a million distinct values and a few megabytes at a hundred million; the bound is in BYTES so
+   * the second scale cannot quietly cost hundreds of megabytes the way a count bound would.
+   */
+  private static final long GLOBAL_VERDICT_CACHE_BYTES =
+      Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
+
   private final HOTLookupCache hotLookupCache;
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
+  private final GlobalVerdictCache globalVerdictCache;
 
   // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
   // Started when BufferManager is initialized, run until shutdown
@@ -316,6 +325,7 @@ public final class BufferManagerImpl implements BufferManager {
         : new HOTLookupCache(hotLookupEntries);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
+    globalVerdictCache = new GlobalVerdictCache(GLOBAL_VERDICT_CACHE_BYTES);
 
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
     this.clockSweeperThreads = new ArrayList<>();
@@ -368,6 +378,11 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public NamesCache getNamesCache() {
     return namesCache;
+  }
+
+  @Override
+  public GlobalVerdictCache getGlobalVerdictCache() {
+    return globalVerdictCache;
   }
 
   @Override
@@ -505,6 +520,7 @@ public final class BufferManagerImpl implements BufferManager {
       hotLeafFragmentCache.clear();
       revisionRootPageCache.clear();
       namesCache.clear();
+      globalVerdictCache.clear();
       pathSummaryCache.clear();
     } finally {
       hotLookupCache.clear();
