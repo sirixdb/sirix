@@ -965,3 +965,23 @@ H1's guard one-liner, F3/F5/V5 hygiene, and the launch protocol read. Launch sha
 ON (banks the 100M shares), legs with ALL diags OFF, the standing baseline RE-LEGGED on the current build in
 the same session (its recorded numbers are older code), minimum two interleaved pairs cold+hot with the
 stability caveat named, storage number reported the moment the load completes.
+
+### 821fedfa1 reviewed: flush-lifecycle NO HOLE; checklist gains item 6
+
+The warmer widens nothing: it runs only with `wtx == null` on its OWN read-only transaction at a committed
+revision, so it populates under `(db, res, committedRev, key)` while any writer evicts under the next
+revision — the own-transaction choice is what makes the verdict true.
+
+**Item 6 (the largest finding in the diff): `WARMED_DICTIONARIES` moves off its private static onto the
+buffer manager.** `LocalDatabase.removeResource`'s own comment documents the hazard its clearing contract
+exists for — resource recreated with the same ids — and the static is a third piece of `(databaseId,
+resourceId)`-keyed state that contract cannot reach: delete → caches cleared → marker survives → recreate →
+**the warmer returns 0 forever in that JVM**, self-healing only past 256 markers, which a single-resource
+benchmark JVM never reaches. On the buffer manager it inherits `clearCachesForResource` for free. The
+blocks-warmed witness would read healthy over that dead warmer (first incarnation's count) — the residency
+counter (item 2) closes the third ran-vs-persisted blindness in one subsystem.
+
+Also on the record: the 9/9-clean acceptance is *consistent with* W1 not biting at 1M, not evidence against
+W1 — the green is silent on it. And the collaboration shape worth keeping: W2 was measured rather than
+accepted (an estimate of "~96k redundant lookups" became a demonstrated +57 ms stable regression), and the
+static was pre-flagged by its author rather than left for the reviewer to find.
