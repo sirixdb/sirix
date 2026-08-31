@@ -985,3 +985,19 @@ Also on the record: the 9/9-clean acceptance is *consistent with* W1 not biting 
 W1 — the green is silent on it. And the collaboration shape worth keeping: W2 was measured rather than
 accepted (an estimate of "~96k redundant lookups" became a demonstrated +57 ms stable regression), and the
 static was pre-flagged by its author rather than left for the reviewer to find.
+
+### H1/F3/F4/F5 landed (9799bb10f); a 12× ratio misapplication struck; launch blocked on three
+
+H1 verbatim (`writeCopy || hasTrxIntentLog()`, both consult and populate); F4 both halves — lazy first-miss
+allocation AND the aggregate bound (the old `1<<20` cap bounded SLOTS, not bytes: 1<<20 × 64 KiB = 64 GiB
+legal; a 512 MiB resident ceiling now also caps slots); F3's power-of-two static refusal; F5's import +
+`READ_VIEW_TABLE_FLOOR` rename. Point-read oracle zero mismatches in BOTH budget configurations.
+
+**Struck before it could propagate: "268.5 MB raw ≈ 13.7 MB written at wire/staging=0.051".** That ratio is
+the whole staged body vs its wire form, misapplied to one section. The string region's own ratio is
+**0.644** (census instrumentation, cross-validated against the 100M log's 0.652) — written region at 1M is
+**172.9 MB**, slices scale by 0.644. The substitute number was 12× off.
+
+**Launch remains blocked on exactly three small items** (every recent report has crossed them): W1 the
+per-resource warm plan, W1b the residency counter, item 6 the `WARMED_DICTIONARIES` relocation to the
+buffer manager. Commit hashes for the three, then launch per the prescribed shape.
