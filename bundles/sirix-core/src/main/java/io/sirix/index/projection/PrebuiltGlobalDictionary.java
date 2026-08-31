@@ -99,11 +99,21 @@ final class PrebuiltGlobalDictionary implements GlobalValueDictionaryEncoder {
       hotValues.put(source, offset, length, id);
       return id;
     }
+    // The VALUE is in the message, not just the fact of its absence. A disagreement between the
+    // pre-pass and the build is a difference in how two readers of the same corpus normalise one
+    // string, and the only way to see which normalisation differs is to look at the string: without
+    // it the next step is guessing, and a guess costs a whole rebuild to test.
+    final String shown = new String(source, offset, Math.min(length, 200), StandardCharsets.UTF_8);
+    final StringBuilder hex = new StringBuilder(3 * Math.min(length, 64));
+    for (int i = 0; i < Math.min(length, 64); i++) {
+      hex.append(String.format("%02x ", source[offset + i]));
+    }
     throw new IllegalStateException("global projection column " + column + " met a value its prebuilt dictionary of "
         + entryCount + " entries does not hold (" + (id == GlobalValueDictionary.ID_ABSENT
             ? "absent"
             : "unreadable") + "). The pre-pass and this build disagree about the value set; appending it here would "
-        + "put an id in the lane that no reader can resolve in collation order.");
+        + "put an id in the lane that no reader can resolve in collation order."
+        + " length=" + length + " value=[" + shown + "] firstBytes=[" + hex.toString().trim() + ']');
   }
 
   /** The dictionary this column resolves against, for the metadata anchor. */
