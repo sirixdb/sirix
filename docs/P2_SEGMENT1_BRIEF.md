@@ -679,3 +679,27 @@ revision after loading; tables are per-ReadView. Findings and rulings:
 
 `7044fc9a3` (the verdict cache — the holder's first landed tenant) postdates the review base and goes to
 impl-ingest against F1/F2. The census 1M run slots into impl-p2s1's next gap.
+
+## Referer lands: three columns, 560.3 MB (−8.7 %), hot −27 % — and the regression set SHRANK
+
+On the clean guarded rig, 43/43 byte-identical throughout:
+
+| arm | bytes | vs never |
+|---|---|---|
+| `never` | 613,610,513 | — |
+| rank+codec, URL+Title | 573,331,369 | −6.6 % |
+| **rank+codec, +Referer** | **560,297,881** | **−8.7 %** |
+
+Suite: cold Σ 6.351 vs 6.900 (−8.0 %), hot 1.126 vs 1.545 (**−27.1 %**). Column store 80.094 → 55.195 B/row.
+Hot regressions **6 → 2** (q27 +18 ms, q38 +12); cold **14 → 8**. q28 — Referer's named witness — now BEATS
+the per-leaf arm hot (0.210 vs 0.233; cold 0.649 vs 0.593): the length table rode the shared mechanism.
+A third global column IMPROVING the clause reads as the q28 family shedding per-leaf Referer work everywhere,
+outweighing the added dictionary pages — a reading, not a measurement; the cold page-read count per arm
+settles it and is the next task.
+
+**THE MARGINAL-COLUMN ECONOMICS, the number to carry into the ≤27 gate and every future election:** Referer's
+projection side fell 27.180 → 2.282 B/row (−24.9 MB) but the file only shrank 13.0 MB — **its dictionary
+costs ~11.9 MB, the first column where the dictionary eats more than half the saving** (227,319 distinct,
+short values). Rule: **price a candidate column by (per-leaf bytes removed − dictionary bytes added), never
+by the projection-side delta alone.** SearchPhrase (18,316 distinct, 56.9 B mean) gets this test before it is
+ever converted, arms or no arms.
