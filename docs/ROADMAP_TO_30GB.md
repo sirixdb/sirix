@@ -42,3 +42,24 @@ granularity, every index) — schedule it as one, after A+B are measured at 100M
 Every stage keeps the standing rules: no per-query regression hot or cold, results byte-identical, written
 bytes measured on disk (never derived, never a ratio, never a slope through two scales), `# served` and
 `route=` on every A/B.
+
+## Stage B sizing, measured (census 2026-08-31, 1M, `residual=0 B`)
+
+The per-tag census (impl-ingest's instrument, `4db2bd1a5`) splits the raw string region — 268.5 MB at 1M —
+as **91.7 % dictionaries / 4.4 % id lane / 3.9 % framing**, and by column:
+
+| slice | share | disposition |
+|---|---|---|
+| Title + URL + Referer (converted) | **63.0 %** | ids into the EXISTING dictionaries — the core of stage B |
+| SearchPhrase (planned, behind segment-2 A1) | 0.9 % | joins when its arms exist |
+| **OriginalURL — NOT in any plan** | **8.5 %** | 10× SearchPhrase; URL-shaped; must be priced by the election rule (per-leaf removed − dictionary added) and screened for serving arms — likely zero-latency-risk if no query touches it |
+| **temporal-as-strings** (LocalEventTime, EventTime, ClientEventTime, EventDate) | **18.1 %** | needs NO dictionary — wants a temporal encoding that round-trips the fixed "YYYY-MM-DD[ HH:MM:SS]" format bijectively; a NEW sub-lever (B-t), not in the stated trie-lane design |
+| everything else | ~8.5 % | tail |
+
+**Id-lane arithmetic (2):** page-wide width 11.68 MB vs per-tag FOR 4.87 MB = **58.3 % lane saving**; the
+three converted columns' 169.1 MB of in-trie dictionary bytes become **~909 KB** of FOR-packed lane — a
+99.5 % cut of that slice at 1M, which is the measured shape of the −15 GB lever.
+**(3) the point-read tax: 417 ns random / 75 ns sequential** (from 24.0 µs / 140 ns pre-residency).
+
+Premise correction: the earlier "~1.52 B/record string region" figure was EventDate's; the fat columns run
+**47–63 B/value**, 30–40× larger — that is what the lever replaces.
