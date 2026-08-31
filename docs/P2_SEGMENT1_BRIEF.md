@@ -529,3 +529,25 @@ that fixes cold):**
 the 1M shape of a design whose payoff is O(distinct) vs O(rows) and which meets `never` on different terms at
 100M (18M distinct vs 95M per-leaf entries). If it materialises it goes to the user as a per-query exception
 with both scales' arithmetic, not buried and not hunted as a defect.
+
+## ⚠ MEASUREMENT CONTAMINATION NOTICE (2026-08-31, late)
+
+**Every absolute suite total quoted in this document for Deliverable 1 and after ran on a rig whose compiled
+classes were ~4 hours stale** — 43 source files across 12 commits newer than the rig, including
+`6cfc78dc3` (q42's in-kernel order plan: q42 6.081 → 0.078 s on a current build), the headroom revert, and
+the overflow-compression pair. Caught when recompiling ONE file into the rig halved the suite and the whole
+gain was q42, which the change being tested could not touch.
+
+Status of each claim pending the full-rebuild re-run:
+- **Storage matrix (573.3 / 605.5 / 613.6 / 1,169.6 MB): expected to survive** — all arms shared one
+  classpath and the dictionary-deciding files were freshly compiled; being re-verified on a clean rig.
+- **Relative latency statements** (q20 regresses ~8×, substring quartet regresses, sweep worth 5–13 %):
+  survive as relatives — both arms ran the identical stale rig.
+- **Absolute totals** (cold Σ 12.206 vs 12.701, hot 6.707 vs 6.899, and every Σ before them tonight):
+  **unreliable, do not quote** — inflated ~6 s in both arms.
+- **The `stringOpVerdict` decomposition stands** — `VerdictCostMain` calls freshly compiled core directly.
+- **The verdict cache is UNMEASURED** — its first leg conflated it with the accidental one-file upgrade, and
+  a fresh executor per try means it may never have survived to a second execution at all.
+
+Lesson, permanent: **an overlay rig with per-file compiles rots silently; a leg must refuse to run when any
+tracked source is newer than the rig's classes.** The guard belongs in the leg script, not in memory.
