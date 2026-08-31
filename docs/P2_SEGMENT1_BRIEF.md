@@ -777,3 +777,19 @@ the same arithmetic inverts and the global arm should win cold outright.
 **Three-column build, final at 1M:** 560,297,881 B (−8.7 %), cold parity, hot ≈ −15 %, hot clause met, cold
 exception = {q20 +43 ms, q22 +22 ms, first execution only}, 43/43 byte-identical every leg, decodes
 26,300 → 2,455 (never: 125).
+
+### USER RULING on the cold exception (2026-08-31): FIX COLD FIRST
+
+The two-query first-execution exception (q20 +43 ms, q22 +22 ms) is **not accepted**; the no-per-query-
+regression rule holds strictly hot AND cold, and **the 100M build waits** until both drop below 6/6 at
+>10 ms under the same six-pair protocol that found them.
+
+Plan of record: decompose the first execution (page I/O vs block decode vs cold-allocation scan vs bitset
+build) BEFORE building anything; the likely fix is an **asynchronous dictionary warmer into the existing
+buffer-manager record cache** — general (any kind-5 consumer benefits, dictionary warmup at open is normal
+database behaviour), no new budget (fills an existing weight-bounded cache; warms what fits in id order at
+scales where the dictionary exceeds it), never blocking, race-safe by construction (a mid-warm query decodes
+the remainder through the existing path), behind the master switch, with an engagement witness via the
+dispatch counters. If the decomposition says page I/O dominates instead, a dictionary-page prefetch is the
+alternative — chosen by the table, not by preference. The precondition checklist (V1 wrong-answer fix, V2/V3,
+F3/F4/F5, census run, V4 accounting) proceeds in parallel and gates 100M regardless.
