@@ -476,6 +476,16 @@ public final class PageSectionDiag {
   // ratio beside the split so a raw number can be scaled to disk, and any lever priced off these
   // numbers must be scaled that way. Judging a trie lever by staged bytes is precisely the error
   // this campaign has already made once.
+  //
+  // THE CONTRACT WITH WHOEVER READS THE OUTPUT: the report reconciles itself against the region's
+  // own encoded length and prints the difference as `residual`. IF A RUN PRINTS A NON-ZERO
+  // RESIDUAL, BELIEVE THE RESIDUAL OVER THE TABLE — it means the encoder's layout moved and this
+  // instrument no longer follows it, so the per-tag shares are wrong in some direction the table
+  // itself cannot show you. That is not hypothetical: building this, the identity caught two of its
+  // own defects before any number was consumed — first rounding the id lane to bytes PER TAG when
+  // the encoder rounds the packed lane once (residual −1), then rounding once GLOBALLY when each
+  // region rounds its own (residual +3). Both were silent mis-attribution that a plausible-looking
+  // share would have hidden. A share that looks reasonable is not evidence; a zero residual is.
   // ==================================================================================
 
   /** Sub-gate: the per-tag lane adds work per tag per page, so it is opt-in even under the diag. */
@@ -1076,6 +1086,13 @@ public final class PageSectionDiag {
    * Print the string region split by tag — which column owns which bytes, and what a FOR-packed id
    * lane would cost. Raw (pre-codec) bytes throughout, with the measured raw→written ratio printed
    * beside them so any lever priced from this table is scaled to disk rather than to staging.
+   *
+   * <p>
+   * The first line reconciles framing + dictionaries + id lane against the region's own encoded
+   * length. <b>A non-zero {@code residual} beats every number below it:</b> it says the encoder's
+   * layout moved and this attribution no longer follows it, so the per-tag shares are wrong in a
+   * direction the table cannot show. Fix the instrument before quoting the table.
+   * </p>
    */
   private static void dumpStringRegionByTag() {
     final long censusBytes = STRING_REGION_CENSUS_BYTES.sum();
