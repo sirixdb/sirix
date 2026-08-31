@@ -1691,10 +1691,19 @@ public enum NodeKind implements DeweyIdSerializer {
       // record's own byte length), so a header written before this field leaves remaining() == 0
       // here, and 0 is its semantically correct value: the streaming mint's ids are in intern order,
       // so its ordered prefix is genuinely empty.
-      // The rank-pass trailer is present ONLY when it says something — both fields together or
-      // neither, so "absent" is decidable from the exactly-sized slot without a version bump AND a
-      // dictionary the pass never touched is byte-identical to one written before the pass existed.
-      // Reading them independently would misparse a zero prefix count followed by an index key.
+      // KILL-SWITCH MACHINERY, NOT COMPATIBILITY MACHINERY — and the distinction decides when this
+      // goes away. Reading pre-P2 resources is NOT why it exists: the project has no users and no
+      // installed base, so a layout may change outright and the databases get rebuilt. It exists so
+      // that with -Dsirix.projection.globalDict.rank=false a dictionary the pass never touched is
+      // BYTE-IDENTICAL to what this arm wrote before segment 1, which is what makes "lands disabled"
+      // provable rather than merely asserted. Eliminating the delta beats accounting for it.
+      // EXPIRY: when segment 1 is enabled by default and the kill switch retires, this trailer's
+      // remaining job is gone — collapse it to an unconditional write and read. Do not copy the
+      // pattern onto new fields; nothing else here needs it.
+      // The two fields are read as a PAIR because reading them independently would misparse a zero
+      // prefix count followed by a non-zero index key. That pairing has already earned itself: a
+      // database written one layout earlier declined LOUDLY on the header invariant instead of
+      // silently reporting an intern-ordered dictionary as fully ordered.
       final boolean hasRankTrailer = source.remaining() >= Integer.BYTES + Long.BYTES;
       final int orderedPrefixCount = hasRankTrailer
           ? source.readInt()
