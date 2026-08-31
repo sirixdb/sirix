@@ -1034,3 +1034,20 @@ scope and that it applies to no region. **The generalised rule, third instance t
 misread, ask whether the OUTPUT invited it** (the residual line, the believe-the-residual contract, the
 ratio scope — all the same move: fix the instrument, not the reader). Landed comment-only before the launch
 so the build carries it.
+
+### All four launch fixes verified GREEN (working tree); launch ordered
+
+W1 better than prescribed — pass-scoped budget PLUS a 0.75 share so a warm pass cannot evict the
+demand-loaded entries a query is about to want (a gap the reviewer had missed). W1b is a genuine re-probe
+that can say "no": it walks the warmed keys and counts only what survives in the cache — the ran-vs-persisted
+gap made visible. The marker joins `clearDictionaryCachesForResource` (all three dictionary caches cleared by
+(databaseId, resourceId) on the deletion path). The V2 residual closed by the one-word clone on the miss path.
+
+**Drift note, ruled first post-launch item:** `SirixVectorizedExecutor:825` re-declares
+`GLOBAL_DICT_RECORD_CACHE_BYTES` (same property, same default) that `BufferManagerImpl:241` owns, and W1's
+budget computes from it — two places, one truth, the shape `9799bb10f` just unified in `NamePage`. Fix: ask
+the buffer manager for its bound. Degrades warming, not answers; the failure needs someone to edit one of
+two defaults alone.
+
+**Launch ordered: commit the four by name, then GO** — census gates on the load, diags off in legs, baseline
+re-legged on today's build, two interleaved pairs minimum, storage number the moment the load completes.
