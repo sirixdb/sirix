@@ -8438,8 +8438,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // was measured never to be reused (15 sweeps over a 43-query, 3-try leg, 12 distinct executor
     // instances). Sharing the array is safe -- every consumer only bit-TESTS globalIdVerdict.
     final StorageEngineReader reader = workerTrx().getStorageEngineReader();
+    // entryCount is in the key, not just the revision: workerTrx()'s static type does not prove
+    // read-only, so an uncommitted write transaction can grow the dictionary while its revision
+    // number stands still, and a verdict sized N tested against ids up to N+M would drop rows
+    // silently.
     final GlobalVerdictCacheKey cacheKey = new GlobalVerdictCacheKey(reader.getDatabaseId(), reader.getResourceId(),
-        view.revision(), headerKey, op.name(), HexFormat.of().formatHex(literalUtf8));
+        view.revision(), headerKey, view.entryCount(), op.name(), HexFormat.of().formatHex(literalUtf8));
     long[] verdict = reader.getBufferManager().getGlobalVerdictCache().get(cacheKey);
     if (verdict == null) {
       verdict = view.stringOpVerdict(op, literalUtf8);

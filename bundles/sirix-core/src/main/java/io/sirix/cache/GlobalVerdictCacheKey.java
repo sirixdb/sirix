@@ -16,10 +16,11 @@ package io.sirix.cache;
  * @param databaseId the database the dictionary belongs to
  * @param resourceId the resource within it
  * @param revision the revision the verdict was computed against
+ * @param entryCount the dictionary's cardinality when the verdict was computed
  * @param headerNodeKey the dictionary's header node key
  * @param op the predicate operator's name
  * @param literalHex the literal's UTF-8 bytes, hex-encoded so the key has value equality
  */
-public record GlobalVerdictCacheKey(long databaseId, long resourceId, int revision, long headerNodeKey, String op,
-    String literalHex) {
+public record GlobalVerdictCacheKey(long databaseId, long resourceId, int revision, long headerNodeKey,
+    int entryCount, String op, String literalHex) {
 }

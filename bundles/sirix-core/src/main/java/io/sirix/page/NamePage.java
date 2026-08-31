@@ -922,15 +922,25 @@ public final class NamePage extends AbstractForwardingPage {
             storageEngineReader.getRevisionNumber(), nodeKey);
     final Cache<GlobalDictionaryRecordCacheKey, DataRecord> recordCache =
         storageEngineReader.getBufferManager().getGlobalDictionaryRecordCache();
-    final DataRecord retained = recordCache.get(recordCacheKey);
-    if (retained != null) {
-      return retained;
+    // A WRITER never reads through this cache and never fills it. Its own memo above already serves
+    // it, and a revision number does not identify content while a write transaction is open: an
+    // aborted transaction's records would stay cached under a revision a later transaction goes on
+    // to build, and key reuse would then serve content that was never committed. The writer memo is
+    // bounded by one transaction and evicted by the put path, so it does not have that exposure.
+    final boolean writing = storageEngineReader instanceof StorageEngineWriter;
+    if (!writing) {
+      final DataRecord retained = recordCache.get(recordCacheKey);
+      if (retained != null) {
+        return retained;
+      }
     }
     final DataRecord record =
         storageEngineReader.getRecord(nodeKey, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
     if (record != null) {
       storageEngineReader.cacheProjectionDictionaryRecord(nodeKey, record);
-      recordCache.put(recordCacheKey, record);
+      if (!writing) {
+        recordCache.put(recordCacheKey, record);
+      }
     }
     return record;
   }
