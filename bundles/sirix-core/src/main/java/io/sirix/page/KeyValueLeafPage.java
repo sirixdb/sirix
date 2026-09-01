@@ -5893,6 +5893,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     this.globalStringDictionaries = resolver;
   }
 
+  /** The resolver this page was given, or {@code null}; consulted by value re-injection. */
+  public @Nullable GlobalStringDictionaries globalStringDictionaries() {
+    return globalStringDictionaries;
+  }
+
   public void setFsstSymbolTableId(final long id) {
     if (id <= NO_FSST_SYMBOL_TABLE_ID) {
       throw new IllegalArgumentException("symbol table id must be positive, got " + id);

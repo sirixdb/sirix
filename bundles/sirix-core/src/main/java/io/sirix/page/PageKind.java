@@ -64,6 +64,7 @@ import io.sirix.page.pax.PathNodeKeyRegion;
 import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -1435,7 +1436,7 @@ public enum PageKind {
         // can validate equality with computeSignedEncodedWidth.
         if (valueElisionActive && regionTable != null && !lazyChunks) {
           injectValueElidedRecords(slottedPage, valueElidedCount, valueElidedSlots, valueElidedTypes, valueElidedWidths,
-              valueElidedAbsIdx, regionTable, 0, PageLayout.SLOT_COUNT - 1);
+              valueElidedAbsIdx, regionTable, 0, PageLayout.SLOT_COUNT - 1, null);
         }
 
         // Read overlong entries
@@ -1658,7 +1659,7 @@ public enum PageKind {
             }
             if (valueElisionActive) {
               injectValueElidedRecords(seg, valueElidedCount, elidedSlots, elidedTypes, elidedWidths, elidedAbsIdx,
-                  regions, fromSlot, toSlot);
+                  regions, fromSlot, toSlot, page.globalStringDictionaries());
             }
           };
         } else {
@@ -4744,9 +4745,74 @@ public enum PageKind {
      * so a contiguous run of entries is a contiguous run of slots and the two ways of naming a chunk's
      * records agree; a whole-page caller passes the whole slot space.
      */
+    /**
+     * Re-inject a value whose tag stores GLOBAL IDS, by resolving the id through the dictionary.
+     *
+     * <p>
+     * The tag handed to the resolver is the tag's VALUE — the path node key from {@code parentDict}
+     * — not its local index on this page. The projection's anchors are keyed by path node key, and a
+     * local index means nothing outside the page it was parsed from.
+     * </p>
+     *
+     * <p>
+     * A null answer is a hard failure and not an empty value. The resolver returns null when the
+     * page's anchor is refused — a dictionary that shrank under a reused key, or one this tag does
+     * not resolve against — and substituting anything there converts an unreadable page into a
+     * wrong one, which is the failure this whole format is arranged to prevent.
+     * </p>
+     *
+     * <p>
+     * The width check below is a free round-trip witness: the elided slot recorded the ORIGINAL
+     * value's width, so a resolver that returns a different value fails here rather than reaching
+     * the user. It is not complete — a same-length wrong value passes — but it costs nothing.
+     * </p>
+     */
+    private static void injectGlobalString(final MemorySegment slottedPage, final MemorySegment stringPayload,
+        final StringRegion.Header stringHeader, final int tagId, final int dictId, final int slot,
+        final long valueAbsOff, final int valueWidth, final byte storedFlag,
+        final @Nullable GlobalStringDictionaries dictionaries) {
+      if (storedFlag != 0) {
+        // The encoder refuses to convert a tag with any FSST-encoded entry, because a stored form
+        // is not a value and cannot be looked up. A global tag carrying the compressed flag is
+        // therefore impossible unless something upstream is wrong.
+        throw new SirixIOException("value-elision: global STRING slot " + slot + " carries compressed flag "
+            + storedFlag + ", which the encoder never produces");
+      }
+      if (dictionaries == null) {
+        // Two ways to get here, and they want different fixes. EAGER expansion runs inside
+        // deserializePage, where the KeyValueLeafPage does not exist yet and no resolver can be
+        // reached -- which is the same reason the page layer cannot resolve at decode time at all.
+        // So the trie lane REQUIRES lazy chunks, and a global tag meeting the eager path is a
+        // configuration error rather than corruption. The other way is a lazy page nobody installed
+        // a resolver on, which is a wiring bug in the reader.
+        throw new SirixIOException("value-elision: slot " + slot + " holds a global-dictionary tag but no resolver "
+            + "is available. Either this page was expanded EAGERLY (the trie lane needs lazy chunks: the page "
+            + "object does not exist during deserialization, so nothing can hold a dictionary), or the reader "
+            + "did not install one before expanding it.");
+      }
+      final int globalId = StringRegion.globalIdAt(stringPayload, stringHeader, tagId, dictId);
+      final byte[] value = dictionaries.valueOf(stringHeader.parentDict[tagId], stringHeader.tagDictionaryKey[tagId],
+          stringHeader.tagDictionaryEntryCount[tagId], globalId);
+      if (value == null) {
+        throw new SirixIOException("value-elision: slot " + slot + " holds global id " + globalId + " under tag "
+            + stringHeader.parentDict[tagId] + ", which dictionary " + stringHeader.tagDictionaryKey[tagId]
+            + " (recorded at " + stringHeader.tagDictionaryEntryCount[tagId] + " entries) refused to resolve");
+      }
+      slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, (byte) 0);
+      final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage, valueAbsOff + 1, value.length);
+      MemorySegment.copy(value, 0, slottedPage, ValueLayout.JAVA_BYTE, valueAbsOff + 1 + lenWidth, value.length);
+      final int actualWidth = 1 + lenWidth + value.length;
+      if (actualWidth != valueWidth) {
+        throw new SirixIOException("value-elision: global STRING width mismatch at slot " + slot + ": expected="
+            + valueWidth + " actual=" + actualWidth + " -- the dictionary returned a different value than the "
+            + "one this page elided");
+      }
+    }
+
     private static void injectValueElidedRecords(final MemorySegment slottedPage, final int valueElidedCount,
         final short[] valueElidedSlots, final byte[] valueElidedTypes, final int[] valueElidedWidths,
-        final int[] valueElidedAbsIdx, final RegionTable regionTable, final int fromSlot, final int toSlot) {
+        final int[] valueElidedAbsIdx, final RegionTable regionTable, final int fromSlot, final int toSlot,
+        final @Nullable GlobalStringDictionaries dictionaries) {
       final MemorySegment numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
       final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
       final MemorySegment booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
@@ -4832,6 +4898,11 @@ public enum PageKind {
                 "value-elision: no STRING tag range contains index " + absIdx + " at slot " + slot);
           }
           final int dictId = StringRegion.decodeDictIdAt(stringPayload, stringHeader, absIdx);
+          if (stringHeader.tagGlobal[tagId]) {
+            injectGlobalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
+                valueWidth, valueElidedTypes[e], dictionaries);
+            continue;
+          }
           final int strOff = StringRegion.decodeStringOffset(stringPayload, stringHeader, tagId, dictId);
           final int strLen = StringRegion.decodeStringLength(stringPayload, stringHeader, tagId, dictId);
           // Reconstruct heap layout: [isCompressed:1][length:varint][storedBytes]. The type byte
