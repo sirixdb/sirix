@@ -209,17 +209,24 @@ final class StringRegionGlobalLaneTest {
 
   @Test
   void aTagNamingADictionaryTooSmallForItsIdsIsRefused() {
-    // A dictionary of two entries cannot have issued three ids, so a page claiming so is corrupt or
-    // stale. Refusing at parse is what stops it becoming values later.
+    // A dictionary reporting fewer entries than the ids it issues is inconsistent, and it is
+    // refused. Note WHICH layer refuses: the density assertion catches it at ENCODE, before a byte
+    // is written, so the parse-time guard never sees this fixture. That guard is still load-bearing
+    // -- it defends a payload this encoder did not write, corrupt or produced elsewhere -- but the
+    // reachable path for a live inconsistency is the encoder, and asserting the parse exception
+    // here would have been asserting a layer that no longer runs for this input.
     final GlobalStringDictionaries lying = new FakeDictionary(CONVERTED_TAG, "alpha", "beta") {
       @Override
       public int dictionaryEntryCount(final int t) {
         return 1; // fewer entries than the ids this tag stores
       }
     };
-    assertThrows(IllegalArgumentException.class,
+    final RuntimeException refusal = assertThrows(RuntimeException.class,
         () -> parse(encode(lying, CONVERTED_TAG, "alpha", "beta", "beta")),
-        "a tag naming a dictionary too small for its own ids must be refused");
+        "a tag whose dictionary is too small for its own ids must be refused");
+    assertTrue(refusal instanceof IllegalStateException,
+        "expected the ENCODE-time density refusal, got " + refusal.getClass().getSimpleName() + ": "
+            + refusal.getMessage());
   }
 
   @Test
@@ -300,6 +307,27 @@ final class StringRegionGlobalLaneTest {
     shrunk.liveEntryCount = count - 1;
     assertNull(shrunk.valueOf(CONVERTED_TAG, key, count, id),
         "resolution itself must refuse a dictionary smaller than the page recorded");
+  }
+
+  @Test
+  void aSparseDictionaryIsRefusedAtEncodeTime() {
+    // The invariant the width derivation rests on, asserted rather than assumed. Ids run
+    // 1..entryCount with no gaps, which is the ONLY reason the count bounds the width. A sparse
+    // dictionary -- reserved ranges, tombstones, per-column partitioning -- would issue an id above
+    // the count, the derived width would be too narrow, and the id would be written TRUNCATED: a
+    // silently different value rather than a failure. So the encoder refuses instead.
+    final FakeDictionary sparse = new FakeDictionary(CONVERTED_TAG, "alpha", "beta") {
+      @Override
+      public int idOf(final int t, final byte[] value, final int offset, final int length) {
+        // An id far above the two entries this dictionary reports -- what a reserved range or a
+        // tombstoned id space would produce.
+        return 5000;
+      }
+    };
+    final IllegalStateException refusal = assertThrows(IllegalStateException.class,
+        () -> encode(sparse, CONVERTED_TAG, "alpha", "beta", "beta"));
+    assertTrue(refusal.getMessage().contains("dense"),
+        "the refusal must name the invariant it is defending, got: " + refusal.getMessage());
   }
 
   @Test

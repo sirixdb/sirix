@@ -2065,6 +2065,7 @@ public final class StringRegion {
       if (!resolver.hasDictionary(tagValue)) {
         return false;
       }
+      final int entryCount = resolver.dictionaryEntryCount(tagValue);
       int[] ids = globalIds[r];
       if (ids == null || ids.length < sz) {
         ids = new int[Math.max(sz, 16)];
@@ -2084,6 +2085,17 @@ public final class StringRegion {
         final int id = resolver.idOf(tagValue, globalProbeScratch, 0, len);
         if (id == GlobalStringDictionaries.ID_ABSENT) {
           return false;
+        }
+        // DENSITY, asserted rather than assumed. The lane's width comes from the dictionary's entry
+        // count, which is only a bound on the ids because they run 1..entryCount with no gaps. If a
+        // dictionary ever became sparse -- reserved ranges, tombstoned ids, per-column partitioning
+        // -- an id could exceed the count, the derived width would be too narrow, and the id would
+        // be written TRUNCATED: a silently different value, not a failure. One compare per
+        // dictionary entry buys the invariant the whole width derivation rests on.
+        if (id > entryCount) {
+          throw new IllegalStateException("global dictionary for tag " + tagValue + " issued id " + id
+              + " above its entry count " + entryCount + "; the trie lane derives its bit width from that count "
+              + "and requires ids to be dense in 1..entryCount");
         }
         ids[i] = id;
       }

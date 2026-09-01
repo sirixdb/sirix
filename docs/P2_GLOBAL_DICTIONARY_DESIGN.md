@@ -1560,3 +1560,43 @@ What went right is worth recording too, because it is why this cost days rather 
 directory finding, the decision to make segment 0 weigh written bytes rather than a ratio, and running it as a gate
 before segment 1** — the review's insistence on measuring the whole persisted structure is what turned a wrong
 design into a cheap failure instead of an expensive one.
+
+## Trie lane (stage B): the density invariant the lane's width rests on
+
+A global tag's id table is bit-packed at a width **derived from the dictionary's entry count and
+stored nowhere** — `globalIdBits(entryCount) = 32 - numberOfLeadingZeros(entryCount)`. A stored width
+could only ever disagree with the count, so deriving it is the same discipline `valueBitWidth`
+already follows, and the generation anchor pays for itself twice: it makes resolution a function of
+the page AND it sizes the lane.
+
+**That derivation is correct only because ids are DENSE in `1..entryCount`.** The count bounds the
+width solely because there are no gaps. If a dictionary ever became sparse — reserved id ranges,
+tombstoned ids, per-column partitioning of one id space, or an id space shared across resources —
+an id could exceed the count, the derived width would be too narrow, and the id would be written
+**truncated**: a silently different value rather than a failure.
+
+So it is **asserted, not assumed**. `StringRegion.Encoder#resolveGlobalIds` refuses any id above the
+dictionary's reported entry count, one compare per dictionary entry, and the message names the
+invariant it is defending. Witnessed by `StringRegionGlobalLaneTest#aSparseDictionaryIsRefusedAtEncodeTime`.
+
+Two consequences worth stating for anyone changing the dictionary:
+
+- **Making a dictionary sparse is a format change, not an implementation detail.** It would require
+  the lane to carry its own width, which costs a field per tag and removes the property that the
+  width cannot drift from the data.
+- **The parse-time guard remains load-bearing even though the encoder now catches this first.** The
+  encoder defends what this build writes; the parse guard defends a payload it did not write.
+
+## Trie lane: it requires lazy chunks
+
+Value re-injection has exactly two call sites, and the EAGER one runs inside `deserializePage`, where
+the `KeyValueLeafPage` does not yet exist — so nothing can hold a dictionary, for the same reason the
+page layer cannot resolve at decode time at all. Unlike the lazy path there is no later attach to
+defer a slot to: eager expansion *is* the whole expansion. A page carrying a global tag is therefore
+**refused up front** on that path, before a single slot is injected, so a caller never inherits a
+half-injected page with an exception attached.
+
+## ~~§6.4 length table~~ — never built, superseded
+
+Never implemented. q28 is served by the verdict and record caches (`7044fc9a3`, `5d4f33fa4`); no
+separate length-table mechanism exists or is needed.
