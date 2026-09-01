@@ -335,9 +335,33 @@ public final class ProjectionBulkLoad {
     }
     trieLaneWriteDictionaries = null;
     if (storageEngineWriter != null) {
+      // Stop handing the resolver to NEW pages first, then DRAIN, then close. That order is the
+      // whole safety argument: a page created after this line carries no resolver and converts
+      // nothing, and awaitPendingAsyncFlush returns only once every page already in flight has been
+      // serialized -- which is the last moment any flush thread can be inside a probe.
+      //
+      // A loud guarantee beats a counted degrade, but the counter stays as the check on this claim:
+      // if the drain is not what I think it is, closedProbeCount comes back non-zero and the
+      // converted arm's gate fails with a number instead of quietly under-converting the pages that
+      // flushed late. Best-effort inside a finally -- a failure to drain must not mask the failure
+      // that brought us here, and the close below has to happen either way.
       storageEngineWriter.installDocumentStringDictionaries(null);
+      try {
+        storageEngineWriter.awaitPendingAsyncFlush();
+      } catch (final RuntimeException drainFailure) {
+        LOGGER.warn("trie lane: draining the async flush before releasing the encode-side readers failed; "
+            + "closedProbeCount is the check on whether that mattered", drainFailure);
+      }
     }
     LOGGER.info("{}", dictionaries.describeCounters());
+    if (dictionaries.closedProbeCount() > 0) {
+      // Should be unreachable after the drain above. Logged rather than thrown because by here the
+      // pages are already written and refusing changes nothing -- but it is the signal that the
+      // lane under-converted and that the arm's storage number is not the lever's number.
+      LOGGER.warn("trie lane: {} probes arrived AFTER the lane was released, so late-flushed pages kept "
+          + "their bytes; this arm under-converted and its size is not comparable",
+          dictionaries.closedProbeCount());
+    }
     dictionaries.close();
   }
 

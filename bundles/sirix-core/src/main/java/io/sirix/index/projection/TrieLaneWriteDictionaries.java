@@ -130,6 +130,26 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
 
   private final LongAdder absentValues = new LongAdder();
 
+  /**
+   * Probes refused because {@link #close()} had already run — the DRAIN-ORDERING counter.
+   *
+   * <p>
+   * Separate from {@link #absentValues} on purpose, and the separation is the whole point. Both make
+   * a page keep its bytes, so one shared counter would let two completely different faults look
+   * alike: "the pre-pass and the load disagree about the value set" and "a flush thread was still
+   * encoding after the load released the lane". The second is a lifecycle bug, and it would silently
+   * under-convert exactly the LATE-flushed pages — the census would show less shrink than expected
+   * and nothing would say why.
+   * </p>
+   *
+   * <p>
+   * Counted apart, and the converted arm's gate asserts BOTH are zero. That turns "is the flush
+   * executor really drained before close?" from a question answered by reading executor code into one
+   * answered by the run.
+   * </p>
+   */
+  private final LongAdder closedProbes = new LongAdder();
+
   private volatile boolean closed;
 
   /**
@@ -227,7 +247,14 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
   public int idOf(final int tag, final byte[] value, final int offset, final int length) {
     Objects.checkFromIndexSize(offset, length, value.length);
     final int column = columnOf(tag);
-    if (column < 0 || closed) {
+    if (column < 0) {
+      return ID_ABSENT;
+    }
+    if (closed) {
+      // A probe after the lane was released. Degrading keeps the page readable -- it stores bytes --
+      // but this is NOT the same event as a value the dictionary does not hold, so it does not share
+      // that counter. See closedProbes.
+      closedProbes.increment();
       return ID_ABSENT;
     }
     final long headerKey = headerKeyByColumn.get(column);
@@ -306,7 +333,12 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
    */
   public String describeCounters() {
     return "trie lane encode: probes=" + probeCount.sum() + " memoHits=" + memoHits.sum() + " absent="
-        + absentValues.sum();
+        + absentValues.sum() + " afterClose=" + closedProbes.sum();
+  }
+
+  /** Probes refused after close -- non-zero means a flush thread outlived the lane's release. */
+  public long closedProbeCount() {
+    return closedProbes.sum();
   }
 
   public long probeCount() {
