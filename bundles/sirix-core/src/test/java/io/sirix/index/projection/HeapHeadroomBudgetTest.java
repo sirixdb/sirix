@@ -1,5 +1,6 @@
 package io.sirix.index.projection;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +28,54 @@ final class HeapHeadroomBudgetTest {
     assertTrue(GroupTableSpill.groupBudgetFor(8L * GIB, headroom) < eighthOfHeap);
     assertEquals(1L << 20, GroupTableSpill.groupBudgetFor(8L * GIB, 0L), "the floor holds with no headroom");
     assertEquals(1L << 26, GroupTableSpill.groupBudgetFor(1L << 40, 1L << 40), "the cap holds on a huge heap");
+  }
+
+  /** Held by a static so the JIT cannot keep a dead local's reference alive across the collection. */
+  private static volatile byte @Nullable [] humongous;
+
+  @Test
+  @DisplayName("the latest collection's record counts a humongous array only while it lives")
+  void theLatestCollectionRecordCountsAHumongousArrayOnlyWhileItLives() {
+    final int bytes = 128 << 20;
+    humongous = new byte[bytes];
+    humongous[bytes - 1] = 1;
+    System.gc();
+    final long withArray = HeapHeadroom.liveAfterLastCollection();
+    assertTrue(withArray >= 0L, "this platform records its collections — the fallback path must not take over");
+    assertTrue(withArray >= bytes, "the live array is in the record: " + withArray);
+    humongous = null;
+    System.gc();
+    final long withoutArray = HeapHeadroom.liveAfterLastCollection();
+    assertTrue(withoutArray >= 0L);
+    assertTrue(withArray - withoutArray >= bytes - (16L << 20),
+        "the reclaimed array left the record: " + withArray + " -> " + withoutArray);
+    assertTrue(HeapHeadroom.liveAfterLastGc() <= withArray - (bytes - (16L << 20)),
+        "the headroom reads the record, not a figure that still holds the array");
+    // The figure is the SMALLER of the two records: never above the latest pause's record, and never
+    // above the pools' own post-collection figures where the platform keeps them.
+    final long live = HeapHeadroom.liveAfterLastGc();
+    assertTrue(live <= HeapHeadroom.liveAfterLastCollection(), "the figure exceeds the latest pause's record: " + live);
+    final long pools = HeapHeadroom.liveAfterLastPoolCollection();
+    if (pools >= 0L) {
+      assertTrue(live <= pools, "the figure exceeds the pools' own record: " + live + " > " + pools);
+    }
+  }
+
+  @Test
+  @DisplayName("a pool's live figure is bounded by its current usage — a stale post-collection figure is not live")
+  void liveFigureIsBoundedByCurrentUsage() {
+    // Old generation: the last mixed pause recorded 10.3 GB while a query held its group tables; the
+    // tables died at a young pause (eager reclaim) and the pool now holds 3.1 GB. Only 3.1 GB is live.
+    assertEquals((long) (3.1 * GIB), HeapHeadroom.liveBound((long) (10.3 * GIB), (long) (3.1 * GIB)),
+        "current usage below the recorded figure means the figure is stale");
+    // Ordinary case: promotion since the last mixed pause raised the current usage above the figure —
+    // the figure stays the account of what is live, exactly as before.
+    assertEquals(5L * GIB, HeapHeadroom.liveBound(5L * GIB, 7L * GIB), "growth since the pause is not counted twice");
+    // Eden: nothing survives a young pause, whatever fills it now.
+    assertEquals(0L, HeapHeadroom.liveBound(0L, 2L * GIB), "an emptied pool contributes nothing");
+    assertEquals(0L, HeapHeadroom.liveBound(-1L, 4L * GIB), "an unknown figure is never negative");
+    // A pool without a current reading falls back to the recorded figure alone.
+    assertEquals(5L * GIB, HeapHeadroom.liveBound(5L * GIB, Long.MAX_VALUE));
   }
 
   @Test

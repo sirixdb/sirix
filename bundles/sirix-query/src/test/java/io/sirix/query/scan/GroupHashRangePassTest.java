@@ -156,6 +156,79 @@ final class GroupHashRangePassTest {
         "a budget raised the way released residency raises it must cost no restart at all");
   }
 
+  @Test
+  @DisplayName("the exact group count of a completed scan seeds the next execution of its shape: no restart")
+  void anExactCountSeedsTheNextExecution() throws Exception {
+    // Every query of the suite, so all three arms with a memo (composite, numeric, string) prove it:
+    // the first execution starts at one pass, aborts past the starved budget and restarts; the second
+    // execution of the SAME shape in the same session must start with the passes the exact count
+    // calls for and never abort. The abort-time estimate alone cannot promise this — it extrapolates
+    // the distinct arrival rate and overshoots, and the budget it seeds against is noisy.
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var db = Databases.openJsonDatabase(dbDir.resolve(DB));
+        var session = db.beginResourceSession(RES)) {
+      for (final String query : QUERIES) {
+        final String generic = run(query, false);
+        final long firstBefore = SirixVectorizedExecutor.groupPassRestartsCount();
+        final String first = runWith(session, chain, ctx, query);
+        assertEquals(generic, first, "first execution diverges for: " + query);
+        assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > firstBefore,
+            "the first execution must abort its single pass, or there is no completed pass set to count: " + query);
+        final long secondBefore = SirixVectorizedExecutor.groupPassRestartsCount();
+        final String second = runWith(session, chain, ctx, query);
+        assertEquals(generic, second, "seeded execution diverges for: " + query);
+        assertEquals(secondBefore, SirixVectorizedExecutor.groupPassRestartsCount(),
+            "the second execution must be seeded from the exact count and never restart: " + query);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a completed pass count caps what its exact count implies — a pass is judged by what it flushed")
+  void aCompletedPassCountCapsWhatTheCountImplies() {
+    // q16 at 100M: 28M groups completed in TWO passes at a budget of 12,582,912 (each pass held 14M,
+    // the workers' final local tables never flush, so the abort never saw them). The count alone
+    // implies four passes at the tolerant budget; the completed two win, at a pass budget that holds
+    // the fourteen million plus the skew margin.
+    final long budget = 12_582_912L;
+    final long groups = 28_000_000L;
+    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, budget, 32));
+    final long perPass = SirixVectorizedExecutor.GroupPasses.perPassBudget(groups, 2);
+    assertTrue(perPass > 14_000_000L && perPass < 14_000_000L * 107L / 100L, "pass budget: " + perPass);
+    // The same count completed in four passes (an overshooting estimate seeded them): the count says
+    // four as well, and four it is.
+    assertEquals(4, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 4, budget, 32));
+    // A count that fits ONE pass at the budget seeds one pass however many passes completed: the
+    // completed count only ever caps, it never inflates.
+    assertEquals(1, SirixVectorizedExecutor.GroupPasses.seededPasses(6_000_000L, 4, budget, 32));
+    // The budget has since collapsed to five million: replaying two passes of fourteen million groups
+    // each would plan almost three times the budget, so the count plans against the budget it has.
+    assertEquals(8, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 5_000_000L, 32));
+    // Exactly at the replay limit the completed count still wins.
+    assertEquals(2, SirixVectorizedExecutor.GroupPasses.seededPasses(groups, 2, 7_000_000L, 32));
+    // A fixture: 280 groups at a budget of 32 completed in sixteen passes; the count says sixteen.
+    assertEquals(16, SirixVectorizedExecutor.GroupPasses.seededPasses(280L, 16, 32L, 32));
+  }
+
+  private static String runWith(final JsonResourceSession session, final SirixCompileChain chain,
+      final SirixQueryContext ctx, final String query) throws Exception {
+    final SirixVectorizedExecutor exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+    try {
+      SequentialPipelineStrategy.setVectorizedExecutor(exec);
+      final Sequence result = new Query(chain, query).execute(ctx);
+      final StringWriter out = new StringWriter();
+      try (PrintWriter pw = new PrintWriter(out)) {
+        new StringSerializer(pw).serialize(result);
+      }
+      return out.toString();
+    } finally {
+      SequentialPipelineStrategy.setVectorizedExecutor(null);
+      exec.close();
+    }
+  }
+
   private String run(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);

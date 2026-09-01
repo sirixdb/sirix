@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 
 import io.sirix.api.StorageEngineReader;
@@ -875,6 +876,53 @@ public final class ProjectionIndexRegistry {
         if (groups > observedGroupCounts.get(fingerprint)) {
           observedGroupCounts.put(fingerprint, groups);
         }
+      }
+    }
+
+    /**
+     * The completed hash-range pass set of each group shape, by shape fingerprint: the exact group
+     * count the merged partitions summed to (or, when a pass count seeded from the memo aborted
+     * anyway, the count the completing pass count implies at its budget) and the pass count that
+     * completed. Kept apart from {@link #observedGroupCounts} because the two disagree in kind: the
+     * abort-time figure extrapolates the groups seen so far over the unscanned leaves, and a
+     * distinct-arrival rate that decays (the heavy hitters are met early) makes it OVERSHOOT — q16 at
+     * 100M memoed past twice the budget from an abort and then ran four seeded passes on every hot
+     * try where two held, so its hot tries were slower than the cold one that had aborted. The pass
+     * count travels with the count because a pass is judged by the groups it FLUSHED, not by the
+     * groups it held: a pass set that completed held more per pass than the budget says a pass
+     * holds, and the count alone re-seeds twice the passes that held. A completed scan is
+     * overwritten, never max-kept: the newest completed scan is the truth of this shape, and a
+     * colliding shape's memo only mis-seeds a pass count the abort corrects.
+     */
+    private final Long2ObjectOpenHashMap<CompletedGroupScan> completedGroupScans = new Long2ObjectOpenHashMap<>();
+
+    /** The exact group count and pass count of a completed hash-range pass set. */
+    public record CompletedGroupScan(long groups, int passes) {
+      public CompletedGroupScan {
+        if (groups <= 0L) {
+          throw new IllegalArgumentException("groups must be positive: " + groups);
+        }
+        if (passes <= 0) {
+          throw new IllegalArgumentException("passes must be positive: " + passes);
+        }
+      }
+    }
+
+    /** The last completed pass set of this shape, or {@code null} when none has completed. */
+    public @Nullable CompletedGroupScan completedGroupScanFor(final long fingerprint) {
+      synchronized (completedGroupScans) {
+        return completedGroupScans.get(fingerprint);
+      }
+    }
+
+    /** Record a completed pass set — its group count and the pass count that completed; the newest overwrites. */
+    public void noteCompletedGroupScan(final long fingerprint, final long groups, final int passes) {
+      if (groups <= 0L || passes <= 0) {
+        return;
+      }
+      final CompletedGroupScan scan = new CompletedGroupScan(groups, passes);
+      synchronized (completedGroupScans) {
+        completedGroupScans.put(fingerprint, scan);
       }
     }
 
