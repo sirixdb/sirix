@@ -12,6 +12,8 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.SirixDeweyID;
@@ -101,6 +103,11 @@ public final class ProjectionBulkLoad {
       new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
 
   /** The record-fed builder; owns the current leaf, the dictionary sample and the dictionaries. */
+  private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionBulkLoad.class);
+
+  /** The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound. */
+  private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
+
   private final ProjectionIndexBuilder builder;
 
   /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
@@ -282,6 +289,58 @@ public final class ProjectionBulkLoad {
         DEFAULT_ROW_GROUP_PUBLISHER);
   }
 
+  /**
+   * Bind the trie lane for this load: the record pages and the projection leaves name ONE dictionary
+   * per column.
+   *
+   * <p>
+   * The dictionaries were committed by the pre-import pre-pass into the still-empty resource, so the
+   * revision to read them at is the most recent COMMITTED one — this load's own revision is not
+   * committed yet, and the encode-side probes run on flush threads that must see a fixed structure.
+   * </p>
+   *
+   * <p>
+   * Silent when no prebuilt anchors are configured, which is every load that is not using the lane:
+   * the writer keeps a null resolver and every page stores bytes, exactly as before. A FAILURE to
+   * bind, on the other hand, is not silent — a configured anchor that cannot be read means the pages
+   * would name a dictionary no reader can resolve, and that must stop the load rather than quietly
+   * produce an unconverted one, since the load's whole point in that configuration is the conversion.
+   * </p>
+   */
+  private void bindTrieLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final TrieLaneWriteDictionaries dictionaries =
+        TrieLaneWriteDictionaries.bindConfigured(storageEngineWriter.getResourceSession(),
+            storageEngineWriter.getResourceSession().getMostRecentRevisionNumber(),
+            indexDef.getProjectionFields().size());
+    if (dictionaries == null) {
+      return;
+    }
+    this.trieLaneWriteDictionaries = dictionaries;
+    builder.setTrieLaneWriteDictionaries(dictionaries);
+    storageEngineWriter.installDocumentStringDictionaries(dictionaries);
+  }
+
+  /**
+   * Release the trie lane's per-thread snapshot readers.
+   *
+   * <p>
+   * Called from the load's terminal paths only. By then the flush executor has drained, which is the
+   * one moment at which no flush thread can still be inside a probe.
+   * </p>
+   */
+  private void releaseTrieLane(final StorageEngineWriter storageEngineWriter) {
+    final TrieLaneWriteDictionaries dictionaries = trieLaneWriteDictionaries;
+    if (dictionaries == null) {
+      return;
+    }
+    trieLaneWriteDictionaries = null;
+    if (storageEngineWriter != null) {
+      storageEngineWriter.installDocumentStringDictionaries(null);
+    }
+    LOGGER.info("{}", dictionaries.describeCounters());
+    dictionaries.close();
+  }
+
   /** Internal publication-injected form used by focused storage-failure coverage. */
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter, final long expectedRows,
@@ -316,6 +375,7 @@ public final class ProjectionBulkLoad {
       persistentMutationStarted = true;
       ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+      load.bindTrieLane(storageEngineWriter, indexDef);
       return load;
     } catch (final Throwable failure) {
       if (persistentMutationStarted) {
@@ -398,6 +458,10 @@ public final class ProjectionBulkLoad {
     // a resumable build after publication failed, and repeated listener cleanup is a no-op.
     finished = true;
     ACTIVE.remove(key, this);
+    // The lane's per-thread snapshot readers are a resource; an aborted load must free them exactly
+    // as it frees the bloom chunks and the summaries. The writer reference is not available here, so
+    // only the readers are closed -- the writer's own resolver field dies with the writer.
+    releaseTrieLane(null);
     try {
       bloomChunks.release();
     } finally {
@@ -759,6 +823,10 @@ public final class ProjectionBulkLoad {
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
+      // Before every other release, because it is the one that reports: the probe/hit/absent counters
+      // are the lane's only evidence of what it actually did, and the converted-arm gate asserts
+      // absent == 0. A finish that failed still frees the snapshot readers.
+      releaseTrieLane(storageEngineWriter);
       try {
         bloomChunks.release();
       } finally {

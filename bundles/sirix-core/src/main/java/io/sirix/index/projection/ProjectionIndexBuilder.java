@@ -15,6 +15,8 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -91,6 +93,18 @@ public final class ProjectionIndexBuilder {
 
   /** Shared per-record extraction engine (also used by incremental maintenance). */
   private final ProjectionIndexRowExtractor extractor;
+
+  /**
+   * The trie lane's encode-side resolver, or {@code null} when no prebuilt dictionaries are bound.
+   *
+   * <p>
+   * Held here rather than passed around because THIS is where the (path class -> column) mapping
+   * becomes known: the extractor re-resolves it against a still-growing path summary, and the
+   * resolver's flush-lane readers need a snapshot of it that they can read without a lock. Every
+   * refresh republishes.
+   * </p>
+   */
+  private @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
   /**
    * Resolved pathNodeKeys of the projection root (e.g. {@code $doc[]}). Multi-PCR roots — the same
@@ -1427,6 +1441,53 @@ public final class ProjectionIndexBuilder {
    */
   public void refreshFieldPaths(final PathSummaryReader pathSummary) {
     extractor.refresh(pathSummary);
+    publishTrieLaneTags();
+  }
+
+  /**
+   * Bind the trie lane's encode-side resolver, and publish the tags it already knows about.
+   *
+   * @param dictionaries the resolver, or {@code null} to leave every record page storing bytes
+   */
+  public void setTrieLaneWriteDictionaries(final @Nullable TrieLaneWriteDictionaries dictionaries) {
+    this.trieLaneWriteDictionaries = dictionaries;
+    publishTrieLaneTags();
+  }
+
+  /**
+   * Hand the resolver the current (path class -> column) mapping.
+   *
+   * <p>
+   * Called after every refresh, because a field only acquires a path class when its first occurrence
+   * is shredded — on ClickBench that is usually record one, but a column whose first non-absent value
+   * comes late would otherwise never convert. Publishing a WHOLE new map, which is what the resolver
+   * requires: the flush lane reads the reference without a lock, so a map rehashed underneath it
+   * would be a data race on fastutil internals.
+   * </p>
+   *
+   * <p>
+   * A tag missing from the snapshot costs storage on the pages written before it appears, never
+   * correctness — those pages simply keep their bytes, and the anchor they do not write is one no
+   * reader will look for.
+   * </p>
+   */
+  private void publishTrieLaneTags() {
+    final TrieLaneWriteDictionaries dictionaries = trieLaneWriteDictionaries;
+    if (dictionaries == null) {
+      return;
+    }
+    final long[] pathClasses = extractor.fieldPcrKeysRef();
+    final int[] columns = extractor.fieldPcrColumnsRef();
+    final Int2IntMap tags = new Int2IntOpenHashMap(pathClasses.length);
+    for (int i = 0; i < pathClasses.length && i < columns.length; i++) {
+      final long pathClass = pathClasses[i];
+      // String-region tags are ints; a path node key outside that range cannot be one, so it cannot
+      // name a page this map has to answer for.
+      if (pathClass > 0L && pathClass <= Integer.MAX_VALUE) {
+        tags.put((int) pathClass, columns[i]);
+      }
+    }
+    dictionaries.publishTags(tags);
   }
 
   /**
@@ -1481,6 +1542,7 @@ public final class ProjectionIndexBuilder {
       throw new IllegalStateException("chunk batches are only available to a streaming builder");
     }
     extractor.refresh(pathSummary);
+    publishTrieLaneTags();
     return new ProjectionChunkRowBatch(extractor.fieldPcrKeysRef(), extractor.fieldPcrColumnsRef(),
         extractor.columnKindsRef(), expectedRows, recordSetKey);
   }
