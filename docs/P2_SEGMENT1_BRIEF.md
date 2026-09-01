@@ -1617,3 +1617,13 @@ lane + three more defects (live sketch row-loss, encoder tearing under parallel 
 four-byte parse) written and awaiting compile; installer fork RULED (A) — the pre-import seam
 (2bb4f6900-era hook) with a thread-confined per-flush-thread probe resolver (TrieLaneWriteDictionaries),
 absent==0 asserted on converted arms.
+
+### Named next experiment (query half, non-rebuild): q28's sliced regex key
+
+q28 (11.0 s hot) is forced whole-leaf by `stringSlicedArm`'s `!globalRegexKey` — a gate whose comment
+("the sliced string arms read per-leaf dictionaries") predates the per-id transformed-hash table the q29-era
+fix added: the KEY needs no dictionary bytes when `globalKeyHashes[gid]` exists. Same defect class as
+idx39's `!hasGlobalComposite` — the gate outlived the kernel gaining the capability. Prediction: teaching
+the sliced string arm to consume the precomputed table (pass 1 groups by table lookup; pass 2 winners
+resolve via id, not payload scan) takes q28 from 11.0 toward 4–6 s hot. Prerequisite: profile q28 first to
+confirm the whole-leaf materialization is still the dominant term post-GCOMP3.
