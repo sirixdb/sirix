@@ -1586,3 +1586,34 @@ storage-neutral; `GlobalValueDictionary.probe` on an empty COMPLETE dictionary n
 **The 5-column 100M rebuild case (USER DECISION pending): SearchPhrase + OriginalURL values are extracted
 (6.02M/8.51M distinct); conversion is storage-neutral-or-better and takes q5 (23 s hot), q16/17/18 composite
 keys id-lane; needs the current 63.33 GB DB deleted first (38 GB free) and ~70 min rebuild.**
+
+
+## 2026-09-01 night: pass-memo leg GCOMP3 — suite hot 206.5 s (−28 % today); user directive on versioning
+
+**GCOMP3 vs GCOMP2 (clean window, single pair): hot 226.2 → 206.5, cold 318.0 → 284.3, 43/43 identical.**
+Pass-memo winners: q17 22.7 → 10.7 (inherited q16's memo — same shape fingerprint, so its FIRST try was
+seeded), q32 hot 39.2 → 30.7 and cold 88.6 → 47.3 (the documented bimodality was abort-and-restart
+variance), q31 8.4 → 5.6, q16 −3.2, q18 verified 43.8 → 23.2 in isolation (leg run-order kept it at 43.3 —
+q18's leg context needs its own look someday, isolation and leg disagree). Three leg-flagged regressions
+(q22/q35/q40) DISSOLVED under isolated diagnosis — q35's memo actually helps (1.66 hot vs 3.67) — leg
+single-pair noise, per the pair-counting protocol. Also learned: `GroupTableSpill.groupBudget()` is
+HEAP-DYNAMIC (7.4M vs 12.58M observed); the seed recomputes passes against the live budget, so memoed
+cardinalities remain valid across heap states.
+
+**Day total: hot 285.8 → 206.5 (−28 %), four commits (composite global port b7d30c376, overflow-throw skip
+1a4d786de, count-distinct + rank-string c062c1782, pass memo), plus the empty-dictionary probe fix
+35c67fe60. All 43 dumps byte-identical on every leg.**
+
+**USER DIRECTIVE (2026-09-01 evening): "make sure that we don't regress storage space due to versioning
+types and so on"** — instituted as gate law: versioningType=FULL pinned explicitly in every experiment
+loader (ClickBenchLoadMain:289 pins FULL; ResourceConfiguration's default is SLIDING_SNAPSHOT — an inherit
+would silently shift the baseline); the 1M trie-lane gate runs three arms on the REAL multi-commit epoch
+loader (baseline / chunked-only / chunked+converted); every arm reports whole-DB `du -sb` beside the census
+page-class table; the combine refusal is verified by read-back, not argument. The current 100M DB carries
+~2,418 revisions of FULL-versioned epoch commits — that write pattern is the baseline being defended.
+
+**Storage lane tonight (impl-p2s1/impl-ingest):** read seam landed and reviewed (ffee9729c); R1-R4 + length
+lane + three more defects (live sketch row-loss, encoder tearing under parallel flush, stale-anchor
+four-byte parse) written and awaiting compile; installer fork RULED (A) — the pre-import seam
+(2bb4f6900-era hook) with a thread-confined per-flush-thread probe resolver (TrieLaneWriteDictionaries),
+absent==0 asserted on converted arms.
