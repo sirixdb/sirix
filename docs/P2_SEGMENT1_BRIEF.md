@@ -1368,3 +1368,26 @@ conversion, one absent value ⇒ whole tag on bytes, every byte-reader throws on
 refuses a non-global one. Witness verdict owed on first machine window; nothing can produce the form yet
 (no `setDictionaries` caller). Wiring next: resolver over the projection anchors WITH the binding generation
 anchor, page hand-off, read seam (impl-p2s1 writes, impl-ingest reviews).
+
+### The witness's first run: two committed bugs caught; the generation anchor lands (key + count)
+
+**Witness 9/9 after catching two real bugs in committed, compiling code** — a byte-copy guard patched into
+the WRONG encoder (the production varint path wrote a global tag's ids AND the value bytes they replace,
+while the guard read a stale field a path that never runs sizing had left behind), and the varint walk
+reading ids AS lengths, claiming payloads larger than the page. Both loud only because the numbers happened
+to be large; **at other magnitudes both silently mis-set every following tag's offsets. Cost of finding
+them: one test run. Cost if they had ridden into the wiring: a rebuilt 100M database.** That is the
+decode-first ordering's receipt.
+
+**The generation anchor (BINDING, now landed): each global tag carries the dictionary's node key AND its
+entry count at encode time** (~4 B/tag varint, 0.75 % of the lever). The two halves prove different things:
+the KEY restores FSST's property — a rebuild mints a new key, COW keeps the old dictionary readable for old
+pages; the COUNT is a validity proof from monotonicity — a rank-ordered dictionary only appends, so ids
+1..n are immutable while it grows: live count ≥ recorded proves every id unchanged, smaller means a REUSED
+key and parse REFUSES a dictionary too small to have issued the ids. Refusal-over-misreading applied to
+time.
+
+Also: an unasserted `str.replace` no-op (the anchor-matched-nothing hazard) caught by the compiler — every
+anchor asserted again; and `ArrayElementStringColumnTest` writes to literal `/tmp` (sandbox-hostile) —
+assigned as a passing one-line `@TempDir` fix. Order: FOR-packed lane → INC104 (residency decisions wait on
+its verdict) → resolver → read seam.
