@@ -1187,3 +1187,80 @@ string), costing **2.91 GB on disk for 7.32 GB of distinct values = 0.40**, insi
 0.355–0.42 band. The walking build passed its previous failure point with zero exceptions — the arena fix
 confirmed by the run, not only the witness. ETA ~03:30 (flagged as a one-scale slope); leg-vs-bank decision
 pre-made per the tiers; disk comfortable.
+
+---
+
+## Handoff — 2026-09-01, impl-p2s1
+
+Written at 02:55 while the 100M projection build runs, so it is not typed under a deadline.
+
+### What is proven
+
+**The 1M per-query gate is MET.** Three columns (URL, Title, Referer) converted to resource-wide
+rank-ordered dictionaries in a fresh build. Under the pair-counting protocol — nine interleaved
+arm-pairs of five tries, a regression counted only if it appears in EVERY pair — there are **zero
+stable regressions at either temperature**, medians −0.225 s cold and −0.269 s hot, and 43/43 query
+results byte-identical to the `never` oracle at every step of every change.
+
+| | bytes | vs `never` |
+|---|---|---|
+| stock `auto` | 1,169,646,361 | +90.6 % |
+| `never` | 613,610,513 | — |
+| rank, codec off | 605,475,801 | −1.3 % |
+| rank + codec, 2 columns | 573,331,369 | −6.6 % |
+| rank + codec, 3 columns | **560,297,881** | **−8.7 %** |
+
+The two lines are not independent levers: front coding and in-record LZ77 exist only because the ids
+are in collation order, so the ordering buys 8.1 MB directly and makes the other 32.1 MB possible.
+
+**At 100M, banked and independent of the unfinished build:**
+- Document-only load: **52,152,369,152 B**, reproduced **byte-for-byte** across two independent
+  37-minute loads. The baseline that already carries a projection is 69,625,839,616 B.
+- Dictionaries: **2.91 GB on disk for 7.32 GB of distinct values** (ratio 0.40, matching the codec's
+  0.355–0.42 band at 1M).
+- Distinct sets: URL 18,342,018 / Title 9,425,423 / Referer 19,720,796. URL's distinct-weighted mean
+  is **184.0 B**, confirming the P2 gate's figure from a different instrument.
+- Census (`residual=0 B`, EXACT): string region 29,634,985,906 B — framing 3.6 %, **dictionaries
+  92.5 %**, id lane 3.9 %; per-tag FOR packing would save **60.0 %** of the lane.
+
+### What is open
+
+1. **The 100M projection build did not finish in this session.** Its JVM was killed with a harness
+   task wrapper at ~58 %, relaunched detached at 02:44, ETA ~04:35. **The finished file will carry
+   ~4.05 GB of orphaned bytes** from the killed walk (append-only: 52.15 document → 55.06 with
+   dictionaries → 59.11 when killed). Report final size AND that adjustment; a pristine number needs
+   a reload plus rebuild, ~2.5 hours.
+2. **No 100M query leg was run.** This is next session's first action: two interleaved arm-pairs
+   against `clickbench-100m-campaign-20260831-0257` **re-legged on the same build**, `# served` and
+   `route=` per query, reported as indicative with the stability caveat.
+3. **Two cold regressions at 1M are fixed by the warmer but only measured at 1M.** A green 1M
+   acceptance says nothing about 100M warm behaviour: there, each dictionary alone exceeds the
+   256 MiB record cache, so the warmer holds a fraction and the cold story rests on the sweep-ratio
+   arithmetic (0.184 measured at 100M against 0.68 at 1M), not on residency.
+4. **`OriginalURL` is 9.7 % of the 100M string region with no dictionary planned** — ten times
+   SearchPhrase, and it grows as a share with scale (8.5 % at 1M). The plan was sized against the
+   wrong fourth column.
+5. **19.8 % of the 100M string region is temporal data held as strings** (three EventTime variants
+   plus EventDate, 5.86 GB). It wants an encoding, not a dictionary.
+6. **§6.4's length table does not exist and was never built.** q28 is served by the verdict and
+   record caches. That section needs a strikethrough, not an implementation.
+
+### The single next action
+
+Run the 100M query leg on the finished build. Everything else — the storage number, the census, the
+1M gate — is already measured and recorded above.
+
+### Rules learned tonight that the next session should not re-learn
+
+- **The bench rig compiled from a frozen copy of the tree.** Rebuild both bundles from the live tree
+  before any campaign; `rig/rig-guard.sh` now refuses a leg when tracked sources are newer than the
+  rig's classes, and it caught a teammate's mid-campaign edit within the hour.
+- **Verify a scale fix where its branch runs.** A chunked-arena fix verified byte-identical at 1M
+  shipped a corruption, because 35 MB never crosses a 256 MiB boundary and the new code never ran.
+  Make the threshold configurable and force it small (539 transitions at 1M).
+- **Suite totals from six pairs or not at all**; per-query effects may be claimed from three.
+- **A background optimisation is measured on the foreground it competes with** — the warmer's first
+  version created a stable +57 ms regression on the earliest query.
+- **A cache's key must be reviewed against its invalidation story.** Two latent wrong-answer bugs
+  here were unreachable through the benchmark: every query path is read-only, so 43/43 stayed green
+  through both.
