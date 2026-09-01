@@ -33,6 +33,14 @@ import java.util.Objects;
  * that batches a tag's ids and walks them ascending pays the sequential price. This class cannot
  * enforce that — it answers one id at a time — but it is why the interface says so.
  *
+ * <p>
+ * <b>The ascending order is LOAD-BEARING, not incidental.</b> It is a 5.6× that a later tidy-up
+ * could silently undo by sorting differently, resolving on demand, or parallelising a walk — none
+ * of which would fail a test, because every one of them returns the same values. Anyone changing
+ * how a caller iterates ids should treat that as a performance change with a measurement attached,
+ * not a refactor.
+ * </p>
+ *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class TrieLaneDictionaries implements GlobalStringDictionaries {

@@ -1435,6 +1435,13 @@ public enum PageKind {
         // the writer would have written. The width was preserved on disk so we
         // can validate equality with computeSignedEncodedWidth.
         if (valueElisionActive && regionTable != null && !lazyChunks) {
+          // DECLINE UP FRONT, not partway through. Eager expansion runs inside deserializePage,
+          // where the KeyValueLeafPage does not exist yet, so there is nothing that can hold a
+          // dictionary -- and unlike the lazy path there is no later attach to defer a slot to:
+          // eager expansion IS the whole expansion. Meeting a global tag mid-loop would leave the
+          // page half-injected before failing, so the region is checked before a single slot is
+          // touched and the message names the page rather than a slot.
+          refuseGlobalTagsOnEagerPath(regionTable, recordPageKey);
           injectValueElidedRecords(slottedPage, valueElidedCount, valueElidedSlots, valueElidedTypes, valueElidedWidths,
               valueElidedAbsIdx, regionTable, 0, PageLayout.SLOT_COUNT - 1, null);
         }
@@ -1658,6 +1665,12 @@ public enum PageKind {
               injectNameKeyElidedRecords(seg, populatedCount, nkOffs, nkWidths, regions, fromEntry, toEntry);
             }
             if (valueElisionActive) {
+              // The resolver is READ HERE, inside the lambda, and must stay here. This lambda is
+              // built during deserialization, when the page has none -- the reader installs it
+              // afterwards, exactly as it does the FSST symbol table. Hoisting this call to the
+              // construction site would capture null on every page, and on a pooled or reused page
+              // it would capture a stale one: the same reused-state hazard that once put a guard in
+              // the wrong encoder.
               injectValueElidedRecords(seg, valueElidedCount, elidedSlots, elidedTypes, elidedWidths, elidedAbsIdx,
                   regions, fromSlot, toSlot, page.globalStringDictionaries());
             }
@@ -4806,6 +4819,38 @@ public enum PageKind {
         throw new SirixIOException("value-elision: global STRING width mismatch at slot " + slot + ": expected="
             + valueWidth + " actual=" + actualWidth + " -- the dictionary returned a different value than the "
             + "one this page elided");
+      }
+    }
+
+    /**
+     * Refuse a page whose string region carries a global tag when it is being expanded EAGERLY.
+     *
+     * <p>
+     * The trie lane requires lazy chunks. That is not a policy choice: a global tag's value lives
+     * behind the NamePage sub-trie and is reachable only through a reader, deserialization has none
+     * and cannot be given one without recursing into page decodes, and the page object that would
+     * carry a resolver does not exist yet. So the value cannot be produced here by any means.
+     * </p>
+     *
+     * <p>
+     * Refusing beats the alternative, which is leaving those slots elided and handing back records
+     * whose values are absent -- a record with no value is not a record with an empty value, and
+     * that substitution is the failure the whole anchor design exists to prevent.
+     * </p>
+     */
+    private static void refuseGlobalTagsOnEagerPath(final RegionTable regionTable, final long recordPageKey) {
+      final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
+      if (stringPayload == null || stringPayload.byteSize() == 0) {
+        return;
+      }
+      final StringRegion.Header header = STRING_HEADER_SCRATCH.get();
+      header.parseInto(stringPayload);
+      for (int t = 0; t < header.parentDictSize; t++) {
+        if (header.tagGlobal[t]) {
+          throw new SirixIOException("record page " + recordPageKey + " carries a global-dictionary tag ("
+              + header.parentDict[t] + ") but is being expanded EAGERLY, where no dictionary is reachable. "
+              + "Pages using the trie lane must be read through deserializePageLazily.");
+        }
       }
     }
 
