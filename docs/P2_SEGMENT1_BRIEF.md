@@ -1279,3 +1279,16 @@ unreachable bytes** in the append-only file (52.15 doc → 55.06 with dictionari
 finished figure will be reported RAW and ADJUSTED, labelled: the adjustment is a derivation, credible because
 two independent loads reproduced the document byte-for-byte (measured determinism), with a pristine rebuild
 available next session if the headline must be a measured file size.
+
+### Final correction of the night: the 100M census EXISTS — a verified negative was wrong
+
+impl-ingest stood down reporting "there is no 100M census" and prescribing the shares be demoted to
+1M-derived. **Verified false by the lead before accepting**: `scratchpad/agents/p2s1/db100m/load.log:104`,
+timestamped 01:38 — `residual=0 B (census EXACT)`, region 29,634,985,906 B — printed at the CLEAN reload's
+JVM shutdown, so the shares are 100M-measured on corrected-extractor data. Two errors made the negative:
+the search covered the repo tree while the artifacts live in the scratchpad (a load-bearing question about
+the log path was asked, never answered, and the silence became a false negative), and a one-process model
+conflated the load JVM (completed twice, printed twice) with the killed build JVM. **The shares stand as
+measured: 59.0 / 9.7 / 19.8.** The lesson pairs with the night's family: a verified negative is only as
+good as the place searched and the process model behind it — and an unanswered load-bearing question must
+be re-asked, not worked around.
