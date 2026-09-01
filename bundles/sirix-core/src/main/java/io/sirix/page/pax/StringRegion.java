@@ -840,6 +840,12 @@ public final class StringRegion {
    * payload's per-tag local dictionary, avoiding a copy on the group-by hot path.
    */
   public static int decodeStringOffset(final MemorySegment payload, final Header h, final int tag, final int dictId) {
+    if (h.tagGlobal[tag]) {
+      // Ids, not bytes. Throwing beats returning an offset into an id table: the caller would read
+      // four bytes of some id as a string and get a plausible answer, which is the one failure this
+      // format cannot afford and cannot detect afterwards.
+      throw new IllegalStateException("string region tag " + tag + " stores global ids; resolve via the dictionary");
+    }
     final int dictStart = h.tagStringDictOffset[tag];
     final int width = h.tagLengthWidth[tag];
     // lengths[0..n), then bytes — walk lengths to sum offsets.
@@ -851,6 +857,12 @@ public final class StringRegion {
   }
 
   public static int decodeStringLength(final MemorySegment payload, final Header h, final int tag, final int dictId) {
+    if (h.tagGlobal[tag]) {
+      // Ids, not bytes. Throwing beats returning an offset into an id table: the caller would read
+      // four bytes of some id as a string and get a plausible answer, which is the one failure this
+      // format cannot afford and cannot detect afterwards.
+      throw new IllegalStateException("string region tag " + tag + " stores global ids; resolve via the dictionary");
+    }
     final int width = h.tagLengthWidth[tag];
     return Math.abs(readLengthField(payload, h.tagStringDictOffset[tag] + dictId * width, width));
   }
