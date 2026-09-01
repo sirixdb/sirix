@@ -11,6 +11,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.pax.RegionTable;
@@ -535,6 +536,76 @@ final class TrieLaneReadSeamTest {
     });
   }
 
+  /**
+   * A page carrying BOTH converted strings and fused NUMBERS round-trips every slot.
+   *
+   * <p>
+   * The 1M gate found what the string-only fixture could not: a converted database fails a subtree
+   * serialization with {@code AssertionError: Type not known} out of {@code deserializeNumber} — a
+   * fused NUMBER record's payload type byte is wrong — while four arms without the lane serialize
+   * byte-identically. Every other case in this class writes strings and only strings, so the whole
+   * value-elision loop was only ever exercised with one kind on the page. A real record page carries
+   * numbers, strings and booleans in one elision section, sharing the slot/type/width arrays.
+   * </p>
+   *
+   * <p>
+   * <b>It does NOT reproduce the gate's failure, and that is recorded here so nobody reads it as
+   * covering it.</b> It was written as the reproduction hypothesis — string-only fixtures never
+   * exercised the shared slot/type/width arrays with two kinds — and it passes. So the corruption
+   * needs something this page does not have: it appears only a few thousand records into a real
+   * load, on pages that also carry name-key elision, overflow carriers, many more tags, and values
+   * long enough to matter. The next attempt should start from the loaded database, not from here.
+   * </p>
+   *
+   * <p>
+   * The case earns its place anyway: mixed kinds on one converted page were genuinely untested, and
+   * that gap was real whether or not it is this bug.
+   * </p>
+   */
+  @Test
+  @DisplayName("a page mixing converted strings with fused numbers round-trips every slot")
+  void aMixedKindPageRoundTrips() {
+    final FakeDictionary dictionary = new FakeDictionary();
+    final ResourceConfiguration config = new ResourceConfiguration.Builder("trieLaneMixed").build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1,
+        arena.allocate(MemorySegmentAllocator.SIXTYFOUR_KB), null);
+    KeyValueLeafPage reloaded = null;
+    try {
+      original.setGlobalStringDictionaries(dictionary);
+      // Interleaved on purpose: the elision section walks slots in order, and a bug that shifts the
+      // per-slot type or width arrays only shows when the kinds alternate.
+      for (int slot = 0; slot < SLOTS; slot++) {
+        if ((slot & 1) == 0) {
+          writeString(original, slot, 100, TAG, VALUES[(slot / 2) % VALUES.length]);
+        } else {
+          writeNumber(original, slot, 101, TAG + 1, slot * 7L);
+        }
+      }
+
+      final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, original, SerializationType.DATA);
+      final BytesIn<?> source = sink.bytesForRead();
+      source.readByte();
+      reloaded = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
+          .deserializePageLazily(config, source, SerializationType.DATA, null);
+
+      assertTrue(reloaded.hasGlobalStringTags(),
+          "the mixed page must still convert its string tag, or this proves nothing about the lane");
+      resolve(reloaded, dictionary);
+      for (int slot = 0; slot < SLOTS; slot++) {
+        assertArrayEquals(original.getSlotAsByteArray(slot), reloaded.getSlotAsByteArray(slot),
+            "slot " + slot + " (" + ((slot & 1) == 0
+                ? "converted string"
+                : "fused number") + ") did not survive the round trip");
+      }
+    } finally {
+      if (reloaded != null) {
+        reloaded.close();
+      }
+      original.close();
+    }
+  }
+
   @Test
   @DisplayName("a converted page emits no dictionary sketch")
   void aConvertedPageHasNoSketch() {
@@ -632,6 +703,16 @@ final class TrieLaneReadSeamTest {
       assertArrayEquals(original.getSlotAsByteArray(slot), reloaded.getSlotAsByteArray(slot),
           "slot " + slot + " did not survive the round trip through the dictionary");
     }
+  }
+
+  private static void writeNumber(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
+      final long pathNodeKey, final long value) {
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), nameKey, pathNodeKey, 0, 0, 0L, value, HASH_FN,
+        (byte[]) null);
+    node.setWriteSingleton(true);
+    page.serializeNewRecord(node, nodeKey, (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1)));
   }
 
   private static void writeString(final KeyValueLeafPage page, final long nodeKey, final int nameKey,
