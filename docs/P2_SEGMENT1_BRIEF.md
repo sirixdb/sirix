@@ -1448,3 +1448,20 @@ without having passed it. Unrepresentable beats documented; the seam review veri
 The `/tmp` assignment is CANCELLED the right way: re-verified against the reviewer's narrowing, the defect
 was the RUNNER's missing `java.io.tmpdir`, the runner was fixed with a comment, and **no test was edited to
 accommodate a harness**.
+
+### Write path complete (2fa4f6afd); the density invariant named; the seam review's charter set
+
+The page hands its optional resolver to the PATH-tagged encoder only — a correctness statement: anchors are
+keyed by path node key, the same field name under two paths is two value sets, so a name-tagged page
+converting nothing is the RIGHT answer. The 12g envelope is recorded in all seven leg scripts with the
+isolation table and its reason inline.
+
+**The width derivation's luck is now a named invariant** (the implementer corrected the lead's "it does not
+matter," and the correction stands): `globalIdBits(entryCount)` bounds the lane because ids are DENSE in
+1..entryCount — reserved ranges, tombstoned ids, or per-column partitioning would silently UNDER-SIZE the
+lane. Recorded in the design doc as an assumption of the format; asserted at encode where cheap.
+
+**The seam review's charter, refined by its author: completeness of the resolution-path enumeration** — the
+entry point already makes the wrong order unrepresentable, so the residual risk is a path nobody listed,
+which is the reviewer's home terrain. Read seam is the last piece before the 1M gates and the ~52.5 GB
+build.
