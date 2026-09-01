@@ -1319,3 +1319,40 @@ arm where the baseline sliced; arm admission for global id lanes is the named ne
 the profiles: ~2k samples of `Throwable::fill_in_stack_trace` on a hot path (investigate), and q28's
 remaining cost is the generic payload-materialization arm — a top-10-queries lever, not a regression. Full
 post-fix leg INC102 in flight at write time.
+
+## 2026-09-01 afternoon: /goal set (~50 GB + top-15 queries) — stage B (trie lane) underway
+
+**Pricing confirmed against the measured census: −10.85 GB written → 52.48 GB; +OriginalURL −1.9 → ~50.6 —
+the /goal's storage half.** What stage B actually is, now the format is read: a converted tag's region bytes
+are 97.9 % `dictValues`; the values are ALREADY elided from records and re-injected from the region
+dictionary on read — so the lane substitutes `int[] globalIds` for the local dictionary's bytes inside an
+indirection that exists, with lane and framing unchanged. Per-leaf dedup 1.47–1.72× at ~9.6 values/leaf.
+
+**Decode side landed first (`13a9f0c9b`)** — a decoder alone is safe; a writer without one makes unreadable
+pages. Discriminators from free space (negative `tagStringDictSize`; the unreachable length-width code 3,
+with the property that a pre-lane reader THROWS rather than misreading), `UNDECIDABLE` over scanning, and
+the access-order constraint (417 ns random / 75 ns sequential, batch a tag's ids ascending) in the
+interface's javadoc as a caller CONTRACT.
+
+**The read seam and its trap.** Re-injection needs id→bytes; the page layer has no reader at decode and
+would recurse into NamePage pages if it did. The precedent is FSST's symbol-table injection
+(`NodeStorageEngineReader:729`). impl-ingest's re-read of that template found the wrong-answer trap before
+any writer existed: **FSST resolution is a pure function of the PAGE (it names its symbol table); a
+global-dictionary resolver is a function of (resource, GENERATION), and a rebuild reassigns every id — so a
+COW-reachable leaf from generation G would resolve against G+1's dictionary and return plausible wrong
+values. RULED BINDING: the page names the dictionary it was encoded against.** (The V1 key-what-you-pair
+lesson at the page layer; fourth wrong-answer catch of the campaign, cheapest of all — pre-writer.)
+
+**Two census inputs adopted:** the FOR verdict REVERSES post-lever (the id lane is 87 % of what remains;
+URL wants 25 bits — ~19 % of post-lever size; lane builds FOR-packed from the start), and two-level local
+form beats flat at this dedup (flat only for temporal, a different lever). **Census learns the global-tag
+form** — assigned to impl-ingest before the lane's first measured build.
+
+**Query side:** INC102 full leg: cold −22.9 %, hot −4.9 % vs baseline — with suite-level CACHE CONTENTION
+now the dominant unknown (idx30 2.5 s alone → 24.3 in-suite; idx28 16.3 → 24.9): 43 queries' dictionary
+consumers share one 256 MiB record cache. A/B queued (12g heap + 1.25 GiB cache) after INC103's lesson —
+**2 GiB of cache inside an 8 GB heap OOMs at q28**, the V4 budget warning made real. Top-15 metric fetched:
+geometric mean of per-query ratios vs the best, +10 ms smoothing — kill the worst RATIOS first; sums barely
+matter.
+
+Ownership: impl-p2s1 writes the injection, impl-ingest reviews — self-arranged, ratified.
