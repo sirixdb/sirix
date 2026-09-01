@@ -11640,8 +11640,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @return the distinct count, or {@code null} when this column is not one it can serve
    */
   private @Nullable Long projectionNumericDistinct(final ProjectionIndexRegistry.Handle handle, final int column) {
-    if (handle.rowGroupCount() == 0
-        || handle.columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+    final byte distinctKind = handle.rowGroupCount() == 0
+        ? -1
+        : handle.columnKindOf(column);
+    // A GLOBAL string column answers count-distinct as a long-lane column: its slice carries one
+    // resource-wide id per present row and ids map one-to-one to values, so distinct ids ARE
+    // distinct values. Without this admission the column fell off the projection entirely — a
+    // 6.4 s corpus walk per try at 1M against a sub-second id sweep.
+    if (distinctKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        && distinctKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
       return null;
     }
     final ProjectionColumnStore store = handle.columnStoreOrNull();
@@ -11673,11 +11680,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     // The zone map bounds the whole column, so a narrow range means a bitset indexed by
     // (value - min) fits — and a wide one falls to the hash set rather than allocating for it.
+    // A GLOBAL column's ids are DENSE in 1..entryCount by the encoder's asserted invariant, so its
+    // span IS the dictionary cardinality and the bitset arm earns a wider bound: the bitset is
+    // never larger than one bit per dictionary entry, where the hash set would pay a probe per row.
     final long span = max - min;
-    return span >= 0 && span < NUMERIC_DISTINCT_BITSET_SPAN
+    final long bitsetSpanBound = distinctKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+        ? GLOBAL_ID_DISTINCT_BITSET_SPAN
+        : NUMERIC_DISTINCT_BITSET_SPAN;
+    return span >= 0 && span < bitsetSpanBound
         ? distinctViaBitset(slices, min, span)
         : distinctViaHashSet(slices);
   }
+
+  /**
+   * Bitset bound for GLOBAL id columns: 32M ids is 4 MB of bits — bounded by the dictionary
+   * cardinality the promotion gate already priced, and far cheaper than 100M hash probes.
+   */
+  private static final long GLOBAL_ID_DISTINCT_BITSET_SPAN = 1L << 25;
 
   /**
    * Widest value range served by the bitset arm: 4M values is 512 KB of bits, which stays inside a
@@ -12986,6 +13005,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final LongArrayList deferredGlobalHeaderKeys = new LongArrayList();
       boolean anyDeferred = false;
       boolean anyDeferredGlobal = false;
+      // RANK-STRING lanes: min/max over a FULLY-ORDERED global column is NOT deferred — id order IS
+      // collation order, so the operand folds as the plain numeric id lane on whatever arm serves
+      // the query, and only emission reverse-maps each winning id to its string. Keyed per FUNC
+      // (the emission's unit); the field list gates the aggregate-roster kind check below.
+      final long[] rankStringAggHeaderKeys = new long[funcs.length];
+      final ArrayList<String> rankStringFields = new ArrayList<>(2);
       for (int i = 0; i < funcs.length; i++) {
         deferredLane[i] = -1;
         // Exact "min"/"max" only: a dbl:-prefixed cast over a string extremum is the
@@ -13012,6 +13037,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (headerKey <= 0L) {
             return declineGroupAgg("global string extremum has no value dictionary");
           }
+          final var extremumHeader = GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
+          if (extremumHeader == null || !extremumHeader.isDirectoryComplete()) {
+            return declineGroupAgg("global string extremum has no readable dictionary at this revision");
+          }
+          if (extremumHeader.isFullyOrdered()) {
+            rankStringAggHeaderKeys[i] = headerKey;
+            if (!rankStringFields.contains(aggFields[i])) {
+              rankStringFields.add(aggFields[i]);
+            }
+            continue;
+          }
           deferredAgg[i] = true;
           deferredLane[i] = deferredCols.size();
           deferredCols.add(col);
@@ -13021,6 +13057,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           anyDeferredGlobal = true;
         }
       }
+      // A rank-string operand may appear ONLY under exact min/max (and count-distinct, which reads
+      // its own block): any other function over the id lane would fold ids as quantities and
+      // answer with numbers that were never values. Decline to the interpreter instead.
+      for (int i = 0; i < funcs.length; i++) {
+        if (aggFields[i] != null && rankStringAggHeaderKeys[i] == 0L && rankStringFields.contains(aggFields[i])
+            && !"count-distinct".equals(baseFunc(funcs[i]))) {
+          return declineGroupAgg("non-extremum aggregate over a rank-ordered string operand");
+        }
+      }
+      GlobalValueDictionary.ReadView[] rankStringViewsLocal = null;
+      if (!rankStringFields.isEmpty()) {
+        rankStringViewsLocal = new GlobalValueDictionary.ReadView[funcs.length];
+        for (int i = 0; i < funcs.length; i++) {
+          if (rankStringAggHeaderKeys[i] != 0L) {
+            rankStringViewsLocal[i] =
+                GlobalValueDictionary.readView(rankStringAggHeaderKeys[i], workerTrx().getStorageEngineReader());
+            if (rankStringViewsLocal[i] == null) {
+              return declineGroupAgg("rank-string operand dictionary became unreadable");
+            }
+          }
+        }
+      }
+      final GlobalValueDictionary.ReadView[] rankStringViews = rankStringViewsLocal;
       // count(distinct-values(f)) entries: ONE distinct operand per query (v1), and its column
       // must NOT enter the value-fold roster below — folding a 64-bit id column through
       // Math.addExact would throw at run time and silently decline a query that annotated.
@@ -13077,6 +13136,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             return declineGroupAgg("string-length aggregate needs a STRING_DICT or STRING_GLOBAL column");
           }
           anyStringLengthAgg = true;
+        } else if (rankStringFields.contains(df)) {
+          // Rank-string lane: the kind-5 id lane IS the min/max-foldable stat, and ids are ints
+          // minted dense by the dictionary, so numericColumnIsIntegral's truncated-double question
+          // cannot arise.
+          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            return declineGroupAgg("rank-string operand column is no longer GLOBAL");
+          }
         } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             || !handle.numericColumnIsIntegral(col, fetcher)) {
           return declineGroupAgg("aggregate column is not an integral NUMERIC_LONG");
@@ -13421,6 +13487,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       } else {
         armPayloads = rowGroupPayloads;
       }
+      if (rankStringViews != null && (packedStringKey || (keyCount > 1 || anyKeyTransform) && orderPlan == null)) {
+        // The packed-substring arm and the legacy multi-key arm emit through builders this port
+        // did not wire; leaking an id lane as Int64 is a WRONG answer, so these shapes decline.
+        return declineGroupAgg("rank-string extremum on an unwired arm");
+      }
       if (packedStringKey) {
         return packedSubstringGroupAggregate(armPayloads, windowedSlices, packedSlicedArm
             ? groupStore
@@ -13438,7 +13509,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             globalSingleKey
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
-            sumExactMask, keyDisplays[0]);
+            sumExactMask, keyDisplays[0], rankStringViews);
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
@@ -13532,8 +13603,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
             cAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
             for (int a = 0; a < aggColsFlat.length; a++) {
-              if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-                throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG");
+              if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+                  && groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+                throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
               }
               cAggCols[a] = groupStore.column(aggColsFlat[a], cFetcher);
             }
@@ -13917,7 +13989,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   winnerGlobalKeyViews);
             }
             out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
-                aggFields, outNames, distinctFields, cdBase, keyDisplays));
+                aggFields, outNames, distinctFields, cdBase, keyDisplays, rankStringViews));
           }
           GROUP_AGG_SERVED.increment();
           if (compositeSlicedArm) {
@@ -14605,7 +14677,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields,
-              cdBase, deferredAgg, deferredVals));
+              cdBase, deferredAgg, deferredVals, rankStringViews));
         }
         GROUP_AGG_SERVED.increment();
         if (stringSlicedArm) {
@@ -14643,8 +14715,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         legGroupCol = groupStore.column(groupCol, legFetcher);
         legAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
         for (int a = 0; a < aggColsFlat.length; a++) {
-          if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-            throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG");
+          if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+              && groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
           }
           legAggCols[a] = groupStore.column(aggColsFlat[a], legFetcher);
         }
@@ -14712,13 +14785,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       int emittedMissing = 0;
       for (final Object2ObjectMap.Entry<String, long[]> e : ordered) {
         if (missingMerged[0] > 0 && emittedMissing == 0 && missingMerged[1] < e.getValue()[1]) {
-          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
+          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1, null,
+              null, rankStringViews));
           emittedMissing = 1;
         }
-        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
+        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames, distinctFields, -1,
+            null, null, rankStringViews));
       }
       if (missingMerged[0] > 0 && emittedMissing == 0) {
-        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
+        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1, null,
+            null, rankStringViews));
       }
       GROUP_AGG_SERVED.increment();
       if (stringLegacySliced) {
@@ -14959,8 +15035,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         kPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(constStore, preds, kFetcher);
         kAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
         for (int a = 0; a < aggCols.length; a++) {
-          if (constStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-            throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+          if (constStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+              && constStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
           }
           kAggCols[a] = constStore.column(aggCols[a], kFetcher);
         }
@@ -15112,8 +15189,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       pGroupCol = slicedStore.column(groupCol, pFetcher);
       pAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
       for (int a = 0; a < aggCols.length; a++) {
-        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            && slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
         }
         pAggCols[a] = slicedStore.column(aggCols[a], pFetcher);
       }
@@ -15354,7 +15432,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
       final ProjectionIndexScan.PredicateTree predTree, final long[] having, final byte[] stringLengthModes,
       final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
-      final long sumExactMask, final byte keyDisplay) {
+      final long sumExactMask, final byte keyDisplay, final GlobalValueDictionary.ReadView[] rankStringViews) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -15375,7 +15453,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             denseCountLaneRead(funcs, orderPlan, having));
         if (dense != null) {
           return denseGlobalGroupAggregate(slicedStore, preds, predTree, groupCol, aggCols, keyNames, funcs, aggFields,
-              outNames, distinctFields, eff, chunkSize, orderPlan, limit, having, globalKeyDictionary, dense);
+              outNames, distinctFields, eff, chunkSize, orderPlan, limit, having, globalKeyDictionary, dense,
+              rankStringViews);
         }
       }
       final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
@@ -15645,7 +15724,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           : ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
       return emitNumericGroupWinners(partSelectors, missingMergedFinal, orderPlan, limit, slotWidth, having, keyNames,
           funcs, aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0,
-          keyDisplay);
+          keyDisplay, rankStringViews);
     }
     @SuppressWarnings("unchecked")
     final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
@@ -15671,8 +15750,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       legGroupCol = slicedStore.column(groupCol, legFetcher);
       legAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
       for (int a = 0; a < aggCols.length; a++) {
-        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            && slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
         }
         legAggCols[a] = slicedStore.column(aggCols[a], legFetcher);
       }
@@ -15759,17 +15839,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final Long2ObjectMap.Entry<long[]> e = ordered.get(i);
       if (missingMerged[0] > 0 && emittedMissing == 0 && missingMerged[1] < e.getValue()[1]) {
         out.add(groupAggRecordNumeric(0L, false, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields,
-            -1, null));
+            -1, null, rankStringViews));
         emittedMissing = 1;
       }
       out.add(groupAggRecordNumeric(e.getLongKey(), true, e.getValue(), keyNames[0], funcs, aggFields, outNames,
           distinctFields, -1, legacyKeyStrings == null
               ? null
-              : legacyKeyStrings[i]));
+              : legacyKeyStrings[i], rankStringViews));
     }
     if (missingMerged[0] > 0 && emittedMissing == 0) {
       out.add(groupAggRecordNumeric(0L, false, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields,
-          -1, null));
+          -1, null, rankStringViews));
     }
     GROUP_AGG_SERVED.increment();
     NUMERIC_GROUPBY_SERVED.increment();
@@ -15862,7 +15942,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int groupCol, final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
       final GroupOrderPlan orderPlan, final long limit, final long[] having, final long globalKeyDictionary,
-      final DenseGlobalGroupAggTable dense) {
+      final DenseGlobalGroupAggTable dense, final GlobalValueDictionary.ReadView[] rankStringViews) {
     final int rowGroupCount = store.rowGroupCount();
     // Resolve every column ONCE on the calling thread: the slice arrays are immutable and shared,
     // and letting the fan-out race the first fill would multiply the segment I/O by the worker count.
@@ -15875,8 +15955,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final ProjectionColumnStore.ColumnSlice[] groupSlices = store.column(groupCol, fetcher);
     final ProjectionColumnStore.ColumnSlice[][] aggSlices = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
     for (int a = 0; a < aggCols.length; a++) {
-      if (store.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-        throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+      if (store.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+          && store.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
       }
       aggSlices[a] = store.column(aggCols[a], fetcher);
     }
@@ -15964,7 +16045,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         having, keyNames, funcs, aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false,
         // The dense arm exists for global dictionary ids and is entered only with one; a temporal
         // key never reaches it, so it has no text of its own to render.
-        ProjectionTemporalCodec.DISPLAY_NONE);
+        ProjectionTemporalCodec.DISPLAY_NONE, rankStringViews);
     if (served != null) {
       GROUP_DENSE_SERVED.increment();
     }
@@ -16026,7 +16107,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupOrderPlan orderPlan, final long limit, final int slotWidth, final long[] having,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int cdBase, final long globalKeyDictionary, final boolean sliced,
-      final boolean cdServed, final byte keyDisplay) {
+      final boolean cdServed, final byte keyDisplay, final GlobalValueDictionary.ReadView[] rankStringViews) {
     int winnerCount = missingMerged[0] > 0
         ? 1
         : 0;
@@ -16090,7 +16171,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       out.add(groupAggRecordNumeric(finalSel.keyLongAt(i), finalSel.hasKeyAt(i), finalSel.accAt(i), keyNames[0], funcs,
           aggFields, outNames, distinctFields, cdBase, keyStrings == null
               ? null
-              : keyStrings[i]));
+              : keyStrings[i], rankStringViews));
     }
     GROUP_AGG_SERVED.increment();
     NUMERIC_GROUPBY_SERVED.increment();
@@ -16267,7 +16348,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   private static ArrayObject groupAggRecordNumeric(final long groupKey, final boolean hasKey, final long[] acc,
       final String keyName, final String[] funcs, final String[] aggFields, final String[] outNames,
-      final ArrayList<String> distinctFields, final int cdBase, final @Nullable String globalKeyValue) {
+      final ArrayList<String> distinctFields, final int cdBase, final @Nullable String globalKeyValue,
+      final GlobalValueDictionary.ReadView[] rankStringViews) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
@@ -16279,7 +16361,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         : globalKeyValue != null
             ? new Str(globalKeyValue)
             : new Int64(groupKey);
-    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase);
+    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase, null, null,
+        rankStringViews);
     return new ArrayObject(names, vals);
   }
 
@@ -18037,7 +18120,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
       final int cdBase) {
-    return groupAggRecord(groupKey, acc, keyName, funcs, aggFields, outNames, distinctFields, cdBase, null, null);
+    return groupAggRecord(groupKey, acc, keyName, funcs, aggFields, outNames, distinctFields, cdBase, null, null,
+        null);
   }
 
   /**
@@ -18047,7 +18131,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
-      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals) {
+      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals,
+      final GlobalValueDictionary.ReadView[] rankStringViews) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
@@ -18057,7 +18142,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     vals[0] = groupKey == null
         ? null
         : new Str(groupKey);
-    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase, deferredAgg, deferredVals);
+    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase, deferredAgg, deferredVals,
+        rankStringViews);
     return new ArrayObject(names, vals);
   }
 
@@ -18069,7 +18155,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static ArrayObject groupAggRecordComposite(final String[] keyNames, final boolean[] present,
       final boolean[] isLong, final String[] strParts, final long[] longParts, final long[] acc, final String[] funcs,
       final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields, final int cdBase,
-      final byte[] keyDisplays) {
+      final byte[] keyDisplays, final GlobalValueDictionary.ReadView[] rankStringViews) {
     final int k = keyNames.length;
     final QNm[] names = new QNm[k + funcs.length];
     final Sequence[] vals = new Sequence[k + funcs.length];
@@ -18085,7 +18171,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   ? new Int64(longParts[i])
                   : new Str(strParts[i]);
     }
-    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields, cdBase);
+    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields, cdBase, null, null,
+        rankStringViews);
     return new ArrayObject(names, vals);
   }
 
@@ -18117,12 +18204,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
       final int cdBase) {
-    fillAggEntries(names, vals, offset, acc, funcs, aggFields, outNames, distinctFields, cdBase, null, null);
+    fillAggEntries(names, vals, offset, acc, funcs, aggFields, outNames, distinctFields, cdBase, null, null, null);
   }
 
   private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
-      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals) {
+      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals,
+      final GlobalValueDictionary.ReadView[] rankStringViews) {
     for (int i = 0; i < funcs.length; i++) {
       names[offset + i] = new QNm(outNames[i]);
       if (deferredAgg != null && deferredAgg[i]) {
@@ -18131,6 +18219,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         vals[offset + i] = deferredVals == null || deferredVals[i] == null
             ? null
             : new Str(deferredVals[i]);
+        continue;
+      }
+      if (rankStringViews != null && rankStringViews[i] != null) {
+        // Rank-string extremum: the accumulator's min/max lane holds the winning ID, and the
+        // fully-ordered dictionary's rank IS collation, so that id names the extremal STRING. A
+        // zero count lane is an all-missing group — the empty sequence, as fn:min/fn:max answer.
+        final int a = distinctFields.indexOf(aggFields[i]);
+        final int base = 2 + 4 * a;
+        vals[offset + i] = acc[base] == 0
+            ? null
+            : new Str(rankStringViews[i].valueAsString(Math.toIntExact(acc["min".equals(funcs[i])
+                ? base + 2
+                : base + 3])));
         continue;
       }
       final String func = baseFunc(funcs[i]);
