@@ -1407,3 +1407,27 @@ reused key — can only live in the RESOLVER, which is unwritten. *"A described 
 implemented one six hours later."* The injection review verifies it by name, with a witness that proves
 REFUSAL on a shrunk-count fixture. The `/tmp` test honours `java.io.tmpdir` and falls back to hardcoded
 `/tmp` — the fix targets the fallback. INC104 (contention) running at write time.
+
+### INC104 CORRECTED: the lead's contention hypothesis is FALSIFIED — the heap is the lever, not the cache
+
+The queued contention leg changed TWO variables (heap 8→12 GB to survive INC103's OOM, and the record cache
+256 MiB→1.25 GiB — the lead wrote that config), and the lead attributed the −33 % to the cache. The
+isolation arm says otherwise:
+
+| arm | cold s | hot s |
+|---|---|---|
+| 8g / 256 MiB | 491.0 | 483.3 |
+| **12g / 256 MiB (heap only)** | 364.4 | **285.8** |
+| 12g / 1.25 GiB (both) | 359.2 | 339.7 |
+
+**Heap alone: hot −197.5 s. The bigger cache ON TOP: hot +54.0 s — WORSE** (four queries prefer it; the
+suite pays; single-sample, direction clear). Mechanism fits held evidence: q28's profile was G1-evacuation
+and memcpy heavy — the suite at 8 GB is substantially GC-BOUND, the ingest allocation-rate lesson holding on
+the query side. **Policy: the leg envelope moves to 12g; do NOT enlarge the record cache; stage B keeps
+256 MiB and the sequential-resolution discipline (costs no heap). The −197 s is the cheapest query lever
+found today and the deeper follow-up is allocation-rate reduction in the group arms.** idx39's regression is
+partly cache-sensitive (13.99 → 6.83 big-cache), refining that backlog item.
+
+Also landed: the FOR-packed id table (`4959f0129`) — **width derived from the anchor's count and stored
+nowhere**, region 555.6 → 444.3 MB post-lever at 1M-scale fixtures, witness 10/10 with the fixture upgraded
+to 1,000 entries because a 2-entry one would have passed a 32-bit-width bug.
