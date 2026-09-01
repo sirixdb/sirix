@@ -1515,3 +1515,16 @@ The implementer stopped at this boundary on their own judgement: a substantial c
 file at the end of a long stretch is how this campaign's two silent bugs were written. **Next session:
 the install → the 1M gates (byte-identical JSON round-trip, census shrink, 12g leg protocol) → the 100M
 build at ~52.5 GB; OriginalURL (−1.9) closes to ~50.6.**
+
+### Density closed (caa6fb958): asserted at one compare/entry — and the assertion moved a case between layers
+
+The encoder refuses any id above the dictionary's reported count (fixture: id 5000 from a two-entry
+dictionary — what a reserved range or tombstone space would produce). **Second-order finding: the new
+assertion caught an existing fixture EARLIER, and the old test started failing correctly** — retargeted to
+the layer that now refuses, while the parse-time guard was KEPT: the encoder defends what this build
+writes, the parse guard defends a payload it did not write; different jobs, and only one is now exercised
+by that fixture. The design doc records: density is load-bearing and **making a dictionary sparse is a
+FORMAT change** (the lane would have to carry its own width, losing the no-drift property); the lane
+requires lazy chunks; **§6.4 struck through** as never built and superseded. General rule banked for
+derived fields (widths, offsets, capacities): name the property the derivation rests on, then assert it at
+the cheapest point it can be violated. 12 commits, 13/13, tree clean; write path has no open findings.
