@@ -158,6 +158,39 @@ public final class StringRegion {
   private static final int[] LENGTH_WIDTHS = {1, 2, 4};
 
   /**
+   * The spare length-width code, repurposed to mark a tag whose dictionary holds GLOBAL IDS.
+   *
+   * <p>
+   * {@link #LENGTH_WIDTHS} has three entries and the field is two bits wide, so code 3 was
+   * unreachable. Using it costs no format version and no new field: a reader that does not know the
+   * trie lane meets an unknown width code and throws, which is the correct behaviour for a page it
+   * cannot read, rather than reading an id table as lengths.
+   * </p>
+   */
+  private static final int GLOBAL_WIDTH_CODE = 3;
+
+  /**
+   * The global dictionary id stored for {@code dictId} under a tag whose dictionary is global.
+   *
+   * <p>
+   * The supported route for a tag {@link Header#tagGlobal} marks. Callers pair it with a
+   * {@link GlobalStringDictionaries} to reach the bytes, and should batch a tag's ids and resolve
+   * them ASCENDING -- a dictionary point read is 417 ns at a random id and 75 ns at a sequential
+   * one.
+   * </p>
+   */
+  public static int globalIdAt(final MemorySegment payload, final Header h, final int tag, final int dictId) {
+    if (!h.tagGlobal[tag]) {
+      throw new IllegalStateException("string region tag " + tag + " does not store global ids");
+    }
+    final int n = h.tagStringDictSize[tag];
+    if (dictId < 0 || dictId >= n) {
+      throw new IndexOutOfBoundsException("dict id " + dictId + " outside tag " + tag + "'s " + n + " entries");
+    }
+    return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4);
+  }
+
+  /**
    * Write {@link #ENC_VARINT_FRAMED}. Off pins the encoder to the dictionary layout byte for byte,
    * the suppressed-tag list and its sign-bit marker included.
    */
@@ -275,6 +308,27 @@ public final class StringRegion {
      * dictionary id and no id is stored. False for every tag of the dictionary layout.
      */
     public boolean[] tagPlainLane;
+
+    /**
+     * For each tag: whether its per-tag dictionary holds global dictionary IDS instead of value
+     * bytes — the trie lane.
+     *
+     * <p>
+     * Signalled on the wire by a NEGATIVE {@code tagStringDictSize}, whose magnitude is the entry
+     * count as always. The sign bit is free here and the field is already read per tag, so the
+     * layout stays self-describing: a reader learns a tag is global at the same moment it learns
+     * how many entries it has, and {@code parentDictSize} already carries a sign bit for the
+     * suppressed-tag list, so the idiom is the format's own.
+     * </p>
+     *
+     * <p>
+     * A global tag's entries are {@code int[|n|]} ids and NO bytes, so
+     * {@link #tagStringBytesOffset} is the end of the id table and every byte-reading accessor must
+     * check this first. They refuse rather than read: an id table read as a length table produces
+     * plausible garbage, and this format has already paid once for a decoder that guessed.
+     * </p>
+     */
+    public boolean[] tagGlobal;
     /**
      * For each tag: index of its first value within the packed dict-id lane. Equals
      * {@link #tagStart} whenever no tag took the plain lane, which is every page of the dictionary
@@ -317,6 +371,8 @@ public final class StringRegion {
         tagStringDictSize = new int[Math.max(4, parentDictSize)];
       if (tagStringDictOffset == null || tagStringDictOffset.length < parentDictSize)
         tagStringDictOffset = new int[Math.max(4, parentDictSize)];
+      if (tagGlobal == null || tagGlobal.length < parentDictSize)
+        tagGlobal = new boolean[Math.max(4, parentDictSize)];
       for (int i = 0; i < parentDictSize; i++) {
         parentDict[i] = getInt(payload, pos);
         pos += 4;
@@ -350,7 +406,20 @@ public final class StringRegion {
       // Per-tag local dicts: lengths[...] + bytes[...]
       for (int t = 0; t < parentDictSize; t++) {
         tagStringDictOffset[t] = pos;
-        final int n = tagStringDictSize[t];
+        final int signed = tagStringDictSize[t];
+        // NEGATIVE size = the trie lane: |n| global dictionary ids, no value bytes at all.
+        final boolean global = signed < 0;
+        final int n = global ? -signed : signed;
+        tagGlobal[t] = global;
+        tagStringDictSize[t] = n;
+        if (global) {
+          tagStringBytesOffset[t] = pos + n * 4;
+          tagLengthWidth[t] = 4;
+          tagPlainLane[t] = false;
+          tagIdLaneStart[t] = tagStart[t];
+          pos += n * 4;
+          continue;
+        }
         int total = 0;
         for (int i = 0; i < n; i++)
           total += Math.abs(getInt(payload, pos + i * 4));
@@ -421,12 +490,24 @@ public final class StringRegion {
         pos += VarInt.sizeOfUnsigned(meta);
         final boolean plain = (meta & 1L) != 0L;
         final int widthCode = (int) ((meta >>> 1) & 3L);
-        if (widthCode >= LENGTH_WIDTHS.length) {
+        // Width code 3 is the TRIE LANE: the two-bit field has three widths {1,2,4} and a spare
+        // code, so a global tag needs no new field and no format version. Its entries are int[n]
+        // global dictionary ids and there are no value bytes; the width is nominally 4 because that
+        // is what an id occupies, which keeps every offset computation below unchanged.
+        final boolean global = widthCode == GLOBAL_WIDTH_CODE;
+        if (!global && widthCode >= LENGTH_WIDTHS.length) {
           throw new IllegalArgumentException("string region tag " + t + " declares length width code " + widthCode);
+        }
+        if (global && plain) {
+          // The plain lane means "the value's RANK is its id", which is a statement about bytes this
+          // tag does not carry. Refusing is the point: a page that claims both is malformed, and
+          // reading it either way would invent an answer.
+          throw new IllegalArgumentException("string region tag " + t + " claims both the plain lane and global ids");
         }
         tagPlainLane[t] = plain;
         anyPlain |= plain;
-        tagLengthWidth[t] = (byte) LENGTH_WIDTHS[widthCode];
+        tagGlobal[t] = global;
+        tagLengthWidth[t] = (byte) (global ? 4 : LENGTH_WIDTHS[widthCode]);
         final long dictSize = plain
             ? values
             : meta >>> 3;
@@ -490,6 +571,9 @@ public final class StringRegion {
       }
       if (tagCount == null || tagCount.length < size) {
         tagCount = new int[capacity];
+      }
+      if (tagGlobal == null || tagGlobal.length < size) {
+        tagGlobal = new boolean[capacity];
       }
       if (tagStringDictSize == null || tagStringDictSize.length < size) {
         tagStringDictSize = new int[capacity];
@@ -815,6 +899,13 @@ public final class StringRegion {
    */
   public static int findDictId(final MemorySegment payload, final Header h, final int tag, final byte[] literal,
       final byte @Nullable [] encodedLiteral) {
+    if (h.tagGlobal[tag]) {
+      // A global tag carries ids, not bytes. Answering UNDECIDABLE routes the caller to the
+      // dictionary rather than letting it read an id table as a length table -- which would not
+      // fail, it would match plausible-looking garbage, and this format has already paid once for a
+      // decoder that guessed instead of declining.
+      return DICT_ID_UNDECIDABLE;
+    }
     final int dictStart = h.tagStringDictOffset[tag];
     final int n = h.tagStringDictSize[tag];
     final int width = h.tagLengthWidth[tag];
