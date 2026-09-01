@@ -33,6 +33,7 @@ import io.sirix.page.pax.DoubleRegion;
 import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
@@ -5879,6 +5880,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @throws IllegalArgumentException if {@code id} is not positive
    * @throws IllegalStateException if the page is already bound to a different table
    */
+  /**
+   * Install the dictionary resolver used when this page's string region is (re)built.
+   *
+   * <p>
+   * Only the PATH-tagged encoder consults it, because the projection's anchors are keyed by path
+   * node key; a page that ends up name-tagged converts nothing, which is correct rather than a
+   * missed opportunity — a name key does not identify a column.
+   * </p>
+   */
+  public void setGlobalStringDictionaries(final @Nullable GlobalStringDictionaries resolver) {
+    this.globalStringDictionaries = resolver;
+  }
+
   public void setFsstSymbolTableId(final long id) {
     if (id <= NO_FSST_SYMBOL_TABLE_ID) {
       throw new IllegalArgumentException("symbol table id must be positive, got " + id);
@@ -6473,6 +6487,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private volatile StringRegion.Header cachedStringHeader;
 
   /**
+   * Resolver for tags whose values live in a resource-wide dictionary, or {@code null}.
+   *
+   * <p>
+   * Handed to the page by whoever holds the context, exactly as the FSST symbol table is: the page
+   * layer cannot reach a dictionary itself, and giving it a reader would recurse into the NamePage
+   * sub-trie the dictionary lives in. Null means every tag keeps its bytes, which is the behaviour
+   * that existed before the trie lane.
+   * </p>
+   *
+   * <p>
+   * An ACCESSOR, not a value: F1 of the cache review is that a cache may hold what a resolver
+   * produces and never the resolver itself, which holds a reader and must not outlive its
+   * transaction.
+   * </p>
+   */
+  private volatile @Nullable GlobalStringDictionaries globalStringDictionaries;
+
+  /**
    * Drop the cached string-region parsed header and payload so the next reader rebuilds. Called from
    * every mutation path that adds, modifies, or removes a STRING_VALUE / OBJECT_NAMED_STRING record.
    */
@@ -6656,6 +6688,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final StringRegion.Encoder pathEnc = withPathSummary
         ? new StringRegion.Encoder()
         : null;
+    if (pathEnc != null) {
+      // The trie lane rides the PATH-tagged encoder alone: the projection's dictionary anchors are
+      // keyed by path node key, so a name-tagged region has nothing to look them up with.
+      pathEnc.setDictionaries(globalStringDictionaries);
+    }
     boolean allPathNodeKeysValid = withPathSummary;
     int count = 0;
     // Array-element values are staged rather than added straight through: they are published only
