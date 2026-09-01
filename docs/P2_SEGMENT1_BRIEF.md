@@ -1479,3 +1479,17 @@ constraints issued BEFORE the diff:
    captured, it is null for every lazy page and stale on a reused one (the reused-state hazard family).
 Plus: the ascending-resolution order is load-bearing (5.6×) and gets a comment saying so, against a future
 tidy-up silently undoing it.
+
+### 543a91f0a verified: refusal became a PRE-PASS; the order invariant written because no test can defend it
+
+F1 landed better than prescribed: the reviewer said *whether* (decline global tags on the eager path); the
+implementer asked *when* and moved the throw to a pre-pass scanning every tag BEFORE a slot is touched — a
+mid-loop throw is not a refusal but **a partial write with an exception attached**, leaving a page in a
+state no invariant describes for any caller catching broadly. (Reviewer self-correction alongside: eager
+expansion IS the whole expansion, so refuse-or-substitute were the only options; "defer to lazy" was not
+one.) F2 verified: the resolver is read inside the lambda, warning comment on the exact line a cleanup
+would hoist. The ascending-order note widened by the implementer into its danger statement: **sorting
+differently, resolving on demand, or parallelising all return the same VALUES — no test fails — so a
+performance invariant no test can defend must be WRITTEN.** Reader-side install remains, held to three
+agreed conditions: installed before the first chunk attaches; refusal throws, never degrades; `valueOf`
+owns the live-count check.
