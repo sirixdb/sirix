@@ -1177,3 +1177,13 @@ no longer counted as data). The knob's javadoc says it exists for the test.
 corrupted values, and an append-only store cannot take them back — the postpass lesson applied to our own
 artifact. Re-extract 00:42 → load → build; inside the 03:15 cutoff with the 04:00 load-only tier as
 fallback. The 1M gate, all commits, and the 100M census predate the bug and are unaffected.
+
+### 02:30 status: the reload reproduced BYTE-FOR-BYTE; build past the failure point
+
+Two independent 37-minute loads → **52,152,369,152 B, digit for digit** — the strongest determinism evidence
+of the campaign; the storage number will be a property of the BUILD, not the run. The corrected pre-pass
+rebuilt all three dictionaries in 76 s (each count exactly one above the extractor's — the prepended empty
+string), costing **2.91 GB on disk for 7.32 GB of distinct values = 0.40**, inside the codec's measured
+0.355–0.42 band. The walking build passed its previous failure point with zero exceptions — the arena fix
+confirmed by the run, not only the witness. ETA ~03:30 (flagged as a one-scale slope); leg-vs-bank decision
+pre-made per the tiers; disk comfortable.
