@@ -1431,3 +1431,20 @@ partly cache-sensitive (13.99 → 6.83 big-cache), refining that backlog item.
 Also landed: the FOR-packed id table (`4959f0129`) — **width derived from the anchor's count and stored
 nowhere**, region 555.6 → 444.3 MB post-lever at 1M-scale fixtures, witness 10/10 with the fixture upgraded
 to 1,000 entries because a 2-entry one would have passed a 32-bit-width bug.
+
+### Requirement #2 discharged (d0f218514); the wiring shape ruled: the entry point checks itself
+
+`GlobalStringDictionaries#accepts(tag, dictionaryKey, recordedEntryCount)` — once per tag per page, before
+any value resolves: refuses a foreign dictionary, an unreadable one, or a LIVE entry count below the
+recorded one (rank order only appends; smaller = reused key = different ids). `TrieLaneDictionaries`
+implements it over the projection anchors, transaction-scoped (holds reader + views; consumers may retain
+VALUES, never the object — F1). **Witness proves REFUSAL** (shrunk count refused, foreign key refused,
+matching accepted; the fake resolver reproduces the rule, not a constant). 11/11.
+
+**Wiring shape ruled before it is built** (the "described check" hazard spotted one layer out, by its
+author): the resolution ENTRY POINT takes the anchor and performs the check itself — no path can resolve
+without having passed it. Unrepresentable beats documented; the seam review verifies exactly that property.
+
+The `/tmp` assignment is CANCELLED the right way: re-verified against the reviewer's narrowing, the defect
+was the RUNNER's missing `java.io.tmpdir`, the runner was fixed with a comment, and **no test was edited to
+accommodate a harness**.
