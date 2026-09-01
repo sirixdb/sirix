@@ -541,6 +541,14 @@ public final class StringRegion {
         final int n = tagStringDictSize[t];
         final int width = tagLengthWidth[t];
         final long bytesStart = pos + (long) n * width;
+        if (tagGlobal[t]) {
+          // Ids and nothing after them. Walking a length table here would read the ids AS lengths
+          // and advance pos by their sum, which is how a global tag came out claiming a payload
+          // larger than the page -- the loud failure that found this, rather than a quiet one.
+          tagStringBytesOffset[t] = (int) bytesStart;
+          pos = bytesStart;
+          continue;
+        }
         long total = 0;
         for (int i = 0; i < n; i++) {
           total += Math.abs(readLengthField(payload, (int) pos + i * width, width));
@@ -1692,12 +1700,13 @@ public final class StringRegion {
           pos += 4;
         }
         final int tagValueBase = pos;
-        if (!globalTag[r]) {
-          for (int i = 0; i < sz; i++) {
-            final int len = tagLengths[t][i];
-            tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
-            pos += len;
-          }
+        // The four-byte layout has no trie lane: its sizing pass never consults a resolver, so it
+        // must never consult the decision either. Reading globalTag here would read whatever a
+        // previous varint encode on this reused Encoder left behind.
+        for (int i = 0; i < sz; i++) {
+          final int len = tagLengths[t][i];
+          tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
+          pos += len;
         }
         if (PageSectionDiag.STRING_TAG_DIAG) {
           // [DIAG] Measured write positions, not a formula — an attribution derived from the layout
@@ -1874,10 +1883,12 @@ public final class StringRegion {
           }
         }
         final int tagValueBase = pos;
-        for (int i = 0; i < sz; i++) {
-          final int len = tagLengths[t][i];
-          tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
-          pos += len;
+        if (!globalTag[r]) {
+          for (int i = 0; i < sz; i++) {
+            final int len = tagLengths[t][i];
+            tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
+            pos += len;
+          }
         }
         if (PageSectionDiag.STRING_TAG_DIAG) {
           // A PLAIN tag stores no ids at all — its values ARE its dictionary — so it contributes
