@@ -1651,3 +1651,15 @@ OriginalURL −1.9) with the ~108 s SearchPhrase query family unlocked. **The ~5
 on the framing verdict + the remaining roadmap levers — honest arithmetic, presented as such.**
 Correctness half (43-query leg + subtree round-trip on the converted arm) runs next regardless: a lever
 parks proven, not presumed.
+
+### ~22:30 addendum: the lane's read path corrupts fused NUMBER records — and the leg was blind to it
+
+The converted 1M arm THROWS on subtree serialization (`NodeKind.deserializeNumber: Type not known`,
+first between 2k-20k records) while all four other arms produce the SAME sha256 — established by arm. **The
+43-query leg passed 43/43 byte-identical on that same database: queries serve from the projection and never
+read converted DOCUMENT pages, so the leg is STRUCTURALLY BLIND to unreadable record pages.** Containment:
+lane default flipped OFF immediately (committed); the four commits stay (seam/fixes/length lane are sound;
+only the write-path conversion is broken and now inert); root-cause next with the failing arm as repro.
+**PERMANENT PROTOCOL CHANGE: a storage lever's gate = the leg PLUS a subtree serialization round-trip — the
+only witness that reads the record pages themselves.** The 100M database is unaffected (built before the
+lane existed; lane never ran there).
