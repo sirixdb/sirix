@@ -1703,3 +1703,98 @@ tag per leaf, so the ascending-id walk is a handful of reads rather than hundred
 `ResolvedGlobalStrings` holds ~6 byte arrays per tag rather than ~512. It also re-derives the lever's
 size from measurement rather than extrapolation: ~5.7 distinct × 184 B ≈ 1,050 B per leaf replaced by
 ~5.7 ids × 25 bits ≈ 18 B, over ~103k leaves at 1M ≈ 106 MB, so ≈ 10.6 GB at 100M for URL alone.
+
+---
+
+## Trie lane gate protocol — storage conditions (USER directive, 2026-09-01)
+
+*"Make sure that we don't regress storage space due to versioning types and so on."* Four hard
+conditions on every arm of the trie-lane gate, each of which has already been got wrong once in this
+codebase in some form.
+
+**1. Pin `versioningType=FULL` explicitly in every experiment loader. Never inherit.** ClickBench loads
+pin FULL (`ClickBenchLoadMain:289`) and the 63.33 GB reference DB carries ~2,418 revisions from epoch
+commits. The `ResourceConfiguration` default is `SLIDING_SNAPSHOT`, so a loader that simply omits the
+setting silently changes the entire storage baseline — and the resulting number would look like a
+result rather than a configuration accident. This is the same failure family as
+[measuring the wrong config] in the PostgreSQL work: the arm that differs from the baseline in a way
+nobody wrote down.
+
+**2. The three-arm gate runs on the REAL multi-commit epoch loader, not a single-commit fixture.**
+Arms: baseline / chunked-body-only / chunked-body + converted. Two reasons the loader has to be the
+real one. A page filled across two epoch commits is REWRITTEN under FULL versioning, so a
+single-commit fixture prices a write pattern the production load never uses; and the chunked-body flag
+is a write-shape change of its own, which is why it gets its own arm rather than riding in with the
+lane — two variables in one arm attribute to nothing.
+
+**3. Every arm reports whole-DB `du -sb` beside the page-class census.** The census answers "did the
+region shrink"; `du -sb` answers "did the DATABASE shrink", and they are not the same question. A lever
+that takes bytes out of the string region while putting them into a versioning artifact, an
+update-operations directory, or the dictionary itself is a regression that a region-only census reports
+as a win. Both numbers in the same table, always.
+
+**4. The combine refusal is verified by READ-BACK, not by argument.** Under FULL versioning no page
+should ever reach the versioning combine with fragment history, so the refusal recorded above should be
+unreachable on these builds. "Should be" is the argument; the witness is the 43-query leg plus the
+subtree serialization gate on the CONVERTED arm, both of which read pages back through the seam. A
+refusal that fires shows up there as a failure rather than as a silent decline.
+
+**5. The converted 1M arm ASSERTS `absentValueCount == 0` for every converted column.** The encode-side
+resolver returns `ID_ABSENT` on a miss and the page keeps its bytes — the right contract for a record
+page, because that is exactly the pre-lever behaviour and a load must not abort over it. But the
+pre-pass extracted its dictionary from *this* input, so on a converted arm a miss is not a rounding
+error: it is evidence of a real disagreement — encoding drift, a normalisation difference between the
+extractor and the shredder, or a value the extraction missed. The counter's job is to make that
+disagreement loud; the gate's job is to refuse it passing silently. So the installer's finish hook
+prints `probes / memoHits / absent` for every converted column, and the gate fails the arm on a
+non-zero absent count rather than treating the lane as "mostly converted".
+
+A corollary worth stating because it is the tempting shortcut: a converted arm whose absent count is
+non-zero has ALSO under-converted its pages, so its storage number is not the lever's number. Never
+report size from an arm that failed this assertion.
+
+## Trie lane: the write side takes route (A), a value pre-pass
+
+The record-page encoder needs a dictionary that already holds every value it will meet, at the moment
+the page is serialized. Three routes were priced and only one is positive:
+
+- **(A) A value PRE-PASS before the shred — TAKEN.** The seam already exists:
+  `BasicJsonDBStore.createCollectionWithLoader` invokes `-Dsirix.import.prepassRunner` against the
+  freshly created EMPTY resource (`2bb4f5900`), and `ClickBenchLoadPrepassHook` reads
+  `-Dsirix.projection.globalDict.prepassValues=Col=valsFile,…`, builds each ranked dictionary through
+  `PrePassDictionaryBuilder`, and publishes the anchors as
+  `-Dsirix.projection.globalDict.prebuilt=col:headerKey,…`. The dictionaries are therefore COMMITTED
+  before the first document page is serialized, and the flush-lane encoder has rank-ordered ids from
+  row one. The input is read twice; that cost is accepted — the 63.33 GB reference DB was itself built
+  through a pre-pass.
+- **(B) Ride the STREAMING dictionary — rejected on arithmetic.** It is the only dictionary alive during
+  a one-pass load, and it costs 1,650 B/entry against the rank pass's 61. URL's 18.3M distinct values
+  would be ~29.7 GB against the ~10.6 GB of value bytes the lane removes: **net +19 GB**. It is also a
+  NEW cost, since no column passes promotion+budget above ~6-18M rows.
+- **(C) A DOCUMENT-rewrite phase — excluded by the append-only law.** A conversion pass GROWS an
+  append-only store; it can never be a storage instrument.
+
+`ClickBenchLoadMain`'s "no post-load rebuild will be run" refusal STAYS and does not conflict: it
+forbids deriving the projection by a second full walk of a FINISHED resource, which is a different
+thing from ranking a value set before the load begins. The distinction is worth a comment there, so the
+rule is not read as forbidding the pre-pass.
+
+### The named constraint at the installer site
+
+**The encode-time resolver must never be a `TrieLaneDictionaries` over a reader.** `buildRegionTable`
+runs inside `serializeSnapshotWindowAsync`'s `runAsync` + parallel `forEach`, so `idOf` is called
+concurrently from many ForkJoinPool threads. A resolver that walks the trie from there reproduces
+exactly the hazard that got the writer-side front deleted.
+
+`PrebuiltGlobalDictionary` is the right SHAPE — it holds no in-memory value set, probes the committed
+rank-ordered dictionary, and memoises across leaves, which its own javadoc prices at "once per per-leaf
+DICTIONARY ENTRY … ~600k probes for URL and Title together" at 1M. That matches the measured leaf shape
+(~6 distinct per tag per leaf). But as written it is thread-unsafe three ways and none of them fails
+loudly: it probes through the `StorageEngineWriter`; its `GlobalValueDictionaryHotCache` is plain
+`byte[]/long[]/int[]` with no synchronization, so a racing reader can match one thread's HASH against
+another thread's ID and return a valid-looking id for the wrong value; and its counters are plain
+longs. Whatever route is taken, the resolver handed to the encoder must be either **thread-confined**
+(one instance per flush thread, each with its own memo and its own snapshot reader on the pre-pass
+revision — the dictionary is committed and immutable, so a snapshot needs no coordination) or
+**immutable** (a retained sorted value array, binary-searched, at ~4-5 GB of heap per wide column).
+Sharing one mutable memo across the flush lane is the one thing it must not be.

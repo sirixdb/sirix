@@ -1679,8 +1679,17 @@ public final class ProjectionIndexBuilder {
     return anchors;
   }
 
-  /** Parses {@code -Dsirix.projection.globalDict.prebuilt}; {@code null} when unset or empty. */
-  private static long @Nullable [] configuredPrebuiltAnchors(final int columnCount) {
+  /**
+   * Parses {@code -Dsirix.projection.globalDict.prebuilt}; {@code null} when unset or empty.
+   *
+   * <p>
+   * Package-private rather than private because the trie lane's encode-side resolver binds the SAME
+   * anchors — the record pages and the projection leaves must name one dictionary per column, or a
+   * page's ids and the index's ids would come from different rankings. One parser, one set of error
+   * messages, one source of truth.
+   * </p>
+   */
+  static long @Nullable [] configuredPrebuiltAnchors(final int columnCount) {
     final String configured = System.getProperty("sirix.projection.globalDict.prebuilt");
     if (configured == null || configured.isBlank()) {
       return null;

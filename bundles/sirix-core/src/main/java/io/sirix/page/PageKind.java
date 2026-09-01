@@ -4804,7 +4804,7 @@ public enum PageKind {
      * the user. It is not complete — a same-length wrong value passes — but it costs nothing.
      * </p>
      */
-    private static void injectGlobalString(final MemorySegment slottedPage,
+    private static void injectGlobalString(final MemorySegment slottedPage, final MemorySegment stringPayload,
         final StringRegion.Header stringHeader, final int tagId, final int dictId, final int slot,
         final long valueAbsOff, final int valueWidth, final byte storedFlag,
         final @Nullable ResolvedGlobalStrings resolved) {
@@ -4828,6 +4828,20 @@ public enum PageKind {
       // site that holds a reader; expansion runs under synchronized(page) and must not descend a
       // trie from there. See ResolvedGlobalStrings for why the page holds bytes and not a resolver.
       final byte[] value = resolved.value(tagId, stringHeader.parentDict[tagId], dictId);
+      // ROUND TRIP against the region's own length lane, before a byte is written. The page recorded
+      // how long the value it elided was; the dictionary just said what that value is. If the two
+      // disagree, the id was resolved against something other than the dictionary this page named --
+      // a different generation, a reused key, a rebuilt ranking -- and every one of those returns a
+      // plausible string of the wrong length rather than a failure. It is not a complete check (a
+      // same-length wrong value passes) but it is the one that costs nothing and catches the whole
+      // family of provenance mistakes.
+      final int recordedLength = StringRegion.decodeStringLength(stringPayload, stringHeader, tagId, dictId);
+      if (value.length != recordedLength) {
+        throw new SirixIOException("value-elision: slot " + slot + " under tag " + stringHeader.parentDict[tagId]
+            + " elided a value of " + recordedLength + " bytes, but dictionary " + stringHeader.tagDictionaryKey[tagId]
+            + " resolved global id " + resolved.globalIdAt(tagId, dictId) + " to " + value.length
+            + " bytes -- the page and the dictionary disagree about what this value is");
+      }
       slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, (byte) 0);
       final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage, valueAbsOff + 1, value.length);
       MemorySegment.copy(value, 0, slottedPage, ValueLayout.JAVA_BYTE, valueAbsOff + 1 + lenWidth, value.length);
@@ -5043,8 +5057,8 @@ public enum PageKind {
           }
           final int dictId = StringRegion.decodeDictIdAt(stringPayload, stringHeader, absIdx);
           if (stringHeader.tagGlobal[tagId]) {
-            injectGlobalString(slottedPage, stringHeader, tagId, dictId, slot, valueAbsOff, valueWidth,
-                valueElidedTypes[e], resolved);
+            injectGlobalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
+                valueWidth, valueElidedTypes[e], resolved);
             continue;
           }
           final int strOff = StringRegion.decodeStringOffset(stringPayload, stringHeader, tagId, dictId);

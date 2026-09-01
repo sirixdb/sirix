@@ -178,16 +178,31 @@ final class StringRegionGlobalLaneTest {
 
   @Test
   void theByteReadersRefuseAGlobalTagRatherThanMisreadIt() {
-    // This is the case the whole design turns on. decodeStringLength over an id table would NOT
-    // throw on its own -- it would read four bytes of an id and call them a length. The guard is
-    // what makes that impossible, so the test asserts the guard and not the arithmetic.
+    // The case the whole design turns on: a byte reader over an id table would NOT throw on its own
+    // -- it would read bytes of an id and call them a length or an offset, and hand back a plausible
+    // answer. So the test asserts the guards, not the arithmetic.
+    //
+    // LENGTHS are the exception, and deliberately so since the length lane landed: a global tag now
+    // carries a real per-entry length lane, because the derived value-elision plan reconstructs each
+    // elided slot's width from exactly this call and a tag that could not answer it could not be
+    // serialized at all. The assertion is therefore that the length is the VALUE's length, which an
+    // id read as a length would not be.
     final FakeDictionary dict = new FakeDictionary(CONVERTED_TAG, "alpha", "beta");
     final MemorySegment payload = encode(dict, CONVERTED_TAG, "alpha", "beta", "beta");
     final StringRegion.Header header = parse(payload);
     final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
 
-    assertThrows(IllegalStateException.class, () -> StringRegion.decodeStringLength(payload, header, tag, 0));
-    assertThrows(IllegalStateException.class, () -> StringRegion.decodeStringOffset(payload, header, tag, 0));
+    assertTrue(header.tagGlobalLengthWidth[tag] > 0, "a converted tag must declare a length width");
+    final int first = StringRegion.decodeStringLength(payload, header, tag, 0);
+    final int second = StringRegion.decodeStringLength(payload, header, tag, 1);
+    assertEquals(5, Math.max(first, second), "\"alpha\" is five bytes and the lane must say so");
+    assertEquals(4, Math.min(first, second), "\"beta\" is four, and neither may be an id read as a length");
+
+    assertThrows(IllegalStateException.class, () -> StringRegion.decodeStringOffset(payload, header, tag, 0),
+        "there are no value bytes to point at; an offset into the id table is the failure this format "
+            + "cannot detect afterwards");
+    assertFalse(StringRegion.isEntryCompressed(payload, header, tag, 0),
+        "a converted tag has no FSST entry, and must not answer by reading an id's sign bit");
     assertEquals(StringRegion.DICT_ID_UNDECIDABLE,
         StringRegion.findDictId(payload, header, tag, "alpha".getBytes(StandardCharsets.UTF_8), null),
         "a literal search must route to the dictionary, not scan an id table");
@@ -257,9 +272,15 @@ final class StringRegionGlobalLaneTest {
     assertEquals(500, StringRegion.globalIdAt(payload, header, tag, 0));
     assertEquals(900, StringRegion.globalIdAt(payload, header, tag, 1));
 
-    // And the table really is packed: two ids at 10 bits is 3 bytes, not 8.
-    final int idTableBytes = header.tagStringBytesOffset[tag] - header.tagStringDictOffset[tag];
+    // And the ID TABLE really is packed: two ids at 10 bits is 3 bytes, not 8. Measured against the
+    // length lane's start rather than the tag's end, because a converted tag's payload is ids THEN
+    // lengths -- spanning both would price the lane as if the packing had failed.
+    final int idTableBytes = header.tagGlobalLengthOffset[tag] - header.tagStringDictOffset[tag];
     assertEquals(3, idTableBytes, "two 10-bit ids must occupy 3 bytes, not " + idTableBytes);
+    // And the lane beside it costs one byte per entry here, since "alpha" and "beta" both fit a
+    // signed byte. This is the whole price of making a converted page serializable.
+    final int lengthLaneBytes = header.tagStringBytesOffset[tag] - header.tagGlobalLengthOffset[tag];
+    assertEquals(2, lengthLaneBytes, "two short values need one length byte each, not " + lengthLaneBytes);
   }
 
   @Test

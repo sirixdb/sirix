@@ -291,6 +291,19 @@ public final class ClickBenchLoadMain {
     // ClickBench loading is one-pass only: the projection is declared before the shred and
     // maintained by it. A complete post-load walk is not an acceptable fallback at 100M rows, so a
     // stale invocation that still disables the incremental route must fail before opening the store.
+    //
+    // "One-pass" here means ONE PASS OVER THE LOADED RESOURCE, and this rule forbids exactly one
+    // thing: deriving the projection by walking a FINISHED resource a second time, which re-decodes
+    // every record single-threaded against a file the page cache cannot hold (~3x the whole load's
+    // wall time at 100M). It does NOT forbid a pre-pass over the INPUT.
+    //
+    // The distinction matters because the trie lane depends on the second: -Dsirix.import.prepassRunner
+    // runs ClickBenchLoadPrepassHook against the freshly created EMPTY resource and commits the
+    // rank-ordered value dictionaries BEFORE the shred begins, so the record-page encoder has ids to
+    // store from row one. That reads the input twice and the resource once, which is the opposite
+    // shape from what this refusal exists to prevent -- and the alternative for the lane is the
+    // streaming dictionary at 1,650 B/entry against the rank pass's 61, which at 100M turns an 11 GB
+    // saving into a 19 GB regression. Do not read this rule as forbidding that.
     final boolean incrementalProjection =
         Boolean.parseBoolean(System.getProperty("clickbench.projection.incremental", "true"));
     if (projection && !incrementalProjection) {

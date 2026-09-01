@@ -108,13 +108,12 @@ final class TrieLaneReadSeamTest {
    * </p>
    *
    * <p>
-   * <b>Derived value elision.</b> The derived form recovers each elided slot's width from the
-   * region's stored string LENGTH — which is exactly what the trie lane removes. The writer's
-   * plan-and-verify pass therefore refuses a global tag outright
-   * ({@code StringRegion.decodeStringLength} throws for one), and the two levers collide. The tuple
-   * form stores each width explicitly and does not collide, which is what this fixture uses. Which
-   * way that collision is resolved decides part of the lever's size and is not a decision this test
-   * makes.
+   * <b>Derived value elision stays ON, at its default, deliberately.</b> The derived form recovers
+   * each elided slot's width from the region's stored string LENGTH, so a lane that removed the
+   * lengths could not be serialized at all — the writer's plan-and-verify pass refused a global tag
+   * outright. That is what the per-dictionary-entry length lane exists for, and running this fixture
+   * with the default rather than with the lever switched off is the only way the suite can tell
+   * whether the collision is actually resolved.
    * </p>
    */
   @BeforeEach
@@ -123,7 +122,6 @@ final class TrieLaneReadSeamTest {
     chunkedBodyBefore = ChunkedBodyConfig.enabled();
     derivedElisionBefore = PageKind.DERIVED_ELISION_SECTIONS;
     ChunkedBodyConfig.setEnabledForTesting(true);
-    PageKind.DERIVED_ELISION_SECTIONS = false;
   }
 
   @AfterEach
@@ -302,22 +300,41 @@ final class TrieLaneReadSeamTest {
   }
 
   /**
-   * §5 of the seam design: the copy-on-write flush lane holds no reader.
+   * §5: the copy-on-write refusal, driven by CONSTRUCTING the forbidden state rather than by noting
+   * that no current path reaches it.
    *
    * <p>
    * {@code deepCopy()} expands its SOURCE before copying the segment, from a stack with no reader on
-   * it. The writer fronts the resolution before a page reaches that lane; this is the assertion that
-   * says so when it does not, and it names the route rather than a slot.
+   * it. There is deliberately NO writer-side front: the one that existed ran inside
+   * {@code serializeSnapshotWindowAsync}'s parallel {@code forEach}, so it would have put many
+   * ForkJoinPool threads through a reader declared single-threaded — a front that converts a loud
+   * impossible state into silent guard-count corruption is worse than no front. The refusal carries
+   * the invariant instead.
+   * </p>
+   *
+   * <p>
+   * Today the state is unreachable in production: {@code lazyChunkedBody} is set only by the
+   * deserializer, and every disk-to-intent-log path rebuilds pages through {@code newInstance}. That
+   * is a POLICY, held up by an {@code assert} that is off in production plus the habit of building
+   * intent-log pages fresh — and the trie lane creates a direct incentive to break that habit. So the
+   * page here is genuinely lazy ({@code chunkCount() > 0}) and genuinely global-tagged, and the
+   * refusal has to fire on it.
    * </p>
    */
   @Test
-  @DisplayName("copy-on-write refuses an unresolved page, naming the route")
+  @DisplayName("copy-on-write refuses a lazy, global-tagged, unresolved page")
   void copyOnWriteRefusesAnUnresolvedPage() {
     withRoundTrip(new FakeDictionary(), (original, reloaded) -> {
+      assertTrue(reloaded.chunkCount() > 0,
+          "the forbidden state has to be REAL: a page with no lazy body could never reach deepCopy's "
+              + "expansion, so a refusal on it would prove nothing");
+      assertTrue(reloaded.hasGlobalStringTags(), "and it has to carry a global tag");
       final IllegalStateException refusal = assertThrows(IllegalStateException.class, reloaded::deepCopy,
-          "deepCopy expands its source and holds no reader; an unresolved page must not reach it");
+          "deepCopy expands its source and holds no reader; an unresolved page must not get through it");
       assertTrue(refusal.getMessage().contains("copy-on-write"),
-          () -> "the refusal must name the route that needs fronting: " + refusal.getMessage());
+          () -> "the refusal must name the route, not a slot: " + refusal.getMessage());
+      assertTrue(refusal.getMessage().contains(String.valueOf(reloaded.getPageKey())),
+          () -> "and the page: " + refusal.getMessage());
     });
   }
 
@@ -355,6 +372,178 @@ final class TrieLaneReadSeamTest {
             () -> "ids must be walked ascending -- a random walk costs 417 ns against 75 ns and no test "
                 + "would otherwise notice: " + asked);
       }
+    });
+  }
+
+  /**
+   * The length lane answers, and it answers the SAME lengths the values have.
+   *
+   * <p>
+   * This is the property the derived elision plan depends on: it asks the region how long each elided
+   * value was, and a global tag now has to be able to say. The check is against the resolved bytes
+   * rather than against a constant, so a lane written in the wrong entry order — the easiest way to
+   * get this wrong, since the ids are packed and the lengths are not — fails here.
+   * </p>
+   */
+  @Test
+  @DisplayName("a converted tag reports each entry's length, matching the resolved value")
+  void theLengthLaneAgreesWithTheValues() {
+    final FakeDictionary dictionary = new FakeDictionary();
+    withRoundTrip(dictionary, (original, reloaded) -> {
+      final RegionTable regions = reloaded.getRegionTable();
+      final MemorySegment payload = regions.payload(RegionTable.KIND_STRING);
+      final StringRegion.Header header = new StringRegion.Header();
+      header.parseInto(payload);
+      resolve(reloaded, dictionary);
+      final ResolvedGlobalStrings table = reloaded.resolvedGlobalStrings();
+
+      int checked = 0;
+      for (int tagIndex = 0; tagIndex < header.parentDictSize; tagIndex++) {
+        if (!header.tagGlobal[tagIndex]) {
+          continue;
+        }
+        assertTrue(header.tagGlobalLengthWidth[tagIndex] > 0, "a converted tag must declare a length width");
+        for (int entry = 0; entry < header.tagStringDictSize[tagIndex]; entry++) {
+          final int length = StringRegion.decodeStringLength(payload, header, tagIndex, entry);
+          assertEquals(table.value(tagIndex, header.parentDict[tagIndex], entry).length, length,
+              "entry " + entry + "'s recorded length must be its value's length");
+          checked++;
+        }
+      }
+      assertEquals(VALUES.length, checked, "every distinct value on the page must carry a length");
+    });
+  }
+
+  /**
+   * A global tag still refuses to hand back a byte OFFSET — it has no bytes.
+   *
+   * <p>
+   * The pair matters: adding the length lane made {@code decodeStringLength} answer, and it would be
+   * an easy and invisible mistake to let {@code decodeStringOffset} answer too, pointing into the id
+   * table. That returns plausible bytes, which is the failure this format cannot detect afterwards.
+   * </p>
+   */
+  @Test
+  @DisplayName("a converted tag answers lengths but still refuses offsets")
+  void lengthsAnswerButOffsetsDoNot() {
+    withRoundTrip(new FakeDictionary(), (original, reloaded) -> {
+      final MemorySegment payload = reloaded.getRegionTable().payload(RegionTable.KIND_STRING);
+      final StringRegion.Header header = new StringRegion.Header();
+      header.parseInto(payload);
+      int globalTag = -1;
+      for (int t = 0; t < header.parentDictSize; t++) {
+        if (header.tagGlobal[t]) {
+          globalTag = t;
+          break;
+        }
+      }
+      assertTrue(globalTag >= 0, "the lane must have engaged");
+      final int tag = globalTag;
+      assertTrue(StringRegion.decodeStringLength(payload, header, tag, 0) > 0, "lengths must be readable");
+      assertThrows(IllegalStateException.class, () -> StringRegion.decodeStringOffset(payload, header, tag, 0),
+          "a tag that stores no bytes must not hand back an offset into its id table");
+      assertFalse(StringRegion.isEntryCompressed(payload, header, tag, 0),
+          "a converted tag has no FSST entry, and must not read an id's sign bit to answer");
+    });
+  }
+
+  /**
+   * The injector refuses a dictionary whose value disagrees with the length the page recorded.
+   *
+   * <p>
+   * The provenance check, driven from the read side. A resolver that answers from a different
+   * generation, a reused key or a rebuilt ranking returns a plausible string — this is the cheap
+   * check that catches the whole family, and it fires before a byte reaches the heap.
+   * </p>
+   */
+  @Test
+  @DisplayName("a dictionary that returns a differently-sized value is refused, naming both sizes")
+  void aValueOfTheWrongLengthIsRefused() {
+    final FakeDictionary honest = new FakeDictionary();
+    withRoundTrip(honest, (original, reloaded) -> {
+      final FakeDictionary lying = new FakeDictionary();
+      lying.substitute = true;
+      final SirixIOException refusal =
+          assertThrows(SirixIOException.class, () -> {
+            resolve(reloaded, lying);
+            reloaded.getSlotAsByteArray(0);
+          }, "a value whose length disagrees with the one the page elided must be refused");
+      assertTrue(refusal.getMessage().contains("disagree") || refusal.getMessage().contains("mismatch"),
+          () -> "the refusal must say the page and the dictionary disagree: " + refusal.getMessage());
+    });
+  }
+
+  /**
+   * A converted page carries NO dictionary sketch.
+   *
+   * <p>
+   * The sketch hashes each dictionary entry's stored BYTES by walking the tag's length table at
+   * {@code tagLengthWidth}, which the parse pins to 4 for a global tag. A converted tag has no length
+   * table and no bytes — that walk reads its packed id table instead.
+   * </p>
+   *
+   * <p>
+   * <b>What this test does NOT prove, established by mutation and then by direct measurement.</b>
+   * Deleting the guard leaves this case green, and I chased that rather than patching the assertion.
+   * The reason is that the corrupted walk is self-limiting: four-byte reads over a packed id table
+   * (19 bytes for a 25-bit id space at ~6 entries) yield values in the millions, which trip
+   * {@code storedLen > stringPayloadLength - off} and return null — the same outcome the guard
+   * produces. Measured at three payload sizes, 19 B, 292 B and 29 KB: null in every one, guard or no
+   * guard.
+   * </p>
+   *
+   * <p>
+   * So the guard is not repairing a demonstrated row-loss bug; it is replacing an outcome that
+   * happens to be right with one that is right by construction. Worth having — "no sketch" should not
+   * depend on whether some ids read as implausible lengths — but claimed as that and no more.
+   * </p>
+   */
+  /**
+   * A dictionary that GROWS mid-encode must not tear the page.
+   *
+   * <p>
+   * The entry count fixes three things that have to agree exactly — the width the ids are packed at,
+   * the count written into the header, and the width the parser DERIVES from that count — and the
+   * encoder computes them in three separate passes over the tag. During a load the dictionary is
+   * still being interned into on other threads, so a count read three times can be three different
+   * numbers, and the page would then declare one width and pack another. Nothing fails: every id of
+   * that tag simply reads back shifted.
+   * </p>
+   *
+   * <p>
+   * The fixture returns a DIFFERENT count on every read, which is the strongest form of the hazard,
+   * and the test pins the fix directly: the encoder must ask exactly ONCE per global tag. A second
+   * read is not a slow path, it is the bug — the page would declare the width from one answer and
+   * pack the ids at another. Asserting the call COUNT rather than only the round trip is what makes
+   * this fail if the snapshot is ever unwound, since with only one tag and small ids several of the
+   * old three reads happened to agree often enough to round-trip anyway.
+   * </p>
+   */
+  @Test
+  @DisplayName("the encoder reads a dictionary's entry count exactly once per tag")
+  void aGrowingDictionaryDoesNotTearThePage() {
+    final FakeDictionary dictionary = new FakeDictionary();
+    dictionary.growing = true;
+    withRoundTrip(dictionary, (original, reloaded) -> {
+      assertTrue(reloaded.hasGlobalStringTags(), "the lane must have engaged");
+      assertEquals(1, dictionary.growth,
+          "the entry count fixes the packing width, the declared count and the parser's derived width; "
+              + "reading it more than once lets a growing dictionary make them disagree");
+      dictionary.growing = false;
+      resolve(reloaded, dictionary);
+      assertSlotsMatch(original, reloaded);
+    });
+  }
+
+  @Test
+  @DisplayName("a converted page emits no dictionary sketch")
+  void aConvertedPageHasNoSketch() {
+    withRoundTrip(new FakeDictionary(), (original, reloaded) -> {
+      assertTrue(reloaded.hasGlobalStringTags(), "the lane must have engaged");
+      final MemorySegment sketch = reloaded.getRegionTable().payload(RegionTable.KIND_STRING_DICT_SKETCH);
+      assertTrue(sketch == null || sketch.byteSize() == 0,
+          "a page whose values live in a dictionary cannot describe them in a byte sketch; emitting one "
+              + "would let the page rule itself out of literals it holds");
     });
   }
 
@@ -478,6 +667,14 @@ final class TrieLaneReadSeamTest {
     /** Once true, any further use fails the test. */
     private boolean poisoned;
 
+    /** Once true, every value comes back a different length — a wrong-generation dictionary. */
+    private boolean substitute;
+
+    /** Once true, the live entry count grows on every read — a dictionary still being loaded into. */
+    private boolean growing;
+
+    private int growth;
+
     FakeDictionary() {
       for (int i = 0; i < VALUES.length; i++) {
         ids.put(VALUES[i], i + 1);
@@ -511,9 +708,14 @@ final class TrieLaneReadSeamTest {
         final int id) {
       checkAlive();
       requestedIds.add(id);
-      return tag == TAG && accepts(tag, dictionaryKey, recordedEntryCount)
-          ? values.get(id)
-          : null;
+      if (tag != TAG || !accepts(tag, dictionaryKey, recordedEntryCount)) {
+        return null;
+      }
+      final byte[] value = values.get(id);
+      return value == null || !substitute
+          ? value
+          : (new String(value, StandardCharsets.UTF_8) + "-from-another-generation")
+              .getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -537,7 +739,9 @@ final class TrieLaneReadSeamTest {
     @Override
     public int dictionaryEntryCount(final int tag) {
       checkAlive();
-      return ids.size();
+      return growing
+          ? ids.size() + growth++
+          : ids.size();
     }
   }
 }

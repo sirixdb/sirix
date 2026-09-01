@@ -129,6 +129,23 @@ public final class StringDictSketch {
     }
     int totalEntries = 0;
     for (int tag = 0; tag < header.parentDictSize; tag++) {
+      if (header.tagGlobal[tag]) {
+        // NO SKETCH AT ALL for a page with a converted tag, and the reason is the one this class is
+        // most dangerous about. A global tag stores dictionary IDS and no value bytes, so the walk
+        // below would read its packed ids AS lengths and hash whatever payload ranges they happen to
+        // address -- a sketch built from garbage. That is not a degraded sketch: a NEGATIVE is read
+        // as EXACT and for the whole PAGE, so the page would rule itself out of literals it actually
+        // holds and drop rows silently.
+        //
+        // Same rule, and the same reasoning, as a suppressed tag: a sketch that cannot describe every
+        // value on the page must not exist. Emitting one over only the non-global tags would be
+        // exactly the incompleteness the suppressed-tag guard already refuses.
+        //
+        // The cost is a lost page-skip on converted columns. The alternative worth pricing later is a
+        // sketch over the IDS rather than the bytes, with the probe hashing the id it resolved its
+        // literal to -- cheaper than losing the skip, but a new mechanism on both sides.
+        return null;
+      }
       totalEntries += header.tagStringDictSize[tag];
     }
     if (totalEntries == 0) {

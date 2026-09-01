@@ -383,6 +383,30 @@ public final class StringRegion {
      * </p>
      */
     public int[] tagDictionaryEntryCount;
+
+    /**
+     * For each global tag: the byte width of one entry in its LENGTH lane (1, 2 or 4).
+     *
+     * <p>
+     * The lane exists for a reason that has nothing to do with reading a value: the derived
+     * value-elision plan reconstructs each elided slot's width from the region's stored string
+     * LENGTH, so without lengths a converted page cannot be SERIALIZED at all — the plan-and-verify
+     * pass refuses it. §6.4 of the design struck a length table as unnecessary and was right about
+     * its original motivation and wrong about this one.
+     * </p>
+     *
+     * <p>
+     * It is affordable because a leaf is only about ten ClickBench rows: measured over 4,000 leaves,
+     * a tag holds 9.7 values and 1.0-5.7 DISTINCT, maximum ever 10. So this is roughly six length
+     * fields per tag per leaf — about 1 % of the ~1.1 KB of value bytes the lane removes from the
+     * same leaf. A per-VALUE length table would have been a different proposition; this is per
+     * DICTIONARY ENTRY.
+     * </p>
+     */
+    public byte[] tagGlobalLengthWidth;
+
+    /** For each global tag: payload offset of its length lane, which follows the packed id table. */
+    public int[] tagGlobalLengthOffset;
     /**
      * For each tag: index of its first value within the packed dict-id lane. Equals
      * {@link #tagStart} whenever no tag took the plain lane, which is every page of the dictionary
@@ -431,6 +455,10 @@ public final class StringRegion {
         tagDictionaryKey = new long[Math.max(4, parentDictSize)];
       if (tagDictionaryEntryCount == null || tagDictionaryEntryCount.length < parentDictSize)
         tagDictionaryEntryCount = new int[Math.max(4, parentDictSize)];
+      if (tagGlobalLengthWidth == null || tagGlobalLengthWidth.length < parentDictSize)
+        tagGlobalLengthWidth = new byte[Math.max(4, parentDictSize)];
+      if (tagGlobalLengthOffset == null || tagGlobalLengthOffset.length < parentDictSize)
+        tagGlobalLengthOffset = new int[Math.max(4, parentDictSize)];
       for (int i = 0; i < parentDictSize; i++) {
         parentDict[i] = getInt(payload, pos);
         pos += 4;
@@ -471,6 +499,16 @@ public final class StringRegion {
         tagGlobal[t] = global;
         tagStringDictSize[t] = n;
         if (global) {
+          // This layout has nowhere to put the anchor or the length lane -- both live in the varint
+          // layout's per-tag header, which this one does not have -- so a tag marked global here
+          // cannot be resolved by anyone. Zeroing the anchor is what makes that true rather than
+          // merely likely: the Header is REUSED scratch, so leaving the fields alone would hand this
+          // tag the PREVIOUS page's dictionary key and entry count, and resolution would then answer
+          // from a dictionary this page never named. With them zeroed the resolver refuses, loudly.
+          tagDictionaryKey[t] = 0L;
+          tagDictionaryEntryCount[t] = 0;
+          tagGlobalLengthWidth[t] = 0;
+          tagGlobalLengthOffset[t] = pos + n * 4;
           tagStringBytesOffset[t] = pos + n * 4;
           tagLengthWidth[t] = 4;
           tagPlainLane[t] = false;
@@ -587,6 +625,23 @@ public final class StringRegion {
           }
           tagDictionaryKey[t] = dictionaryKey;
           tagDictionaryEntryCount[t] = (int) Math.min(encodedEntries, Integer.MAX_VALUE);
+          // The length lane's width, in its own varint rather than in the meta word: the meta's
+          // two-bit width field is fully spent -- three real widths plus the spare code that MARKS
+          // this tag as global -- so there is nowhere in it left to say how wide a length is.
+          final long lengthWidthCode = VarInt.readUnsigned(payload, pos);
+          pos += VarInt.sizeOfUnsigned(lengthWidthCode);
+          if (lengthWidthCode >= LENGTH_WIDTHS.length) {
+            throw new IllegalArgumentException("string region tag " + t + " declares global length width code "
+                + lengthWidthCode);
+          }
+          tagGlobalLengthWidth[t] = (byte) LENGTH_WIDTHS[(int) lengthWidthCode];
+        } else {
+          // A reused Header is scratch, and a stale anchor is worse than an absent one: it would let
+          // a page that names no dictionary resolve against the PREVIOUS page's. Clearing costs two
+          // stores on a path that runs once per tag.
+          tagDictionaryKey[t] = 0L;
+          tagDictionaryEntryCount[t] = 0;
+          tagGlobalLengthWidth[t] = 0;
         }
         if (plain) {
           tagIdLaneStart[t] = -1;
@@ -615,13 +670,15 @@ public final class StringRegion {
         final int width = tagLengthWidth[t];
         final long bytesStart = pos + (long) n * width;
         if (tagGlobal[t]) {
-          // A PACKED id table and nothing after it. Walking a length table here would read the ids
-          // AS lengths and advance pos by their sum, which is how a global tag came out claiming a
-          // payload larger than the page -- the loud failure that found this, rather than a quiet
-          // one.
+          // A PACKED id table, then a fixed-width LENGTH lane, and no value bytes at all. The ids
+          // must never be walked as if they were lengths -- doing so reads them AS lengths and
+          // advances pos by their sum, which is how a global tag once came out claiming a payload
+          // larger than the page. The two lanes are sized from their own declared widths instead.
           final long packed = ((long) n * globalIdBits(tagDictionaryEntryCount[t]) + 7L) >>> 3;
-          tagStringBytesOffset[t] = (int) (pos + packed);
-          pos += packed;
+          tagGlobalLengthOffset[t] = (int) (pos + packed);
+          final long lengths = (long) n * tagGlobalLengthWidth[t];
+          tagStringBytesOffset[t] = (int) (pos + packed + lengths);
+          pos += packed + lengths;
           continue;
         }
         long total = 0;
@@ -663,6 +720,12 @@ public final class StringRegion {
       }
       if (tagDictionaryEntryCount == null || tagDictionaryEntryCount.length < size) {
         tagDictionaryEntryCount = new int[capacity];
+      }
+      if (tagGlobalLengthWidth == null || tagGlobalLengthWidth.length < size) {
+        tagGlobalLengthWidth = new byte[capacity];
+      }
+      if (tagGlobalLengthOffset == null || tagGlobalLengthOffset.length < size) {
+        tagGlobalLengthOffset = new int[capacity];
       }
       if (tagStringDictSize == null || tagStringDictSize.length < size) {
         tagStringDictSize = new int[capacity];
@@ -947,10 +1010,19 @@ public final class StringRegion {
 
   public static int decodeStringLength(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     if (h.tagGlobal[tag]) {
-      // Ids, not bytes. Throwing beats returning an offset into an id table: the caller would read
-      // four bytes of some id as a string and get a plausible answer, which is the one failure this
-      // format cannot afford and cannot detect afterwards.
-      throw new IllegalStateException("string region tag " + tag + " stores global ids; resolve via the dictionary");
+      // A LENGTH a global tag can answer, unlike an offset. This is the whole reason the lane exists:
+      // the derived value-elision plan reconstructs an elided slot's width from the region's stored
+      // length, so a global tag that could not answer this could not be serialized at all.
+      //
+      // The four-byte layout cannot carry the lane (its per-tag header has nowhere to put a width),
+      // so a global tag parsed from it reports width 0 and is refused here rather than reading the
+      // id table as lengths.
+      final int globalWidth = h.tagGlobalLengthWidth[tag];
+      if (globalWidth == 0) {
+        throw new IllegalStateException("string region tag " + tag
+            + " stores global ids in a layout that carries no length lane; its lengths are unreadable");
+      }
+      return Math.abs(readLengthField(payload, h.tagGlobalLengthOffset[tag] + dictId * globalWidth, globalWidth));
     }
     final int width = h.tagLengthWidth[tag];
     return Math.abs(readLengthField(payload, h.tagStringDictOffset[tag] + dictId * width, width));
@@ -963,6 +1035,12 @@ public final class StringRegion {
    */
   public static boolean isEntryCompressed(final MemorySegment payload, final Header h, final int tag,
       final int dictId) {
+    if (h.tagGlobal[tag]) {
+      // Never, and by construction rather than by observation: the encoder refuses to convert a tag
+      // with any FSST-encoded entry, because a stored form is not a value and cannot be looked up in
+      // a dictionary. Reading the sign bit of an ID here would answer at random.
+      return false;
+    }
     final int width = h.tagLengthWidth[tag];
     return readLengthField(payload, h.tagStringDictOffset[tag] + dictId * width, width) < 0;
   }
@@ -1319,6 +1397,27 @@ public final class StringRegion {
 
     /** Reusable per-retained-tag resolved ids, so a tag is resolved once and written once. */
     private int[][] globalIds = new int[4][];
+
+    /** Per retained tag: the byte width its global LENGTH lane is written at. */
+    private byte[] globalLengthWidth = new byte[4];
+
+    /**
+     * Per retained tag: the dictionary anchor SNAPSHOTTED once, at resolution.
+     *
+     * <p>
+     * Not a convenience. The entry count fixes three things that must agree exactly — the bit width
+     * the ids are packed at, the width the parser DERIVES from the count it reads, and the count
+     * written into the header — and they are computed in three different passes over the tag. A live
+     * dictionary is a moving target between them: {@code buildRegionTable} runs on the flush lane's
+     * parallel threads while the load is still interning, so a count that grew mid-encode would pack
+     * ids at one width and declare another. The parser would then read every id of that tag shifted,
+     * with no failure anywhere — the exact silent corruption the anchor exists to prevent.
+     * </p>
+     */
+    private int[] globalEntryCount = new int[4];
+
+    /** Per retained tag: the dictionary key snapshotted beside {@link #globalEntryCount}. */
+    private long[] globalDictionaryKey = new long[4];
 
     /** Reusable buffer for one entry's bytes while it is probed; never escapes the encoder. */
     private byte[] globalProbeScratch = new byte[256];
@@ -1860,14 +1959,22 @@ public final class StringRegion {
         globalTag[r] = !tagIsPlain && resolveGlobalIds(t, r, sz);
         if (globalTag[r]) {
           widths[r] = 4;
-          dictBytesSize += ((long) sz * globalIdBits(dictionaries.dictionaryEntryCount(tagOrder.getInt(t))) + 7L) >>> 3;
+          dictBytesSize += ((long) sz * globalIdBits(globalEntryCount[r]) + 7L) >>> 3;
+          // The LENGTH lane, at the narrowest width this tag's own values need. About six entries per
+          // tag per leaf, so a handful of bytes against the ~1.1 KB of value bytes the lane removes
+          // from the same leaf -- and without it the page cannot be SERIALIZED at all, because the
+          // derived elision plan reconstructs its slot widths from exactly these lengths.
+          final int lengthWidthCode = globalLengthWidthCode(t, sz);
+          globalLengthWidth[r] = (byte) LENGTH_WIDTHS[lengthWidthCode];
+          dictBytesSize += (long) sz * globalLengthWidth[r];
           final int tagValueGlobal = tagOrder.getInt(t);
           headerSize += VarInt.sizeOfSigned((long) tagValueGlobal - previousTag);
           previousTag = tagValueGlobal;
           headerSize += VarInt.sizeOfUnsigned(values);
           headerSize += VarInt.sizeOfUnsigned(globalTagMeta(sz));
-          headerSize += VarInt.sizeOfUnsigned(dictionaries.dictionaryKey(tagValueGlobal));
-          headerSize += VarInt.sizeOfUnsigned(dictionaries.dictionaryEntryCount(tagValueGlobal));
+          headerSize += VarInt.sizeOfUnsigned(globalDictionaryKey[r]);
+          headerSize += VarInt.sizeOfUnsigned(globalEntryCount[r]);
+          headerSize += VarInt.sizeOfUnsigned(lengthWidthCode);
           laneValues += values;
           if (sz > maxLaneDict) {
             maxLaneDict = sz;
@@ -1937,8 +2044,9 @@ public final class StringRegion {
         if (globalTag[r]) {
           // The page names the dictionary it was encoded against and how large it was, so that
           // resolution is a function of the page rather than of whatever is current.
-          pos = VarInt.writeUnsigned(output, pos, dictionaries.dictionaryKey(tagValue));
-          pos = VarInt.writeUnsigned(output, pos, dictionaries.dictionaryEntryCount(tagValue));
+          pos = VarInt.writeUnsigned(output, pos, globalDictionaryKey[r]);
+          pos = VarInt.writeUnsigned(output, pos, globalEntryCount[r]);
+          pos = VarInt.writeUnsigned(output, pos, widthCodeOf(globalLengthWidth[r]));
         }
       }
       previousSuppressed = 0;
@@ -1959,7 +2067,7 @@ public final class StringRegion {
           // Ids only, PACKED at the width the dictionary's size implies. No length table and no
           // bytes: that absence is the lever, and the packing is 20 % of what the lever leaves.
           final int[] ids = globalIds[r];
-          final int bits = globalIdBits(dictionaries.dictionaryEntryCount(tagOrder.getInt(t)));
+          final int bits = globalIdBits(globalEntryCount[r]);
           final int packedBytes = (int) (((long) sz * bits + 7L) >>> 3);
           // bitPackAppend ORs into the destination, so the reused buffer must start zeroed here.
           Arrays.fill(output, pos, pos + packedBytes, (byte) 0);
@@ -1967,6 +2075,14 @@ public final class StringRegion {
             bitPackAppend(output, pos, i * bits, ids[i], bits);
           }
           pos += packedBytes;
+          // Then the lengths, in the same entry order as the ids. Written POSITIVE: a global tag
+          // carries no FSST-encoded entry (resolveGlobalIds refuses one), so the sign bit that
+          // carries that flag everywhere else has nothing to say here.
+          final int globalLength = globalLengthWidth[r];
+          for (int i = 0; i < sz; i++) {
+            StringRegion.writeLengthField(output, pos, globalLength, tagLengths[t][i]);
+            pos += globalLength;
+          }
         } else {
           for (int i = 0; i < sz; i++) {
             // The sign carries the FSST flag at every width, exactly as the four-byte field did.
@@ -2065,7 +2181,17 @@ public final class StringRegion {
       if (!resolver.hasDictionary(tagValue)) {
         return false;
       }
+      // ONE read of each anchor field, for the whole encode of this tag. Everything downstream --
+      // the packing width, the header's count, the parser's derived width -- must come from this
+      // snapshot rather than from the live dictionary, which keeps growing underneath a parallel
+      // flush.
       final int entryCount = resolver.dictionaryEntryCount(tagValue);
+      final long dictionaryKey = resolver.dictionaryKey(tagValue);
+      if (dictionaryKey <= 0L) {
+        return false;
+      }
+      globalEntryCount[r] = entryCount;
+      globalDictionaryKey[r] = dictionaryKey;
       int[] ids = globalIds[r];
       if (ids == null || ids.length < sz) {
         ids = new int[Math.max(sz, 16)];
@@ -2106,8 +2232,46 @@ public final class StringRegion {
       if (globalTag.length < tags) {
         globalTag = new boolean[Math.max(tags, globalTag.length << 1)];
         globalIds = Arrays.copyOf(globalIds, globalTag.length);
+        globalLengthWidth = Arrays.copyOf(globalLengthWidth, globalTag.length);
+        globalEntryCount = Arrays.copyOf(globalEntryCount, globalTag.length);
+        globalDictionaryKey = Arrays.copyOf(globalDictionaryKey, globalTag.length);
       }
       Arrays.fill(globalTag, 0, tags, false);
+    }
+
+    /**
+     * The narrowest of {@link #LENGTH_WIDTHS} that holds every length in this tag's dictionary.
+     *
+     * <p>
+     * Positive lengths only — a global tag has no FSST-encoded entry — but the field is read back
+     * SIGNED, so the thresholds are the signed ones. A fused record is capped at 1,023 bytes, so two
+     * is the realistic answer and four is there for a cap that moves.
+     * </p>
+     */
+    private int globalLengthWidthCode(final int t, final int sz) {
+      int maximum = 0;
+      for (int i = 0; i < sz; i++) {
+        final int length = tagLengths[t][i];
+        if (length > maximum) {
+          maximum = length;
+        }
+      }
+      if (maximum <= Byte.MAX_VALUE) {
+        return 0;
+      }
+      return maximum <= Short.MAX_VALUE
+          ? 1
+          : 2;
+    }
+
+    /** Inverse of {@link #LENGTH_WIDTHS}, for a width this encoder chose itself. */
+    private static int widthCodeOf(final int width) {
+      return switch (width) {
+        case 1 -> 0;
+        case 2 -> 1;
+        case 4 -> 2;
+        default -> throw new IllegalStateException("no length width code for " + width);
+      };
     }
 
     private static long tagMeta(final boolean plain, final int width, final int dictSize) {
