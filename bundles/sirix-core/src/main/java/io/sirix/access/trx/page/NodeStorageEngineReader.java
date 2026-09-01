@@ -317,8 +317,35 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * Reusable IndexLogKey to avoid allocations on every getRecord/lookupSlot call. Safe to reuse
    * because this transaction is single-threaded (see class javadoc).
+   *
+   * <p>
+   * NOT final: {@link #resolveGlobalStringsUnguarded} swaps {@link #dictionaryWalkKey} in for the
+   * duration of a dictionary walk. See that method for why an audit of the callers is not the right
+   * safety argument.
+   * </p>
    */
-  private final IndexLogKey reusableIndexLogKey = new IndexLogKey(null, 0, 0, 0);
+  private IndexLogKey reusableIndexLogKey = new IndexLogKey(null, 0, 0, 0);
+
+  /**
+   * The key a trie-lane dictionary walk borrows, so the walk cannot rewrite the caller's.
+   *
+   * <p>
+   * {@code ensureFsstSymbolTablesLoaded} met this hazard first and did not settle it by auditing
+   * callers: it allocates its own key, and says why — "getRecord mutates that shared instance, [so]
+   * the nested NAME lookups would rewrite it under the outer DOCUMENT lookup, which would then
+   * silently read the NAME page and hand back the wrong record". A caller audit is true today and
+   * silently false after the next caller is added, and its failure mode is a plausible WRONG RECORD
+   * that no test would catch.
+   * </p>
+   *
+   * <p>
+   * A field rather than a per-call allocation because this runs once per converted page, not once
+   * per reader. And a SWAP of the field rather than a key passed down, because the walk reaches
+   * {@code getRecord} transitively — {@code PathSummaryReader}'s constructor calls it, three frames
+   * down — so nothing short of taking the shared slot away covers it.
+   * </p>
+   */
+  private final IndexLogKey dictionaryWalkKey = new IndexLogKey(null, 0, 0, 0);
 
   /**
    * Reusable MemorySegmentBytesIn to avoid allocations on every non-flyweight record deserialization.
@@ -999,45 +1026,21 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
   }
 
-  /**
-   * Resolve a page the FLUSH LANE is about to expand, leaving no guard behind.
-   *
-   * <p>
-   * §5 of the seam design. {@code deepCopy()} expands its SOURCE before copying the segment, and it
-   * runs with no reader on the stack — so a global-tagged page must already carry its bytes by the
-   * time it gets there. The writer holds this reader, so the front is possible; it just has to
-   * happen before the page reaches the lane.
-   * </p>
-   *
-   * <p>
-   * The difference from the lookup path is the guard, and it is not cosmetic. The lookup transfers
-   * one onto {@link #currentPageGuard} because a caller is about to read the page. Here nobody is
-   * reading it — it is about to be copied and serialized — and {@code reset()} throws outright on a
-   * page whose guard count is not zero, so a guard left behind would turn a flush into a crash on
-   * the frame's next occupant. The cursor is cleared on the way in and out instead, which is the
-   * state the writer already establishes for itself before every intent-log operation.
-   * </p>
-   */
-  void resolveGlobalStringsBeforeFlush(final @Nullable KeyValueLeafPage page) {
-    if (page == null || !page.needsGlobalStringResolution()) {
-      return;
-    }
-    closeCurrentPageGuard();
-    try {
-      resolveGlobalStringsUnguarded(page);
-    } finally {
-      closeCurrentPageGuard();
-    }
-  }
-
   private void resolveGlobalStringsUnguarded(final KeyValueLeafPage page) {
     if (resolvingGlobalStrings) {
       return;
     }
     resolvingGlobalStrings = true;
+    // Take the shared key away from the walk for its duration. Every nested lookup -- including the
+    // getRecord inside PathSummaryReader's constructor, three frames down -- then mutates the walk's
+    // own key, and the caller's survives by construction rather than by an audit that the next
+    // caller invalidates. See dictionaryWalkKey.
+    final IndexLogKey callersKey = reusableIndexLogKey;
+    reusableIndexLogKey = dictionaryWalkKey;
     try {
       page.setResolvedGlobalStrings(buildGlobalStringTable(page));
     } finally {
+      reusableIndexLogKey = callersKey;
       resolvingGlobalStrings = false;
     }
   }
@@ -1128,15 +1131,32 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (pathSummary == null) {
         // Reuses THIS reader rather than opening one: openPathSummary synchronizes on the session
         // and creates a second NodeStorageEngineReader, and we are inside a page lookup. It is
-        // deliberately not closed -- PathSummaryReader.close() closes the reader it was given, which
-        // here is this transaction's own. The instance itself is cheap and cached by the buffer
-        // manager per (database, resource, revision); this is the same arrangement PathSummaryWriter
-        // uses with the writer.
+        // deliberately NOT closed -- PathSummaryReader.close() closes the reader it was given, which
+        // here is this transaction's own; PathSummaryWriter uses the same arrangement with the
+        // writer.
+        //
+        // NOT cheap, and it is worth being accurate about which part: getInstance always constructs a
+        // new PathSummaryReader. What the buffer manager caches is the PathSummaryData inside it, and
+        // on a miss -- or on ANY write transaction, since the constructor rebuilds whenever
+        // hasTrxIntentLog() is true -- construction walks the whole path summary in level order and
+        // allocates a StructNode[maxNrOfNodes + 1] plus two maps. Bounded, because the resolver it
+        // feeds is memoised for this reader's life, so a resource pays it at most once. Not free.
         pathSummary = PathSummaryReader.getInstance(this, resourceSession);
       }
       final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
-      final int columns = Math.min(columnAnchors.length, fieldPaths.size());
-      for (int column = 0; column < columns; column++) {
+      if (columnAnchors.length != fieldPaths.size()) {
+        // The blob's anchors and the definition's field paths are paired BY POSITION, and
+        // ProjectionIndexMetadata already enforces that its own arrays agree. If these two disagree,
+        // the pairing is not trustworthy at any index -- a shorter loop would silently pair the
+        // surviving prefix and drop the tail. Skip the definition entirely: it contributes no
+        // anchors, so every page tagging with one of its path classes is refused loudly at
+        // resolution, which is the fail-safe direction AND says out loud that something is wrong.
+        LOGGER.warn("trie lane: projection index {} has {} dictionary anchors but {} declared field paths;"
+            + " its anchors are not usable and pages using them will be refused", indexDef.getID(),
+            columnAnchors.length, fieldPaths.size());
+        continue;
+      }
+      for (int column = 0; column < columnAnchors.length; column++) {
         if (columnAnchors[column] <= 0L) {
           continue;
         }
@@ -1692,8 +1712,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     //     that reason -- resolveFsstSymbolTables runs INSIDE getOrLoadAndGuard's loader, where
     //     walking a trie would be a compute inside a compute, which the underlying map forbids.
     //     FSST escapes by pre-loading every table; an 18M-entry dictionary cannot be pre-loaded.
-    //   * It is a single funnel. Every route that surfaces a record page to a reader returns
-    //     through here, so no new caller can acquire a page without passing the resolution.
+    //   * It is the funnel for every route that GOES THROUGH THE CACHES. It is not literally every
+    //     route: readRecordPageFromExactReference -> readDetachedRecord surfaces a page and calls
+    //     ensureChunkFor without passing here, and the most-recently-read fast paths above return
+    //     pages this hook has already seen but a future one might not.
+    //
+    // That last point is why the injector's refusal must stay a THROW and must never become a null
+    // return or a degrade. The refusal is what turns a missed route from a page with silently absent
+    // values into a loud failure naming the page -- it is the safety net under this hook's coverage,
+    // not merely a guard against corrupt input. Anyone softening it removes the net.
     //
     // The predicate is two field reads on a page that does not use the lane, which is every page of
     // every resource that has no rank-ordered dictionary.

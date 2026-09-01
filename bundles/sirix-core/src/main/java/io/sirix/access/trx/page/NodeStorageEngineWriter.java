@@ -3380,10 +3380,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           // can be skipped for it. Every other page may gain carriers WHILE serializing.
           final boolean carriersKnownResolved =
               inPlace && carriers == KeyValueLeafPage.OverflowReferenceState.RESOLVED;
-          // §5: front the trie-lane resolution BEFORE the page reaches the flush lane. deepCopy()
-          // expands its source, and the flush lane holds no reader — so the bytes have to be on the
-          // page already. This is the one place on this path that still has one.
-          storageEngineReader.resolveGlobalStringsBeforeFlush(kvl);
+          // NO trie-lane resolution here, deliberately. This runs inside serializeSnapshotWindowAsync's
+          // runAsync + parallel forEach, so many ForkJoinPool threads would enter a reader that is
+          // declared single-threaded, concurrently mutating currentPageGuard, a parse scratch buffer
+          // and the resolver's own maps -- guard-count corruption and torn parses, neither visible to
+          // a correctness witness. deepCopy()'s own refuseUnresolvedGlobalTags throws loudly on the
+          // exact state a front would have handled, so no front is strictly SAFER than a front here.
           final KeyValueLeafPage serializationCopy = inPlace
               ? kvl
               : kvl.deepCopy();
@@ -3565,10 +3567,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final var frozenModified = (KeyValueLeafPage) container.getModified();
     refuseAdoptedImmutablePage(frozenModified, "copy-on-write");
     final var frozenComplete = (KeyValueLeafPage) container.getComplete();
-    // §5, the other deepCopy. Both pages are fronted, and BOTH are needed: the two are the same
-    // instance often enough that copying only the modified one would look like it worked.
-    storageEngineReader.resolveGlobalStringsBeforeFlush(frozenModified);
-    storageEngineReader.resolveGlobalStringsBeforeFlush(frozenComplete);
+    // No trie-lane resolution here either. This looks like the safe synchronous prepare path, and it
+    // is not one: it runs inside pageContainerCache.computeIfAbsent, so a dictionary walk from here
+    // would be a map compute wrapping further cache work -- the same shape that keeps resolution out
+    // of the record-page cache's loader. deepCopy()'s refusal covers it, loudly.
     final var cowModified = frozenModified.deepCopy();
     final var cowComplete = (frozenComplete == frozenModified)
         ? cowModified
