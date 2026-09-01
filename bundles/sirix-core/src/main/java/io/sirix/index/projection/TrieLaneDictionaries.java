@@ -111,15 +111,20 @@ public final class TrieLaneDictionaries implements GlobalStringDictionaries {
   }
 
   @Override
-  public byte @Nullable [] valueOf(final int tag, final int id) {
-    if (id <= 0) {
+  public byte @Nullable [] valueOf(final int tag, final long dictionaryKey, final int recordedEntryCount,
+      final int id) {
+    // The anchor check runs HERE rather than being asked of the caller. Its verdict is memoised per
+    // tag, so a page walk pays it once and every value after that is a plain resolve.
+    if (id <= 0 || !accepts(tag, dictionaryKey, recordedEntryCount)) {
       return null;
     }
-    final long anchor = anchors.getOrDefault(tag, 0L);
-    if (anchor <= 0L) {
+    if (id > recordedEntryCount) {
+      // An id the page's own anchor says could not have existed when the page was written. The
+      // dictionary may well hold it today, which is exactly why this is refused: resolving it would
+      // answer from a part of the dictionary this page never saw.
       return null;
     }
-    return GlobalValueDictionary.valueBytes(anchor, id, reader);
+    return GlobalValueDictionary.valueBytes(dictionaryKey, id, reader);
   }
 
   @Override
@@ -196,7 +201,8 @@ public final class TrieLaneDictionaries implements GlobalStringDictionaries {
     }
 
     @Override
-    public byte @Nullable [] valueOf(final int tag, final int id) {
+    public byte @Nullable [] valueOf(final int tag, final long dictionaryKey, final int recordedEntryCount,
+        final int id) {
       return null;
     }
 

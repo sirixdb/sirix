@@ -102,12 +102,19 @@ public interface GlobalStringDictionaries {
    * The bytes stored under {@code id} for {@code tag}, for the DECODE direction.
    *
    * <p>
-   * {@code null} when the id cannot be resolved — a torn or absent dictionary — which callers must
-   * surface rather than substitute, because an empty string and an unresolvable id are different
-   * answers and only one of them is a value.
+   * <b>It takes the page's anchor and performs {@link #accepts} itself.</b> Not as a convenience —
+   * an ordering requirement that a caller must remember is the same shape as a check that lives only
+   * in prose, which is how the temporal-validity rule went missing the first time. Passing the
+   * anchor is the only way to ask for a value, so the check cannot be skipped by forgetting it.
+   * </p>
+   *
+   * <p>
+   * {@code null} when the id cannot be resolved — a refused anchor, a torn or absent dictionary —
+   * which callers must surface rather than substitute, because an empty string and an unresolvable
+   * id are different answers and only one of them is a value.
    * </p>
    */
-  byte @Nullable [] valueOf(int tag, int id);
+  byte @Nullable [] valueOf(int tag, long dictionaryKey, int recordedEntryCount, int id);
 
   /**
    * The node key of the dictionary {@code tag} resolves against, so the page can NAME it.

@@ -14,6 +14,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -60,8 +62,10 @@ final class StringRegionGlobalLaneTest {
     }
 
     @Override
-    public byte @Nullable [] valueOf(final int t, final int id) {
-      return t == tag ? values.get(id) : null;
+    public byte @Nullable [] valueOf(final int t, final long dictionaryKey, final int recordedEntryCount,
+        final int id) {
+      // The real shape: the anchor check is part of resolving, not a thing the caller remembers.
+      return t == tag && accepts(t, dictionaryKey, recordedEntryCount) ? values.get(id) : null;
     }
 
     /** Live entry count, separate from the recorded one so a shrink is constructible. */
@@ -121,10 +125,12 @@ final class StringRegionGlobalLaneTest {
     assertEquals(2, StringRegion.globalIdAt(payload, header, tag, 1));
 
     // And they resolve back to the values, which is the round trip the lane exists to preserve.
+    final long key = header.tagDictionaryKey[tag];
+    final int count = header.tagDictionaryEntryCount[tag];
     assertArrayEquals("alpha".getBytes(StandardCharsets.UTF_8),
-        dict.valueOf(CONVERTED_TAG, StringRegion.globalIdAt(payload, header, tag, 0)));
+        dict.valueOf(CONVERTED_TAG, key, count, StringRegion.globalIdAt(payload, header, tag, 0)));
     assertArrayEquals("beta".getBytes(StandardCharsets.UTF_8),
-        dict.valueOf(CONVERTED_TAG, StringRegion.globalIdAt(payload, header, tag, 1)));
+        dict.valueOf(CONVERTED_TAG, key, count, StringRegion.globalIdAt(payload, header, tag, 1)));
   }
 
   @Test
@@ -273,6 +279,27 @@ final class StringRegionGlobalLaneTest {
     dict.liveEntryCount = -1;
     assertFalse(dict.accepts(CONVERTED_TAG, recordedKey + 1, recordedCount),
         "a page naming a different dictionary must be refused");
+  }
+
+  @Test
+  void resolvingItselfRefusesAShrunkDictionary() {
+    // The check is part of valueOf, so a caller cannot resolve without it. This is the property that
+    // an ordering requirement in prose would NOT have given us -- forgetting to call accepts() would
+    // simply have returned values.
+    final FakeDictionary dict = new FakeDictionary(CONVERTED_TAG, "alpha", "beta");
+    final MemorySegment payload = encode(dict, CONVERTED_TAG, "alpha", "beta", "beta");
+    final StringRegion.Header header = parse(payload);
+    final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
+    final long key = header.tagDictionaryKey[tag];
+    final int count = header.tagDictionaryEntryCount[tag];
+    final int id = StringRegion.globalIdAt(payload, header, tag, 0);
+
+    assertNotNull(dict.valueOf(CONVERTED_TAG, key, count, id), "a valid anchor resolves");
+
+    final FakeDictionary shrunk = new FakeDictionary(CONVERTED_TAG, "alpha", "beta");
+    shrunk.liveEntryCount = count - 1;
+    assertNull(shrunk.valueOf(CONVERTED_TAG, key, count, id),
+        "resolution itself must refuse a dictionary smaller than the page recorded");
   }
 
   @Test
