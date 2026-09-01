@@ -105,6 +105,32 @@ public final class ProjectionBulkLoad {
   /** The record-fed builder; owns the current leaf, the dictionary sample and the dictionaries. */
   private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionBulkLoad.class);
 
+  /**
+   * OFF by default, opt in with {@code -Dsirix.projection.trieLane=true}.
+   *
+   * <p>
+   * <b>Default flipped 2026-09-01 because the lane writes DOCUMENT pages that cannot be read back.</b>
+   * The 1M gate's converted arm fails a subtree serialization with
+   * {@code AssertionError: Type not known} out of {@code deserializeNumber} — a fused NUMBER record's
+   * payload type byte is wrong — while the four arms without the lane serialize byte-identically. It
+   * reproduces with derived elision off too, so it is the lane's own path, and it appears a few pages
+   * in rather than on the first page.
+   * </p>
+   *
+   * <p>
+   * On by default was a footgun in its own right: the lane engages for any load that binds prebuilt
+   * dictionaries, which is the configuration the pre-pass route exists to create. Nothing opts INTO
+   * corruption by accident now.
+   * </p>
+   *
+   * <p>
+   * The switch gates BEHAVIOUR only. Every decoder still reads a converted page, so a database
+   * written by an earlier run stays readable to the extent it ever was.
+   * </p>
+   */
+  private static final boolean TRIE_LANE_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.projection.trieLane", "false"));
+
   /** The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound. */
   private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
@@ -308,6 +334,15 @@ public final class ProjectionBulkLoad {
    * </p>
    */
   private void bindTrieLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    if (!TRIE_LANE_ENABLED) {
+      // The lane's ONE kill switch, and it exists so an A/B can isolate it. The prebuilt dictionaries
+      // this binds against are also consumed by the projection index's own build, which converts its
+      // leaves independently and is a large storage effect in its own right -- so a "prebuilt on"
+      // arm moves two levers at once, and without this switch neither can be attributed. It gates
+      // BEHAVIOUR only: pages simply keep their bytes, and every decoder still reads a converted
+      // page written by an earlier run.
+      return;
+    }
     final TrieLaneWriteDictionaries dictionaries =
         TrieLaneWriteDictionaries.bindConfigured(storageEngineWriter.getResourceSession(),
             storageEngineWriter.getResourceSession().getMostRecentRevisionNumber(),
@@ -353,6 +388,11 @@ public final class ProjectionBulkLoad {
             + "closedProbeCount is the check on whether that mattered", drainFailure);
       }
     }
+    // stdout as well as the log, and deliberately: these counters ARE the gate's evidence -- the
+    // converted arm asserts absent == 0 and afterClose == 0 -- and a load run with the root logger at
+    // ERROR would otherwise report a conversion that left no trace of whether it happened. The
+    // pre-pass hook's own [prepass-hook] lines set the precedent for load-time gate output.
+    System.out.printf("[trie-lane] %s%n", dictionaries.describeCounters());
     LOGGER.info("{}", dictionaries.describeCounters());
     if (dictionaries.closedProbeCount() > 0) {
       // Should be unreachable after the drain above. Logged rather than thrown because by here the
