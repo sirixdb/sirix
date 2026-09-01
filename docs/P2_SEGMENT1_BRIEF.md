@@ -1663,3 +1663,42 @@ only the write-path conversion is broken and now inert); root-cause next with th
 **PERMANENT PROTOCOL CHANGE: a storage lever's gate = the leg PLUS a subtree serialization round-trip — the
 only witness that reads the record pages themselves.** The 100M database is unaffected (built before the
 lane existed; lane never ran there).
+
+## 2026-09-01 ~23:15: q28 sliced-regex-key port landed (a87cc228f); trie lane parked at its root cause
+
+**q28: 10.7 → 4.83 s hot isolated (12.4 cold), 11.3 → 5.5 in the leg; 43/43 byte-identical, routes
+identical.** The scoped prediction (4–6 s) hit. Mechanism exactly as predicted: the sliced string kernel
+consumes the precomputed per-id transformed-hash table for a GLOBAL regex key and reads a per-id length
+table for the `length()` aggregate; the `!globalRegexKey` gate is gone — the third "arm gate outlived kernel
+capability" fix tonight.
+
+**Gate hygiene lesson, once more: the full leg (GCOMP4) flagged q4, q16–q18, q27 cold and q32 cold.** All
+of them dissolved in a clean-window re-measure on the same rig (q16 hot 10.1 vs GCOMP3's 18.8; q17 10.4 vs
+10.7; q18 42.5 vs 43.3; q27 7.6 vs 7.7; q32 cold 47.3 vs 47.292 — to the tenth). Cause: impl-p2s1 ran
+"two 40 s loads and a probe" inside the announced window believing that not touching the 100M DB made them
+harmless; a 1M load is a full-core parallel ingest. **Window rule restated: NO JVM of any kind during a
+leg — the leg measures wall time on shared cores, not the database.** q32's cold value was 110.6 in the
+polluted leg vs 47.3 in both clean measurements; treat any q32 cold above ~50 s as suspect before believing
+the bimodality theory again.
+
+Observation worth its own experiment: q16 hot is 10.1 s in a partial leg (fresh heap) and 18.8 s at leg
+position 16 (heap holding q0–q15's retained fills). `GroupTableSpill.groupBudget()` reads the live
+`HeapHeadroom` — the pass count a query pays depends on what ran before it. That is the same species as the
+q32 cold bimodality; the memo cannot help a FIRST encounter of a shape. Candidate: seed the first pass
+count from a per-column distinct-count sketch the projection build already sees every value for (a lower
+bound of the group cardinality is max of the key columns' NDVs — exact for q32's near-unique WatchID).
+
+**Trie lane: PARKED correct-and-inert at its root cause** (impl-p2s1, single-variable pair): the lane needs
+lazy chunks, and laziness is decided by `pointLookup` (`NodeStorageEngineReader:1738` / `:2465`), so every
+SCAN read of a converted page hits the lane's own refusal; the `Type not known` symptom was a mixed
+population (lazily built cached pages beside eagerly expanded neighbours), never byte corruption. Revival
+prerequisites, both stated: (1) the +16.6 % framing decomposition, (2) lazy reads for every path that can
+touch a converted page. Economics say park: 6 bytes at 1M against a read-path change.
+
+Hot suite after tonight (GCOMP3 measured; q28 re-measured): **≈ 200 s hot** (285.8 at the start of the
+day). The SearchPhrase family (q5 25.4, q16 ~10–19, q17 10.7, q18 43, plus q12–q14, q22, q24–q26, q30–q31
+smaller) is ≈ 130 s of that and is rebuild-gated (SearchPhrase as a global column; the 5-column rebuild
+needs the current 63.33 GB DB deleted — pending the user's word). Non-gated candidates, in order:
+q32 26.7–30.7 (8 hash-range passes over 100M rows; radix-partitioned aggregation would make it two data
+passes), q20 5.0 (a `predicate-count` route slower than q21's group-aggregate over the SAME predicate —
+an arm anomaly, not a kernel cost), q27 7.6, q35 5.5.
