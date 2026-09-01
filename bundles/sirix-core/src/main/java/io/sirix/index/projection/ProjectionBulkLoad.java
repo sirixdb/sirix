@@ -134,6 +134,19 @@ public final class ProjectionBulkLoad {
   /** The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound. */
   private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
+  /**
+   * The writer the lane was installed on, so ABORT can uninstall it too.
+   *
+   * <p>
+   * {@code abort()} takes no writer argument, and the listener calls it DURING the load on a
+   * dictionary-budget breach — the load then keeps running and keeps flushing record pages. Without
+   * this reference the writer would keep handing the released resolver to every page it creates, so
+   * the in-flight gate would be guarding an open-ended stream of calls instead of a closing window.
+   * Held only to uninstall; nothing reads it for anything else.
+   * </p>
+   */
+  private volatile @Nullable StorageEngineWriter trieLaneWriter;
+
   private final ProjectionIndexBuilder builder;
 
   /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
@@ -351,6 +364,7 @@ public final class ProjectionBulkLoad {
       return;
     }
     this.trieLaneWriteDictionaries = dictionaries;
+    this.trieLaneWriter = storageEngineWriter;
     builder.setTrieLaneWriteDictionaries(dictionaries);
     storageEngineWriter.installDocumentStringDictionaries(dictionaries);
   }
@@ -369,11 +383,17 @@ public final class ProjectionBulkLoad {
       return;
     }
     trieLaneWriteDictionaries = null;
+    trieLaneWriter = null;
     if (storageEngineWriter != null) {
       // Stop handing the resolver to NEW pages first, then DRAIN, then close. That order is the
       // whole safety argument: a page created after this line carries no resolver and converts
       // nothing, and awaitPendingAsyncFlush returns only once every page already in flight has been
       // serialized -- which is the last moment any flush thread can be inside a probe.
+      //
+      // On the ABORT path there is no drain to wait for -- the listener aborts mid-load and the
+      // import keeps flushing -- which is why uninstalling FIRST matters there: it stops new pages
+      // getting the resolver, so the resolver's own in-flight gate has a closing window to wait out
+      // rather than an open-ended stream.
       //
       // A loud guarantee beats a counted degrade, but the counter stays as the check on this claim:
       // if the drain is not what I think it is, closedProbeCount comes back non-zero and the
@@ -525,7 +545,7 @@ public final class ProjectionBulkLoad {
     // The lane's per-thread snapshot readers are a resource; an aborted load must free them exactly
     // as it frees the bloom chunks and the summaries. The writer reference is not available here, so
     // only the readers are closed -- the writer's own resolver field dies with the writer.
-    releaseTrieLane(null);
+    releaseTrieLane(trieLaneWriter);
     try {
       bloomChunks.release();
     } finally {

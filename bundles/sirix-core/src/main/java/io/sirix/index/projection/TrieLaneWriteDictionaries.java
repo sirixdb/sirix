@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -71,6 +72,9 @@ import java.util.concurrent.atomic.LongAdder;
 public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries, AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TrieLaneWriteDictionaries.class);
+
+  /** Generous: a stuck flush thread is what this is meant to surface, not a slow one. */
+  private static final long AWAIT_IN_FLIGHT_NANOS = 60L * 1_000_000_000L;
 
   private final ResourceSession<?, ?> resourceSession;
 
@@ -151,6 +155,27 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
   private final LongAdder closedProbes = new LongAdder();
 
   private volatile boolean closed;
+
+  /**
+   * Probes currently INSIDE {@link #idOf}, so {@link #close()} can wait for them.
+   *
+   * <p>
+   * The {@code closed} flag alone is a TOCTOU, and the path that makes it bite is documented rather
+   * than hypothetical: {@code ProjectionIndexChangeListener} calls {@code load.abort()} on a
+   * global-dictionary budget breach DURING the load — its own operator message says "the load
+   * completes; the projection is STALE" — so the import keeps running and the writer keeps flushing
+   * record pages, which is exactly where {@code idOf} runs. A thread already past the flag when
+   * {@code close()} fires would probe through a reader being closed underneath it: a use-after-close,
+   * not a wrong value, and so invisible to every correctness witness.
+   * </p>
+   *
+   * <p>
+   * The order is the Dekker one and it matters: {@code idOf} increments BEFORE reading {@code closed},
+   * {@code close()} writes {@code closed} BEFORE reading this. Both fields carry the necessary
+   * happens-before, so no interleaving lets a probe start after close and no probe is missed.
+   * </p>
+   */
+  private final AtomicInteger inFlight = new AtomicInteger();
 
   /**
    * @param resourceSession the session the load runs against
@@ -250,10 +275,21 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
     if (column < 0) {
       return ID_ABSENT;
     }
+    // Announce BEFORE testing the flag. Reversing these two lines reintroduces the use-after-close:
+    // close() would see zero in flight and free this thread's reader while it is about to probe.
+    inFlight.incrementAndGet();
+    try {
+      return probeWhileOpen(column, value, offset, length);
+    } finally {
+      inFlight.decrementAndGet();
+    }
+  }
+
+  private int probeWhileOpen(final int column, final byte[] value, final int offset, final int length) {
     if (closed) {
-      // A probe after the lane was released. Degrading keeps the page readable -- it stores bytes --
-      // but this is NOT the same event as a value the dictionary does not hold, so it does not share
-      // that counter. See closedProbes.
+      // A probe that arrived after the lane was released. Degrading keeps the page readable -- it
+      // stores bytes -- but this is NOT the same event as a value the dictionary does not hold, so it
+      // does not share that counter. See closedProbes.
       closedProbes.increment();
       return ID_ABSENT;
     }
@@ -365,9 +401,45 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
   @Override
   public void close() {
     closed = true;
+    awaitInFlightProbes();
     ThreadProbes threadProbes;
     while ((threadProbes = issued.poll()) != null) {
       threadProbes.close();
+    }
+  }
+
+  /**
+   * Wait for every probe already inside {@link #idOf} to leave, then let the readers be closed.
+   *
+   * <p>
+   * THROWS on expiry rather than proceeding, and the difference is the whole point: proceeding would
+   * re-open the use-after-close this method exists to prevent, quietly, at exactly the moment
+   * something is already wrong. A timeout here says a flush thread is stuck — which is a fact worth
+   * failing a load for — while a silent proceed says nothing and corrupts.
+   * </p>
+   *
+   * <p>
+   * Cannot deadlock against the caller. {@code abort()} holds the {@code ProjectionBulkLoad} monitor
+   * while calling this, and {@code idOf} touches only this class's own fields and
+   * {@code GlobalValueDictionary.probe} — never that monitor — so a probe in flight always finishes
+   * on its own. Checked rather than assumed.
+   * </p>
+   */
+  private void awaitInFlightProbes() {
+    final long deadline = System.nanoTime() + AWAIT_IN_FLIGHT_NANOS;
+    while (inFlight.get() > 0) {
+      if (System.nanoTime() > deadline) {
+        throw new IllegalStateException("trie lane: " + inFlight.get() + " encode probes still in flight "
+            + AWAIT_IN_FLIGHT_NANOS / 1_000_000_000L + "s after the lane was closed. A flush thread is stuck inside "
+            + "idOf; closing its snapshot reader now would be a use-after-close, so this fails loudly instead.");
+      }
+      Thread.onSpinWait();
+      try {
+        Thread.sleep(1L);
+      } catch (final InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("trie lane: interrupted while waiting for encode probes to drain", interrupted);
+      }
     }
   }
 
@@ -398,6 +470,17 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
         // A snapshot at the pre-pass's revision. The dictionaries were committed before the load
         // began and an append-only store never rewrites them, so this reader sees a fixed, complete
         // structure for the whole load and needs no coordination with the writer.
+        //
+        // beginNodeReadOnlyTrx takes NO session lock -- AbstractResourceSession documents removing
+        // the per-session monitor precisely so N concurrent reader-opens run in parallel. Said
+        // explicitly because the opposite belief invites reasoning about a lock ordering against the
+        // committing writer that does not exist.
+        //
+        // The residual cost is real though: each reader holds an epoch ticket and a
+        // storageEngineReaderMap entry for the load's life, so a converted load pins revisions x
+        // flush threads. Bounded, but it is why close() must actually close these rather than
+        // deferring them to writer teardown -- epoch-ticket pinning is the shape that exhausted the
+        // arena on every 100M load once before.
         trx = resourceSession.beginNodeReadOnlyTrx(dictionaryRevision);
       }
       return trx.getStorageEngineReader();
