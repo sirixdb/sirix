@@ -2090,3 +2090,44 @@ caveat above — which remains unmeasured.
 configuration has an unpriced latency cost.** That is a materially different proposition from "parked,
 worth 6 bytes", and the parking rationale should be re-read in that light: the CORRECTNESS reason to
 park stands unchanged, the ECONOMIC reason does not.
+
+#### The latency arm: 16 KB costs +25.1 % per random point lookup
+
+The degenerate-chunking caveat above said 16 KB buys storage with point-lookup decode time and that the
+trade was unmeasured. Measured now, at 1M.
+
+**Not a query leg, and that matters.** Chunk granularity serves exactly one shape —
+`NodeStorageEngineReader:1683-1687`: *"A point lookup opens a page to answer for a single slot; on a
+chunk-framed body the reader can stop after the page's metadata and expand only the chunk that slot
+lives in… A scan reads every slot, so laziness would buy it nothing."* And ClickBench queries are served
+from the projection index and never read DOCUMENT record pages at all, so a 43-query leg at 4 KB vs
+16 KB would have measured nothing and reported "no difference". The instrument is 200k uniformly-random
+`moveTo(nodeKey)` per sample, key range read from the resource (`getMaxNodeKey`), identical seed in both
+arms, 20k-lookup warmup discarded, record-page cache defeated by key spread rather than by a flag.
+
+**Paired and interleaved A/B/A/B/A/B on one pair of builds**, so drift lands in both arms:
+
+| round | 4 KB | 16 KB | delta |
+|---|---|---|---|
+| 1 | 86.39 µs | 108.64 µs | +25.8 % |
+| 2 | 84.20 µs | 103.20 µs | +22.6 % |
+| 3 | 83.40 µs | 105.89 µs | +27.0 % |
+| **mean** | **84.66 µs** | **105.91 µs** | **+25.1 %** |
+
+**3/3 pairs regress and the smallest pair delta (19.00 µs) exceeds the largest within-arm spread
+(5.44 µs)** — an effect, not noise, by the pair-counting rule.
+
+**So the dial is priced on both sides at 1M:**
+
+| setting | storage | random point lookup |
+|---|---|---|
+| 4 KB (default) | baseline | 84.66 µs |
+| 16 KB | **−75.4 MB** | **+25.1 %** |
+
+with the trie lane on top of 16 KB worth a further **−78.8 MB (−12.9 % of the database)**.
+
+**Judgement, flagged as such.** For the ClickBench workload the latency cost is close to free, since
+queries never perform these lookups — the same fact that made the query leg the wrong instrument. For
+Sirix as a general database a 25 % point-lookup regression is paid by exactly the access pattern
+chunked bodies exist to accelerate. "Set 16 KB and take the 12.9 %" is defensible for a benchmark build
+and not obviously right as a product default. That is a product call.
