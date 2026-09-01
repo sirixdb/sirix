@@ -179,7 +179,7 @@ public final class ProjectionColumnGroupScan {
             }
           }
           foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask);
+              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask, null);
         }
       }
     }
@@ -365,7 +365,8 @@ public final class ProjectionColumnGroupScan {
       final byte[] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
       final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
       final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict, final Pattern keyRegex,
-      final String keyRegexRepl, final long[] regexDecline, final GroupDistinctBitmaps distinctBitmaps) {
+      final String keyRegexRepl, final long[] regexDecline, final GroupDistinctBitmaps distinctBitmaps,
+      final int[][] globalLengthTables, final long[] globalKeyHashes) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
@@ -386,6 +387,11 @@ public final class ProjectionColumnGroupScan {
     final ProjectionIndexByteScan.RegexHashCache regexCache = keyRegex != null
         ? new ProjectionIndexByteScan.RegexHashCache()
         : null;
+    // GLOBAL group key (regex-transformed): the slice's long lane holds resource-wide ids and the
+    // caller precomputed the transformed-key hash PER ID in one sequential sweep — the same table
+    // and hash domain the whole-leaf kernel and the winner rebuild consume, so the arms' groups
+    // match exactly. No per-leaf dictionary exists and none is read.
+    final boolean globalGroup = globalKeyHashes != null;
     final int aggCount = aggCols.length;
     ProjectionIndexByteScan.validateStringLengthModes(stringLengthModes, aggCount);
     // COUNT-ONLY: no aggregate lanes and no distinct set, so the fold is one increment into a
@@ -409,11 +415,25 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final ColumnSlice group = groupCol[leaf];
-      final byte[] dictBytes = group.dictBytes();
-      final int[] dictOffsets = group.dictOffsets();
-      final int[] ids = group.stringDictIds();
+      final long[] globalGids = globalGroup
+          ? group.numericValues()
+          : null;
+      if (globalGroup && globalGids == null) {
+        throw new IllegalStateException("global regex group column has no id lane in leaf " + leaf);
+      }
+      final byte[] dictBytes = globalGroup
+          ? null
+          : group.dictBytes();
+      final int[] dictOffsets = globalGroup
+          ? null
+          : group.dictOffsets();
+      final int[] ids = globalGroup
+          ? null
+          : group.stringDictIds();
       final long[] groupPresence = group.presenceWords();
-      final int dictSize = group.dictSize();
+      final int dictSize = globalGroup
+          ? 0
+          : group.dictSize();
       ds.ensure(dictSize);
       final long[] dictHash = ds.hash;
       final int[] dictBase = ds.base;
@@ -428,9 +448,16 @@ public final class ProjectionColumnGroupScan {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
         if (stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
-          precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
-          aggIds[a] = agg.stringDictIds();
-          aggValues[a] = null;
+          if (globalLengthTables != null && globalLengthTables[a] != null) {
+            // GLOBAL operand: the per-query id→length table replaces the per-leaf entry pass —
+            // the fold reads table[(int) idLane[row]] and no dictionary bytes are touched.
+            aggValues[a] = agg.numericValues();
+            aggIds[a] = null;
+          } else {
+            precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
+            aggIds[a] = agg.stringDictIds();
+            aggValues[a] = null;
+          }
         } else if (cdStringDict && a == distinctBlock) {
           // The operand's own dict — a SEPARATE memo from the group key's (ds.hash), because the
           // distinct column may well BE the group column.
@@ -482,6 +509,58 @@ public final class ProjectionColumnGroupScan {
                 return;
               }
             }
+          } else if (globalGroup) {
+            final long gid = globalGids[rowIdx];
+            final long ordinal = leafOrdinalBase | rowIdx;
+            // One array load per row; the per-leaf dict memo does not apply (ids are resource-wide
+            // and the table IS the memo). Hash 0 = the transformed key hashed to the empty-bucket
+            // sentinel: zero side slot, exactly the whole-leaf kernel's contract.
+            final long h = globalKeyHashes[(int) gid];
+            if (h == 0L) {
+              final boolean fresh = !out.hasZeroKey();
+              final long[] zero = out.acquireZero(ordinal);
+              if (fresh) {
+                out.setZeroAux(gid);
+              }
+              if (countOnly) {
+                zero[0]++;
+              } else {
+                long[] zeroWords = null;
+                if (distinctBlock >= 0 && localWords != null) {
+                  zeroWords = wordsFor(localWords, distinctBitmaps, 0L, budget);
+                  if (zeroWords == null) {
+                    return;
+                  }
+                }
+                foldSliced(zero, 0, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
+                    bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
+                        ? distinctOut.sinkFor(0L)
+                        : null,
+                    budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
+                    globalLengthTables);
+              }
+              continue;
+            }
+            final int cached = out.acquire(h, ordinal);
+            final long[] cachedStorage = out.storageAtAccBase(cached);
+            final int cachedOffset = out.offsetAtAccBase(cached);
+            if (cachedStorage[cachedOffset] == 0L) {
+              // Aux carries the GLOBAL ID itself — resource-wide, so no (leaf, dictId) packing;
+              // the executor's winner materialization resolves it through the dictionary.
+              out.setAuxAtAccBase(cached, gid);
+            }
+            if (distinctBlock >= 0) {
+              if (localWords != null) {
+                dwords = wordsFor(localWords, distinctBitmaps, h, budget);
+                if (dwords == null) {
+                  return;
+                }
+              } else {
+                dset = distinctOut.sinkFor(h);
+              }
+            }
+            slotArr = cachedStorage;
+            base = cachedOffset;
           } else {
             final int dictId = ids[rowIdx];
             final long ordinal = leafOrdinalBase | rowIdx;
@@ -530,7 +609,7 @@ public final class ProjectionColumnGroupScan {
                       bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
                           ? distinctOut.sinkFor(0L)
                           : null,
-                      budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask);
+                      budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask, globalLengthTables);
                 }
                 continue;
               }
@@ -562,7 +641,7 @@ public final class ProjectionColumnGroupScan {
           } else {
             foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
                 bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, dwords,
-                sumExactMask);
+                sumExactMask, globalLengthTables);
           }
         }
       }
@@ -612,7 +691,8 @@ public final class ProjectionColumnGroupScan {
       final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
       final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
       final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes, final int[] cdDictOffsets,
-      final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords, final long sumExactMask) {
+      final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords, final long sumExactMask,
+      final int[][] globalLengthTables) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg =
@@ -624,9 +704,13 @@ public final class ProjectionColumnGroupScan {
       // fn:string-length(()) is 0, never empty: a row MISSING the operand still contributes 0.
       final long v;
       if (stringLengthAgg) {
-        v = present
-            ? stringLengths[a][aggIds[a][rowIdx]]
-            : 0L;
+        // A GLOBAL operand's lengths live in the per-query id table, indexed by the row's id lane;
+        // a per-leaf dict operand's in the precomputed per-entry pass, indexed by its dict id.
+        v = !present
+            ? 0L
+            : globalLengthTables != null && globalLengthTables[a] != null
+                ? globalLengthTables[a][(int) aggValues[a][rowIdx]]
+                : stringLengths[a][aggIds[a][rowIdx]];
       } else if (cdHash != null && a == distinctBlock) {
         final int cdId = aggIds[a][rowIdx];
         long h = cdHash[cdId];
@@ -1090,7 +1174,7 @@ public final class ProjectionColumnGroupScan {
                   distinctBlock, distinctBlock >= 0
                       ? distinctOut.sinkFor(h)
                       : null,
-                  budget, null, null, null, null, null, sumExactMask);
+                  budget, null, null, null, null, null, sumExactMask, null);
             }
           }
         }
@@ -1252,7 +1336,7 @@ public final class ProjectionColumnGroupScan {
                 distinctBlock >= 0
                     ? distinctOut.sinkFor(h)
                     : null,
-                budget, null, null, null, null, null, sumExactMask);
+                budget, null, null, null, null, null, sumExactMask, null);
           }
         }
       }
@@ -1469,7 +1553,7 @@ public final class ProjectionColumnGroupScan {
             slotArr[base]++;
           } else {
             foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1, null,
-                null, null, null, null, null, null, sumExactMask);
+                null, null, null, null, null, null, sumExactMask, null);
           }
         }
       }
@@ -1649,7 +1733,7 @@ public final class ProjectionColumnGroupScan {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           foldSliced(acc, 0, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowBase + bit, -1, null, null,
-              null, null, null, null, null, -1L);
+              null, null, null, null, null, -1L, null);
         }
       }
     }

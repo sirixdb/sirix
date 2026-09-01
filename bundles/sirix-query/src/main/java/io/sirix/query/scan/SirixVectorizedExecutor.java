@@ -13496,11 +13496,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           groupSliced && numericSingleKey && !anyKeyTransform && globalLengthTablesFlat == null;
       // The string flat arm slices too (regex + strlen + distinct included); deferred string
       // extrema keep whole-leaf — pass 2's winner matching scans payloads.
-      // A GLOBAL deferred operand or a GLOBAL regex key folds in the whole-leaf kernels only (the
-      // sliced string arms read per-leaf dictionaries); forcing the arm is a routing choice, not a
-      // decline.
+      // A GLOBAL regex key slices as well: the per-id transformed-hash table (built in one
+      // sequential sweep before the pass loop) is the same table the whole-leaf kernel consumes, so
+      // the sliced kernel folds ids against array loads and reads no dictionary — the gate that
+      // once excluded it predates the table (the idx39 lesson: re-read gates when a kind gains a
+      // capability). Only a GLOBAL deferred operand still forces whole-leaf.
       final boolean stringSlicedArm =
-          groupSliced && stringFlatRoute && orderPlan != null && !anyDeferredGlobal && !globalRegexKey;
+          groupSliced && stringFlatRoute && orderPlan != null && !anyDeferredGlobal;
       // The LEGACY string emission arm (no order plan) slices too — by construction it is the
       // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
       final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null && !globalRegexKey;
@@ -14147,8 +14149,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             : null;
         if (stringSlicedArm && !windowedSlices) {
           final ProjectionColumnStore.ColumnSegmentFetcher sFetcher = columnFetcher();
-          if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-            throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+          // A GLOBAL group column reaches this arm only regex-transformed, with the per-id hash
+          // table built above — its slices are the id lane the sliced kernel folds directly.
+          if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+              && !(globalRegexGroup
+                  && groupStore.columnKind(groupCol) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL)) {
+            throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT or regex-global");
           }
           sPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, sFetcher);
           sTreeCols = tree != null
@@ -14170,7 +14176,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final boolean identityDistinctOperand = a == cdBlock && !cdStringDict
                 && (groupStore.columnKind(aggColsFlat[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
                     || ProjectionIndexRowGroupPage.isTemporalKind(groupStore.columnKind(aggColsFlat[a])));
-            if (!identityDistinctOperand && groupStore.columnKind(aggColsFlat[a]) != expected) {
+            // A GLOBAL column also fills two taught lanes: a strlen operand whose per-query id
+            // table exists (the fold indexes table[idLane[row]]), and a rank-string extremum lane
+            // (the id lane IS the min/max-foldable stat). The roster upstream is the authority on
+            // WHEN those lanes are legal; this check defends kind drift, and kind-5 is a long lane.
+            final boolean globalTaughtLane =
+                groupStore.columnKind(aggColsFlat[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+                    && (expected == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+                        || globalLengthTablesInFlat != null && globalLengthTablesInFlat[a] != null);
+            if (!identityDistinctOperand && !globalTaughtLane && groupStore.columnKind(aggColsFlat[a]) != expected) {
               throw new IllegalStateException(
                   "aggColumn " + aggColsFlat[a] + " kind mismatch (expected " + expected + ")");
             }
@@ -14324,7 +14338,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                             cdBlock >= 0
                                 ? cdBudgets[idx]
                                 : null,
-                            cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps);
+                            cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps, globalLengthTablesInFlat,
+                            globalKeyHashes);
                       } else {
                         ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(sub, subEnd), preds,
                             groupCol, aggColsFlat, local, missing, sub, cdBlock, cdBlock >= 0
@@ -14789,14 +14804,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds,
                   wsl.predicateColumns(preds, sub, subEnd), null, null, wsl.column(groupCol, sub, subEnd),
                   wsl.columns(aggColsFlat, sub, subEnd), null, sub, subEnd, localT, missing, -1, null, null, null, false,
-                  null, null, null, null);
+                  null, null, null, null, null, null);
               wsl.release(sub, subEnd);
             }
             perThread[idx] = drainStringGroupTable(localT, aggCols.length,
                 groupStore.windowedLeafAccess(columnFetcher(), null, ProjectionColumnStore.LEAF_ACCESS_WINDOW), groupCol);
           } else {
             ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, legPredCols, null, null, legGroupCol,
-                legAggCols, null, from, to, localT, missing, -1, null, null, null, false, null, null, null, null);
+                legAggCols, null, from, to, localT, missing, -1, null, null, null, false, null, null, null, null, null,
+                null);
             perThread[idx] = drainStringGroupTable(localT, aggCols.length, legGroupCol);
           }
         } else {
@@ -15548,7 +15564,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final boolean identityDistinctOperand = a == cdBlockIdx && !cdStringDict
               && (slicedStore.columnKind(aggCols[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
                   || ProjectionIndexRowGroupPage.isTemporalKind(slicedStore.columnKind(aggCols[a])));
-          if (!identityDistinctOperand && slicedStore.columnKind(aggCols[a]) != expected) {
+          // Same admission as the string arm: a GLOBAL column fills the strlen lane (per-query id
+          // table) and the rank-string extremum lane (id lane IS the stat) — the roster upstream
+          // decides legality, this check defends drift, and kind-5 is a long lane.
+          final boolean globalTaughtLane =
+              slicedStore.columnKind(aggCols[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+                  && (expected == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+                      || globalLengthTables != null && globalLengthTables[a] != null);
+          if (!identityDistinctOperand && !globalTaughtLane && slicedStore.columnKind(aggCols[a]) != expected) {
             throw new IllegalStateException("aggColumn " + aggCols[a] + " kind mismatch (expected " + expected + ")");
           }
           slicedAggCols[a] = distinctIdentityOperand(cdStringDict, a, cdBlockIdx, aggCols[a], slicedStore)
