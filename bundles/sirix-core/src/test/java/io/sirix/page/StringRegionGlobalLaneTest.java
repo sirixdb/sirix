@@ -64,6 +64,21 @@ final class StringRegionGlobalLaneTest {
       return t == tag ? values.get(id) : null;
     }
 
+    /** Live entry count, separate from the recorded one so a shrink is constructible. */
+    int liveEntryCount = -1;
+
+    @Override
+    public boolean accepts(final int t, final long dictionaryKey, final int recordedEntryCount) {
+      // The real rule, reproduced: right dictionary, and it cannot have shrunk. A rank-ordered
+      // dictionary only appends, so a smaller live count is a different dictionary under a reused
+      // key and its ids mean something else.
+      if (t != tag || dictionaryKey != dictionaryKey(t)) {
+        return false;
+      }
+      final int live = liveEntryCount < 0 ? dictionaryEntryCount(t) : liveEntryCount;
+      return live >= recordedEntryCount;
+    }
+
     @Override
     public long dictionaryKey(final int t) {
       return 168227L;
@@ -232,6 +247,32 @@ final class StringRegionGlobalLaneTest {
     // And the table really is packed: two ids at 10 bits is 3 bytes, not 8.
     final int idTableBytes = header.tagStringBytesOffset[tag] - header.tagStringDictOffset[tag];
     assertEquals(3, idTableBytes, "two 10-bit ids must occupy 3 bytes, not " + idTableBytes);
+  }
+
+  @Test
+  void aResolverRefusesADictionaryThatHasSHRUNK() {
+    // THE check the anchor exists for, and the one that cannot live in the parse: parse only sees
+    // this leaf's ~6 ids, so it cannot tell a reused key from a valid one. Only a resolver holds the
+    // live dictionary.
+    final FakeDictionary dict = new FakeDictionary(CONVERTED_TAG, "alpha", "beta");
+    final MemorySegment payload = encode(dict, CONVERTED_TAG, "alpha", "beta", "beta");
+    final StringRegion.Header header = parse(payload);
+    final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
+    final long recordedKey = header.tagDictionaryKey[tag];
+    final int recordedCount = header.tagDictionaryEntryCount[tag];
+
+    // Unchanged dictionary: accepted.
+    assertTrue(dict.accepts(CONVERTED_TAG, recordedKey, recordedCount), "a matching anchor must be accepted");
+
+    // The same key now holding FEWER entries is a different dictionary. Refuse.
+    dict.liveEntryCount = recordedCount - 1;
+    assertFalse(dict.accepts(CONVERTED_TAG, recordedKey, recordedCount),
+        "a dictionary smaller than the page recorded must be REFUSED, not resolved");
+
+    // A page naming some other dictionary is equally unreadable.
+    dict.liveEntryCount = -1;
+    assertFalse(dict.accepts(CONVERTED_TAG, recordedKey + 1, recordedCount),
+        "a page naming a different dictionary must be refused");
   }
 
   @Test

@@ -55,6 +55,38 @@ public interface GlobalStringDictionaries {
   boolean hasDictionary(int tag);
 
   /**
+   * Bind to the dictionary a PAGE names, or refuse — the temporal-validity check.
+   *
+   * <p>
+   * Called ONCE per tag per page, before any {@link #valueOf}, with the anchor the page recorded.
+   * It is the check the anchor exists for, and it does not live in the parse: parse can only compare
+   * the recorded count against the ids in THAT LEAF (about six of them), which is true for
+   * essentially any corrupt value. Only a resolver holds the live dictionary and can ask the
+   * question that matters.
+   * </p>
+   *
+   * <p>
+   * Refuse when the named dictionary is unreadable, when it is not the one this tag resolves
+   * against, or when its live entry count is BELOW the recorded one. That last case is a different
+   * dictionary under a reused key: a rank-ordered dictionary only ever appends, so it cannot shrink,
+   * and a smaller live count means the key was reused by something else. Ids resolved against it
+   * would be plausible and wrong.
+   * </p>
+   *
+   * <p>
+   * A refusal is not an error to swallow. The caller has a page whose values it cannot read, and
+   * substituting anything — empty strings, the bytes at that id, the current dictionary's answer —
+   * turns an unreadable page into a wrong one.
+   * </p>
+   *
+   * @param tag the region tag
+   * @param dictionaryKey the dictionary node key the page recorded
+   * @param recordedEntryCount the dictionary's entry count when the page was written
+   * @return whether ids under {@code tag} may now be resolved
+   */
+  boolean accepts(int tag, long dictionaryKey, int recordedEntryCount);
+
+  /**
    * The id {@code value} is stored under for {@code tag}, for the ENCODE direction.
    *
    * <p>
