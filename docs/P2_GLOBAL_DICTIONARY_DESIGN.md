@@ -1739,6 +1739,20 @@ unreachable on these builds. "Should be" is the argument; the witness is the 43-
 subtree serialization gate on the CONVERTED arm, both of which read pages back through the seam. A
 refusal that fires shows up there as a failure rather than as a silent decline.
 
+**0. THE GATE IS THE QUERY LEG *AND* A SUBTREE SERIALIZATION ROUND-TRIP. Permanent, and it is listed
+first because it is the one that was missing.** The 1M converted arm produced **43/43 byte-identical
+query dumps** against the baseline — on a database whose DOCUMENT pages could not be serialized at all.
+ClickBench queries are served from the PROJECTION INDEX and never read the record pages a storage lever
+rewrites, so the query leg is *structurally blind* to record-page corruption. Had the gate been the
+three arms plus the query leg, this would have been reported as "43/43 identical, −47.8 %, ship it".
+
+The round-trip is cheap and decisive: open the resource, serialize a subtree
+(`new JsonSerializer.Builder(session, writer).maxLevel(6).numberOfNodes(n).build().call()`), hash it,
+compare across arms. Four no-lane arms produced one identical sha256 and only the lane arm threw, so
+attribution took one run. It is the sign-flipped twin of the lesson that identical answers can hide a
+serving REGRESSION: here identical answers hid UNREADABLE DATA. Ask what pages a witness actually reads
+before trusting it.
+
 **5. The converted 1M arm ASSERTS `absentValueCount == 0` for every converted column.** The encode-side
 resolver returns `ID_ABSENT` on a miss and the page keeps its bytes — the right contract for a record
 page, because that is exactly the pre-lever behaviour and a load must not abort over it. But the
@@ -1752,6 +1766,17 @@ non-zero absent count rather than treating the lane as "mostly converted".
 A corollary worth stating because it is the tempting shortcut: a converted arm whose absent count is
 non-zero has ALSO under-converted its pages, so its storage number is not the lever's number. Never
 report size from an arm that failed this assertion.
+
+**6. Run the ISOLATING arm, and price the PREREQUISITE.** Two failures the three-arm design would have
+produced, both found by adding arms:
+- A configuration turns on everything it enables. The `prebuilt` arms engage the projection index's own
+  dictionary conversion, worth **−47.8 %** at 1M all by itself; crediting that to the trie lane was
+  avoided only by adding `-Dsirix.projection.trieLane=false` and two more arms. Price the LEVER, never
+  the configuration.
+- A lever must pay for the frame it requires. The lane needs chunked bodies (**+75.5 MB, +6.4 %** at
+  1M, all in record pages) and its own record-page win is **−82.9 MB** — so against the best no-lane
+  configuration it is worth **6 bytes**. The original arithmetic priced the value bytes removed from
+  the region and never priced the framing added to every page.
 
 ## Trie lane: the write side takes route (A), a value pre-pass
 
@@ -1798,3 +1823,52 @@ longs. Whatever route is taken, the resolver handed to the encoder must be eithe
 revision — the dictionary is committed and immutable, so a snapshot needs no coordination) or
 **immutable** (a retained sorted value array, binary-searched, at ~4-5 GB of heap per wide column).
 Sharing one mutable memo across the flush lane is the one thing it must not be.
+
+---
+
+## Trie lane: the 1M gate result, and the open corruption
+
+**The lane is `-Dsirix.projection.trieLane=false` by DEFAULT.** Two independent reasons, either alone
+sufficient.
+
+### 1. It does not pay for itself — five arms, 1M, `versioningType=FULL` pinned in each
+
+| arm | whole-DB `du -sb` | KeyValueLeafPage | OverflowPage |
+|---|---|---|---|
+| base | 1,174,866,896 | 477,867,592 | 664,392,355 |
+| chunked only | 1,250,364,371 | 556,987,011 | 664,392,355 |
+| prebuilt, no chunked, lane OFF | **612,835,482** | 453,488,477 | 131,247,599 |
+| prebuilt + chunked, lane OFF | 696,721,555 | 531,885,227 | 131,247,599 |
+| prebuilt + chunked + lane ON | **612,835,476** | 449,031,343 | 131,247,599 |
+
+Chunked bodies cost **+75.5 MB** on their own and the lane requires them; the lane's record-page win is
+**−82.9 MB** at an equal chunked setting. Against the best configuration that does not use it, the lane
+is worth **6 bytes**. The −47.8 % belongs to the prebuilt-dictionary route, which is already shipped —
+the 63.33 GB 100M database was built through it, and this arm merely confirms that mechanism at 1M.
+
+Counters were clean throughout: `probes=718415 memoHits≈248k absent=0 afterClose=0`, 25.7 % memo hit
+rate, load wall time flat across all arms (25.3–27.5 s). So the size figure is trustworthy, and both
+lifecycle risks the installer carried were answered by the run rather than by reading executor code.
+
+### 2. It writes DOCUMENT pages that cannot be read back — OPEN
+
+A converted database fails a subtree serialization with `AssertionError: Type not known` from
+`NodeKind.deserializeNumber`. Localized:
+
+- First unreadable node **3072 = page 3, slot 0**, a fused NUMBER. **Page 0 is unconverted and clean**,
+  so the first CORRUPT page is the first CONVERTED page — early pages escape only because the path
+  summary has not yet given URL/Title a path class.
+- **It is a WRITE-side TRUNCATION.** That slot is `len=33` without the lane and `len=22` with it, with
+  an **identical 22-byte prefix**; slots 1–5 on the same page are byte-identical between arms. The bad
+  type byte is the reader running off the end of a short record, not a misaligned types array.
+- **Value elision is not involved**: the arm with `sirix.valueElision.regionLookup.disable=true` fails
+  at the same node, so no injector is running when the damage occurs.
+- Also ruled out by arm: derived elision, chunked bodies alone, the prebuilt dictionaries alone, and
+  mixed kinds on a converted page (a unit fixture for that PASSES).
+
+The remaining question is narrow: **what shortens one record's stored data length on a page whose
+string region converted.** The lane's only other effects on a page are that the string region is
+smaller and the dictionary sketch is absent.
+
+**Fixing this is a correctness obligation for committed code, not a route to the storage goal** — the
+table above says the lever is not worth shipping even once it is correct.
