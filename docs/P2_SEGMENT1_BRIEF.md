@@ -1356,3 +1356,15 @@ geometric mean of per-query ratios vs the best, +10 ms smoothing — kill the wo
 matter.
 
 Ownership: impl-p2s1 writes the injection, impl-ingest reviews — self-arranged, ratified.
+
+### Stage B format complete and inert (13a9f0c9b, 6b511bf31, d8cbe3177)
+
+Encoder: a tag converts ALL entries or none (one absent value, FSST entry, or plain lane keeps the whole tag
+on bytes); each tag resolves once in sizing, the write pass reuses ids. **Fifth wrong-answer catch of the
+campaign, found writing the witness: `decodeStringOffset`/`decodeStringLength` would have read a global
+tag's id table as a LENGTH table — plausible bytes, no throw.** All three byte-readers now refuse, and the
+witness is written against that hazard: wire shape, lane-smaller-than-bytes asserted, no-resolver ⇒ no
+conversion, one absent value ⇒ whole tag on bytes, every byte-reader throws on a global tag AND `globalIdAt`
+refuses a non-global one. Witness verdict owed on first machine window; nothing can produce the form yet
+(no `setDictionaries` caller). Wiring next: resolver over the projection anchors WITH the binding generation
+anchor, page hand-off, read seam (impl-p2s1 writes, impl-ingest reviews).
