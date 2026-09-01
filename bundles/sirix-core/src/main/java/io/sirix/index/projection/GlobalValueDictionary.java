@@ -251,7 +251,7 @@ public final class GlobalValueDictionary {
       return null;
     }
     return new ReadView(headerNodeKey, header.getReverseRootKey(), header.getEntryCount(), revision, namePage,
-        databaseType, reader, header.getBlockIndexKey());
+        databaseType, reader, header.getBlockIndexKey(), header.isFullyOrdered());
   }
 
   /** Ids per separator-array entry; one reverse bucket, so the partition needs no spill handling. */
@@ -312,10 +312,18 @@ public final class GlobalValueDictionary {
     private byte @Nullable [] transformedModes;
     private long @Nullable [] transformedValues;
 
+    /**
+     * Whether EVERY id is in collation order of its value — {@code orderedPrefixCount == entryCount}
+     * on the header, the single test an ordering arm may make. While it holds, id order IS value
+     * order, so id comparisons answer string comparisons with no dictionary touch at all.
+     */
+    private final boolean fullyOrdered;
+
     private ReadView(final long headerNodeKey, final long reverseRootKey, final int entryCount, final int revision,
         final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader,
-        final long blockIndexKey) {
+        final long blockIndexKey, final boolean fullyOrdered) {
       this.blockIndexKey = blockIndexKey;
+      this.fullyOrdered = fullyOrdered;
       this.headerNodeKey = headerNodeKey;
       this.reverseRootKey = reverseRootKey;
       this.entryCount = entryCount;
@@ -515,6 +523,13 @@ public final class GlobalValueDictionary {
     public int compareIds(final int leftId, final int rightId) {
       if (leftId == rightId) {
         return 0;
+      }
+      if (fullyOrdered) {
+        // Rank-ordered dictionary: id order IS collation order (W17's witnessed identity), so the
+        // comparison needs no slice resolution — the difference between an integer compare and two
+        // RANDOM block loads per row (measured: pass-2 string extrema over a global operand were
+        // ~54 s of q28's 60 s at 100M, dictionary 10× the record cache).
+        return Integer.compare(leftId, rightId);
       }
       // Both slices are resolved BEFORE either is read: the two ids may share a cache slot, and
       // reading through a slot the second resolution has already overwritten would compare the wrong
