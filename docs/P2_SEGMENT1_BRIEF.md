@@ -1627,3 +1627,27 @@ idx39's `!hasGlobalComposite` — the gate outlived the kernel gaining the capab
 the sliced string arm to consume the precomputed table (pass 1 groups by table lookup; pass 2 winners
 resolve via id, not payload scan) takes q28 from 11.0 toward 4–6 s hot. Prerequisite: profile q28 first to
 confirm the whole-leaf materialization is still the dominant term post-GCOMP3.
+
+## 2026-09-01 ~22:15: the 1M five-arm gate — the trie lane cannot pay for its own prerequisite
+
+impl-p2s1 ran FIVE arms (adding a lane kill switch my three-arm spec lacked — without it the lane would
+have been credited with the prebuilt route's win). All FULL-pinned, whole-DB du -sb at 1M:
+base 1,174.9 MB · chunked-only 1,250.4 (+6.4 %) · prebuilt/no-chunked/lane-OFF **612.8** ·
+prebuilt+chunked/lane-OFF 696.7 · prebuilt+chunked+**lane-ON 612.8** (6 BYTES less than lane-OFF-no-chunked).
+
+**The lane's record-page win is real (−82.9 MB, −15.6 % at equal chunked setting) and is spent almost
+entirely un-doing the +79.1 MB (+16.6 %) chunked-body framing it requires.** Gate counters pristine:
+absent=0, afterClose=0 (both lifecycle risks answered from the run), probes 718k/two columns (in the
+javadoc's order), wall time flat. The arm-3 "−47.8 %" is the ALREADY-SHIPPED prebuilt mechanism — the
+69.63 → 63.33 GB step at 100M banked it; no new win there.
+
+**We priced the value bytes removed from the region and never priced the framing added to every page.**
+
+Consequences: the lane PARKS pending one named experiment — decompose the +16.6 % framing (chunk directory
+/ headers / padding / duplicated lengths, one chunked page beside its unchunked twin); reducible → the lane
+revives to ~−10 GB at 100M; structural → it waits for fewer-records-per-row. The near-term 100M rebuild
+proposal drops chunked+lane and becomes the 5-column rebuild: ~61.4 GB projected (SearchPhrase ~neutral,
+OriginalURL −1.9) with the ~108 s SearchPhrase query family unlocked. **The ~50 GB storage half now rests
+on the framing verdict + the remaining roadmap levers — honest arithmetic, presented as such.**
+Correctness half (43-query leg + subtree round-trip on the converted arm) runs next regardless: a lever
+parks proven, not presumed.
