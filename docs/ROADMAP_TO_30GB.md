@@ -128,3 +128,24 @@ current database carries **~4.05 GB of orphaned bytes** from the killed walk; wh
 or pristine via one reload); 2) the 100M query leg, two interleaved pairs, baseline re-legged on the same
 build; 3) then the roadmap resumes at the trie lane, with OriginalURL's screen and the temporal encoding as
 the census-mandated additions. Handoff: end of `P2_SEGMENT1_BRIEF.md` (41ac1967c).
+
+## Stage B priced in WRITTEN bytes at 100M (census on clean data, residual=0, ratio 0.652 triple-validated)
+
+| slice | written GB at 100M |
+|---|---|
+| whole string region | **19.32** (matches the design doc's 19.31 measured independently) |
+| three converted columns | **11.40** — the dictionary-lane core of stage B |
+| OriginalURL | **1.87** — the census-mandated addition |
+| temporal ×4 | **3.82** — the encoding sub-lever (EventDate excluded from effort, included in bytes) |
+| FOR id-lane re-pack | 0.448 (2.3 %) — confirmed at scale: not worth design effort |
+
+So stage B's honest decomposition: **~−11 GB** for the three converted columns' trie bytes → ids (minus a
+small lane), **+~−1.8 GB** OriginalURL if its screen passes, **+~−3.5 GB** temporal encoding — the earlier
+single "−14/−15" is superseded by this three-part, measured form. **And the mechanism strengthens at scale:
+per-leaf dedup FALLS with corpus size** (URL 1.64 → 1.47 values/entry; temporal → 1.05, within 5 % of one
+entry per value), so the cross-leaf prize is larger than the 1M numbers implied and the election rule's
+"per-leaf removed" term is near-total.
+
+Also recorded from the same close: **a negative result must state the scope searched** ("no match under X",
+never a bare "it does not exist"), and **an instrument built from the assumption under test cannot falsify
+it** — a waiter watching the wrong directory corroborates the wrong-directory assumption with silence.
