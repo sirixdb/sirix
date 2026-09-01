@@ -1702,3 +1702,41 @@ needs the current 63.33 GB DB deleted — pending the user's word). Non-gated ca
 q32 26.7–30.7 (8 hash-range passes over 100M rows; radix-partitioned aggregation would make it two data
 passes), q20 5.0 (a `predicate-count` route slower than q21's group-aggregate over the SAME predicate —
 an arm anomaly, not a kernel cost), q27 7.6, q35 5.5.
+
+## 2026-09-02 ~01:15: q5 hashed dictionary union — 30.1 / 26.9 s → 1.56 / 0.85 s (cold / hot), answer identical
+
+**`COUNT(DISTINCT SearchPhrase)` at 100M: 26.9 → 0.85 s hot, 30.1 → 1.56 s cold; 6,019,103, cmp-identical
+to results-vec and MEMO1.** The old route filled the SearchPhrase column (retaining ~1 GB of per-leaf
+dictionaries), ran the content-based union, bailed at its 1024-value cardinality limit, hydrated every
+leaf's payload and counted 100M rows into a `String` hash map. The new route never touches a row: every
+non-empty per-leaf dictionary entry is xxHash128'd (`ProjectionColumnScan.distinctDictUnion`, one hash per
+(leaf, entry) — 97,654 leaves, ~12M entries) into ONE shared set of 128-bit keys
+(`SharedDistinctHash128Set`: 64 partition sets under their own monitors, per-worker buffers of 512 keys
+per partition, so the footprint is the ANSWER's — 279 MB for 6M keys — not one copy per worker). A ""
+entry is a phantom (a MISSING row interns the default) unless some leaf shows a present row referencing it,
+same disambiguation as the content-based kernel. Every array is charged to `HeapHeadroom.plannedShareBytes()`
+— the one figure the group tables, the grouped-distinct ceiling and the residency budget already share — and
+a refusal declines to the old routes.
+
+Two route rules the driver (`distinctDictUnionParallel`) pins: (1) it never STARTS a fill — a fill from
+inside 20 workers runs 20 times ("first publish wins"), and a fill from the caller would retain a column
+this query reads once ahead of the columns later queries keep coming back to; resident access only when
+`columnFilled(col)` already holds (which pins), else per-worker windowed access over window-aligned chunks
+(`resident=false` in tonight's leg — the SearchPhrase fill is no longer paid at all, which also frees ~1 GB
+of the 3 GB residency budget for q6+). (2) Kill switch `-Dsirix.projection.countDistinct.dictUnion=false`
+restores the old routes exactly; witness counter `projectionCountDistinctDictUnionServedCount()`.
+
+Witnesses: `DistinctDictUnionKernelTest` (9: set semantics incl. the all-zero key, budget charge/refund on a
+refused doubling, kernel vs `HashSet<String>` truth above the 1024 limit with the bounded kernel's refusal
+shown beside it, phantom "" vs real "", 2 real threads × windowed(4) into a shared set == resident count,
+starved budget refuses from inside a worker's drain); `TypedGroupByDifferentialTest.countDistinctOverSparseFieldViaProjection`
+now asserts the union counter moved (+1) and fails under the kill switch (checked). Gates re-run green:
+TypedGroupByDifferential 129, GroupWindowedSlices 28, HeapHeadroomBudget 7, GroupHashRangePass 4,
+DenseComposite 7, ResidencyRelease 5, ProjectionDeclineAtScale 3, GlobalValueDictionaryServing 5.
+
+General, not bench-specific: any STRING_DICT projected column of any cardinality gets an exact
+count-distinct in one dictionary pass. Hot suite: ≈ 200 → ≈ 174 s.
+
+Aside seen while reading the windowed access: `WindowedLeafAccess.fetchWindow` allocates a
+`new byte[leafCount][]` (97,654 slots, ~780 KB) per window per chain — ~2.4 GB of zeroed arrays per
+100M column sweep. Not tonight's lever; a `from`-offset scratch would remove it.

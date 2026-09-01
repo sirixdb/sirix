@@ -41,7 +41,9 @@ import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.CompositeGroupIdentity;
 import io.sirix.index.projection.DenseGlobalGroupAggTable;
+import io.sirix.index.projection.DistinctHash128Set;
 import io.sirix.index.projection.GroupDistinctBitmaps;
+import io.sirix.index.projection.HeapHeadroom;
 import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.index.projection.ProjectionColumnGroupScan;
 import io.sirix.index.projection.ProjectionColumnScan;
@@ -58,6 +60,7 @@ import io.sirix.index.projection.WindowedSliceArrays;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.projection.ProjectionResidencyScope;
+import io.sirix.index.projection.SharedDistinctHash128Set;
 import io.sirix.index.projection.ProjectionStringIdentityRegistry;
 import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
@@ -7291,6 +7294,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       Integer.parseInt(System.getProperty("sirix.projection.countDistinct.cardLimit", "1024"));
 
   /**
+   * Kill switch for the hashed dictionary-union count-distinct
+   * ({@link ProjectionColumnScan#distinctDictUnion}): {@code -Dsirix.projection.countDistinct.dictUnion=false}
+   * leaves an ungrouped {@code COUNT(DISTINCT dictColumn)} to the content-based union (bounded by
+   * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) and, beyond that, to the row-wise group count.
+   */
+  private static final boolean COUNT_DISTINCT_DICT_UNION =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.countDistinct.dictUnion", "true"));
+
+  /**
+   * Partition sets of the shared 128-bit distinct set the dictionary-union workers fill together: a
+   * power of two; more partitions spread the monitors, fewer keep the worker buffers small.
+   */
+  private static final int COUNT_DISTINCT_DICT_UNION_PARTITIONS = 64;
+
+  /** Keys each partition set of the dictionary union is sized for before its first growth. */
+  private static final int COUNT_DISTINCT_DICT_UNION_INITIAL_KEYS = 1 << 10;
+
+  /**
    * Probe-leaf cap for canonical-dict cardinality estimation. Default 16 leaves is enough for the
    * bench's 8-way uniform {dept, city} distribution (by row 100 on the first 1024-row leaf each
    * distinct value has typically already appeared); larger installs tolerate a bigger probe without
@@ -11659,6 +11680,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return PROJECTION_COUNT_DISTINCT_SERVED.sum();
   }
 
+  /** Of those, the results the hashed dictionary union produced ({@link #distinctDictUnionParallel}). */
+  private static final LongAdder PROJECTION_COUNT_DISTINCT_DICT_UNION_SERVED = new LongAdder();
+
+  /** Total ungrouped count-distinct results the hashed dictionary union served since process start. */
+  public static long projectionCountDistinctDictUnionServedCount() {
+    return PROJECTION_COUNT_DISTINCT_DICT_UNION_SERVED.sum();
+  }
+
   /**
    * Count-distinct via the projection index: reuses
    * {@link ProjectionIndexByteScan#conjunctiveCountByGroup} with an empty predicate set, then returns
@@ -11874,9 +11903,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) — callers fall back.
    */
   private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle, final int groupColumn) {
-    // SLICED first (regime-gated like the group kernels): the payload route hydrates every
-    // column of every leaf to read ONE dict — the suite's first cold materializer (Q5).
     final ProjectionColumnStore cdStore = handle.columnStoreOrNull();
+    // Hashed dictionary union first: ANY cardinality, one hash per (leaf, entry) and never a row, the
+    // set's footprint the answer's. The two routes below bail past COUNT_DISTINCT_DICT_CARD_LIMIT
+    // distinct values into the row-wise group count — at 100M rows a 6M-value column paid 27 s there.
+    if (COUNT_DISTINCT_DICT_UNION && cdStore != null && cdStore.columnSliceable(groupColumn)
+        && cdStore.columnKind(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      try {
+        final long unionDistinct = distinctDictUnionParallel(cdStore, groupColumn, columnFetcher());
+        if (unionDistinct >= 0L) {
+          PROJECTION_COUNT_DISTINCT_DICT_UNION_SERVED.increment();
+          return unionDistinct;
+        }
+      } catch (final IllegalStateException unionFailed) {
+        // a missing or malformed slice — the routes below meet the same condition on their own terms
+        if (PROJ_DIAG) {
+          System.err.println("[proj] countDistinct dictUnion threw col=" + groupColumn + ": " + unionFailed);
+        }
+      }
+    }
+    // SLICED next (regime-gated like the group kernels): the payload route hydrates every
+    // column of every leaf to read ONE dict — the suite's first cold materializer (Q5).
     if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnFillable(groupColumn)
         && cdStore.columnKind(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
       try {
@@ -11941,6 +11988,89 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (declined[0])
       return -1L;
     return mergeDistinctByteLists(perThread);
+  }
+
+  /**
+   * Parallel driver for {@link ProjectionColumnScan#distinctDictUnion}: every worker hashes the
+   * dictionaries of a window-aligned leaf range of {@code col} into ONE shared partitioned set
+   * ({@link SharedDistinctHash128Set}) through a buffered handle, and the set's size is the exact
+   * distinct-present count.
+   *
+   * <p>
+   * The column is read where it already is: through the resident slices when the store holds them
+   * ({@link ProjectionColumnStore#columnFilled}, which pins them for this query), otherwise through a
+   * per-worker windowed access that retains nothing. A fill is never STARTED here — a fill from
+   * inside a worker would run once per worker ("first publish wins"), and a fill from the caller
+   * would retain a column this query reads once, ahead of the columns later queries keep coming
+   * back to. Every array of the set is charged to the heap share every projection-side budget plans
+   * against ({@link HeapHeadroom#plannedShareBytes()}); a refusal declines the whole count.
+   * </p>
+   *
+   * @return the distinct present count, or {@code -1} when the share refuses the set or a leaf lacks
+   *         the lanes the kernel needs — callers fall through to the bounded routes
+   */
+  private long distinctDictUnionParallel(final ProjectionColumnStore store, final int col,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final int rowGroupCount = store.rowGroupCount();
+    if (rowGroupCount == 0) {
+      return 0L;
+    }
+    final long share = HeapHeadroom.plannedShareBytes();
+    if (share <= 0L) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] countDistinct dictUnion decline col=" + col + ": no heap share");
+      }
+      return -1L;
+    }
+    final long startNanos = System.nanoTime();
+    final AtomicLong budget = new AtomicLong(share);
+    final boolean resident = store.columnFilled(col);
+    final int window = ProjectionColumnStore.LEAF_ACCESS_WINDOW;
+    final int windows = (rowGroupCount + window - 1) / window;
+    final int eff = Math.min(threads, windows);
+    final int chunkSize = ((windows + eff - 1) / eff) * window;
+    final boolean[] declined = new boolean[eff];
+    final SharedDistinctHash128Set shared;
+    try {
+      shared = new SharedDistinctHash128Set(COUNT_DISTINCT_DICT_UNION_PARTITIONS, COUNT_DISTINCT_DICT_UNION_INITIAL_KEYS,
+          SharedDistinctHash128Set.DEFAULT_BUFFER_KEYS, budget);
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, rowGroupCount);
+        if (from >= to) {
+          return;
+        }
+        final ProjectionColumnStore.LeafColumnAccess access = resident
+            ? store.residentLeafAccess(fetcher, null)
+            : store.windowedLeafAccess(fetcher, null, window, window);
+        final SharedDistinctHash128Set.Worker worker = shared.worker();
+        if (!ProjectionColumnScan.distinctDictUnion(access, col, from, to, worker, new long[2])) {
+          declined[idx] = true;
+          return;
+        }
+        worker.flush();
+      });
+    } catch (final DistinctHash128Set.ByteBudgetExceededException refused) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] countDistinct dictUnion decline col=" + col + " share=" + share + ": " + refused.getMessage());
+      }
+      return -1L;
+    }
+    for (final boolean d : declined) {
+      if (d) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] countDistinct dictUnion decline col=" + col + ": a leaf lacks its lanes");
+        }
+        return -1L;
+      }
+    }
+    final long distinct = shared.size();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] countDistinct dictUnion served col=" + col + " leaves=" + rowGroupCount + " workers=" + eff
+          + " resident=" + resident + " distinct=" + distinct + " setBytes=" + (share - budget.get()) + " ms="
+          + (System.nanoTime() - startNanos) / 1_000_000L);
+    }
+    return distinct;
   }
 
   /** Content-based union of per-chunk distinct lists; {@code -1} when the card limit trips. */

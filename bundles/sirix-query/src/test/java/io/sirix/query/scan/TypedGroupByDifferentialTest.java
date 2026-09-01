@@ -827,7 +827,16 @@ public final class TypedGroupByDifferentialTest {
 
   @Test
   void countDistinctOverSparseFieldViaProjection() throws Exception {
+    // A third of the records MISS `tier` and intern the "" default into their leaf dictionaries: the
+    // hashed dictionary union must count the present tiers and no phantom — and it, not the bounded
+    // content-based union or the row-wise group count, must be the route that answered.
+    final long servedBefore = SirixVectorizedExecutor.projectionCountDistinctServedCount();
+    final long unionBefore = SirixVectorizedExecutor.projectionCountDistinctDictUnionServedCount();
     assertDifferentialWithSparseProjection("count(for $u in " + SRC + " let $t := $u.tier group by $t return $t)");
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.projectionCountDistinctServedCount(),
+        "a correct answer is not route evidence: the projection count-distinct outcome counter must move");
+    assertEquals(unionBefore + 1, SirixVectorizedExecutor.projectionCountDistinctDictUnionServedCount(),
+        "…and the hashed dictionary union must be the implementation that produced it");
   }
 
   @Test

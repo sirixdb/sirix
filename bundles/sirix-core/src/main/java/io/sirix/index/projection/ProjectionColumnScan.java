@@ -8,6 +8,7 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import net.openhft.hashing.LongTupleHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -2054,6 +2055,121 @@ public final class ProjectionColumnScan {
       distinct.add(new byte[0]);
     }
     return distinct;
+  }
+
+  /** The 128-bit domain of {@link #distinctDictUnion}: xxHash128 of the entry's UTF-8 bytes. */
+  private static final LongTupleHashFunction DISTINCT_HASH = LongTupleHashFunction.xx128();
+  private static final byte[] NO_BYTES = new byte[0];
+
+  /**
+   * Hashed twin of {@link #distinctPresentStrings} for ANY cardinality: the 128-bit hash of every
+   * non-empty dictionary entry of dict column {@code col} over leaves {@code [fromLeaf, toLeaf)} goes
+   * to the {@code sink} — one hash per (leaf, entry), never per row — and the size of the set behind
+   * the sink is the distinct present count. Same contract as the content-based kernel: sparse-clean
+   * unpredicated callers only, since every non-empty entry was interned by a present row and only a
+   * zero-length entry (the "" default a MISSING row interns) needs per-row disambiguation. The "" hash
+   * is put once, when some leaf proves a present row references it.
+   *
+   * <p>
+   * Two 128-bit hashes of distinct values coincide with probability {@code 2^-128} per pair — below
+   * the hardware error rate at any cardinality this store can hold — which is what lets the count be
+   * exact without keeping a byte of any value. The {@code hash} scratch is the caller's {@code long[2]}
+   * (one per worker), so the kernel allocates nothing per entry.
+   * </p>
+   *
+   * @param access per-leaf access to the column, resident or windowed
+   * @param col the dict column
+   * @param fromLeaf the first leaf, inclusive
+   * @param toLeaf the last leaf, exclusive
+   * @param sink where the hashes go: a set, or a worker's handle on a shared one
+   * @param hash a {@code long[2]} scratch for the hash halves
+   * @return {@code false} when a slice is missing or lacks its dictionary, id or presence lanes — the
+   *         caller declines; {@code true} when every leaf was folded in
+   * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a growth
+   */
+  public static boolean distinctDictUnion(final ProjectionColumnStore.LeafColumnAccess access, final int col,
+      final int fromLeaf, final int toLeaf, final DistinctHash128Sink sink, final long[] hash) {
+    if (hash.length < 2) {
+      throw new IllegalArgumentException("hash scratch needs two longs");
+    }
+    boolean emptyReal = false;
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      final ColumnSlice slice = access.slice(col, leaf);
+      if (slice == null) {
+        return false;
+      }
+      final int rowCount = slice.rowCount();
+      if (rowCount == 0) {
+        continue;
+      }
+      final byte[] dictBytes = slice.dictBytes();
+      final int[] dictOffsets = slice.dictOffsets();
+      if (dictBytes == null || dictOffsets == null) {
+        return false;
+      }
+      final int dictSize = dictOffsets.length - 1;
+      int emptyId = -1;
+      int off = dictOffsets[0];
+      for (int i = 0; i < dictSize; i++) {
+        final int end = dictOffsets[i + 1];
+        if (off == end) {
+          emptyId = i;
+        } else {
+          DISTINCT_HASH.hashBytes(dictBytes, off, end - off, hash);
+          sink.put(hash[0], hash[1]);
+        }
+        off = end;
+      }
+      if (emptyId >= 0 && !emptyReal) {
+        final int referenced = emptyEntryReferenced(slice, emptyId, rowCount);
+        if (referenced < 0) {
+          return false;
+        }
+        emptyReal = referenced > 0;
+      }
+    }
+    if (emptyReal) {
+      DISTINCT_HASH.hashBytes(NO_BYTES, 0, 0, hash);
+      sink.put(hash[0], hash[1]);
+    }
+    return true;
+  }
+
+  /**
+   * Whether a PRESENT row of the slice references dictionary entry {@code emptyId}: {@code 1} when one
+   * does (every row present, or an id scan finds one), {@code 0} when none does, {@code -1} when the
+   * slice lacks its presence or id lane.
+   */
+  private static int emptyEntryReferenced(final ColumnSlice slice, final int emptyId, final int rowCount) {
+    final long[] presence = slice.presenceWords();
+    final int[] ids = slice.stringDictIds();
+    if (presence == null || ids == null) {
+      return -1;
+    }
+    final int presWords = (rowCount + 63) >>> 6;
+    boolean allPresent = true;
+    for (int w = 0; w < presWords; w++) {
+      final long expect = w == presWords - 1 && (rowCount & 63) != 0
+          ? (1L << (rowCount & 63)) - 1
+          : -1L;
+      if ((presence[w] & expect) != expect) {
+        allPresent = false;
+        break;
+      }
+    }
+    if (allPresent) {
+      // Every row is present, so the "" entry was interned by a present row.
+      return 1;
+    }
+    for (int r = 0; r < rowCount; r++) {
+      if ((presence[r >>> 6] & 1L << (r & 63)) == 0L) {
+        continue;
+      }
+      if (ids[r] == emptyId) {
+        return 1;
+      }
+    }
+    return 0;
   }
 
   /**
