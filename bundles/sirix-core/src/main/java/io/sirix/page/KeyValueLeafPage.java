@@ -15,6 +15,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.Arrays;
+import java.util.Objects;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
@@ -34,6 +35,7 @@ import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.GlobalStringDictionaries;
+import io.sirix.page.pax.ResolvedGlobalStrings;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
@@ -805,6 +807,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage != null) {
       // A whole-segment copy carries whatever the heap holds, poison included, so the source must
       // hold records rather than chunks first.
+      refuseUnresolvedGlobalTags("copy-on-write deepCopy()");
       ensureAllChunks();
       final MemorySegment freshSegment = segmentAllocator.allocate(slottedPageCapacity);
       MemorySegment.copy(slottedPage, 0, freshSegment, 0, slottedPageCapacity);
@@ -1980,6 +1983,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * target revision (not the donor fragment's).
    */
   public void copySlottedPageFrom(final KeyValueLeafPage src) {
+    src.refuseUnresolvedGlobalTags("the versioning combine's slotted-page copy");
     src.ensureAllChunks();
     final MemorySegment srcSp = src.slottedPage;
     if (srcSp == null) {
@@ -5849,10 +5853,58 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * stale-binding bugs happen: a surviving id with no bytes claims an encoding the page no longer
    * holds, and a pooled frame's next occupant would trip the rebind guard on it.
    */
+  /**
+   * Refuse to expand a page whose global-dictionary tags nobody resolved, naming the SITE.
+   *
+   * <p>
+   * The pre-pass inside the injector already refuses such a page, so this adds no safety — it adds
+   * an answer to "which route reached expansion without a reader". Chunk expansion is reached from
+   * places with no reader on the stack at all: the writer's copy-on-write {@code deepCopy()} on the
+   * flush lane, the versioning combine, and the two commit-time FSST passes. A failure reported from
+   * inside the injector names a page and a tag; a failure reported here names the route that has to
+   * be fronted, which is the thing anyone reading the message needs.
+   * </p>
+   *
+   * <p>
+   * A throw and not an assert. Skipping the injection would leave the elided slots holding the
+   * placeholder zeros expansion starts from, and a record with an absent value is not a record with
+   * an empty value — the substitution this format is arranged to prevent.
+   * </p>
+   *
+   * @param site what is about to expand this page, for the message
+   */
+  public void refuseUnresolvedGlobalTags(final String site) {
+    if (needsGlobalStringResolution()) {
+      throw new IllegalStateException("record page " + recordPageKey + " (revision " + revision
+          + ") stores string values as global dictionary ids, but " + site + " reached it before any reader "
+          + "resolved them. That route holds no storage-engine reader, and expansion cannot walk a dictionary "
+          + "itself -- it runs under the page monitor. Resolve the page where a reader IS held, before it "
+          + "reaches this route.");
+    }
+  }
+
   private void clearFsstBinding() {
     fsstSymbolTable = null;
     fsstSymbolTableId = NO_FSST_SYMBOL_TABLE_ID;
     parsedFsstSymbols = null;
+  }
+
+  /**
+   * Drop the trie-lane binding as one unit, for the same reason {@link #clearFsstBinding()} exists.
+   *
+   * <p>
+   * All three fields describe the SAME string region, so a reused frame that kept any of them would
+   * describe its previous occupant. The resolved table is the dangerous one: its entries are indexed
+   * by the old page's tag positions, and a survivor would answer the new page's lookups with the old
+   * page's values — plausible bytes of the right shape, which is the failure this format is arranged
+   * to prevent. The resolver reference is dropped here too, so a page in a pool cannot hold a
+   * transaction's reader alive past that transaction.
+   * </p>
+   */
+  private void clearGlobalStringBinding() {
+    resolvedGlobalStrings = null;
+    hasGlobalStringTags = false;
+    globalStringDictionaries = null;
   }
 
   /**
@@ -5893,9 +5945,79 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     this.globalStringDictionaries = resolver;
   }
 
-  /** The resolver this page was given, or {@code null}; consulted by value re-injection. */
+  /** The resolver this page was given, or {@code null}; consulted by the string-region ENCODER. */
   public @Nullable GlobalStringDictionaries globalStringDictionaries() {
     return globalStringDictionaries;
+  }
+
+  /**
+   * Record that this page's string region carries at least one tag storing global dictionary ids.
+   *
+   * <p>
+   * Set by deserialization, which is the only place that can know it cheaply: the lazy path already
+   * parses the string-region header to build its injector, so the flag costs a loop over the tag
+   * metadata that was read anyway. Every other route to a page — a writer building one in memory, a
+   * combine assembling one from fragments — leaves it false, which is right: those pages hold real
+   * values in their heap and have nothing to resolve.
+   * </p>
+   *
+   * <p>
+   * It exists so that {@link #needsGlobalStringResolution()} is a field compare. That predicate runs
+   * on the return of every record-page lookup, which is a per-record hot path, and re-parsing a
+   * string-region header there to discover that the answer is almost always "no" would be a tax on
+   * every scan in the system for a lane almost no page uses.
+   * </p>
+   */
+  public void setHasGlobalStringTags(final boolean present) {
+    this.hasGlobalStringTags = present;
+  }
+
+  /** Whether this page's string region stores any tag as global dictionary ids. */
+  public boolean hasGlobalStringTags() {
+    return hasGlobalStringTags;
+  }
+
+  /**
+   * Whether a reader still owes this page a resolution pass before its chunks may expand.
+   *
+   * <p>
+   * Two field reads, in the order that makes the common answer cheapest: a page with no global tags
+   * — which is every page of every resource that does not use the trie lane — answers on the first.
+   * </p>
+   */
+  public boolean needsGlobalStringResolution() {
+    return hasGlobalStringTags && resolvedGlobalStrings == null;
+  }
+
+  /**
+   * Publish the bytes a reader resolved for this page's global tags.
+   *
+   * <p>
+   * BYTES, never the resolver that produced them — a resolver holds a transaction's reader and a
+   * page outlives transactions in the buffer cache. It is also why this is safe to publish once and
+   * share: resolution is page-determined (the page names its dictionary, and a rank-ordered
+   * dictionary only appends), so the first transaction to resolve a page fixes values that every
+   * later transaction would have computed identically.
+   * </p>
+   *
+   * <p>
+   * Idempotent by first-writer-wins rather than by rebinding. Two transactions can race to resolve
+   * the same page; both compute the same bytes, so keeping the first costs nothing and avoids
+   * publishing a second array to readers already walking the first.
+   * </p>
+   *
+   * @param resolved the table; {@link ResolvedGlobalStrings#NONE} when nothing needed resolving
+   */
+  public void setResolvedGlobalStrings(final ResolvedGlobalStrings resolved) {
+    Objects.requireNonNull(resolved, "resolved global strings must not be null");
+    if (this.resolvedGlobalStrings == null) {
+      this.resolvedGlobalStrings = resolved;
+    }
+  }
+
+  /** The resolved global-tag bytes, or {@code null} when no reader has resolved this page yet. */
+  public @Nullable ResolvedGlobalStrings resolvedGlobalStrings() {
+    return resolvedGlobalStrings;
   }
 
   public void setFsstSymbolTableId(final long id) {
@@ -6508,6 +6630,38 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * </p>
    */
   private volatile @Nullable GlobalStringDictionaries globalStringDictionaries;
+
+  /**
+   * True when this page's string region stores at least one tag as global dictionary ids.
+   *
+   * <p>
+   * Written once by deserialization, read on the return of every record-page lookup. Volatile
+   * because the writing thread (a cache loader) and the reading thread (whoever the cache hands the
+   * page to) are routinely different, and the loader's publication of the page does not by itself
+   * order this field for a reader that got the page from a later lookup.
+   * </p>
+   */
+  private volatile boolean hasGlobalStringTags;
+
+  /**
+   * This page's global-tag values, already resolved to bytes; {@code null} until a reader resolves.
+   *
+   * <p>
+   * This is the field {@link #globalStringDictionaries} deliberately is NOT. F1 of the cache review
+   * says a cache may hold what a resolver produced and never the resolver itself — a resolver holds
+   * a transaction's reader, and a page in the buffer manager outlives any transaction. Value
+   * re-injection reads THIS and nothing else, so nothing on the expansion path can reach a reader.
+   * </p>
+   *
+   * <p>
+   * The distinction between {@code null} and {@link ResolvedGlobalStrings#NONE} is load-bearing:
+   * {@code null} means "no reader has resolved this page", which for a page with global tags is a
+   * wiring failure and must throw, while {@code NONE} means "resolved, and there was nothing to
+   * resolve". Collapsing the two would turn a missing install into a page whose values are silently
+   * absent.
+   * </p>
+   */
+  private volatile @Nullable ResolvedGlobalStrings resolvedGlobalStrings;
 
   /**
    * Drop the cached string-region parsed header and payload so the next reader rebuilds. Called from
@@ -7609,6 +7763,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     cachedStringHeader = null;
 
     clearFsstBinding();
+    clearGlobalStringBinding();
 
     // A reused frame must not retain native payload or metadata from its previous logical page.
     clearSideSlots();
@@ -7853,6 +8008,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage != null) {
       // Every populated slot is inspected, so hoist the expansion out of the walk rather than
       // gating a thousand times.
+      refuseUnresolvedGlobalTags("the commit-time FSST sampling pass");
       ensureAllChunks();
       final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
@@ -7955,6 +8111,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage != null) {
       // Rewrites records in place across the whole page; nothing here is selective enough for the
       // per-slot gate to buy anything.
+      refuseUnresolvedGlobalTags("the commit-time FSST compression pass");
       ensureAllChunks();
       final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {

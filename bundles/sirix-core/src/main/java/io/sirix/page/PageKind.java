@@ -65,6 +65,7 @@ import io.sirix.page.pax.RecordOrdinalRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.GlobalStringDictionaries;
+import io.sirix.page.pax.ResolvedGlobalStrings;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -1442,6 +1443,10 @@ public enum PageKind {
           // page half-injected before failing, so the region is checked before a single slot is
           // touched and the message names the page rather than a slot.
           refuseGlobalTagsOnEagerPath(regionTable, recordPageKey);
+          // null, not NONE, and deliberately: the line above has already proved this region carries
+          // no global tag, so nothing here can ask for a resolved value. Handing it an empty table
+          // would make a later regression -- a global tag reaching this path -- fail at a slot with
+          // a lookup miss instead of at the page with the refusal that names the real cause.
           injectValueElidedRecords(slottedPage, valueElidedCount, valueElidedSlots, valueElidedTypes, valueElidedWidths,
               valueElidedAbsIdx, regionTable, 0, PageLayout.SLOT_COUNT - 1, null);
         }
@@ -1513,6 +1518,17 @@ public enum PageKind {
           page.setRegionTable(regionTable);
           regionTableTransferred = true;
         }
+
+        // Read the trie-lane flag ONCE, here, and remember it on the page. The reader tests it on
+        // the return of every record-page lookup to decide whether the page still owes a resolution
+        // pass, and that is a per-record path -- re-parsing a string-region header there to learn
+        // that the answer is "no" would tax every scan in the system for a lane almost no page uses.
+        //
+        // ORDER: before attachLazyChunks, which is where the page becomes expandable. A page that
+        // could expand while still claiming to have no global tags would sail past the pre-pass that
+        // must refuse it, and the values it produced would be the placeholder zeros rather than an
+        // error. Both facts the flag needs are in scope here and nowhere later.
+        page.setHasGlobalStringTags(valueElisionActive && stringRegionHasGlobalTags(regionTable));
 
         if (lazyChunks) {
           // Last, because the state it hands the page has to be able to reach the regions: an
@@ -1661,18 +1677,26 @@ public enum PageKind {
             if (regions == null) {
               return;
             }
+            // PRE-PASS, before the first heap write of this chunk. A page whose global tags nobody
+            // resolved is refused whole and left exactly as it was; a mid-loop throw would leave the
+            // heap half-injected, with the un-reached slots still holding the placeholder zeros
+            // expansion starts from and nothing on the page recording where the loop stopped. Gated
+            // on a field the deserializer set, so a page without the lane pays one boolean read.
+            if (page.hasGlobalStringTags()) {
+              refuseUnresolvedGlobalTags(regions, page.getPageKey(), page.resolvedGlobalStrings());
+            }
             if (nameKeyElisionActive) {
               injectNameKeyElidedRecords(seg, populatedCount, nkOffs, nkWidths, regions, fromEntry, toEntry);
             }
             if (valueElisionActive) {
-              // The resolver is READ HERE, inside the lambda, and must stay here. This lambda is
-              // built during deserialization, when the page has none -- the reader installs it
+              // The resolved table is READ HERE, inside the lambda, and must stay here. This lambda
+              // is built during deserialization, when the page has none -- the reader resolves
               // afterwards, exactly as it does the FSST symbol table. Hoisting this call to the
               // construction site would capture null on every page, and on a pooled or reused page
               // it would capture a stale one: the same reused-state hazard that once put a guard in
-              // the wrong encoder.
+              // the wrong encoder. What it reads is BYTES; nothing transaction-scoped is captured.
               injectValueElidedRecords(seg, valueElidedCount, elidedSlots, elidedTypes, elidedWidths, elidedAbsIdx,
-                  regions, fromSlot, toSlot, page.globalStringDictionaries());
+                  regions, fromSlot, toSlot, page.resolvedGlobalStrings());
             }
           };
         } else {
@@ -4257,7 +4281,7 @@ public enum PageKind {
               if (stringEncName == null) {
                 stringEncName = STRING_REGION_ENCODER.get();
                 stringEncName.reset();
-                stringEncPath = resetStringRegionPathCandidate(withPathSummary);
+                stringEncPath = resetStringRegionPathCandidate(withPathSummary, page.globalStringDictionaries());
               }
               // The name-key dictionary owns the sole store range. The bridge gives the
               // alternative path-key dictionary that exact private range without exposing it or
@@ -4292,7 +4316,7 @@ public enum PageKind {
                 if (stringEncName == null) {
                   stringEncName = STRING_REGION_ENCODER.get();
                   stringEncName.reset();
-                  stringEncPath = resetStringRegionPathCandidate(withPathSummary);
+                  stringEncPath = resetStringRegionPathCandidate(withPathSummary, page.globalStringDictionaries());
                 }
                 stringEncName.suppressTag(fusedNameKey);
                 if (stringEncPath != null && stringAllPathNodeKeysValid) {
@@ -4520,7 +4544,7 @@ public enum PageKind {
           if (stringEncName == null) {
             stringEncName = STRING_REGION_ENCODER.get();
             stringEncName.reset();
-            stringEncPath = resetStringRegionPathCandidate(withPathSummary);
+            stringEncPath = resetStringRegionPathCandidate(withPathSummary, page.globalStringDictionaries());
           }
           for (int e = 0; e < elemCount; e++) {
             // The orphan tag is deliberately negative and is NOT an unresolved path: treating it as
@@ -4780,10 +4804,10 @@ public enum PageKind {
      * the user. It is not complete — a same-length wrong value passes — but it costs nothing.
      * </p>
      */
-    private static void injectGlobalString(final MemorySegment slottedPage, final MemorySegment stringPayload,
+    private static void injectGlobalString(final MemorySegment slottedPage,
         final StringRegion.Header stringHeader, final int tagId, final int dictId, final int slot,
         final long valueAbsOff, final int valueWidth, final byte storedFlag,
-        final @Nullable GlobalStringDictionaries dictionaries) {
+        final @Nullable ResolvedGlobalStrings resolved) {
       if (storedFlag != 0) {
         // The encoder refuses to convert a tag with any FSST-encoded entry, because a stored form
         // is not a value and cannot be looked up. A global tag carrying the compressed flag is
@@ -4791,34 +4815,28 @@ public enum PageKind {
         throw new SirixIOException("value-elision: global STRING slot " + slot + " carries compressed flag "
             + storedFlag + ", which the encoder never produces");
       }
-      if (dictionaries == null) {
-        // Two ways to get here, and they want different fixes. EAGER expansion runs inside
-        // deserializePage, where the KeyValueLeafPage does not exist yet and no resolver can be
-        // reached -- which is the same reason the page layer cannot resolve at decode time at all.
-        // So the trie lane REQUIRES lazy chunks, and a global tag meeting the eager path is a
-        // configuration error rather than corruption. The other way is a lazy page nobody installed
-        // a resolver on, which is a wiring bug in the reader.
-        throw new SirixIOException("value-elision: slot " + slot + " holds a global-dictionary tag but no resolver "
-            + "is available. Either this page was expanded EAGERLY (the trie lane needs lazy chunks: the page "
-            + "object does not exist during deserialization, so nothing can hold a dictionary), or the reader "
-            + "did not install one before expanding it.");
+      if (resolved == null) {
+        // Belt to the pre-pass's braces. refuseUnresolvedGlobalTags has already run over the whole
+        // region by the time any slot is touched, so reaching this means a NEW expansion route
+        // skipped it -- exactly the class of change that a per-slot check catches and a pre-pass
+        // alone would not.
+        throw new SirixIOException("value-elision: slot " + slot + " holds a global-dictionary tag but this page "
+            + "carries no resolved value table, and the pre-pass that must refuse such a page did not run on this "
+            + "expansion route");
       }
-      final int globalId = StringRegion.globalIdAt(stringPayload, stringHeader, tagId, dictId);
-      final byte[] value = dictionaries.valueOf(stringHeader.parentDict[tagId], stringHeader.tagDictionaryKey[tagId],
-          stringHeader.tagDictionaryEntryCount[tagId], globalId);
-      if (value == null) {
-        throw new SirixIOException("value-elision: slot " + slot + " holds global id " + globalId + " under tag "
-            + stringHeader.parentDict[tagId] + ", which dictionary " + stringHeader.tagDictionaryKey[tagId]
-            + " (recorded at " + stringHeader.tagDictionaryEntryCount[tagId] + " entries) refused to resolve");
-      }
+      // A plain array index. The resolution walked the dictionary once, for the whole page, at a
+      // site that holds a reader; expansion runs under synchronized(page) and must not descend a
+      // trie from there. See ResolvedGlobalStrings for why the page holds bytes and not a resolver.
+      final byte[] value = resolved.value(tagId, stringHeader.parentDict[tagId], dictId);
       slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, (byte) 0);
       final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage, valueAbsOff + 1, value.length);
       MemorySegment.copy(value, 0, slottedPage, ValueLayout.JAVA_BYTE, valueAbsOff + 1 + lenWidth, value.length);
       final int actualWidth = 1 + lenWidth + value.length;
       if (actualWidth != valueWidth) {
         throw new SirixIOException("value-elision: global STRING width mismatch at slot " + slot + ": expected="
-            + valueWidth + " actual=" + actualWidth + " -- the dictionary returned a different value than the "
-            + "one this page elided");
+            + valueWidth + " actual=" + actualWidth + " for tag " + stringHeader.parentDict[tagId] + " global id "
+            + resolved.globalIdAt(tagId, dictId) + " against dictionary " + stringHeader.tagDictionaryKey[tagId]
+            + " -- the dictionary returned a different value than the one this page elided");
       }
     }
 
@@ -4854,10 +4872,91 @@ public enum PageKind {
       }
     }
 
+    /**
+     * Whether a string region marks any tag as storing global dictionary ids.
+     *
+     * <p>
+     * Read once at deserialization and remembered on the page, so the reader's "does this page owe a
+     * resolution" test is a field compare rather than a header parse on a per-record path.
+     * </p>
+     */
+    static boolean stringRegionHasGlobalTags(final @Nullable RegionTable regionTable) {
+      if (regionTable == null) {
+        return false;
+      }
+      final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
+      if (stringPayload == null || stringPayload.byteSize() == 0) {
+        return false;
+      }
+      final StringRegion.Header header = STRING_HEADER_SCRATCH.get();
+      header.parseInto(stringPayload);
+      for (int t = 0; t < header.parentDictSize; t++) {
+        if (header.tagGlobal[t]) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /**
+     * Refuse a page whose global tags were never resolved -- BEFORE any slot is touched.
+     *
+     * <p>
+     * A pre-pass rather than a check at the slot that meets the problem, and the difference is not
+     * tidiness. Expansion writes values into the heap as it goes, so a throw partway through leaves
+     * the page half-injected: some slots hold their values, the rest hold the placeholder zeros the
+     * expansion started from, and nothing on the page says which is which. A caller that catches the
+     * exception and retries -- or one that reads a slot the loop had already passed -- then reads a
+     * page that looks whole and is not. Refusing before the first write means the page is exactly as
+     * it was.
+     * </p>
+     *
+     * <p>
+     * It also names the PAGE. A slot number identifies nothing a reader can act on; the page key and
+     * the tag are what say which column and which install went missing.
+     * </p>
+     */
+    static void refuseUnresolvedGlobalTags(final @Nullable RegionTable regionTable, final long recordPageKey,
+        final @Nullable ResolvedGlobalStrings resolved) {
+      if (regionTable == null) {
+        return;
+      }
+      final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
+      if (stringPayload == null || stringPayload.byteSize() == 0) {
+        return;
+      }
+      final StringRegion.Header stringHeader = STRING_HEADER_SCRATCH.get();
+      stringHeader.parseInto(stringPayload);
+      for (int t = 0; t < stringHeader.parentDictSize; t++) {
+        if (!stringHeader.tagGlobal[t]) {
+          continue;
+        }
+        if (resolved == null) {
+          throw new SirixIOException("record page " + recordPageKey + " carries a global-dictionary tag ("
+              + stringHeader.parentDict[t] + ", dictionary " + stringHeader.tagDictionaryKey[t] + " at "
+              + stringHeader.tagDictionaryEntryCount[t] + " entries) but no reader resolved its values before "
+              + "expansion. The trie lane requires a reader-held resolution pass; expansion itself cannot walk the "
+              + "dictionary, because it runs under the page monitor with no reader on the stack.");
+        }
+        // Probe entry 0 of every global tag. It proves the tag is IN the table under the value the
+        // header carries -- which is what a wrong index or a re-encoded region would break -- and it
+        // costs one lookup per tag rather than one per value. A tag is resolved whole or not at all
+        // (ResolvedGlobalStrings.Builder refuses a hole), so entry 0 standing means the rest do.
+        if (stringHeader.tagStringDictSize[t] > 0) {
+          try {
+            resolved.value(t, stringHeader.parentDict[t], 0);
+          } catch (final RuntimeException mismatch) {
+            throw new SirixIOException("record page " + recordPageKey + " carries global-dictionary tag "
+                + stringHeader.parentDict[t] + ", which its resolved value table does not cover", mismatch);
+          }
+        }
+      }
+    }
+
     private static void injectValueElidedRecords(final MemorySegment slottedPage, final int valueElidedCount,
         final short[] valueElidedSlots, final byte[] valueElidedTypes, final int[] valueElidedWidths,
         final int[] valueElidedAbsIdx, final RegionTable regionTable, final int fromSlot, final int toSlot,
-        final @Nullable GlobalStringDictionaries dictionaries) {
+        final @Nullable ResolvedGlobalStrings resolved) {
       final MemorySegment numberPayload = regionTable.payload(RegionTable.KIND_NUMBER);
       final MemorySegment stringPayload = regionTable.payload(RegionTable.KIND_STRING);
       final MemorySegment booleanPayload = regionTable.payload(RegionTable.KIND_BOOLEAN);
@@ -4944,8 +5043,8 @@ public enum PageKind {
           }
           final int dictId = StringRegion.decodeDictIdAt(stringPayload, stringHeader, absIdx);
           if (stringHeader.tagGlobal[tagId]) {
-            injectGlobalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
-                valueWidth, valueElidedTypes[e], dictionaries);
+            injectGlobalString(slottedPage, stringHeader, tagId, dictId, slot, valueAbsOff, valueWidth,
+                valueElidedTypes[e], resolved);
             continue;
           }
           final int strOff = StringRegion.decodeStringOffset(stringPayload, stringHeader, tagId, dictId);
@@ -6786,9 +6885,21 @@ public enum PageKind {
    *
    * @return the reset candidate when path tagging is enabled for this page, otherwise {@code null}
    */
-  static StringRegion.@Nullable Encoder resetStringRegionPathCandidate(final boolean enabled) {
+  static StringRegion.@Nullable Encoder resetStringRegionPathCandidate(final boolean enabled,
+      final @Nullable GlobalStringDictionaries dictionaries) {
     final StringRegion.Encoder pathCandidate = STRING_REGION_ENCODER_PATH.get();
     pathCandidate.reset();
+    // THE encoder that writes bytes to disk, and therefore the one the trie lane has to ride. The
+    // page also builds a string region on the DERIVE path
+    // (KeyValueLeafPage#collectAndEncodeStringRegion, for region-only reads), which has its own
+    // freshly constructed encoders; wiring only that one converted nothing on any page that was
+    // actually serialized.
+    //
+    // Set unconditionally, including to null, and AFTER reset(): this encoder is a THREAD-LOCAL
+    // reused across pages, and reset() does not clear the resolver. A page with no dictionaries
+    // following one that had them would otherwise inherit the previous page's — the same reused-state
+    // hazard that once put a guard in the wrong encoder.
+    pathCandidate.setDictionaries(dictionaries);
     return enabled
         ? pathCandidate
         : null;

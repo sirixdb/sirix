@@ -3380,6 +3380,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           // can be skipped for it. Every other page may gain carriers WHILE serializing.
           final boolean carriersKnownResolved =
               inPlace && carriers == KeyValueLeafPage.OverflowReferenceState.RESOLVED;
+          // §5: front the trie-lane resolution BEFORE the page reaches the flush lane. deepCopy()
+          // expands its source, and the flush lane holds no reader — so the bytes have to be on the
+          // page already. This is the one place on this path that still has one.
+          storageEngineReader.resolveGlobalStringsBeforeFlush(kvl);
           final KeyValueLeafPage serializationCopy = inPlace
               ? kvl
               : kvl.deepCopy();
@@ -3561,6 +3565,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final var frozenModified = (KeyValueLeafPage) container.getModified();
     refuseAdoptedImmutablePage(frozenModified, "copy-on-write");
     final var frozenComplete = (KeyValueLeafPage) container.getComplete();
+    // §5, the other deepCopy. Both pages are fronted, and BOTH are needed: the two are the same
+    // instance often enough that copying only the modified one would look like it worked.
+    storageEngineReader.resolveGlobalStringsBeforeFlush(frozenModified);
+    storageEngineReader.resolveGlobalStringsBeforeFlush(frozenComplete);
     final var cowModified = frozenModified.deepCopy();
     final var cowComplete = (frozenComplete == frozenModified)
         ? cowModified

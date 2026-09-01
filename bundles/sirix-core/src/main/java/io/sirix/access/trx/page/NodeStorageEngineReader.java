@@ -31,6 +31,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.node.CommitCredentials;
+import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -46,7 +47,19 @@ import io.sirix.cache.PageGuard;
 import io.sirix.cache.RevisionRootPageCacheKey;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
+import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.index.projection.TrieLaneDictionaries;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.PathException;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import io.sirix.io.Reader;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.DeletedNode;
@@ -76,7 +89,10 @@ import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.ResolvedGlobalStrings;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.page.UberPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.ValidTimeIndexPage;
@@ -907,6 +923,273 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return table;
   }
 
+
+  // ==================== TRIE LANE (GLOBAL STRING DICTIONARIES) ====================
+
+  /**
+   * Guards against a resolution walking into another resolution.
+   *
+   * <p>
+   * The dictionary walk re-enters {@link #getRecordPage(IndexLogKey, boolean)} for the NAME,
+   * PROJECTION and PATH_SUMMARY pages it needs, and every one of those returns through the funnel
+   * that starts a resolution. None of those page kinds carries a global tag today, so the recursion
+   * would terminate on content — which is exactly the kind of termination argument that stops
+   * holding when someone converts a new column. This makes it structural instead: a resolution in
+   * progress refuses to start another, full stop.
+   * </p>
+   *
+   * <p>
+   * Plain {@code boolean} rather than a thread-local or an atomic: a {@code NodeStorageEngineReader}
+   * belongs to one transaction on one thread, which is the same assumption
+   * {@code reusableIndexLogKey} and {@code currentPageGuard} already make.
+   * </p>
+   */
+  private boolean resolvingGlobalStrings;
+
+  /**
+   * This transaction's dictionary resolver, or {@link TrieLaneDictionaries#NONE}; built on demand.
+   *
+   * <p>
+   * Transaction-scoped and it stays that way. It holds this reader, so nothing that outlives the
+   * transaction may reference it — which is why a page is handed the BYTES it produces
+   * ({@link ResolvedGlobalStrings}) and never this object.
+   * </p>
+   */
+  private @Nullable GlobalStringDictionaries trieLaneDictionaries;
+
+  /** Reused header parse for the resolution pass; one per reader, never handed out. */
+  private StringRegion.@Nullable Header trieLaneHeaderScratch;
+
+  /**
+   * Turn a page's global-tag ids into bytes and leave them on the page.
+   *
+   * <p>
+   * <b>The guard transfer is the load-bearing part.</b> The dictionary walk below re-enters
+   * {@code getRecordPage} for NAME/PROJECTION pages, and every entry calls
+   * {@link #closeCurrentPageGuard()} and repoints {@link #currentPageGuard} at the page it fetched.
+   * The caller of the outer lookup is about to read THIS page's {@code MemorySegment} believing it
+   * is guarded, so an unprotected walk would let the sweeper free the frame under a live read — a
+   * use-after-free, not a wrong value, and therefore invisible to every correctness witness. So a
+   * guard is taken before the walk and handed to {@code currentPageGuard} afterwards: the count
+   * never dips, and the field ends up where the caller needs it.
+   * </p>
+   *
+   * <p>
+   * {@code setMostRecentPage} needs no such care — it stores per-{@link IndexType} fields, so a
+   * NAME or PROJECTION fetch cannot displace the DOCUMENT entry. Nor does
+   * {@code reusableIndexLogKey}: all three callers ({@code getRecord}, {@code lookupSlotOrCached},
+   * {@code lookupSlot}) stop reading it the moment {@code getRecordPage} returns.
+   * </p>
+   */
+  private void resolveGlobalStrings(final KeyValueLeafPage page) {
+    if (!page.tryAcquireGuard()) {
+      // CLOSED or ORPHANED, so there is no page to resolve against and no frame to protect. Every
+      // caller of getRecordPage re-checks the page it got (tryAcquireGuard, or getSlottedPage() !=
+      // null) and gives up on exactly this condition, so returning here hands the caller a page it
+      // was going to reject anyway rather than inventing a failure of our own.
+      return;
+    }
+    try {
+      resolveGlobalStringsUnguarded(page);
+    } finally {
+      closeCurrentPageGuard();
+      // Adopts the guard taken above rather than acquiring a fresh one, so there is no instant in
+      // which this page is held by nobody.
+      currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
+    }
+  }
+
+  /**
+   * Resolve a page the FLUSH LANE is about to expand, leaving no guard behind.
+   *
+   * <p>
+   * §5 of the seam design. {@code deepCopy()} expands its SOURCE before copying the segment, and it
+   * runs with no reader on the stack — so a global-tagged page must already carry its bytes by the
+   * time it gets there. The writer holds this reader, so the front is possible; it just has to
+   * happen before the page reaches the lane.
+   * </p>
+   *
+   * <p>
+   * The difference from the lookup path is the guard, and it is not cosmetic. The lookup transfers
+   * one onto {@link #currentPageGuard} because a caller is about to read the page. Here nobody is
+   * reading it — it is about to be copied and serialized — and {@code reset()} throws outright on a
+   * page whose guard count is not zero, so a guard left behind would turn a flush into a crash on
+   * the frame's next occupant. The cursor is cleared on the way in and out instead, which is the
+   * state the writer already establishes for itself before every intent-log operation.
+   * </p>
+   */
+  void resolveGlobalStringsBeforeFlush(final @Nullable KeyValueLeafPage page) {
+    if (page == null || !page.needsGlobalStringResolution()) {
+      return;
+    }
+    closeCurrentPageGuard();
+    try {
+      resolveGlobalStringsUnguarded(page);
+    } finally {
+      closeCurrentPageGuard();
+    }
+  }
+
+  private void resolveGlobalStringsUnguarded(final KeyValueLeafPage page) {
+    if (resolvingGlobalStrings) {
+      return;
+    }
+    resolvingGlobalStrings = true;
+    try {
+      page.setResolvedGlobalStrings(buildGlobalStringTable(page));
+    } finally {
+      resolvingGlobalStrings = false;
+    }
+  }
+
+  /**
+   * Parse the page's string-region header and hand the whole thing to
+   * {@link ResolvedGlobalStrings#resolve}.
+   *
+   * <p>
+   * The split is deliberate: this owns the SITE (a header scratch belonging to one reader, and the
+   * caller's guard discipline), while what a resolution IS lives beside the table it produces —
+   * where a test can drive the real walk against a stub dictionary rather than restate it.
+   * </p>
+   */
+  private ResolvedGlobalStrings buildGlobalStringTable(final KeyValueLeafPage page) {
+    final RegionTable regions = page.getRegionTable();
+    final MemorySegment stringPayload = regions == null
+        ? null
+        : regions.payload(RegionTable.KIND_STRING);
+    if (stringPayload == null || stringPayload.byteSize() == 0) {
+      return ResolvedGlobalStrings.NONE;
+    }
+    StringRegion.Header header = trieLaneHeaderScratch;
+    if (header == null) {
+      header = new StringRegion.Header();
+      trieLaneHeaderScratch = header;
+    }
+    header.parseInto(stringPayload);
+    // The resolver is built only once we are here, which is only reached for a page that already
+    // said it carries a global tag: a resource with no rank-ordered dictionary never enumerates its
+    // index definitions.
+    return ResolvedGlobalStrings.resolve(header, stringPayload, trieLaneDictionaries(), page.getPageKey());
+  }
+
+  /**
+   * This transaction's resolver, built on first use from the resource's projection definitions.
+   *
+   * <p>
+   * Two things have to be joined to answer "which dictionary does this tag resolve against". The
+   * projection's metadata blob holds the dictionary anchor per COLUMN; the path summary turns a
+   * column's declared path into the path node keys a string region tags with. Neither alone is the
+   * map, and the {@code Handle} the query side uses carries only relative path STRINGS, so the
+   * definitions are read here — the same source {@code ProjectionIndexRowExtractor} resolves against
+   * when it builds rows.
+   * </p>
+   *
+   * <p>
+   * A field path may resolve to SEVERAL path node keys (the same shape under different roots), so
+   * the map is many-to-one and every one of those keys gets the column's anchor. The reverse — one
+   * key claimed by two columns with different dictionaries — is ambiguous, and such a key is
+   * dropped rather than guessed at: a page naming a dictionary the map does not agree with is
+   * refused loudly by {@link #buildGlobalStringTable}, which is the correct outcome for a question
+   * with two answers.
+   * </p>
+   */
+  private GlobalStringDictionaries trieLaneDictionaries() {
+    final GlobalStringDictionaries cached = trieLaneDictionaries;
+    if (cached != null) {
+      return cached;
+    }
+    final Int2LongMap anchors = collectTrieLaneAnchors();
+    final GlobalStringDictionaries resolver = anchors.isEmpty()
+        ? TrieLaneDictionaries.NONE
+        : new TrieLaneDictionaries(this, anchors);
+    trieLaneDictionaries = resolver;
+    return resolver;
+  }
+
+  private Int2LongMap collectTrieLaneAnchors() {
+    final Int2LongMap anchors = new Int2LongOpenHashMap();
+    final IndexController<?, ?> indexController = resourceSession.getRtxIndexController(revisionNumber);
+    if (indexController == null) {
+      return anchors;
+    }
+    PathSummaryReader pathSummary = null;
+    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
+      if (!indexDef.isProjectionIndex()) {
+        continue;
+      }
+      final byte[] blob = ProjectionIndexHOTStorage.readBlob(this, indexDef.getID(), 0L);
+      if (blob == null) {
+        continue;
+      }
+      final long[] columnAnchors = ProjectionIndexMetadata.parse(blob).valueDictionaryHeaderKeys();
+      if (columnAnchors == null || !anyPositive(columnAnchors)) {
+        continue;
+      }
+      if (pathSummary == null) {
+        // Reuses THIS reader rather than opening one: openPathSummary synchronizes on the session
+        // and creates a second NodeStorageEngineReader, and we are inside a page lookup. It is
+        // deliberately not closed -- PathSummaryReader.close() closes the reader it was given, which
+        // here is this transaction's own. The instance itself is cheap and cached by the buffer
+        // manager per (database, resource, revision); this is the same arrangement PathSummaryWriter
+        // uses with the writer.
+        pathSummary = PathSummaryReader.getInstance(this, resourceSession);
+      }
+      final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+      final int columns = Math.min(columnAnchors.length, fieldPaths.size());
+      for (int column = 0; column < columns; column++) {
+        if (columnAnchors[column] <= 0L) {
+          continue;
+        }
+        addAnchorsForColumn(anchors, pathSummary, fieldPaths.get(column), columnAnchors[column]);
+      }
+    }
+    return anchors;
+  }
+
+  private static boolean anyPositive(final long[] values) {
+    for (final long value : values) {
+      if (value > 0L) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private void addAnchorsForColumn(final Int2LongMap anchors, final PathSummaryReader pathSummary,
+      final Path<QNm> fieldPath, final long dictionaryKey) {
+    final LongSet pathClasses;
+    try {
+      pathClasses = pathSummary.getPCRsForPath(fieldPath);
+    } catch (final PathException unresolvable) {
+      // A declared path this revision's summary cannot parse contributes no anchor. Every page that
+      // tags with one of its keys is then refused at resolution, which is the conservative answer:
+      // the alternative is to resolve against a dictionary we could not confirm belongs to the tag.
+      LOGGER.debug("trie lane: field path {} does not resolve at revision {}", fieldPath, revisionNumber,
+          unresolvable);
+      return;
+    }
+    for (final LongIterator keys = pathClasses.iterator(); keys.hasNext();) {
+      final long pathNodeKey = keys.nextLong();
+      if (pathNodeKey <= 0L || pathNodeKey > Integer.MAX_VALUE) {
+        // String-region tags are ints. A path node key outside that range cannot be a tag, so it
+        // cannot name a page this map has to answer for.
+        continue;
+      }
+      final int tag = (int) pathNodeKey;
+      final long previous = anchors.getOrDefault(tag, 0L);
+      if (previous == 0L) {
+        anchors.put(tag, dictionaryKey);
+      } else if (previous != dictionaryKey) {
+        // Two columns claim the same path class with different dictionaries. There is no right
+        // answer, so there is no answer: drop the tag and let resolution refuse any page that uses
+        // it, rather than pick one and return values that are plausible for the wrong column.
+        anchors.remove(tag);
+        LOGGER.warn("trie lane: path class {} is claimed by two dictionaries ({} and {}); tag disabled", tag,
+            previous, dictionaryKey);
+      }
+    }
+  }
+
   // ==================== FLYWEIGHT CURSOR SUPPORT ====================
 
   /**
@@ -1399,6 +1682,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param pointLookup whether this load is resolving one record key rather than feeding a scan
    */
   PageReferenceToPage getRecordPage(final IndexLogKey indexLogKey, final boolean pointLookup) {
+    final PageReferenceToPage referenceToPage = loadRecordPage(indexLogKey, pointLookup);
+    // THE trie-lane resolution site, and the only one. Three properties put it here and nowhere
+    // else:
+    //
+    //   * It is BEFORE the first chunk attaches. getRecordPage hands back a page; expansion happens
+    //     later, in ensureChunkFor/getSlot. Nothing between the two can expand.
+    //   * It is OUTSIDE every cache compute. The FSST precedent cannot host this work for exactly
+    //     that reason -- resolveFsstSymbolTables runs INSIDE getOrLoadAndGuard's loader, where
+    //     walking a trie would be a compute inside a compute, which the underlying map forbids.
+    //     FSST escapes by pre-loading every table; an 18M-entry dictionary cannot be pre-loaded.
+    //   * It is a single funnel. Every route that surfaces a record page to a reader returns
+    //     through here, so no new caller can acquire a page without passing the resolution.
+    //
+    // The predicate is two field reads on a page that does not use the lane, which is every page of
+    // every resource that has no rank-ordered dictionary.
+    if (referenceToPage != null && referenceToPage.page instanceof KeyValueLeafPage leaf
+        && leaf.needsGlobalStringResolution()) {
+      resolveGlobalStrings(leaf);
+    }
+    return referenceToPage;
+  }
+
+  private PageReferenceToPage loadRecordPage(final IndexLogKey indexLogKey, final boolean pointLookup) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
     validateKeyedTrieRoute(this, indexLogKey.getIndexType(), indexLogKey.getIndexNumber());
@@ -2485,6 +2791,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                                                        key -> (KeyValueLeafPage) pageReader.read(key, config));
 
       if (page != null && !page.isClosed()) {
+        page.refuseUnresolvedGlobalTags("the FULL-versioning fragment load, inside the record-page cache's compute");
         page.ensureAllChunks();
         return new PageFragmentsResult(Collections.singletonList(page), Collections.emptyList(),
             pageReference.getKey());
@@ -2515,6 +2822,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     pages.add(page);
 
     if (originalPageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
+      page.refuseUnresolvedGlobalTags("the single-fragment load, inside the record-page cache's compute");
       page.ensureAllChunks();
       return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
     }
@@ -2548,6 +2856,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private static void materializeFragments(final List<KeyValuePage<DataRecord>> pages) {
     for (int i = 0, size = pages.size(); i < size; i++) {
       if (pages.get(i) instanceof KeyValueLeafPage kvlPage) {
+        // KNOWN CONSTRAINT, refused loudly rather than discovered as garbage. This runs inside the
+        // record-page cache's compute, and resolving a trie-lane tag means walking the dictionary
+        // through that same cache -- a compute inside a compute, which the map forbids outright. So
+        // a fragment carrying global tags cannot be resolved here by any means, and the honest
+        // answer is to say so. In practice a page only reaches this path once it HAS fragment
+        // history, which a freshly built resource has for no page at all; the write side is where
+        // that has to be decided, not here.
+        kvlPage.refuseUnresolvedGlobalTags(
+            "the versioning combine, inside the record-page cache's compute (a dictionary walk from there would "
+                + "re-enter the same cache)");
         kvlPage.ensureAllChunks();
       }
     }

@@ -234,9 +234,9 @@ final class StringRegionIntegrationTest {
   @DisplayName("PageKind releases path candidates across true/false/false/true resource switches")
   void pathCandidateLifecycleAcrossResourceModes() {
     // Start from a known state even when another test ran on this worker thread first.
-    assertNull(PageKind.resetStringRegionPathCandidate(false));
+    assertNull(PageKind.resetStringRegionPathCandidate(false, null));
     final StringRegion.Encoder name = new StringRegion.Encoder();
-    final StringRegion.Encoder path = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true));
+    final StringRegion.Encoder path = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true, null));
     final byte[] scratch = new byte[192];
 
     try {
@@ -251,7 +251,7 @@ final class StringRegionIntegrationTest {
       // even though it returns null for a no-path resource.
       name.reset();
       assertTrue(StringRegionEncoderTestAccess.valueStoreLength(name) > 0);
-      assertNull(PageKind.resetStringRegionPathCandidate(false));
+      assertNull(PageKind.resetStringRegionPathCandidate(false, null));
       assertEquals(0, StringRegionEncoderTestAccess.valueStoreLength(name));
 
       int bLogicalLength = 0;
@@ -267,7 +267,7 @@ final class StringRegionIntegrationTest {
 
       // false -> false: the next name-only page must start at offset zero, not append after B.
       name.reset();
-      assertNull(PageKind.resetStringRegionPathCandidate(false));
+      assertNull(PageKind.resetStringRegionPathCandidate(false, null));
       assertEquals(0, StringRegionEncoderTestAccess.valueStoreLength(name));
       for (int i = 0; i < 48; i++) {
         final String value = "large-page-value-" + i + "-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -279,7 +279,7 @@ final class StringRegionIntegrationTest {
 
       // false -> true: PageKind reuses the same per-thread path encoder and both wires reproduce A.
       name.reset();
-      final StringRegion.Encoder enabledAgain = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true));
+      final StringRegion.Encoder enabledAgain = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true, null));
       assertSame(path, enabledAgain);
       addSharedCandidateValue(name, enabledAgain, scratch, "same-value", false);
       addSharedCandidateValue(name, enabledAgain, scratch, "same-value", true);
@@ -289,7 +289,7 @@ final class StringRegionIntegrationTest {
       assertEquals(highWaterCapacity, StringRegionEncoderTestAccess.valueStoreCapacity(name));
     } finally {
       name.reset();
-      PageKind.resetStringRegionPathCandidate(false);
+      PageKind.resetStringRegionPathCandidate(false, null);
     }
   }
 
