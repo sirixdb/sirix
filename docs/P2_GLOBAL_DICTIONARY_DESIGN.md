@@ -1875,9 +1875,33 @@ garbage rather than refusing.
 
 **Consequence: the lane is not one bug away from working.** It needs every read path that can touch a
 converted page to be lazy, scans included — a change to how record pages are LOADED, not to the lane.
-Set against §1's six-byte result, the recommendation is to **park it correct-and-inert rather than
-repair it**: default off, refusal loud, so a converted page can never silently misread; what it cannot
-do is be read by a scan.
+
+### RULING: the lane is PARKED correct-and-inert
+
+Default off (`-Dsirix.projection.trieLane=false`), refusal loud. Parking is safe precisely because of
+`PageKind.refuseGlobalTagsOnEagerPath`: **a converted page can only fail loudly, never misread.** That
+refusal is the contract to keep — it is what makes an unshippable lever a parked one rather than a
+liability.
+
+**Revival requires BOTH of the following. Either one alone leaves it not worth shipping.**
+
+1. **Every read path that can touch a converted page must be lazy.** Today `lazyEligible = pointLookup
+   && trxIntentLog == null` (`NodeStorageEngineReader:1738`) and the cache loader at `:2465-2467`
+   chooses `readRecordPageLazily` only for point lookups, so scans, serializer walks and column fills
+   are all eager. The lane is currently unreadable by anything but a point lookup.
+2. **The framing decomposition must come back favourable** — the +16.6 % chunked-body overhead on
+   record pages, broken down (chunk directory / per-chunk headers / alignment padding / duplicated
+   lengths) with one chunked page dumped beside its unchunked twin. Reducible to low single digits →
+   the lane revives to a real win at 100M; structural → it waits for the fewer-records-per-row era.
+
+### The method error worth keeping
+
+"The trie lane requires lazy chunks" was written into this document, into `injectGlobalString`'s error
+message, into the eager refusal's javadoc and into a memory — and passed two reviews and a five-arm 1M
+gate without anyone asking **"and when does the system actually read lazily?"** A premise stated as a
+REQUIREMENT reads as an instruction to the future; the same premise stated as a DEPENDENCY on a named
+mechanism ("this depends on `lazyEligible`, which is true when …") makes the gap visible on the first
+read. Write the CONDITION, not the requirement.
 
 ### 2b. Earlier, superseded framing of the same failure
 
