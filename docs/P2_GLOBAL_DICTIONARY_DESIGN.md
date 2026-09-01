@@ -1931,3 +1931,56 @@ smaller and the dictionary sketch is absent.
 
 **Fixing this is a correctness obligation for committed code, not a route to the storage goal** — the
 table above says the lever is not worth shipping even once it is correct.
+
+---
+
+## Q1: decomposing the chunked-body framing — DONE, byte-exact, no measurement required
+
+The lane's revival hinges on whether the +16.6 % chunked-body overhead on record pages is reducible.
+It decomposes exactly, by differencing what the two write paths actually put on the sink — no
+diagnostic, no load, and a reconciliation identity that closes at zero.
+
+**The two paths, field by field.**
+
+- Monolith (`emitWithCodec`): `writeInt(encLen)`, `writeByte(codec)`, payload — **5 B of framing**.
+- Chunked (`emitChunkedFrames`): `writeInt(bodyTotalLen)`, then the META frame header (`metaLen` 4,
+  `metaEncLen` 4, `metaCodec` 1, `metaHash` 8 = 17), `writeByte(chunkCount)` 1, then 21 B per chunk
+  row (`firstEntry` 2, `entryCount` 2, `rawLen` 4, `encLen` 4, `codec` 1, `hash` 8), then the payloads.
+
+The leading `writeInt` is common to both and nets out. `planChunks` closes a chunk once accumulated
+on-disk entry lengths reach `targetChunkBytes` (default 4096), so `chunkCount ≈ ceil(rawHeap / 4096)`;
+the observed `chunkCount = 4` implies a ~16 KB raw heap per page, consistent with 4,554 B encoded at a
+~3.5× ratio.
+
+**The measured delta is 754.1 B/page** (KeyValueLeafPage 477,867,592 → 556,987,011 over 104,921 pages
+at 1M). At `chunkCount = 4`:
+
+| row | B/page | share |
+|---|---|---|
+| META frame header, net of the monolith's codec byte | 8 | 1.1 % |
+| per-frame XXH3 hashes, 8 B × (1 META + 4 chunks) | 40 | 5.3 % |
+| chunk table rows less their hashes (13 B × 4) + the `chunkCount` byte | 53 | 7.0 % |
+| **compression loss — N frames encoded separately vs one blob** | **653** | **86.6 %** |
+| **sum** | **754** | **100 %** |
+| **residual** | **0** | — |
+
+**Three conclusions.**
+
+1. **The only lever that matters is `targetChunkBytes`** (default 4096). Directory plus headers are
+   13.4 % of the delta and stay under ~25 % even at 8 chunks — shrinking the table cannot revive the
+   lane. Larger chunks compress closer to the monolith and attack the 86.6 % directly.
+2. **The per-frame hashes are 5.3 % and are a separable decision.** Eight bytes of XXH3 per frame is a
+   durability property the monolith body does not carry at all; if the page-level hash already covers
+   those bytes, that is 40 B/page recoverable without touching chunk size.
+3. **There is no padding and no duplicated-length term.** Both were listed as candidates in the plan
+   and neither exists: frames are packed end to end and every length is written exactly once.
+
+**The tension this exposes, which is the real input to the revival decision.** The trie lane needs
+chunks FINE so that lazy expansion decodes little per record; fine chunks are precisely what makes
+compression loss large. The framing question and the laziness question are one trade-off seen from two
+ends, so they cannot be optimised independently.
+
+**Still unmeasured, and not derivable:** the SHAPE of the compression-loss curve against chunk size —
+it depends on how far LZ77's window reaches across a page's records. A `targetChunkBytes` sweep
+(1/4/16/64 KB) at 1M answers it in four loads with no code change. Whether the 1M shape holds at 100M
+is a 100M question; the loss fraction depends on corpus compressibility.
