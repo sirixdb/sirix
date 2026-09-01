@@ -20,6 +20,7 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Zero-copy scan over serialised {@link ProjectionIndexRowGroupPage} byte[]s. Does not materialise
@@ -2460,7 +2461,7 @@ public final class ProjectionIndexByteScan {
       final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull) {
     conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
         leafIndexBase, distinctBlock, distinctOut, distinctMissing, budget, treeOrNull, null, null, null, null, false,
-        null, null);
+        null, null, null);
   }
 
   /**
@@ -2480,7 +2481,7 @@ public final class ProjectionIndexByteScan {
       final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull, final Pattern keyRegex,
       final String keyRegexRepl, final long[] regexDecline, final byte[] stringLengthModes,
       final boolean cdStringDict, final GlobalValueDictionary.ReadView groupGlobalView,
-      final int[][] globalLengthTables) {
+      final int[][] globalLengthTables, final long @Nullable [] globalKeyHashes) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2510,11 +2511,14 @@ public final class ProjectionIndexByteScan {
         : null;
     // Global-group caches, valid across leaves because the ids are resource-wide: transformed-key
     // hash per id, and the id's resolved accumulator base (the dictBase twin, rehash-validated the
-    // same way).
-    final Long2LongOpenHashMap gidHash = groupGlobalView != null
+    // same way). With a PRECOMPUTED hash table (id-indexed, built by one sequential sweep of the
+    // dictionary before the row loop) the per-worker lazy memo is skipped entirely — its first-sight
+    // resolutions are RANDOM point reads, and at a scale where the decoded dictionary exceeds the
+    // record cache each one is a cache-missing block decode (measured: q29 16 s → 330 s at 100M).
+    final Long2LongOpenHashMap gidHash = groupGlobalView != null && globalKeyHashes == null
         ? new Long2LongOpenHashMap()
         : null;
-    final Long2IntOpenHashMap gidBase = groupGlobalView != null
+    final Long2IntOpenHashMap gidBase = groupGlobalView != null && globalKeyHashes == null
         ? new Long2IntOpenHashMap()
         : null;
     if (gidBase != null) {
@@ -2714,9 +2718,18 @@ public final class ProjectionIndexByteScan {
           } else if (globalGroup) {
             final long gid = getLongLE(payload, idsOff + rowIdx * 8);
             final long ordinal = leafOrdinalBase | rowIdx;
-            int cached = gidBase.get(gid);
+            // With PRECOMPUTED hashes the per-worker gid→base memo is a net LOSS: it is a
+            // multi-million-key map probed per row (DRAM miss each), against a group-table acquire
+            // whose probe touches a table sized by GROUPS. Skip it and acquire directly.
+            int cached = globalKeyHashes != null
+                ? -1
+                : gidBase.get(gid);
             long h;
-            if (cached >= 0) {
+            if (globalKeyHashes != null) {
+              // Precomputed by one sequential sweep — same function (utf8Hash of the TRANSFORMED
+              // string), so the hash domain matches pass 2 and the winner rebuild identically.
+              h = globalKeyHashes[(int) gid];
+            } else if (cached >= 0) {
               h = gidHash.get(gid);
               if (out.keyAtAccBase(cached) != h) {
                 cached = -1; // table rehashed since this id resolved — re-acquire below
@@ -2725,7 +2738,7 @@ public final class ProjectionIndexByteScan {
               h = gidHash.get(gid); // 0 = not yet transformed
             }
             if (cached < 0) {
-              if (h == 0L) {
+              if (h == 0L && globalKeyHashes == null) {
                 // Regex applied ONCE per distinct id per worker; the hash domain is identical to
                 // the per-leaf arm's (utf8Hash of the TRANSFORMED string) so pass 2 and the
                 // winner rebuild match either arm's groups.
@@ -2760,7 +2773,9 @@ public final class ProjectionIndexByteScan {
                 // the executor's winner materialization resolves it through the dictionary.
                 out.setAuxAtAccBase(cached, gid);
               }
-              gidBase.put(gid, cached);
+              if (globalKeyHashes == null) {
+                gidBase.put(gid, cached);
+              }
             }
             if (distinctBlock >= 0) {
               dset = distinctOut.sinkFor(h);
@@ -3848,7 +3863,7 @@ public final class ProjectionIndexByteScan {
       final int groupColumn, final int[] stringAggColumns, final boolean[] aggIsMin, final long[] winnerHashes,
       final boolean winnerMissingKey, final String[][] bestOut, final Pattern keyRegex, final String keyRegexRepl) {
     stringAggForWinnerGroups(rowGroupPayloads, predicates, treeOrNull, groupColumn, stringAggColumns, aggIsMin,
-        winnerHashes, winnerMissingKey, bestOut, keyRegex, keyRegexRepl, null, null);
+        winnerHashes, winnerMissingKey, bestOut, keyRegex, keyRegexRepl, null, null, null);
   }
 
   /**
@@ -3868,7 +3883,8 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionIndexScan.PredicateTree treeOrNull,
       final int groupColumn, final int[] stringAggColumns, final boolean[] aggIsMin, final long[] winnerHashes,
       final boolean winnerMissingKey, final String[][] bestOut, final Pattern keyRegex, final String keyRegexRepl,
-      final GlobalValueDictionary.ReadView[] aggGlobalViews, final GlobalValueDictionary.ReadView groupGlobalView) {
+      final GlobalValueDictionary.ReadView[] aggGlobalViews, final GlobalValueDictionary.ReadView groupGlobalView,
+      final long @Nullable [] globalKeyHashes) {
     if (predicates == null || stringAggColumns == null || aggIsMin == null || winnerHashes == null || bestOut == null) {
       throw new IllegalArgumentException(
           "predicates, stringAggColumns, aggIsMin, winnerHashes and bestOut must not be null");
@@ -3879,11 +3895,24 @@ public final class ProjectionIndexByteScan {
         : null;
     // Row-to-winner slot per GLOBAL id, valid across leaves (ids are resource-wide): -1 = not a
     // winner, computed once per distinct id per call.
-    final Long2IntOpenHashMap gidWinnerSlot = groupGlobalView != null
+    final Long2IntOpenHashMap gidWinnerSlot = groupGlobalView != null && globalKeyHashes == null
         ? new Long2IntOpenHashMap()
         : null;
     if (gidWinnerSlot != null) {
       gidWinnerSlot.defaultReturnValue(-2);
+    }
+    // With PRECOMPUTED key hashes the row-to-winner map keys by the hash instead of the gid: a
+    // #winners-sized map probed per row, against a multi-million-key gid map. First-wins on a
+    // (astronomically unlikely) duplicate winner hash matches the linear scan it replaces.
+    final Long2IntOpenHashMap winnerSlotByHash;
+    if (globalKeyHashes != null && groupGlobalView != null) {
+      winnerSlotByHash = new Long2IntOpenHashMap(winnerHashes.length);
+      winnerSlotByHash.defaultReturnValue(-1);
+      for (int wi = 0; wi < winnerHashes.length; wi++) {
+        winnerSlotByHash.putIfAbsent(winnerHashes[wi], wi);
+      }
+    } else {
+      winnerSlotByHash = null;
     }
     final int aggCount = stringAggColumns.length;
     final int slots = winnerHashes.length + (winnerMissingKey
@@ -4012,12 +4041,23 @@ public final class ProjectionIndexByteScan {
             slot = winnerHashes.length;
           } else if (globalGroup) {
             final long gid = getLongLE(payload, idsOff + rowIdx * 8);
+            if (winnerSlotByHash != null) {
+              slot = winnerSlotByHash.get(globalKeyHashes[(int) gid]);
+              if (slot < 0) {
+                continue;
+              }
+            } else {
             slot = gidWinnerSlot.get(gid);
             if (slot == -2) {
               // Same hash domain as pass 1's global arm: utf8Hash of the regex-TRANSFORMED value.
-              final String transformed =
-                  keyRegex.matcher(groupGlobalView.valueAsString((int) gid)).replaceAll(keyRegexRepl);
-              final long h = utf8Hash(transformed.getBytes(StandardCharsets.UTF_8));
+              final long h;
+              if (globalKeyHashes != null) {
+                h = globalKeyHashes[(int) gid]; // precomputed sweep — identical hash domain
+              } else {
+                final String transformed =
+                    keyRegex.matcher(groupGlobalView.valueAsString((int) gid)).replaceAll(keyRegexRepl);
+                h = utf8Hash(transformed.getBytes(StandardCharsets.UTF_8));
+              }
               slot = -1;
               for (int wi = 0; wi < winnerHashes.length; wi++) {
                 if (winnerHashes[wi] == h) {
@@ -4029,6 +4069,7 @@ public final class ProjectionIndexByteScan {
             }
             if (slot < 0) {
               continue;
+            }
             }
           } else {
             final int dictId = getIntLE(payload, idsOff + rowIdx * 4);

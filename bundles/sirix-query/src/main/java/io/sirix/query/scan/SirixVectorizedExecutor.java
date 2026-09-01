@@ -126,6 +126,7 @@ import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -14096,6 +14097,42 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long groupBudget = GroupTableSpill.groupBudget();
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         long[] missingMergedFlatHeld = null;
+        // A GLOBAL regex key gets its transformed-key hash PRECOMPUTED for every id by one
+        // parallel sequential sweep of the dictionary — blocks decoded once each in id order —
+        // instead of per-worker first-sight resolutions, which are RANDOM point reads and, at a
+        // scale where the decoded dictionary exceeds the record cache, cache-missing block decodes
+        // per id (measured: q29 16 s → 330 s at 100M). The sweep also does ONE regex per distinct
+        // value where the per-leaf arm pays one per per-leaf ENTRY (3–6× more at 100M).
+        final long[] globalKeyHashes;
+        if (globalRegexGroup) {
+          final GlobalValueDictionary.ReadView sizing =
+              GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader());
+          if (sizing == null) {
+            throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+          }
+          final int idCount = sizing.entryCount();
+          final long[] sweep = new long[idCount + 1];
+          parallel(eff, idx -> {
+            final int lo = 1 + (int) ((long) idCount * idx / eff);
+            final int hi = 1 + (int) ((long) idCount * (idx + 1) / eff);
+            if (lo >= hi) {
+              return;
+            }
+            final GlobalValueDictionary.ReadView sweepView =
+                GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader());
+            if (sweepView == null) {
+              throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+            }
+            final Matcher matcher = regexKey.matcher("");
+            for (int id = lo; id < hi; id++) {
+              final String transformed = matcher.reset(sweepView.valueAsString(id)).replaceAll(regexRepl);
+              sweep[id] = ProjectionIndexByteScan.utf8Hash(transformed.getBytes(StandardCharsets.UTF_8));
+            }
+          });
+          globalKeyHashes = sweep;
+        } else {
+          globalKeyHashes = null;
+        }
         // HASH-RANGE PASSES — see the composite arm.
         int passes = 1;
         for (int pass = 0; pass < passes; pass++) {
@@ -14180,7 +14217,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                                 ? cdBudgets[idx]
                                 : null,
                             tree, regexKey, regexRepl, regexDecline, stringLengthModesInFlat, cdStringDict, workerGroupView,
-                            globalLengthTablesInFlat);
+                            globalLengthTablesInFlat, globalKeyHashes);
                       }
                       if (wsl != null) {
                         wsl.release(sub, subEnd);
@@ -14379,17 +14416,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                                                                .getBytes(StandardCharsets.UTF_8))
                     : groupSlice.dictHash(dictId);
               } else if (globalRegexGroup) {
-                // Aux carries the GLOBAL id itself; the winner's group hash rebuilds through the
-                // dictionary in the pass-1 domain (utf8Hash of the transformed value).
-                final GlobalValueDictionary.ReadView rebuildView =
-                    GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader());
-                if (rebuildView == null) {
-                  throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
-                }
-                hashScratch[hashCount++] = ProjectionIndexByteScan.utf8Hash(regexKey
-                    .matcher(rebuildView.valueAsString((int) src))
-                    .replaceAll(regexRepl)
-                    .getBytes(StandardCharsets.UTF_8));
+                // Aux carries the GLOBAL id itself; the winner's group hash is the precomputed
+                // sweep entry — the pass-1 domain (utf8Hash of the transformed value) by identity.
+                hashScratch[hashCount++] = globalKeyHashes[(int) src];
               } else {
                 final byte[] payload = armPayloads.get(leaf);
                 int columnBase = leafColumnBase[leaf];
@@ -14505,7 +14534,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
               ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
                   deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl,
-                  aggViews, pass2GroupView);
+                  aggViews, pass2GroupView, globalKeyHashes);
             }
             perThreadBest[idx] = best;
           });
