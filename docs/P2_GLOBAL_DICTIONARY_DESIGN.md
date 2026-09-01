@@ -2051,3 +2051,42 @@ with the storage arm of the curve now measured and the latency arm not.
 but the payment comes from point-lookup latency rather than from nowhere, and the lane's OTHER blocker
 (scans read eagerly, `pointLookup`-gated) means the lane's own reads are the ones that would suffer
 most. Any revival attempt must price the latency arm before treating 16 KB as free.
+
+### The lane's win is chunk-size INDEPENDENT — so at 16 KB it is worth −12.9 %, not 6 bytes
+
+The one assumption the sweep left untested, now given its own arm: the lane's saving lives in the
+string REGION, chunking applies to the HEAP, so the two ought to be independent. Measured, at 1M,
+single variable (the lane), prebuilt dictionaries in both:
+
+| chunk size | lane OFF | lane ON | lane's win |
+|---|---|---|---|
+| 4 KB | 687,511,830 | 604,657,946 | **−82,853,884 B** |
+| 16 KB | 613,179,633 | 530,325,750 | **−82,853,883 B** |
+
+**One byte apart** — independent, as hoped and now demonstrated rather than argued.
+
+Against the best configuration that does NOT use the lane (prebuilt dictionaries, no chunking,
+census 609,115,080):
+
+| chunk size | with the lane | net |
+|---|---|---|
+| 4 KB | 604,657,946 | **+0.7 %** — this is the "6 bytes" result, seen properly by census rather than `du` |
+| **16 KB** | **530,325,750** | **−78,789,330 B, −12.9 %** |
+
+Chunking's own residual at 16 KB is +4,064,553 B (39 B/page), matching the one-chunk fixed-framing
+prediction (38 B/page) almost exactly — a third independent confirmation of the byte-exact
+decomposition.
+
+**The earlier "6 bytes" was never the lane's economics.** It was the lane's economics *at a chunk size
+whose framing cost as much as the lane saved*. The lever is worth ~13 % of the database at 1M once the
+prerequisite is configured sanely.
+
+**What this does not change.** Revival condition 1 still blocks absolutely: scans read a converted page
+EAGERLY (`lazyEligible = pointLookup && …`) and hit its refusal, so the lane is unusable whatever it
+would save. And 16 KB buys its storage with point-lookup decode latency — the degenerate-chunking
+caveat above — which remains unmeasured.
+
+**Honest summary: a −12.9 % lever, blocked on one structural read-path change, whose enabling
+configuration has an unpriced latency cost.** That is a materially different proposition from "parked,
+worth 6 bytes", and the parking rationale should be re-read in that light: the CORRECTNESS reason to
+park stands unchanged, the ECONOMIC reason does not.
