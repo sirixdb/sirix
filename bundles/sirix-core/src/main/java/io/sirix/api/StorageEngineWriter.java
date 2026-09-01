@@ -10,6 +10,7 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
@@ -160,6 +161,35 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   default void adoptDocumentLeafPage(KeyValueLeafPage page) {
     throw new UnsupportedOperationException("bulk page adoption is not supported by this writer");
+  }
+
+  /**
+   * Hand this writer the resolver its DOCUMENT record pages encode their string values against.
+   *
+   * <p>
+   * The trie lane's write half. A record page's string region is built at SERIALIZATION time, from
+   * the heap, on the flush lane — so the resolver has to be on the page before it gets there, and the
+   * only component that sees every page as it is created is this writer.
+   * </p>
+   *
+   * <p>
+   * <b>The resolver must be safe to call from many threads at once.</b> Region building runs inside
+   * the async snapshot window's parallel {@code forEach}, so {@code idOf} is invoked concurrently.
+   * {@code TrieLaneWriteDictionaries} is the intended implementation and is thread-confined for
+   * exactly this reason; a resolver that walks the trie through a reader must never be installed
+   * here.
+   * </p>
+   *
+   * <p>
+   * A no-op default rather than a throw, unlike the bulk-adoption seams above: every writer must
+   * tolerate being told about a lane it does not implement, because the caller is a load-time
+   * installer that cannot know which writer it got.
+   * </p>
+   *
+   * @param dictionaries the resolver, or {@code null} to encode every tag as bytes
+   */
+  default void installDocumentStringDictionaries(@Nullable GlobalStringDictionaries dictionaries) {
+    // No-op: a writer without the trie lane simply keeps its bytes.
   }
 
   /**

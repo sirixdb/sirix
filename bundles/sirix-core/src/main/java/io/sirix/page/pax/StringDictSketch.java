@@ -144,6 +144,23 @@ public final class StringDictSketch {
         // The cost is a lost page-skip on converted columns. The alternative worth pricing later is a
         // sketch over the IDS rather than the bytes, with the probe hashing the id it resolved its
         // literal to -- cheaper than losing the skip, but a new mechanism on both sides.
+        //
+        // HONEST SEVERITY, measured rather than argued: without this guard the walk returns null
+        // anyway, at 19 B, 292 B and 29 KB payloads alike. It is structurally so, not luck. At width
+        // 4 a decoded "length" passes the bounds check only if the top two bytes of every 4-byte
+        // window at dictStart + 4i are zero. The id table is densely packed at
+        // globalIdBits = 32 - numberOfLeadingZeros(entryCount) with ids >= 1 and at most 7 bits of
+        // tail padding, so it cannot hold a 16-bit zero run; and a window reaching past it into the
+        // length lane takes a length byte into its high bytes unless that lane is 4 bytes wide AND
+        // the windows align to it, which needs the packed table to be a multiple of 4 bytes, which
+        // forces the first window back into dense id bits. The two conditions exclude each other.
+        //
+        // So this guard converts a safety that lives three classes away -- in the id packing's
+        // density -- into a local one. THE WAY BACK TO A LIVE BUG IS ID 0. If a null sentinel or any
+        // other legitimate value were ever packed as id 0, a run of them is exactly the zero bytes
+        // the bounds check needs to pass, and the walk would hash garbage for real. The density
+        // assertion in StringRegion.Encoder does not catch it either, since 0 < entryCount. That is
+        // what this guard should be understood to defend.
         return null;
       }
       totalEntries += header.tagStringDictSize[tag];

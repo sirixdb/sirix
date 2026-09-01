@@ -60,6 +60,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
 import io.sirix.access.DatabaseType;
@@ -180,6 +181,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * {@link NodeStorageEngineReader} instance.
    */
   private final NodeStorageEngineReader storageEngineReader;
+
+  /**
+   * The resolver DOCUMENT record pages encode their string values against, or {@code null}.
+   *
+   * <p>
+   * Installed once at load start and read on the page-creation path, because a page's string region
+   * is built at serialization from whatever resolver the page is carrying by then. Volatile because
+   * the installer runs on the load's thread and pages are created on the importer's workers.
+   * </p>
+   */
+  private volatile @Nullable GlobalStringDictionaries documentStringDictionaries;
 
   /**
    * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
@@ -4886,6 +4898,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         pageContainer = createFreshRecordPage(recordPageKey, indexType, getResourceSession().getResourceConfig(),
             storageEngineReader.getRevisionNumber());
+        if (indexType == IndexType.DOCUMENT) {
+          // Only DOCUMENT pages carry the projected columns' values, and only the MODIFIED half is
+          // ever written to — the complete twin starts empty and is replaced by the combine.
+          ((KeyValueLeafPage) pageContainer.getModified()).setGlobalStringDictionaries(documentStringDictionaries);
+        }
         appendLogRecord(reference, pageContainer);
         return pageContainer;
       } else {
@@ -5258,8 +5275,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public void installDocumentStringDictionaries(final @Nullable GlobalStringDictionaries dictionaries) {
+    this.documentStringDictionaries = dictionaries;
+  }
+
+  @Override
   public void adoptDocumentLeafPage(final KeyValueLeafPage page) {
     storageEngineReader.assertNotClosed();
+    // Before the page reaches the flush lane, which is where its string region is built and where
+    // nothing can be handed to it any more. An adopted page is marked immutable-for-flush at the end
+    // of this method, so this is the last moment it can be told anything at all.
+    page.setGlobalStringDictionaries(documentStringDictionaries);
     final long recordPageKey = page.getPageKey();
     final ResourceConfiguration resourceConfiguration = getResourceSession().getResourceConfig();
     // The builder's cold direct-write fallbacks are still heap snapshots in records[]. Serialize them
