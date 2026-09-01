@@ -1264,3 +1264,18 @@ Run the 100M query leg on the finished build. Everything else — the storage nu
 - **A cache's key must be reviewed against its invalidation story.** Two latent wrong-answer bugs
   here were unreachable through the benchmark: every query path is read-only, so 43/43 stayed green
   through both.
+
+### 02:42: the build JVM was killed WITH its task wrapper — relaunched detached; load-only tier committed
+
+The harness stopped the background wrapper and the sandbox PID namespace took the JVM with it at ~58 % of the
+walk (`sandbox-pid-namespace-hides-and-kills`, read tonight and walked into anyway). Diagnosed by the FILE,
+not the process table — `sirix.data` frozen at 59,106,525,184 B across a 90 s wait; a dead JVM and a slow one
+are identical in `ps`. Relaunched 02:44 under `setsid nohup … & disown` per protocol; completion ~04:35.
+
+**Consequences, committed at 02:50 rather than discovered at 04:35:** the legs no longer fit before the
+05:00 line — **tonight's 100M deliverable is the storage number + census (the load-only tier by another
+road); the query leg is next session's first action.** And the killed walk left **~4.05 GB of orphaned,
+unreachable bytes** in the append-only file (52.15 doc → 55.06 with dictionaries → 59.11 at death), so the
+finished figure will be reported RAW and ADJUSTED, labelled: the adjustment is a derivation, credible because
+two independent loads reproduced the document byte-for-byte (measured determinism), with a pristine rebuild
+available next session if the headline must be a measured file size.
