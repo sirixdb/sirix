@@ -1858,11 +1858,17 @@ A converted database fails a subtree serialization with `AssertionError: Type no
 - First unreadable node **3072 = page 3, slot 0**, a fused NUMBER. **Page 0 is unconverted and clean**,
   so the first CORRUPT page is the first CONVERTED page — early pages escape only because the path
   summary has not yet given URL/Title a path class.
-- **It is a WRITE-side TRUNCATION.** That slot is `len=33` without the lane and `len=22` with it, with
-  an **identical 22-byte prefix**; slots 1–5 on the same page are byte-identical between arms. The bad
-  type byte is the reader running off the end of a short record, not a misaligned types array.
-- **Value elision is not involved**: the arm with `sirix.valueElision.regionLookup.disable=true` fails
-  at the same node, so no injector is running when the damage occurs.
+- **A byte comparison suggests a WRITE-side TRUNCATION — but it is NOT YET ATTRIBUTABLE.** That slot is
+  `len=33` in the `prebuilt` arm and `len=22` in `convnoelide`, with an identical 22-byte prefix and
+  slots 1–5 byte-identical. **Those two arms differ in TWO variables** (lane off/on AND value elision
+  on/off), so the 11 missing bytes may be the elision difference rather than the lane. The
+  single-variable comparison — `prebuilt` vs `converted` — has not been run, and until it is,
+  "the lane truncates a record" is a hypothesis, not a finding. Recorded this way deliberately: this is
+  the same two-variable error the gate protocol exists to prevent, made while chasing a corruption
+  that had already been localized.
+- **Value elision is not REQUIRED for the corruption**: the arm with
+  `sirix.valueElision.regionLookup.disable=true` fails at the same node. That is a single-arm
+  observation and supports "it happens with elision off", not the stronger "elision is irrelevant".
 - Also ruled out by arm: derived elision, chunked bodies alone, the prebuilt dictionaries alone, and
   mixed kinds on a converted page (a unit fixture for that PASSES).
 
