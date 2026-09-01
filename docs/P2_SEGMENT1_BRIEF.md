@@ -1558,3 +1558,31 @@ vs INC105 (single pair, 12g envelope): **cold 364.4 → 310.7, hot 285.8 → 245
 hot**. Only q20 (predicate-count, code path untouched) regressed in the pair — environmental (its cold try
 sits behind q18's 55-s try); needs six pairs before anyone chases it. idx39 hot beats the old-DB baseline's
 1.3 s — the first query where the storage lever's serving shape WINS the query too.
+
+
+## 2026-09-01 late evening: single-key global routes ported — suite hot 285.8 → 226.2 since morning
+
+**The 1M SearchPhrase experiment (4th global column, storage-neutral at +666 bytes byte-clean) exposed the
+remaining kind-5 serving gaps, all the idx39 defect class — routes never taught the kind:**
+
+1. **COUNT(DISTINCT global)** fell off the projection entirely (route=NONE, 6.4 s/try at 1M):
+   `projectionNumericDistinct` now admits kind-5 (distinct ids ARE distinct values), with a wider bitset
+   bound for dense ids. idx5 at 1M: 12.5/6.4 → 0.16/0.005 — 20× faster than the per-leaf dict-union too.
+2. **MIN/MAX(string) as RANK-STRING lanes**: on a FULLY-ORDERED dictionary id order IS collation order, so
+   the extremum folds as the plain numeric id lane on whatever arm serves — no deferral, no pass 2 — and
+   only emission reverse-maps winning ids (`fillAggEntries`, threaded through every record builder; 14
+   agg-kind fail-loud checks now admit kind-5, which is a long lane). Non-fully-ordered dictionaries keep
+   deferred pass-2; unwired arms (packed, legacy multi-key) decline loudly.
+
+**Clean 100M leg GCOMP2 vs GCOMP1 (worktree rig, single pair): q21 10.25 → 0.90 hot, q22 10.94 → 1.47,
+q28 16.9 → 11.0, q40 2.13 → 0.90, q29 0.50 → 0.18; suite hot 245.3 → 226.2; 43/43 dumps byte-identical;**
+q32 cold swung 32 → 89 (documented bimodal: 101 → 32 → 89 across three runs with no relevant change —
+six-pair it before believing anything). Cumulative today vs INC105: **hot 285.8 → 226.2 (−21 %)**.
+
+Also: a CPU-polluted leg was discarded (impl-p2s1's gradle stole the box mid-run — timing legs now announce
+a window); the byte-clean 1M pair (same build, 3-col vs 4-col) settled SearchPhrase conversion as
+storage-neutral; `GlobalValueDictionary.probe` on an empty COMPLETE dictionary now answers ABSENT (25/25).
+
+**The 5-column 100M rebuild case (USER DECISION pending): SearchPhrase + OriginalURL values are extracted
+(6.02M/8.51M distinct); conversion is storage-neutral-or-better and takes q5 (23 s hot), q16/17/18 composite
+keys id-lane; needs the current 63.33 GB DB deleted first (38 GB free) and ~70 min rebuild.**
