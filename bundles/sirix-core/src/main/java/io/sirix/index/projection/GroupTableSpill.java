@@ -287,6 +287,16 @@ public final class GroupTableSpill {
     return (int) Math.min(partitions, Math.max((long) currentPasses * 2L, passes));
   }
 
+  /**
+   * The abort-time total-group estimate {@link #recommendedPasses} divides by the budget — exposed
+   * so the caller can memo it on the handle and seed the NEXT execution's pass count directly,
+   * skipping the aborted scan this execution already paid for.
+   */
+  public long estimatedTotalGroups(final int currentPasses, final int totalLeaves) {
+    final double fraction = Math.max(0.01, (double) leavesScanned.sum() / Math.max(1, totalLeaves));
+    return (long) (groupsSpilled() / fraction * currentPasses);
+  }
+
   /** Whether {@code local} has grown past the threshold and should be flushed. */
   public boolean shouldFlush(final NumericGroupAggTable local) {
     return local.size() >= threshold;

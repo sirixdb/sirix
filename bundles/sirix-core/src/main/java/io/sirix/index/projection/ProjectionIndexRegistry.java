@@ -849,6 +849,35 @@ public final class ProjectionIndexRegistry {
       return slicedRouteArrivals.getAndIncrement();
     }
 
+    /**
+     * Observed group cardinalities by GROUP-SHAPE FINGERPRINT — the pass-seeding memo. A group scan
+     * that ABORTS (groups past the per-pass budget) has paid most of a full scan before it learns
+     * the count; recording the abort-time estimate here lets the NEXT execution of the same shape
+     * start at the right pass count and never pay the aborted scan (q18 at 100M: 18.1M groups vs a
+     * 12.58M budget = one full wasted scan per TRY, hot included). Purely a performance seed: a
+     * stale or colliding entry only mis-picks the pass count, which the abort-and-restart machinery
+     * corrects — it can never change an answer. The handle's lifetime bounds staleness (a new
+     * revision is a new handle), and entries only grow (max-keep), so a transient under-estimate
+     * cannot pin a lower count.
+     */
+    private final Long2LongOpenHashMap observedGroupCounts = new Long2LongOpenHashMap();
+
+    /** The memoed group count for this shape, or 0 when never observed. */
+    public long observedGroupsFor(final long fingerprint) {
+      synchronized (observedGroupCounts) {
+        return observedGroupCounts.get(fingerprint);
+      }
+    }
+
+    /** Record an observed (or abort-estimated) group count; keeps the maximum ever seen. */
+    public void noteObservedGroups(final long fingerprint, final long groups) {
+      synchronized (observedGroupCounts) {
+        if (groups > observedGroupCounts.get(fingerprint)) {
+          observedGroupCounts.put(fingerprint, groups);
+        }
+      }
+    }
+
     /** One-shot latch for the background whole-projection segment readahead. */
     private final AtomicBoolean segmentPrefetchKicked = new AtomicBoolean();
 

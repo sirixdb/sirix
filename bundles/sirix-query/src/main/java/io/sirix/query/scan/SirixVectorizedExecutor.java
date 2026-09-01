@@ -6,6 +6,7 @@
  */
 package io.sirix.query.scan;
 
+import it.unimi.dsi.fastutil.HashCommon;
 import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -12568,6 +12569,46 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * @param reason names the gate; keep it stable and cheap (a constant, or one concatenation)
    * @return {@code null}, always — the caller's decline value
    */
+  /**
+   * Stable-across-executions fingerprint of a group scan's SHAPE (key columns, predicates, distinct
+   * block) for the handle's pass memo. A predicate TREE contributes only its presence: its object
+   * identity differs per execution, and a collision merely mis-seeds a pass count the abort
+   * machinery corrects.
+   */
+  private static long groupShapeFingerprint(final int[] groupCols, final ProjectionIndexScan.ColumnPredicate[] preds,
+      final ProjectionIndexScan.@Nullable PredicateTree tree, final int cdBlock) {
+    long h = HashCommon.mix(0x9E3779B97F4A7C15L ^ (cdBlock + 2));
+    for (final int col : groupCols) {
+      h = HashCommon.mix(h ^ col);
+    }
+    if (preds != null) {
+      for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+        h = HashCommon.mix(h ^ p.column);
+        h = HashCommon.mix(h ^ p.op.ordinal());
+        h = HashCommon.mix(h ^ p.longLit);
+        h = HashCommon.mix(h ^ p.highLit);
+        if (p.stringLitBytes != null) {
+          h = HashCommon.mix(h ^ Arrays.hashCode(p.stringLitBytes));
+        }
+      }
+    }
+    return HashCommon.mix(h ^ (tree != null
+        ? 1
+        : 0));
+  }
+
+  /** The pass count a memoed group cardinality calls for; 1 when the shape was never observed. */
+  private static int seedPasses(final long observedGroups, final long budget, final int partitions) {
+    if (observedGroups <= 0L || budget <= 0L) {
+      return 1;
+    }
+    long passes = 1L;
+    while (passes * budget < observedGroups && passes < partitions) {
+      passes <<= 1;
+    }
+    return (int) passes;
+  }
+
   private static @Nullable ServedGroups declineGroupAgg(final String reason) {
     GROUP_AGG_DECLINED.increment();
     if (PROJ_DIAG) {
@@ -13697,8 +13738,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // aborts and the scan restarts with P passes, each keeping the groups of partitions
           // [passLo, passHi) — the post-scan merge's own split, so a partition's groups complete
           // within one pass and its top-k selector is final. Memory is bounded at any cardinality;
-          // the price is P scans.
-          int passes = 1;
+          // the price is P scans. SEEDED from the handle's pass memo: an abort learns the group
+          // count only after paying most of a full scan, and this shape's count was already learned
+          // by a previous execution — a wrong seed is corrected by the same abort machinery, so the
+          // memo can only cost passes, never answers.
+          final long groupShapeFp = groupShapeFingerprint(groupCols, preds, tree, cdBlock);
+          int passes = seedPasses(handle.observedGroupsFor(groupShapeFp), groupBudget, partitionsF);
           for (int pass = 0; pass < passes; pass++) {
           final int passLo = pass * (partitionsF / passes);
           final int passHi = passLo + partitionsF / passes;
@@ -13807,6 +13852,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (passes >= partitionsF) {
               return declineGroupAgg("composite group state exceeds the per-pass budget even at one pass per partition");
             }
+            handle.noteObservedGroups(groupShapeFp, spill.estimatedTotalGroups(passes, rowGroupCount));
             passes = spill.recommendedPasses(passes, rowGroupCount);
             Arrays.fill(partSelectors, null);
             GROUP_PASS_RESTARTS.increment();
