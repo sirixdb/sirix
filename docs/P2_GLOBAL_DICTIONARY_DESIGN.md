@@ -1850,7 +1850,36 @@ Counters were clean throughout: `probes=718415 memoHits≈248k absent=0 afterClo
 rate, load wall time flat across all arms (25.3–27.5 s). So the size figure is trustworthy, and both
 lifecycle risks the installer carried were answered by the run rather than by reading executor code.
 
-### 2. It writes DOCUMENT pages that cannot be read back — OPEN
+### 2. It writes DOCUMENT pages a SCAN cannot read — ROOT CAUSE FOUND, and it is structural
+
+**The lane requires lazy chunks; whether a page is read lazily is decided by `pointLookup`, and a scan
+is not a point lookup.** `NodeStorageEngineReader:1738` is
+`lazyEligible = pointLookup && trxIntentLog == null`, and the record-page cache's loader at `:2465-2467`
+picks `readRecordPageLazily` ONLY when `pointLookup` — otherwise plain `read`, the eager path. So every
+scan read of a converted page hits `refuseGlobalTagsOnEagerPath`:
+
+```
+SirixIOException: record page 3 carries a global-dictionary tag (4) but is being expanded EAGERLY,
+where no dictionary is reachable. Pages using the trie lane must be read through deserializePageLazily.
+```
+
+That refusal is doing its job. What was wrong is the premise recorded earlier in this document — "the
+trie lane requires lazy chunks" — which was never followed with the obvious next question: *when are
+pages actually read lazily?* The answer is "on point lookups only", and a serializer walk or a column
+scan is not one.
+
+It also explains the two symptoms. A cold scan gives the clean refusal; the
+`AssertionError: Type not known` appears when a page was already cached from an earlier POINT lookup
+(so built lazily) while its neighbours came through the eager path — a mixed population, which reads as
+garbage rather than refusing.
+
+**Consequence: the lane is not one bug away from working.** It needs every read path that can touch a
+converted page to be lazy, scans included — a change to how record pages are LOADED, not to the lane.
+Set against §1's six-byte result, the recommendation is to **park it correct-and-inert rather than
+repair it**: default off, refusal loud, so a converted page can never silently misread; what it cannot
+do is be read by a scan.
+
+### 2b. Earlier, superseded framing of the same failure
 
 A converted database fails a subtree serialization with `AssertionError: Type not known` from
 `NodeKind.deserializeNumber`. Localized:
