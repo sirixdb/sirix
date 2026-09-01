@@ -1465,3 +1465,17 @@ lane. Recorded in the design doc as an assumption of the format; asserted at enc
 entry point already makes the wrong order unrepresentable, so the residual risk is a path nobody listed,
 which is the reviewer's home terrain. Read seam is the last piece before the 1M gates and the ~52.5 GB
 build.
+
+### Seam enumeration verified pre-diff: two doors, two structural constraints
+
+The reviewer verified (not grepped) the resolution-path enumeration: exactly two doors
+(`injectValueElidedRecords` at `PageKind:1437`/`:1660`), with the doubtable case — per-slot
+`ensureChunkFor` skipping injection — checked and closed (the injector is a range-scoped lambda). Two
+constraints issued BEFORE the diff:
+1. **`:1437` (eager injection inside `deserializePage`) sits where NO resolver can exist** — threading a
+   parameter there just makes it null. Either the eager path DECLINES global tags, or a page carrying one
+   never takes it. The same constraint that made FSST lazy, surfacing structurally.
+2. **The injector reads the resolver FROM THE PAGE at invocation, never captures it at construction** —
+   captured, it is null for every lazy page and stale on a reused one (the reused-state hazard family).
+Plus: the ascending-resolution order is load-bearing (5.6×) and gets a comment saying so, against a future
+tidy-up silently undoing it.
