@@ -1984,3 +1984,41 @@ ends, so they cannot be optimised independently.
 it depends on how far LZ77's window reaches across a page's records. A `targetChunkBytes` sweep
 (1/4/16/64 KB) at 1M answers it in four loads with no code change. Whether the 1M shape holds at 100M
 is a 100M question; the loss fraction depends on corpus compressibility.
+
+### Q1 sweep: the framing is REDUCIBLE — 4 KB → 16 KB removes 95.4 % of it
+
+Measured at 1M, chunked-only arms (no trie lane, no prebuilt dictionaries), `versioningType=FULL`
+pinned, rig rebuilt from live source:
+
+| arm | KeyValueLeafPage | census total | Δ vs unchunked | B/page | vs 4 KB |
+|---|---|---|---|---|---|
+| unchunked | 477,867,592 | 1,166,924,429 | — | — | — |
+| 1 KB | 713,913,669 | 1,402,970,506 | +236,046,077 | +2,250 | 298 % |
+| **4 KB** (today's default) | 556,987,010 | 1,246,043,847 | +79,119,418 | +754 | 100 % |
+| **16 KB** | 481,537,630 | 1,170,594,467 | +3,670,038 | **+35** | **4.6 %** |
+| 64 KB | 481,450,429 | 1,170,507,266 | +3,582,837 | +34 | 4.5 % |
+
+The curve is saturated by 16 KB — 64 KB buys nothing further. **The 4 KB default costs +75.4 MB per 1M
+rows against 16 KB, for a laziness granularity nobody has priced.**
+
+**The measurement validates the byte-exact decomposition above.** At 16 KB a page's ~16 KB raw heap is a
+single chunk, so compression loss should vanish and only fixed framing remain: predicted
+17 (META header) + 1 (count) + 21 (one row) − 1 (the monolith's codec byte) = **38 B/page**, measured
+**35**. The 3 B gap is explicable rather than noise — even at one chunk the META frame and the heap
+frame are compressed separately, so it is two frames, not the monolith's one.
+
+**Consequence for the trie lane: revival condition 2 is MET.** Its −82.9 MB record-page win stood
+against +79.1 MB of framing at 4 KB (net 6 bytes); at 16 KB the framing is +3.7 MB. **Condition 1 still
+blocks** — laziness is `pointLookup`-gated, so scans read a converted page eagerly and hit its refusal,
+and no chunk size changes that. The lane is now blocked on one thing rather than two.
+
+**Untested and deliberately not assumed:** that the lane's −82.9 MB survives at 16 KB chunks. The
+saving is in the string REGION and chunking applies to the HEAP, so they ought to be independent —
+which is exactly the shape of claim that needs its own arm rather than an argument.
+
+**Instrument caveat, which generalises beyond this table.** `du -sb` could not see the 16 KB result: it
+reported 1,174,866,904 against unchunked's 1,174,866,905 — one byte — while the census differed by
+3.67 MB. The data file carries enough slack that a multi-megabyte content change disappears inside the
+same apparent size. `du` tracked the 75 MB deltas correctly. **Use `du` for large effects and the
+page-class census for small ones; never `du` alone below ~10 MB.** Reporting `du` alone here would have
+called the 16 KB arm identical to unchunked, wrong by 3.67 MB in the flattering direction.
