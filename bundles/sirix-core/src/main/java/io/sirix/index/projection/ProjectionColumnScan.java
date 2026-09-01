@@ -166,6 +166,35 @@ public final class ProjectionColumnScan {
     return total;
   }
 
+  /**
+   * Ranged conjunctive count over a per-leaf access — the windowed twin of
+   * {@link #conjunctiveCount(ProjectionColumnStore, ColumnPredicate[], int, int, ColumnSlice[][])} for the
+   * caller whose predicate column the fill budget refused to retain: {@code [fromRowGroup, toRowGroup)}
+   * is decoded one window at a time through {@code access}, touching the predicate columns and nothing
+   * else, where the whole-leaf byte route it replaces hydrates every column of every row group. The
+   * access is single-threaded by contract — one per parallel worker; a keep-masked access hands the
+   * kernel the pruned sentinel for a leaf the zone/fingerprint evidence dropped, so that leaf's window
+   * is never fetched.
+   */
+  public static long conjunctiveCount(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final int fromRowGroup, final int toRowGroup, final ProjectionColumnStore.LeafColumnAccess access) {
+    checkPredicates(store, predicates);
+    final Scratch s = SCRATCH.get();
+    final ColumnSlice[] leafSlices = s.leafPredicateSlices(predicates.length);
+    long total = 0;
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
+      final int rowCount = evaluateMask(predicates, access, leaf, store.rowCount(leaf), s.mask, leafSlices);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        total += Long.bitCount(s.mask[w]);
+      }
+    }
+    return total;
+  }
+
   /** Ranged variant for the executor's chunked parallel dispatch — scratch is thread-local. */
   public static long conjunctiveCount(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {

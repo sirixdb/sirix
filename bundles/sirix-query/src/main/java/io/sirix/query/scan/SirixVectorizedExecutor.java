@@ -2778,6 +2778,41 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return total;
   }
 
+  /**
+   * Chunked parallel conjunctive count over WINDOWED predicate slices — the route for a count whose
+   * predicate column the fill budget refused to retain. Every worker owns one windowed access (the
+   * access is single-threaded by contract) over a window-aligned leaf range, so no two workers decode
+   * the same window; the fetcher's ranged reads are concurrent by contract. The keep mask is computed
+   * once from descriptor evidence (zone pairs, string fingerprints) and shared read-only.
+   */
+  private long windowedCountParallel(final ProjectionColumnStore store, final ProjectionIndexScan.ColumnPredicate[] preds,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final int rowGroupCount = store.rowGroupCount();
+    final long[] keep = ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
+    final int window = ProjectionColumnStore.LEAF_ACCESS_WINDOW;
+    if (rowGroupCount <= window) {
+      return ProjectionColumnScan.conjunctiveCount(store, preds, 0, rowGroupCount,
+          store.windowedLeafAccess(fetcher, keep, window, window));
+    }
+    final int windows = (rowGroupCount + window - 1) / window;
+    final int eff = Math.min(threads, windows);
+    final int chunkSize = ((windows + eff - 1) / eff) * window;
+    final long[] perThread = new long[eff];
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to)
+        return;
+      perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to,
+          store.windowedLeafAccess(fetcher, keep, window, window));
+    });
+    long total = 0;
+    for (final long t : perThread) {
+      total += t;
+    }
+    return total;
+  }
+
   /** Chunked parallel slice long-aggregate; exact integer merges. */
   private long[] sliceAggregateParallel(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int col,
@@ -7072,6 +7107,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (store != null && predsSliceable(store, preds)) {
       try {
         return sliceCountParallel(store, preds, fetcher);
+      } catch (final ProjectionColumnStore.FillBudgetExceededException declined) {
+        // The residency budget refused to RETAIN a predicate column (a fat id lane beside what
+        // earlier queries already hold), which says nothing about the kernel: the same sliced count
+        // runs over windowed slices of the predicate columns alone. The whole-leaf byte route below
+        // would hydrate every column of every row group per try — q20 at 100M: 4.7 s against 0.05 s
+        // with the fill retained, and ~0.2 s windowed.
+        if (PROJ_DIAG) {
+          System.err.println("[proj] sliced count fill declined by budget, counting windowed: "
+              + declined.getMessage());
+        }
+        return windowedCountParallel(store, preds, fetcher);
       } catch (final IllegalStateException ise) {
         // Corrupt/missing slices — eager path re-surfaces through fail-soft. Silent by design, but
         // silence here also hides a column kind the sliced path simply does not handle yet, which
