@@ -160,6 +160,13 @@ public final class PageUtils {
       return;
     }
 
+    // OverflowPage carries no references and its getReferences() THROWS — reaching it through the
+    // generic path below built a full UnsupportedOperationException stack trace per side-overflow
+    // read (6.3% of idx39's windowed-scan CPU). The skip is the contract stated cheaply.
+    if (page instanceof OverflowPage) {
+      return;
+    }
+
     // Some page types (like UberPage) don't have PageReferences to fix up
     try {
       var references = page.getReferences();
