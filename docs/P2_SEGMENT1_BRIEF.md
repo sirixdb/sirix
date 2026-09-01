@@ -1493,3 +1493,25 @@ differently, resolving on demand, or parallelising all return the same VALUES �
 performance invariant no test can defend must be WRITTEN.** Reader-side install remains, held to three
 agreed conditions: installed before the first chunk attaches; refusal throws, never degrades; `valueOf`
 owns the live-count check.
+
+## STAGE B BOUNDARY (2026-09-01 evening): everything owned is complete; the install is next session's first action
+
+**Eleven commits, tree clean, twelve-case lane witness plus four neighbouring suites green, everything
+INERT** — format, encoder, resolver, page hand-off, and read-path resolution are all in; nothing installs a
+resolver, so no page can produce or require a global tag.
+
+**The one remaining piece — the reader-side resolver install in `NodeStorageEngineReader` — is fully
+specified and deliberately NOT started:**
+- Mirror `fsstSymbolTablesById`'s lazy init (the registry is opened FROM a reader; eager holding is
+  impossible — the same constraint, again).
+- The tag→dictionary map's source is `ProjectionIndexRowExtractor`'s flattened (pathNodeKey → column)
+  pairs, joined with the handle's per-column anchors. **It is MANY-TO-ONE by design** (one field path
+  resolves to several path node keys under different roots) — "one column, one tag" is the false
+  simplification a builder would reach for.
+- Held to the three agreed conditions: installed before the first chunk attaches; refusal throws, never
+  degrades; `valueOf` owns the live-count check.
+
+The implementer stopped at this boundary on their own judgement: a substantial change in the reviewer's
+file at the end of a long stretch is how this campaign's two silent bugs were written. **Next session:
+the install → the 1M gates (byte-identical JSON round-trip, census shrink, 12g leg protocol) → the 100M
+build at ~52.5 GB; OriginalURL (−1.9) closes to ~50.6.**
