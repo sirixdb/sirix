@@ -13398,11 +13398,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
       final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null && !globalRegexKey;
       // Composite flat arm (unit 4): multi-key and transformed keys, CD and all three key
-      // transforms included — condition columns are gated NUMERIC_LONG upstream.
-      // Untransformed/conditional global components fold in the whole-leaf composite kernel only
-      // (the sliced composite kernel reads per-leaf dictionaries) — routing, not a decline.
+      // transforms included — condition columns are gated NUMERIC_LONG upstream. Global components
+      // slice in every shape: the id lane IS the identity (one exact lane, no per-leaf dictionary,
+      // no identity proof), the resolved else id serves the conditional, and only winners
+      // materialize their value — measured on idx39 at 100M, the whole-leaf fallback assembled
+      // 26 GB of payloads per pass for eight needed columns.
       final boolean compositeSlicedArm =
-          groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null && !hasGlobalComposite;
+          groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null;
       final boolean packedSlicedArm = groupSliced && packedStringKey && orderPlan != null;
       // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
       // the flat arms, which never touch payloads).
@@ -13694,7 +13696,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                                     ? cdBudgets[idx]
                                     : null,
                                 keyOffsetsEff, keySubstrEff, transformDecline, keyCondCols, condColsNow, keyCondLits, keyCondElseBytes,
-                                keyDivModEff, globalKeyViews, compositeIdentityRegistry);
+                                keyDivModEff, globalKeyViews, compositeIdentityRegistry, globalCondElseIdsF);
                           } else {
                             ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(sub, subEnd), preds,
                                 groupCols, aggColsFlat, local, sub, cdBlock, cdBlock >= 0

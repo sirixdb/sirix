@@ -1531,6 +1531,7 @@ public final class ProjectionColumnStore {
   public boolean columnsFitWithinBudget(final int[] columns, final int identityColumn) {
     long needed = 0L;
     final boolean[] counted = new boolean[columnKinds.length];
+    final StringBuilder diag = Boolean.getBoolean("sirix.projDiag") ? new StringBuilder() : null;
     for (final int col : columns) {
       if (col < 0 || col >= columnKinds.length) {
         return false;
@@ -1539,15 +1540,31 @@ public final class ProjectionColumnStore {
         continue;
       }
       counted[col] = true;
+      final long priced;
       if (col == identityColumn) {
-        if (!columnIdentityFilled(col)) {
-          needed += incrementalFillBytes(col, projectedColumnIdentityFillBytes(col));
-        }
-        continue;
+        priced = columnIdentityFilled(col)
+            ? 0L
+            : incrementalFillBytes(col, projectedColumnIdentityFillBytes(col));
+      } else {
+        priced = incrementalFillBytes(col, projectedColumnFillBytes(col));
       }
-      needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
+      needed += priced;
+      if (diag != null) {
+        diag.append(" col=")
+            .append(col)
+            .append(":kind=")
+            .append(columnKinds[col])
+            .append(":")
+            .append(priced >> 20)
+            .append("MB");
+      }
     }
-    return retainedFillBytes.get() + needed <= residencyBudgetBytes();
+    final boolean fits = retainedFillBytes.get() + needed <= residencyBudgetBytes();
+    if (diag != null && !fits) {
+      System.err.println("[store] combined fit REFUSED: needed=" + (needed >> 20) + "MB retained="
+          + (retainedFillBytes.get() >> 20) + "MB budget=" + (residencyBudgetBytes() >> 20) + "MB" + diag);
+    }
+    return fits;
   }
 
   /**

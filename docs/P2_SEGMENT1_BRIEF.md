@@ -1528,3 +1528,33 @@ FORMAT change** (the lane would have to carry its own width, losing the no-drift
 requires lazy chunks; **§6.4 struck through** as never built and superseded. General rule banked for
 derived fields (widths, offsets, capacities): name the property the derivation rests on, then assert it at
 the cheapest point it can be violated. 12 commits, 13/13, tree clean; write path has no open findings.
+
+## 2026-09-01 evening: idx39 fixed — the composite sliced arm now takes global components (1.53 cold / 0.47 hot vs 6.5/4.6)
+
+**The "fill estimator misprices kind-5" theory died in one instrumented run.** A projDiag print added to
+`ProjectionColumnStore.columnsFitWithinBudget` (kept, diag-gated) named the refusal exactly: `needed=6925MB
+budget=3072MB`, eight columns each priced honestly — the two kind-5 columns at ~1.0–1.1 GB (packed lane +
+8 B/row decoded), NOT the 26 GB whole-leaf figure. The one-variable A/B (budget alone raised to 8 GB)
+admitted residency and was SLOWER (hot 4.55 → 5.58 s): residency was never the lever.
+
+**The real defect was the arm gate.** `compositeSlicedArm` carried `!hasGlobalComposite` from before the
+sliced composite kernel knew kind-5, so idx39 (group by 3 numerics + URL + conditional Referer) fell to
+`ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat` over whole-leaf windowed payloads —
+the CPU profile put 62 % under `ProjectionWindowedRowGroupPayloads.materialize`/`assembleRaw` (memcpy
+14.6 %, getLongLE 9.8 %, overflow-page reads 22 %): 26 GB of payload assembled per pass to read ~7 GB of
+columns, three passes (cold + 2 hot tries).
+
+**The port (ProjectionColumnGroupScan): kind-5 is the EASY composite component.** `CompositeGroupIdentity`
+already priced it (one exact lane, no fingerprint) — only the kernel branches were missing, each a faithful
+mirror of the whole-leaf kernel's: untransformed → the id IS the identity (`mix(gid)`, no dictionary bytes,
+no proof registry); conditional-then → same id domain; conditional-else → the literal's RESOLVED global id
+(new `globalCondElseIds` parameter, threaded from the executor's existing resolution) so an else-row merges
+exactly with a then-row holding the same value; winner emission → `valueAsString(id)`, one dictionary read
+per winner. Slice setup now demands a readable view in every global shape instead of positive-substring.
+Gate: `!hasGlobalComposite` dropped.
+
+Verified: 43/43 dumps byte-identical to the campaign baseline; routes identical on every query; leg GCOMP1
+vs INC105 (single pair, 12g envelope): **cold 364.4 → 310.7, hot 285.8 → 245.3; idx39 in-suite 11.4 → 0.51
+hot**. Only q20 (predicate-count, code path untouched) regressed in the pair — environmental (its cold try
+sits behind q18's 55-s try); needs six pairs before anyone chases it. idx39 hot beats the old-DB baseline's
+1.3 s — the first query where the storage lever's serving shape WINS the query too.

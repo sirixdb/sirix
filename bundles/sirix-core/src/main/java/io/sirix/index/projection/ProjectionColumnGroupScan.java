@@ -764,7 +764,7 @@ public final class ProjectionColumnGroupScan {
       final GlobalValueDictionary.ReadView[] globalKeyViews) {
     aggregateByGroupCompositeFlat(store, predicates, predCols, treeOrNull, treeCols, keyCols, keyKinds, aggCols,
         fromLeaf, toLeaf, out, distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, keyCondCols,
-        condCols, keyCondLits, keyCondElseBytes, keyDivMod, globalKeyViews, null);
+        condCols, keyCondLits, keyCondElseBytes, keyDivMod, globalKeyViews, null, null);
   }
 
   /**
@@ -782,6 +782,9 @@ public final class ProjectionColumnGroupScan {
    *
    * @param identityRegistry shared across this scan's workers, or {@code null} when every component
    *        is numeric or substring-cast and therefore already exact in one lane
+   * @param globalCondElseIds per-component RESOLVED global ids of conditional else literals
+   *        ({@link Long#MIN_VALUE} = not a global conditional component), or {@code null} when no
+   *        global component carries one — mirrors the whole-leaf kernel's contract exactly
    */
   public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
@@ -792,7 +795,7 @@ public final class ProjectionColumnGroupScan {
       final int[] keySubstr, final long[] declineFlag, final int[] keyCondCols, final ColumnSlice[][] condCols,
       final long[] keyCondLits, final byte[][] keyCondElseBytes, final long[] keyDivMod,
       final GlobalValueDictionary.ReadView[] globalKeyViews,
-      final ProjectionStringIdentityRegistry identityRegistry) {
+      final ProjectionStringIdentityRegistry identityRegistry, final long[] globalCondElseIds) {
     if (predicates == null || out == null || aggCols == null || keyCols == null) {
       throw new IllegalArgumentException("predicates, out, aggCols and keyCols must not be null");
     }
@@ -869,6 +872,23 @@ public final class ProjectionColumnGroupScan {
         : null;
     if (keyCondCols != null) {
       for (int k = 0; k < keyCount; k++) {
+        if (keyCondElseBytes[k] != null && keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // GLOBAL then-branch: identity space is the id space, so the else literal is its
+          // RESOLVED id — a then-row holding the same value merges exactly. An uninterned literal
+          // means no stored row can equal it, and the caller's sentinel (-2, below every real id
+          // and outside the presence-marked constants) keeps the else group separate.
+          final long elseId = globalCondElseIds != null
+              ? globalCondElseIds[k]
+              : Long.MIN_VALUE;
+          if (elseId == Long.MIN_VALUE) {
+            throw new IllegalStateException(
+                "global conditional component " + k + " reached the sliced kernel without a resolved else id");
+          }
+          condElseHash[k] = HashCommon.mix(elseId);
+          condElseIdA[k] = elseId;
+          condElseIdB[k] = 0L;
+          continue;
+        }
         // Both roles of the literal — the conditional else branch and the fn:string
         // missing-value substitution — hash once here, in the dictionary's own domain.
         if (keyCondElseBytes[k] != null) {
@@ -917,10 +937,12 @@ public final class ProjectionColumnGroupScan {
         // identity, and the winner's text is rendered from it when the group is emitted.
         if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])
             || keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // A global component in EVERY shape (substring-cast, conditional, untransformed) needs a
+          // readable dictionary view: the substring shape transforms through it per distinct id,
+          // and the other two materialize winners from it. The id lane itself is the identity.
           if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-              && (globalKeyViews == null || globalKeyViews.length != keyCount || globalKeyViews[k] == null
-                  || keySubstr == null || keySubstr[2 * k] <= 0)) {
-            throw new IllegalStateException("global composite key requires a readable positive-substring view");
+              && (globalKeyViews == null || globalKeyViews.length != keyCount || globalKeyViews[k] == null)) {
+            throw new IllegalStateException("global composite key requires a readable dictionary view");
           }
           compValues[k] = slice.numericValues();
           compIds[k] = null;
@@ -1124,6 +1146,12 @@ public final class ProjectionColumnGroupScan {
                 if (twoLane[k]) {
                   identity[lane + 1] = 0L;
                 }
+              } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+                // Conditional THEN over a global component: the id is the exact identity, in the
+                // same lane domain the resolved else id lives in.
+                final long gid = compValues[k][rowIdx];
+                compHash = HashCommon.mix(gid);
+                identity[lane] = gid;
               } else {
                 final int dictId = compIds[k][rowIdx];
                 if (compNeedsProof[k] && !ProjectionIndexByteScan.proveOnFirstUse(identityRegistry, proofCache, k,
@@ -1175,14 +1203,22 @@ public final class ProjectionColumnGroupScan {
               compHash = HashCommon.mix(v);
               identity[lane] = v;
             } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
-              final long transformed = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(compValues[k][rowIdx]),
-                  keySubstr[2 * k], keySubstr[2 * k + 1]);
-              if (transformed == Long.MIN_VALUE) {
-                declineFlag[0] = 1;
-                return;
+              if (subTransformed) {
+                final long transformed = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(compValues[k][rowIdx]),
+                    keySubstr[2 * k], keySubstr[2 * k + 1]);
+                if (transformed == Long.MIN_VALUE) {
+                  declineFlag[0] = 1;
+                  return;
+                }
+                compHash = HashCommon.mix(transformed);
+                identity[lane] = transformed;
+              } else {
+                // Untransformed global component: the id IS the exact identity — no dictionary
+                // bytes read, no content hash, one lane.
+                final long gid = compValues[k][rowIdx];
+                compHash = HashCommon.mix(gid);
+                identity[lane] = gid;
               }
-              compHash = HashCommon.mix(transformed);
-              identity[lane] = transformed;
             } else {
               final int dictId = compIds[k][rowIdx];
               if (compNeedsProof[k] && !ProjectionIndexByteScan.proveOnFirstUse(identityRegistry, proofCache, k,
@@ -1286,13 +1322,19 @@ public final class ProjectionColumnGroupScan {
             ? keyOffsets[k]
             : 0L), keyDivMod, k);
       } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
-        if (globalKeyViews == null || globalKeyViews.length != keyCols.length || globalKeyViews[k] == null
-            || keySubstr == null || keySubstr[2 * k] <= 0) {
-          throw new IllegalStateException("global composite winner requires a readable positive-substring view");
+        if (globalKeyViews == null || globalKeyViews.length != keyCols.length || globalKeyViews[k] == null) {
+          throw new IllegalStateException("global composite winner requires a readable dictionary view");
         }
-        outIsLong[k] = true;
-        outLongs[k] = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(slice.numericValues()[rowIdx]),
-            keySubstr[2 * k], keySubstr[2 * k + 1]);
+        if (keySubstr != null && keySubstr[2 * k] > 0) {
+          outIsLong[k] = true;
+          outLongs[k] = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(slice.numericValues()[rowIdx]),
+              keySubstr[2 * k], keySubstr[2 * k + 1]);
+        } else {
+          // Untransformed (or conditional-then) global component: the winner's key part is the
+          // interned value itself — one dictionary read per winner.
+          outIsLong[k] = false;
+          outStrings[k] = globalKeyViews[k].valueAsString(Math.toIntExact(slice.numericValues()[rowIdx]));
+        }
       } else {
         final int dictId = slice.stringDictIds()[rowIdx];
         if (keySubstr != null && keySubstr[2 * k] > 0) {
