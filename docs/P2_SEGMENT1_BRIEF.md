@@ -1292,3 +1292,30 @@ conflated the load JVM (completed twice, printed twice) with the killed build JV
 measured: 59.0 / 9.7 / 19.8.** The lesson pairs with the night's family: a verified negative is only as
 good as the place searched and the process model behind it — and an unanswered load-bearing question must
 be re-asked, not worked around.
+
+## 2026-09-01 morning: the incremental route, the pristine number, and three serving fixes — COMMITTED
+
+**The user lifted the no-commit hold; the morning's work is in as `2bb4f5900` (incremental fresh-build
+route), `3d37e5325` (transformed-hash sweep + memo elimination), `2b07a6bf0` (order-preserving compareIds).**
+
+The arc: the post-run projection walk (110 min single-threaded against a >RAM file; three launches killed by
+wrapper/sandbox reaping) was replaced by the INCREMENTAL route — a pre-import seam commits the rank
+dictionaries into the empty resource, and ONE 56.6-minute load produces the complete database:
+**63,326,782,966 B vs the 69.63 GB baseline (−6.30 GB, −9.05 %) — the ≥5.0 GB clause met on a pristine
+measured file**, doc reproduced byte-for-byte, census `residual=0`, 43/43 identical at 100M.
+
+Then the latency campaign, three profiles, three mechanisms, one query at a time:
+| q28 (regex group over Referer), hot @100M | |
+|---|---|
+| pre-fix | 330 s |
+| + precomputed hash sweep (2.6 s for 19.7M ids) | 122 s |
+| + giant-memo elimination | 59 s |
+| + **integer compareIds on rank order** | **16.3 s = baseline (cold BETTER: 20.6 vs 21.0)** |
+
+The third fix generalized: string extrema over global columns became id-lane min/max — **idx31 7.5 vs
+baseline 20.9, idx32 32.0 vs 89.4 (2.8× wins)**. Post-fix single-query state: **one regression remains in
+the suite** — idx39 (1.3 → ~6 s), profiled to its mechanism: a global group column forces the whole-payload
+arm where the baseline sliced; arm admission for global id lanes is the named next item. Also banked from
+the profiles: ~2k samples of `Throwable::fill_in_stack_trace` on a hot path (investigate), and q28's
+remaining cost is the generic payload-materialization arm — a top-10-queries lever, not a regression. Full
+post-fix leg INC102 in flight at write time.
