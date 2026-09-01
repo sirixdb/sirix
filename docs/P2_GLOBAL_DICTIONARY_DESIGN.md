@@ -1889,6 +1889,32 @@ liability.
    && trxIntentLog == null` (`NodeStorageEngineReader:1738`) and the cache loader at `:2465-2467`
    chooses `readRecordPageLazily` only for point lookups, so scans, serializer walks and column fills
    are all eager. The lane is currently unreadable by anything but a point lookup.
+
+   **SCOPED, and it is smaller than "a change to how record pages are loaded".** The two clauses of
+   that predicate have different standing. `trxIntentLog == null` is a correctness rule — a write
+   transaction's copy-on-write hands the page to a combine that reads every slot, and the versioned
+   sweep tripped `noFragmentIsLazy` on exactly that path. **`pointLookup` is a PERFORMANCE heuristic**:
+   the javadoc at `:1683-1687` says only that *"a scan reads every slot, so laziness would buy it
+   nothing and cost it a gate per record"*. So the change is plausibly
+   `lazyEligible = (pointLookup || resourceUsesTheTrieLane) && trxIntentLog == null`.
+
+   **Scan-side audit — done, and clean.** Every consumer that demands a materialised page:
+   `ColumnarPageExtractor` (live via `ColumnarScanAxis`) asserts `isFullyMaterialized()` and reads the
+   heap directly — but it is fed by `PageScanIterator:143`, which **explicitly does not trust the load
+   policy** and calls `ensureAllChunks()` itself, for a reason its own comment states: a page in the
+   shared cache may have been put there by a point lookup on another transaction. The remaining sites
+   (`VersioningType.noFragmentIsLazy`, `NodeStorageEngineReader:2822/2853/2896`) are all on the combine
+   path, which no page reaches under FULL versioning. So no scan-side consumer breaks; the extractor's
+   own comment ("only ever handed pages the load policy decoded whole") names the wrong protector.
+
+   **It also explains the observed failure.** `PageScanIterator` calls the ONE-argument
+   `getRecordPage`, i.e. `pointLookup=false`, so a scan gets an eager page and a converted one refuses
+   — which is the path the subtree serialization was hitting. The same route passes through the
+   two-argument wrapper where trie-lane resolution runs, so a converted page acquired by a scan would
+   be resolved before its `ensureAllChunks()`.
+
+   Unverified: this is read from javadoc and control flow, not measured. The witness is the subtree
+   round-trip that currently fails.
 2. **The framing decomposition must come back favourable** — the +16.6 % chunked-body overhead on
    record pages, broken down (chunk directory / per-chunk headers / alignment padding / duplicated
    lengths) with one chunked page dumped beside its unchunked twin. Reducible to low single digits →
