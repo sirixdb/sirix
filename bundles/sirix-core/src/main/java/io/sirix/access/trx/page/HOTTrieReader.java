@@ -1125,6 +1125,23 @@ public final class HOTTrieReader implements AutoCloseable {
    * @return the leaf page, or null if not found
    */
   public @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
+    return navigateToLeaf(rootRef, key, key.length);
+  }
+
+  /**
+   * {@link #navigateToLeaf(PageReference, byte[])} over the first {@code keyLen} bytes of
+   * {@code key}. The point-lookup path routes from an oversized reusable buffer this way, with no
+   * exactly-sized copy of the seek key per call: every routing decision below takes the key's length
+   * from {@code keyLen}, and nothing reads {@code key.length}.
+   *
+   * @param rootRef the root reference
+   * @param key the search key bytes
+   * @param keyLen number of leading bytes of {@code key} that form the search key
+   * @return the leaf the key routes to, or {@code null} if the trie is empty or the key routes
+   *         nowhere
+   */
+  public @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key, int keyLen) {
+    Objects.checkFromIndexSize(0, keyLen, key.length);
     pathDepth = 0;
     PageReference currentRef = rootRef;
 
@@ -1143,7 +1160,7 @@ public final class HOTTrieReader implements AutoCloseable {
       }
 
       // Find child reference using HOT node type-specific logic (uses PEXT/Long.compress)
-      final int childIndex = hotNode.findChildIndex(key);
+      final int childIndex = hotNode.findChildIndex(key, keyLen);
       if (childIndex < 0) {
         return null; // Key not found
       }

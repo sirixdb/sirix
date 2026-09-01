@@ -522,9 +522,24 @@ public final class HOTIndirectPage implements Page {
    * @return child index, or {@link #NOT_FOUND} (-1) if not found
    */
   public int findChildIndex(byte[] key) {
+    return findChildIndex(key, key.length);
+  }
+
+  /**
+   * {@link #findChildIndex(byte[])} over the first {@code keyLen} bytes of {@code key}. Every routing
+   * decision takes the search key's length from THIS parameter and never from {@code key.length},
+   * which is what lets a point lookup route straight out of an oversized reusable buffer instead of
+   * copying the seek key into an exactly-sized array per call.
+   *
+   * @param key the search key bytes
+   * @param keyLen number of leading bytes of {@code key} that form the search key
+   * @return child index, or {@link #NOT_FOUND} (-1) if not found
+   */
+  public int findChildIndex(byte[] key, int keyLen) {
+    Objects.checkFromIndexSize(0, keyLen, key.length);
     return switch (nodeType) {
-      case SPAN_NODE -> findChildSpanNode(key);
-      case MULTI_NODE -> findChildMultiNode(key);
+      case SPAN_NODE -> findChildSpanNode(key, keyLen);
+      case MULTI_NODE -> findChildMultiNode(key, keyLen);
     };
   }
 
@@ -543,10 +558,15 @@ public final class HOTIndirectPage implements Page {
    * @return the dense partial key (the disc bits of {@code key} packed into an int)
    */
   public int computeDensePartialKey(byte[] key) {
+    return computeDensePartialKey(key, key.length);
+  }
+
+  /** {@link #computeDensePartialKey(byte[])} over the first {@code keyLen} bytes of {@code key}. */
+  public int computeDensePartialKey(byte[] key, int keyLen) {
     if (layoutType == LayoutType.MULTI_MASK) {
-      return computeMultiMaskPartialKey(key);
+      return computeMultiMaskPartialKey(key, keyLen);
     }
-    return (int) Long.compress(getKeyWordAt(key, initialBytePos), bitMask);
+    return (int) Long.compress(getKeyWordAt(key, initialBytePos, keyLen), bitMask);
   }
 
   /**
@@ -567,13 +587,13 @@ public final class HOTIndirectPage implements Page {
    * partial key is the most specific match for this key's bit pattern.
    * </p>
    */
-  private int findChildSpanNode(byte[] key) {
+  private int findChildSpanNode(byte[] key, int keyLen) {
     // SingleMask routing on a key shorter than the discriminative window routes to child 0 —
     // every disc bit is then implicitly 0. MultiMask handles short keys inside its own gather.
-    if (layoutType != LayoutType.MULTI_MASK && initialBytePos >= key.length) {
+    if (layoutType != LayoutType.MULTI_MASK && initialBytePos >= keyLen) {
       return 0;
     }
-    final int densePartialKey = computeDensePartialKey(key);
+    final int densePartialKey = computeDensePartialKey(key, keyLen);
 
     // Equality-preferred with subset fallback. HOT paper uses subset-
     // match for SIMD speed, but subset matching can deliver a key to a
@@ -635,14 +655,14 @@ public final class HOTIndirectPage implements Page {
    * extractMaskForMappedInput().
    * </p>
    */
-  private int computeMultiMaskPartialKey(byte[] key) {
+  private int computeMultiMaskPartialKey(byte[] key, int keyLen) {
     if (!gatherInitialized) {
       initGatherShuffle();
     }
     if (gatherFitsInVector) {
-      return computeMultiMaskPartialKeySIMD(key);
+      return computeMultiMaskPartialKeySIMD(key, keyLen);
     }
-    return computeMultiMaskPartialKeyScalar(key);
+    return computeMultiMaskPartialKeyScalar(key, keyLen);
   }
 
   /**
@@ -712,13 +732,13 @@ public final class HOTIndirectPage implements Page {
    * </ol>
    * </p>
    */
-  private int computeMultiMaskPartialKeySIMD(byte[] key) {
+  private int computeMultiMaskPartialKeySIMD(byte[] key, int keyLen) {
     final int vectorLen = BYTE_SPECIES.length();
     final int loadEnd = gatherLoadOffset + vectorLen;
 
     // Load key bytes into vector. If key is shorter than the load window, pad with zeros.
     final ByteVector keyVec;
-    if (gatherLoadOffset + vectorLen <= key.length) {
+    if (gatherLoadOffset + vectorLen <= keyLen) {
       // Fast path: entire load window fits in key
       keyVec = ByteVector.fromArray(BYTE_SPECIES, key, gatherLoadOffset);
     } else {
@@ -727,7 +747,7 @@ public final class HOTIndirectPage implements Page {
       // per worker thread and re-used across calls. Touch only the bytes we're not going to
       // overwrite from the key (`available .. vectorLen`) so the prefix is filled fresh.
       final byte[] padded = SIMD_PADDED_SCRATCH.get();
-      final int available = Math.max(0, key.length - gatherLoadOffset);
+      final int available = Math.max(0, keyLen - gatherLoadOffset);
       if (available > 0) {
         System.arraycopy(key, gatherLoadOffset, padded, 0, available);
       }
@@ -774,7 +794,7 @@ public final class HOTIndirectPage implements Page {
    * rebuild can stream chunk-by-chunk without losing intermediate state.
    * </p>
    */
-  private int computeMultiMaskPartialKeyScalar(byte[] key) {
+  private int computeMultiMaskPartialKeyScalar(byte[] key, int keyLen) {
     final int numChunks = extractionMasks.length;
     int totalBits = 0;
     for (final long m : extractionMasks) {
@@ -783,7 +803,6 @@ public final class HOTIndirectPage implements Page {
 
     int result = 0;
     int shift = totalBits;
-    final int keyLen = key.length;
     for (int chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
       final int chunkStart = chunkIdx * 8;
       final int chunkEnd = Math.min(chunkStart + 8, numExtractionBytes);
@@ -809,17 +828,17 @@ public final class HOTIndirectPage implements Page {
   /**
    * MultiNode lookup: Direct byte indexing.
    */
-  private int findChildMultiNode(byte[] key) {
+  private int findChildMultiNode(byte[] key, int keyLen) {
     // If sparsePartialKeys is available, use SIMD-accelerated search (same as SpanNode)
     if (sparsePartialKeys != null) {
-      return findChildSpanNode(key);
+      return findChildSpanNode(key, keyLen);
     }
 
     // Otherwise use direct byte indexing via childIndex array
     if (childIndex == null) {
       return 0; // Fallback
     }
-    if (initialBytePos >= key.length) {
+    if (initialBytePos >= keyLen) {
       return childIndex[0] & 0xFF; // Default to first entry
     }
     int keyByte = key[initialBytePos] & 0xFF;
@@ -847,17 +866,17 @@ public final class HOTIndirectPage implements Page {
    * across siblings (Binna §4.2).
    * </p>
    */
-  private static long getKeyWordAt(byte[] key, int pos) {
+  private static long getKeyWordAt(byte[] key, int pos, int keyLen) {
     // HFT: the whole-window case — every descent level of a key long enough to reach it — is one
     // unaligned load plus a byte swap. The per-byte assembly below is only for the tail, where the
     // window runs past the end of the key and the missing bytes must read as 0x00. Measured
     // neutral on the profiled CAS index, same as the match-mask probe in findChildSpanNode: the
     // descent's cost is not in assembling this word.
-    if (pos >= 0 && pos + Long.BYTES <= key.length) {
+    if (pos >= 0 && pos + Long.BYTES <= keyLen) {
       return (long) BYTE_ARRAY_LONG_BE.get(key, pos);
     }
     long result = 0;
-    int end = Math.min(pos + 8, key.length);
+    int end = Math.min(pos + 8, keyLen);
     for (int i = pos; i < end; i++) {
       result |= ((long) (key[i] & 0xFF)) << ((7 - (i - pos)) * 8);
     }

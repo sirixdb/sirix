@@ -64,10 +64,10 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
   /**
    * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
-   * {@code MAX_STRING_VALUE_BYTES = 246}), rounded to 512 for headroom. Only the LOGICAL key is ever
-   * written here — the chunkIdx trailer is appended into a right-sized seek array by
-   * {@link AbstractHOTIndexReader#collectChunksViaLowerBoundWalk}, never in place, because the trie
-   * descent takes the search key's length from the array it is handed.
+   * {@code MAX_STRING_VALUE_BYTES = 246}) plus the 4-byte chunkIdx trailer, rounded to 512 for
+   * headroom. {@link AbstractHOTIndexReader#collectChunksViaLowerBoundWalk} writes that trailer IN
+   * PLACE after the logical key and hands the descent the composite length, so a point lookup routes
+   * straight out of this buffer with no per-call copy of the seek key.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 

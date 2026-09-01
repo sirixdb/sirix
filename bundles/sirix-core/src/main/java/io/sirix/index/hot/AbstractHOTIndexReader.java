@@ -394,17 +394,33 @@ public abstract class AbstractHOTIndexReader<K> {
       return null;
     }
     final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
-    // The seek key must be an EXACTLY-sized array, so it is built fresh rather than appended to the
-    // caller's oversized buffer in place. Not an oversight: the whole descent takes the search key's
-    // length from the array itself — HOTLeafPage.compareKeyWithBound reads bound.length and
-    // DiscriminativeBitComputer.computeDifferingBit reads both operands' lengths — so handing it a
-    // 512-byte thread-local buffer means "a 512-byte key padded with zeros", which routes and
-    // verifies against the wrong key and silently misses stored entries (measured: 13% of point
-    // lookups). Removing this allocation needs a length-parameterized HOTTrieReader.lowerBound, not
-    // a buffer trick.
-    final byte[] fromBytes = new byte[compositeLen];
-    System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
-    HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
+    // The seek key is `prefix ‖ chunk0`, and the fast path routes it straight out of the caller's
+    // buffer: the trailer is written IN PLACE after the prefix and the descent and the leaf search
+    // are handed the composite LENGTH, so no exactly-sized copy is built per lookup. That used to
+    // be an allocation plus an arraycopy on every point lookup, and it was not an oversight — the
+    // whole path then took the key's length from the array itself, so a 512-byte thread-local
+    // buffer meant "a 512-byte key with stale bytes past the end" and silently missed stored
+    // entries. Where that length is load-bearing was settled by mutation (see
+    // HOTIndexReaderLargeRoundTripTest): the IN-LEAF search — findEntry on the array's length
+    // misses 15% of a title index — while the descent tolerates trailing bytes by construction,
+    // since a sparse partial key asserts only bits within its subtree's keys. findEntry(key, keyLen)
+    // is what makes the in-place form correct; navigateToLeaf(rootRef, key, keyLen) keeps the
+    // descent's short-key early-out defined on the real length. The full lowerBound fallback still
+    // takes an array-sized key, so the copy survives there, built lazily on the rare path that
+    // needs it.
+    //
+    // Writing past prefixLen is safe for the caller: pointLookup's borrowed probe key froze its hash
+    // over [0, prefixLen) and copied exactly those bytes BEFORE this walk ran, and nothing here
+    // touches them.
+    final byte[] seekBuf;
+    if (prefixBuf.length >= compositeLen) {
+      seekBuf = prefixBuf;
+    } else {
+      seekBuf = new byte[compositeLen];
+      System.arraycopy(prefixBuf, 0, seekBuf, 0, prefixLen);
+    }
+    HOTKeySerializer.writeChunkIdxBE(seekBuf, prefixLen, 0);
+    byte[] fromBytes = null; // exact-length seek key for the lowerBound fallback, built on demand
 
     final ChunkWalkState pooled = pooledWalkState.getAndSet(null);
     final ChunkWalkState state = pooled != null
@@ -437,11 +453,11 @@ public abstract class AbstractHOTIndexReader<K> {
         HOTLeafPage leaf = null;
         int idx = 0;
         boolean torn = false;
-        final HOTLeafPage landing = trie.navigateToLeaf(rootRef, fromBytes);
+        final HOTLeafPage landing = trie.navigateToLeaf(rootRef, seekBuf, compositeLen);
         if (landing != null) {
           try {
             final int entryCount = landing.getEntryCount();
-            final int found = landing.findEntry(fromBytes);
+            final int found = landing.findEntry(seekBuf, compositeLen);
             final int insertion = found >= 0
                 ? found
                 : -(found + 1);
@@ -465,6 +481,9 @@ public abstract class AbstractHOTIndexReader<K> {
           continue;
         }
         if (leaf == null) {
+          if (fromBytes == null) {
+            fromBytes = Arrays.copyOf(seekBuf, compositeLen);
+          }
           final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
           leaf = lowerBound.leaf;
           idx = lowerBound.indexInLeaf;
