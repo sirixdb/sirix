@@ -329,6 +329,35 @@ public final class StringRegion {
      * </p>
      */
     public boolean[] tagGlobal;
+
+    /**
+     * For each global tag: the node key of the dictionary its ids were encoded against.
+     *
+     * <p>
+     * The page NAMES its dictionary, exactly as an FSST page names its symbol table, and for the
+     * same reason: resolution has to be a pure function of the page. It is not otherwise — a
+     * dictionary is a function of (resource, generation), a rank rebuild REASSIGNS every id, and a
+     * copy-on-write leaf written against one generation stays reachable after the next. Resolving
+     * such a leaf against "the current dictionary" returns plausible wrong values for a page nobody
+     * touched, which is the same shape as a verdict keyed without its cardinality.
+     * </p>
+     */
+    public long[] tagDictionaryKey;
+
+    /**
+     * For each global tag: the dictionary's entry count when the page was encoded.
+     *
+     * <p>
+     * What it proves and what it does not, stated because a resolver has to know the difference. A
+     * rank-ordered dictionary only ever APPENDS in collation order, so ids {@code 1..n} keep their
+     * values as it grows: a current count at least this one means every id this page stores is
+     * still the value it was. A SMALLER count is a different dictionary under a reused key, and the
+     * resolver must refuse rather than resolve. It does not prove the absence of a rebuild that
+     * happens to land on the same key with at least as many entries — that case is closed by the
+     * key changing on rebuild, and the count is the second line, not the first.
+     * </p>
+     */
+    public int[] tagDictionaryEntryCount;
     /**
      * For each tag: index of its first value within the packed dict-id lane. Equals
      * {@link #tagStart} whenever no tag took the plain lane, which is every page of the dictionary
@@ -373,6 +402,10 @@ public final class StringRegion {
         tagStringDictOffset = new int[Math.max(4, parentDictSize)];
       if (tagGlobal == null || tagGlobal.length < parentDictSize)
         tagGlobal = new boolean[Math.max(4, parentDictSize)];
+      if (tagDictionaryKey == null || tagDictionaryKey.length < parentDictSize)
+        tagDictionaryKey = new long[Math.max(4, parentDictSize)];
+      if (tagDictionaryEntryCount == null || tagDictionaryEntryCount.length < parentDictSize)
+        tagDictionaryEntryCount = new int[Math.max(4, parentDictSize)];
       for (int i = 0; i < parentDictSize; i++) {
         parentDict[i] = getInt(payload, pos);
         pos += 4;
@@ -515,6 +548,21 @@ public final class StringRegion {
           throw new IllegalArgumentException("string region tag " + t + " declares dictionary size " + dictSize);
         }
         tagStringDictSize[t] = (int) dictSize;
+        if (global) {
+          // The anchor rides immediately after the meta word, varint-encoded: a dictionary's header
+          // key and its entry count are both small numbers, so naming the dictionary costs about
+          // four bytes per global tag against the hundreds it removes.
+          final long dictionaryKey = VarInt.readUnsigned(payload, pos);
+          pos += VarInt.sizeOfUnsigned(dictionaryKey);
+          final long encodedEntries = VarInt.readUnsigned(payload, pos);
+          pos += VarInt.sizeOfUnsigned(encodedEntries);
+          if (dictionaryKey <= 0L || encodedEntries < dictSize) {
+            throw new IllegalArgumentException("string region tag " + t + " names dictionary " + dictionaryKey
+                + " with " + encodedEntries + " entries, which cannot hold its " + dictSize + " ids");
+          }
+          tagDictionaryKey[t] = dictionaryKey;
+          tagDictionaryEntryCount[t] = (int) Math.min(encodedEntries, Integer.MAX_VALUE);
+        }
         if (plain) {
           tagIdLaneStart[t] = -1;
         } else {
@@ -582,6 +630,12 @@ public final class StringRegion {
       }
       if (tagGlobal == null || tagGlobal.length < size) {
         tagGlobal = new boolean[capacity];
+      }
+      if (tagDictionaryKey == null || tagDictionaryKey.length < size) {
+        tagDictionaryKey = new long[capacity];
+      }
+      if (tagDictionaryEntryCount == null || tagDictionaryEntryCount.length < size) {
+        tagDictionaryEntryCount = new int[capacity];
       }
       if (tagStringDictSize == null || tagStringDictSize.length < size) {
         tagStringDictSize = new int[capacity];
@@ -1785,6 +1839,8 @@ public final class StringRegion {
           previousTag = tagValueGlobal;
           headerSize += VarInt.sizeOfUnsigned(values);
           headerSize += VarInt.sizeOfUnsigned(globalTagMeta(sz));
+          headerSize += VarInt.sizeOfUnsigned(dictionaries.dictionaryKey(tagValueGlobal));
+          headerSize += VarInt.sizeOfUnsigned(dictionaries.dictionaryEntryCount(tagValueGlobal));
           laneValues += values;
           if (sz > maxLaneDict) {
             maxLaneDict = sz;
@@ -1851,6 +1907,12 @@ public final class StringRegion {
         pos = VarInt.writeUnsigned(output, pos, globalTag[r]
             ? globalTagMeta(tagDictSize[t])
             : tagMeta(plain[r], widths[r], tagDictSize[t]));
+        if (globalTag[r]) {
+          // The page names the dictionary it was encoded against and how large it was, so that
+          // resolution is a function of the page rather than of whatever is current.
+          pos = VarInt.writeUnsigned(output, pos, dictionaries.dictionaryKey(tagValue));
+          pos = VarInt.writeUnsigned(output, pos, dictionaries.dictionaryEntryCount(tagValue));
+        }
       }
       previousSuppressed = 0;
       for (int t = 0; t < tagOrder.size(); t++) {

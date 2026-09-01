@@ -76,4 +76,32 @@ public interface GlobalStringDictionaries {
    * </p>
    */
   byte @Nullable [] valueOf(int tag, int id);
+
+  /**
+   * The node key of the dictionary {@code tag} resolves against, so the page can NAME it.
+   *
+   * <p>
+   * Written into the region beside the ids, and the reason the trie lane is safe at all. A
+   * dictionary is a function of (resource, generation), not of the page, and a rank rebuild
+   * REASSIGNS every id — so a copy-on-write leaf written against one generation and still reachable
+   * after the next would resolve its ids against the wrong dictionary and return plausible wrong
+   * values for a page nobody touched. Naming the dictionary makes resolution a function of the page
+   * again, which is the property that lets FSST pages cache their symbol table safely.
+   * </p>
+   */
+  long dictionaryKey(int tag);
+
+  /**
+   * The dictionary's entry count at encode time — the freshness half of the anchor.
+   *
+   * <p>
+   * A rank-ordered dictionary only ever APPENDS in collation order, so ids {@code 1..n} keep their
+   * values as it grows: a live count at least this one means every id the page stores is still the
+   * value it stored. A SMALLER live count is a different dictionary under a reused key and must be
+   * refused rather than resolved. It does not by itself exclude a rebuild that lands on the same key
+   * with at least as many entries — the key changing on rebuild is what closes that, and this is the
+   * second line rather than the first.
+   * </p>
+   */
+  int dictionaryEntryCount(int tag);
 }

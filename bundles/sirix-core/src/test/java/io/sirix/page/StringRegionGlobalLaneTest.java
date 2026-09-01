@@ -33,7 +33,7 @@ final class StringRegionGlobalLaneTest {
   private static final int PLAIN_TAG = 9;
 
   /** A dictionary that holds exactly what it was given, so an "absent" case is constructible. */
-  private static final class FakeDictionary implements GlobalStringDictionaries {
+  private static class FakeDictionary implements GlobalStringDictionaries {
     private final Map<String, Integer> ids = new HashMap<>();
     private final Map<Integer, byte[]> values = new HashMap<>();
     private final int tag;
@@ -62,6 +62,16 @@ final class StringRegionGlobalLaneTest {
     @Override
     public byte @Nullable [] valueOf(final int t, final int id) {
       return t == tag ? values.get(id) : null;
+    }
+
+    @Override
+    public long dictionaryKey(final int t) {
+      return 168227L;
+    }
+
+    @Override
+    public int dictionaryEntryCount(final int t) {
+      return ids.size();
     }
   }
 
@@ -160,6 +170,35 @@ final class StringRegionGlobalLaneTest {
     assertEquals(StringRegion.DICT_ID_UNDECIDABLE,
         StringRegion.findDictId(payload, header, tag, "alpha".getBytes(StandardCharsets.UTF_8), null),
         "a literal search must route to the dictionary, not scan an id table");
+  }
+
+  @Test
+  void aConvertedTagNamesTheDictionaryItWasEncodedAgainst() {
+    // The anchor is the difference between a format and a trap. Without it a copy-on-write leaf from
+    // an earlier generation resolves against whatever dictionary is current, and a rank rebuild
+    // reassigns every id -- plausible wrong values for a page nobody touched.
+    final FakeDictionary dict = new FakeDictionary(CONVERTED_TAG, "alpha", "beta");
+    final MemorySegment payload = encode(dict, CONVERTED_TAG, "alpha", "beta", "beta");
+    final StringRegion.Header header = parse(payload);
+    final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
+
+    assertEquals(168227L, header.tagDictionaryKey[tag], "the page must name its dictionary");
+    assertEquals(2, header.tagDictionaryEntryCount[tag], "and the cardinality it was encoded against");
+  }
+
+  @Test
+  void aTagNamingADictionaryTooSmallForItsIdsIsRefused() {
+    // A dictionary of two entries cannot have issued three ids, so a page claiming so is corrupt or
+    // stale. Refusing at parse is what stops it becoming values later.
+    final GlobalStringDictionaries lying = new FakeDictionary(CONVERTED_TAG, "alpha", "beta") {
+      @Override
+      public int dictionaryEntryCount(final int t) {
+        return 1; // fewer entries than the ids this tag stores
+      }
+    };
+    assertThrows(IllegalArgumentException.class,
+        () -> parse(encode(lying, CONVERTED_TAG, "alpha", "beta", "beta")),
+        "a tag naming a dictionary too small for its own ids must be refused");
   }
 
   @Test
