@@ -202,6 +202,39 @@ final class StringRegionGlobalLaneTest {
   }
 
   @Test
+  void idsArePackedAtTheWidthTheDictionarySizeImplies() {
+    // The fixture above has a two-entry dictionary, so its ids pack into 2 bits and a bug that
+    // defaulted the width to 32 would round-trip anyway. This one uses a dictionary big enough that
+    // the width is load-bearing: 1,000 entries need 10 bits, and ids 500 and 900 do not survive a
+    // narrower field or land correctly in a wider one.
+    final FakeDictionary wide = new FakeDictionary(CONVERTED_TAG, "alpha", "beta") {
+      @Override
+      public int dictionaryEntryCount(final int t) {
+        return 1000;
+      }
+
+      @Override
+      public int idOf(final int t, final byte[] value, final int offset, final int length) {
+        final String v = new String(value, offset, length, StandardCharsets.UTF_8);
+        return "alpha".equals(v) ? 500 : ("beta".equals(v) ? 900 : ID_ABSENT);
+      }
+    };
+    final MemorySegment payload = encode(wide, CONVERTED_TAG, "alpha", "beta", "beta");
+    final StringRegion.Header header = parse(payload);
+    final int tag = StringRegion.lookupTag(header, CONVERTED_TAG);
+
+    assertTrue(header.tagGlobal[tag]);
+    assertEquals(1000, header.tagDictionaryEntryCount[tag]);
+    // The ids survive the pack/unpack at ten bits, which they cannot do at a wrong width.
+    assertEquals(500, StringRegion.globalIdAt(payload, header, tag, 0));
+    assertEquals(900, StringRegion.globalIdAt(payload, header, tag, 1));
+
+    // And the table really is packed: two ids at 10 bits is 3 bytes, not 8.
+    final int idTableBytes = header.tagStringBytesOffset[tag] - header.tagStringDictOffset[tag];
+    assertEquals(3, idTableBytes, "two 10-bit ids must occupy 3 bytes, not " + idTableBytes);
+  }
+
+  @Test
   void globalIdAtRefusesATagThatIsNotGlobal() {
     final MemorySegment payload = encode(null, CONVERTED_TAG, "alpha", "beta", "beta");
     final StringRegion.Header header = parse(payload);

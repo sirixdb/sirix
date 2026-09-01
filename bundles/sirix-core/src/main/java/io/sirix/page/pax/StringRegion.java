@@ -170,6 +170,27 @@ public final class StringRegion {
   private static final int GLOBAL_WIDTH_CODE = 3;
 
   /**
+   * Bits per global id, DERIVED from the dictionary's entry count rather than stored.
+   *
+   * <p>
+   * Ids run {@code 1..entryCount}, so the count fixes the width exactly and a stored width could
+   * only ever disagree with it. That is the same discipline {@code valueBitWidth} already follows —
+   * derived from the dictionaries it addresses — and it is why the anchor pays for itself twice:
+   * it makes resolution a function of the page AND it sizes the lane.
+   * </p>
+   *
+   * <p>
+   * Worth 20 % of what the trie lane leaves behind. Post-lever the id table is 88 % of the region's
+   * remaining bytes, and URL's 18,342,018 distinct values need 25 bits rather than 32 — 111 MB
+   * written across the three columns at 100M. The earlier "the FOR re-pack is dead at 2.3 %" reading
+   * was true of the OLD lane and does not survive the lever that shrinks everything around it.
+   * </p>
+   */
+  static int globalIdBits(final int dictionaryEntryCount) {
+    return dictionaryEntryCount <= 0 ? 1 : 32 - Integer.numberOfLeadingZeros(dictionaryEntryCount);
+  }
+
+  /**
    * The global dictionary id stored for {@code dictId} under a tag whose dictionary is global.
    *
    * <p>
@@ -187,7 +208,11 @@ public final class StringRegion {
     if (dictId < 0 || dictId >= n) {
       throw new IndexOutOfBoundsException("dict id " + dictId + " outside tag " + tag + "'s " + n + " entries");
     }
-    return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4);
+    final int bits = globalIdBits(h.tagDictionaryEntryCount[tag]);
+    final long mask = bits == 32 ? 0xFFFFFFFFL : ((1L << bits) - 1L);
+    final long bitOff = (long) dictId * bits;
+    final int byteOff = h.tagStringDictOffset[tag] + (int) (bitOff >>> 3);
+    return (int) ((readUpToLongLE(payload, byteOff) >>> (int) (bitOff & 7L)) & mask);
   }
 
   /**
@@ -590,11 +615,13 @@ public final class StringRegion {
         final int width = tagLengthWidth[t];
         final long bytesStart = pos + (long) n * width;
         if (tagGlobal[t]) {
-          // Ids and nothing after them. Walking a length table here would read the ids AS lengths
-          // and advance pos by their sum, which is how a global tag came out claiming a payload
-          // larger than the page -- the loud failure that found this, rather than a quiet one.
-          tagStringBytesOffset[t] = (int) bytesStart;
-          pos = bytesStart;
+          // A PACKED id table and nothing after it. Walking a length table here would read the ids
+          // AS lengths and advance pos by their sum, which is how a global tag came out claiming a
+          // payload larger than the page -- the loud failure that found this, rather than a quiet
+          // one.
+          final long packed = ((long) n * globalIdBits(tagDictionaryEntryCount[t]) + 7L) >>> 3;
+          tagStringBytesOffset[t] = (int) (pos + packed);
+          pos += packed;
           continue;
         }
         long total = 0;
@@ -1833,7 +1860,7 @@ public final class StringRegion {
         globalTag[r] = !tagIsPlain && resolveGlobalIds(t, r, sz);
         if (globalTag[r]) {
           widths[r] = 4;
-          dictBytesSize += (long) sz * Integer.BYTES;
+          dictBytesSize += ((long) sz * globalIdBits(dictionaries.dictionaryEntryCount(tagOrder.getInt(t))) + 7L) >>> 3;
           final int tagValueGlobal = tagOrder.getInt(t);
           headerSize += VarInt.sizeOfSigned((long) tagValueGlobal - previousTag);
           previousTag = tagValueGlobal;
@@ -1929,12 +1956,17 @@ public final class StringRegion {
         final int width = widths[r];
         final int tagLengthBase = pos;
         if (globalTag[r]) {
-          // Ids only. No length table and no bytes: that absence IS the lever.
+          // Ids only, PACKED at the width the dictionary's size implies. No length table and no
+          // bytes: that absence is the lever, and the packing is 20 % of what the lever leaves.
           final int[] ids = globalIds[r];
+          final int bits = globalIdBits(dictionaries.dictionaryEntryCount(tagOrder.getInt(t)));
+          final int packedBytes = (int) (((long) sz * bits + 7L) >>> 3);
+          // bitPackAppend ORs into the destination, so the reused buffer must start zeroed here.
+          Arrays.fill(output, pos, pos + packedBytes, (byte) 0);
           for (int i = 0; i < sz; i++) {
-            StringRegion.putInt(output, pos, ids[i]);
-            pos += Integer.BYTES;
+            bitPackAppend(output, pos, i * bits, ids[i], bits);
           }
+          pos += packedBytes;
         } else {
           for (int i = 0; i < sz; i++) {
             // The sign carries the FSST flag at every width, exactly as the four-byte field did.
