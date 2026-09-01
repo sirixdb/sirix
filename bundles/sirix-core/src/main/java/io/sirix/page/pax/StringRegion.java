@@ -1201,6 +1201,26 @@ public final class StringRegion {
     private boolean[] plainLane = new boolean[4];
     /** Reusable per-tag length-table widths for the varint framing; never escapes the encoder. */
     private byte[] lengthWidths = new byte[4];
+
+    /**
+     * Resolver for tags whose values live in a resource-wide dictionary, or {@code null}.
+     *
+     * <p>
+     * Supplied by whoever holds the writing context; the encoder itself cannot reach a dictionary
+     * for the same reason the decoder cannot. When absent every tag encodes its bytes, which is the
+     * behaviour that existed before the lane.
+     * </p>
+     */
+    private @Nullable GlobalStringDictionaries dictionaries;
+
+    /** Reusable per-retained-tag decision: this tag writes ids, not bytes. */
+    private boolean[] globalTag = new boolean[4];
+
+    /** Reusable per-retained-tag resolved ids, so a tag is resolved once and written once. */
+    private int[][] globalIds = new int[4][];
+
+    /** Reusable buffer for one entry's bytes while it is probed; never escapes the encoder. */
+    private byte[] globalProbeScratch = new byte[256];
     /**
      * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset; only
      * the logical length returns to zero. Entries in the alternative name/path encoder may temporarily
@@ -1214,6 +1234,20 @@ public final class StringRegion {
 
     public Encoder() {
       tagIndex.defaultReturnValue(-1);
+    }
+
+    /**
+     * Install the dictionary resolver, or {@code null} to encode every tag as bytes.
+     *
+     * <p>
+     * A tag converts ALL OF ITS ENTRIES or none. A single value the dictionary does not hold makes
+     * the whole tag fall back to bytes rather than mint an id: the dictionary is complete before the
+     * load starts, so a miss means the writer and the pre-pass disagree about the value set, and an
+     * id no reader can resolve is a worse outcome than the bytes it replaced.
+     * </p>
+     */
+    public void setDictionaries(final @Nullable GlobalStringDictionaries resolver) {
+      this.dictionaries = resolver;
     }
 
     /**
@@ -1646,10 +1680,12 @@ public final class StringRegion {
           pos += 4;
         }
         final int tagValueBase = pos;
-        for (int i = 0; i < sz; i++) {
-          final int len = tagLengths[t][i];
-          tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
-          pos += len;
+        if (!globalTag[r]) {
+          for (int i = 0; i < sz; i++) {
+            final int len = tagLengths[t][i];
+            tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
+            pos += len;
+          }
         }
         if (PageSectionDiag.STRING_TAG_DIAG) {
           // [DIAG] Measured write positions, not a formula — an attribution derived from the layout
@@ -1709,12 +1745,31 @@ public final class StringRegion {
       long dictBytesSize = 0L;
       long headerSize = 1L + 1L + 1L + VarInt.sizeOfUnsigned(ps) + VarInt.sizeOfUnsigned(suppressedTagCount);
       int previousTag = 0;
+      ensureGlobalScratch(ps);
       for (int r = 0; r < ps; r++) {
         final int t = retained[r];
         final int values = tagDictIds[t].size();
         final int sz = tagDictSize[t];
         final boolean tagIsPlain = sz == values;
         plain[r] = tagIsPlain;
+        // The trie lane, decided per tag and resolved ONCE: the write pass reuses these ids rather
+        // than probing the dictionary a second time. A plain tag is excluded because its lane is its
+        // rank, which only means anything about bytes it would no longer store.
+        globalTag[r] = !tagIsPlain && resolveGlobalIds(t, r, sz);
+        if (globalTag[r]) {
+          widths[r] = 4;
+          dictBytesSize += (long) sz * Integer.BYTES;
+          final int tagValueGlobal = tagOrder.getInt(t);
+          headerSize += VarInt.sizeOfSigned((long) tagValueGlobal - previousTag);
+          previousTag = tagValueGlobal;
+          headerSize += VarInt.sizeOfUnsigned(values);
+          headerSize += VarInt.sizeOfUnsigned(globalTagMeta(sz));
+          laneValues += values;
+          if (sz > maxLaneDict) {
+            maxLaneDict = sz;
+          }
+          continue;
+        }
         int width = 1;
         for (int i = 0; i < sz; i++) {
           final int field = tagCompressed[t][i]
@@ -1772,7 +1827,9 @@ public final class StringRegion {
         pos = VarInt.writeSigned(output, pos, (long) tagValue - previousTag);
         previousTag = tagValue;
         pos = VarInt.writeUnsigned(output, pos, tagDictIds[t].size());
-        pos = VarInt.writeUnsigned(output, pos, tagMeta(plain[r], widths[r], tagDictSize[t]));
+        pos = VarInt.writeUnsigned(output, pos, globalTag[r]
+            ? globalTagMeta(tagDictSize[t])
+            : tagMeta(plain[r], widths[r], tagDictSize[t]));
       }
       previousSuppressed = 0;
       for (int t = 0; t < tagOrder.size(); t++) {
@@ -1788,12 +1845,21 @@ public final class StringRegion {
         final int sz = tagDictSize[t];
         final int width = widths[r];
         final int tagLengthBase = pos;
-        for (int i = 0; i < sz; i++) {
-          // The sign carries the FSST flag at every width, exactly as the four-byte field did.
-          StringRegion.writeLengthField(output, pos, width, tagCompressed[t][i]
-              ? -tagLengths[t][i]
-              : tagLengths[t][i]);
-          pos += width;
+        if (globalTag[r]) {
+          // Ids only. No length table and no bytes: that absence IS the lever.
+          final int[] ids = globalIds[r];
+          for (int i = 0; i < sz; i++) {
+            StringRegion.putInt(output, pos, ids[i]);
+            pos += Integer.BYTES;
+          }
+        } else {
+          for (int i = 0; i < sz; i++) {
+            // The sign carries the FSST flag at every width, exactly as the four-byte field did.
+            StringRegion.writeLengthField(output, pos, width, tagCompressed[t][i]
+                ? -tagLengths[t][i]
+                : tagLengths[t][i]);
+            pos += width;
+          }
         }
         final int tagValueBase = pos;
         for (int i = 0; i < sz; i++) {
@@ -1856,6 +1922,65 @@ public final class StringRegion {
     }
 
     /** {@code tagMeta}: plain flag, length-width code, and the dictionary size of a dict-lane tag. */
+    /**
+     * Meta word for a tag that stores global ids: width code {@link #GLOBAL_WIDTH_CODE}, never plain.
+     */
+    private static long globalTagMeta(final int dictSize) {
+      return ((long) dictSize << 3) | ((long) GLOBAL_WIDTH_CODE << 1);
+    }
+
+    /**
+     * Resolve a tag's whole dictionary to global ids, or report that it cannot be.
+     *
+     * <p>
+     * ALL OR NOTHING: one absent value, or one FSST-encoded entry whose bytes are not the value,
+     * and the tag keeps its bytes. Resolving entry by entry and converting the ones that succeed
+     * would put a tag on disk that is half ids and half bytes with nothing on the wire to say which
+     * is which.
+     * </p>
+     */
+    private boolean resolveGlobalIds(final int t, final int r, final int sz) {
+      final GlobalStringDictionaries resolver = dictionaries;
+      if (resolver == null || sz == 0) {
+        return false;
+      }
+      final int tagValue = tagOrder.getInt(t);
+      if (!resolver.hasDictionary(tagValue)) {
+        return false;
+      }
+      int[] ids = globalIds[r];
+      if (ids == null || ids.length < sz) {
+        ids = new int[Math.max(sz, 16)];
+        globalIds[r] = ids;
+      }
+      for (int i = 0; i < sz; i++) {
+        if (tagCompressed[t][i]) {
+          // An FSST-encoded entry's stored bytes are not its value, so it cannot be looked up
+          // without decoding, and the encoder holds no symbol table.
+          return false;
+        }
+        final int len = tagLengths[t][i];
+        if (globalProbeScratch.length < len) {
+          globalProbeScratch = new byte[Math.max(len, globalProbeScratch.length << 1)];
+        }
+        tagStores[t][i].copyTo(tagOffsets[t][i], globalProbeScratch, 0, len);
+        final int id = resolver.idOf(tagValue, globalProbeScratch, 0, len);
+        if (id == GlobalStringDictionaries.ID_ABSENT) {
+          return false;
+        }
+        ids[i] = id;
+      }
+      return true;
+    }
+
+    private void ensureGlobalScratch(final int tags) {
+      if (globalTag.length < tags) {
+        globalTag = new boolean[Math.max(tags, globalTag.length << 1)];
+        globalIds = Arrays.copyOf(globalIds, globalTag.length);
+      }
+      Arrays.fill(globalTag, 0, tags, false);
+    }
+
     private static long tagMeta(final boolean plain, final int width, final int dictSize) {
       final int widthCode = width == 1
           ? 0
