@@ -2022,3 +2022,32 @@ reported 1,174,866,904 against unchunked's 1,174,866,905 — one byte — while 
 same apparent size. `du` tracked the 75 MB deltas correctly. **Use `du` for large effects and the
 page-class census for small ones; never `du` alone below ~10 MB.** Reporting `du` alone here would have
 called the 16 KB arm identical to unchunked, wrong by 3.67 MB in the flattering direction.
+
+#### Caveat that qualifies "reducible": at 16 KB the chunking is DEGENERATE
+
+The sweep's own prediction match is what establishes this. At 16 KB the measured framing (35 B/page)
+matched the predicted **one-chunk** fixed cost (17 META + 1 count + 21 row − 1 = 38 B/page). It matched
+because at a 16 KB target a page's ~16 KB raw heap is **a single chunk**. So the framing cost collapses
+by making the chunking degenerate — one chunk is the monolith body plus 35 bytes of table.
+
+**Two different things are called "laziness" and only one of them survives.** Keeping them apart is the
+whole of this caveat:
+
+- **Deferred expansion** — the body is not decoded at `deserializePage` time, so the `KeyValueLeafPage`
+  object exists before its records do, which is what lets a reader install a resolver at all.
+  **PRESERVED at one chunk.** This is the property the trie lane requires.
+- **Expansion granularity** — `PageKind:3575`, "a reader that wants one record can decode one chunk
+  instead of the page", and the read policy at `NodeStorageEngineReader:1685`, "expand only the chunk
+  that slot lives in, which is most of a millisecond it does not spend". **LOST at one chunk**: a point
+  lookup decodes the entire page again.
+
+So 16 KB buys storage parity by giving up the per-record decode win that chunked bodies exist for. That
+is a query-cost trade this sweep did NOT measure — it weighed bytes only. **"The framing is reducible"
+is therefore true of the storage bill and silent about the read bill**, and the honest form of the Q1
+answer is: the framing cost is a *dial* between storage and point-lookup decode, currently set at 4 KB,
+with the storage arm of the curve now measured and the latency arm not.
+
+**What that implies for the trie lane.** Condition 2 is met in the sense that the lane can be paid for —
+but the payment comes from point-lookup latency rather than from nowhere, and the lane's OTHER blocker
+(scans read eagerly, `pointLookup`-gated) means the lane's own reads are the ones that would suffer
+most. Any revival attempt must price the latency arm before treating 16 KB as free.
