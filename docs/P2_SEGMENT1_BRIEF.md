@@ -1391,3 +1391,19 @@ Also: an unasserted `str.replace` no-op (the anchor-matched-nothing hazard) caug
 anchor asserted again; and `ArrayElementStringColumnTest` writes to literal `/tmp` (sandbox-hostile) —
 assigned as a passing one-line `@TempDir` fix. Order: FOR-packed lane → INC104 (residency decisions wait on
 its verdict) → resolver → read seam.
+
+### Anchor reviewed: sound, FOR satisfied BY CONSTRUCTION — and the load-bearing check is prose until the resolver
+
+Corrections to the section above: **the anchor costs ~6.3 B/tag = 1.2 % of the lever** (not ~4 B/0.75 %).
+The `globalIdBits(entryCount)` derivation makes the recorded count double as the PER-TAG FOR lane width —
+the 25-bit recommendation satisfied by construction, and out-of-range ids largely unrepresentable (a
+drafted finding the reviewer withdrew after checking — their third self-caught claim of the day). The
+stale-encoder fix verified complete for the class, not just the instance.
+
+**BINDING REQUIREMENT #2 on the injection (named so it cannot be remembered instead of reviewed): the
+count-vs-LIVE-dictionary check exists only in prose.** The parse guard compares against the leaf-local
+dictSize (~6 ids — true for any corrupt value); the temporal protection — live count ≥ recorded, refuse a
+reused key — can only live in the RESOLVER, which is unwritten. *"A described check reads exactly like an
+implemented one six hours later."* The injection review verifies it by name, with a witness that proves
+REFUSAL on a shrunk-count fixture. The `/tmp` test honours `java.io.tmpdir` and falls back to hardcoded
+`/tmp` — the fix targets the fallback. INC104 (contention) running at write time.
