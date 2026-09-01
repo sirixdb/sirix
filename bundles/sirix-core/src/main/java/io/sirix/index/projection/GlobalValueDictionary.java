@@ -1089,6 +1089,12 @@ public final class GlobalValueDictionary {
     if (header == null || !header.isDirectoryComplete()) {
       return ID_UNKNOWN;
     }
+    if (header.getEntryCount() == 0) {
+      // A COMPLETE directory with zero entries provably holds nothing — absence is an answer, not
+      // ignorance. Without this the empty dictionary fell past the prefix search (no boundary) to
+      // the forward-index check and answered UNKNOWN for want of an index it can never need.
+      return ID_ABSENT;
+    }
     final DatabaseType databaseType = databaseTypeOf(reader);
     final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
     // The ordered prefix is probed by BINARY SEARCH over the reverse index, which is sorted by value
