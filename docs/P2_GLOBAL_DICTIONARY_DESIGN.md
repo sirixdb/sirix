@@ -1600,3 +1600,106 @@ half-injected page with an exception attached.
 
 Never implemented. q28 is served by the verdict and record caches (`7044fc9a3`, `5d4f33fa4`); no
 separate length-table mechanism exists or is needed.
+
+---
+
+## Trie lane (stage B): the read seam, landed as `ffee9729c`
+
+**The page caches resolved BYTES, never a resolver.** Chunk expansion is reached from four places with
+no reader on the stack — the writer's copy-on-write `deepCopy()` on the flush lane, the two commit-time
+FSST passes, and the versioning combine — and `LazyChunkedBody.materialize` holds `synchronized(page)`
+across `injector.inject`, so resolving from inside expansion would be an unbounded trie descent under a
+page monitor. So a reader-held site resolves the whole page's tags in one ascending walk into a
+`ResolvedGlobalStrings` table (`int[]` tag values, `byte[][][]` values, `int[][]` ids and nothing else),
+and injection is an array index.
+
+**The site is the return of `NodeStorageEngineReader#getRecordPage(IndexLogKey, boolean)`.** Three
+properties put it there: it is outside every record-page-cache compute, it is before any chunk attaches
+(expansion is `ensureChunkFor`/`getSlot`, always later), and it is a single funnel every route to a
+record page returns through.
+
+The FSST sites named in the original seam sketch cannot host it. `resolveFsstSymbolTables` at
+`NodeStorageEngineReader:2262`/`:2295` runs *inside* `getOrLoadAndGuard`'s loader, which is exactly the
+compute-inside-a-compute that `ensureFsstSymbolTablesLoaded`'s own javadoc forbids; FSST escapes it by
+pre-loading every table, and an 18M-entry dictionary cannot be pre-loaded. Record materialization is the
+other half of the problem — it runs after `ensureChunkFor`.
+
+**The guard transfer is load-bearing.** The dictionary walk re-enters `getRecordPage` for NAME,
+PROJECTION and PATH_SUMMARY pages, and every entry calls `closeCurrentPageGuard()` and repoints
+`currentPageGuard` — while the caller of the outer lookup is about to read *this* page's `MemorySegment`
+believing it is guarded. A guard is therefore taken on entry and **adopted** into `currentPageGuard` on
+exit rather than re-acquired, so the count never dips. The failure mode is a use-after-free under
+eviction pressure, not a wrong value, so no correctness witness would see it. `setMostRecentPage` needs
+no such care (per-`IndexType` fields) and neither does `reusableIndexLogKey` (all three callers stop
+reading it once `getRecordPage` returns).
+
+**The flush variant must NOT transfer a guard.** `reset()` throws outright on a page whose guard count is
+not zero, so a guard left behind on a page about to be serialized turns a flush into a crash on the
+frame's next occupant. `resolveGlobalStringsBeforeFlush` clears the cursor on the way in and out instead,
+which is the state the writer already establishes before every intent-log operation.
+
+**Resolution is page-determined.** The first transaction to touch a page fixes its values for every later
+one, including one whose own anchors would have refused the tag. That is correct rather than lucky: a
+refusal is conservatism about a dictionary the refusing transaction cannot validate, not evidence that
+the bytes differ. The page names its dictionary, a rank-ordered dictionary only appends, so ids
+`1..recordedEntryCount` resolve identically for every reader that can see it at all. `setResolvedGlobalStrings`
+is therefore first-writer-wins.
+
+**`null` and `ResolvedGlobalStrings.NONE` are different answers.** `null` means "no reader resolved this
+page" — a wiring failure that must throw. `NONE` means "resolved, and there was nothing to resolve".
+Collapsing them turns a missing install into a page whose values are silently absent.
+
+**Refusal is a pre-pass, plus a site-named assertion at each reader-less route.** What the pre-pass
+actually buys was settled by mutation, not assumed: `LazyChunkedBody.materialize` sets the chunk's
+materialized bit with a release store *after* `injector.inject` returns, so a throw inside injection
+leaves the chunk pending and the next touch re-runs decode and expansion from the wire bytes it still
+holds. A mid-loop throw is therefore recoverable today and nothing observable from outside distinguishes
+it from a pre-pass. The pre-pass buys the page-named message and defence against a future route that
+publishes a chunk before injecting into it — claimed as that, and no more.
+
+## Trie lane: three prerequisites, found by getting a converted page through the real serializer
+
+**1. The write-side install must ride the SERIALIZATION encoder.** A string region is built by two paths:
+`KeyValueLeafPage#collectAndEncodeStringRegion()` (the derive path, for region-only reads, fresh
+encoders) and `PageKind#buildRegionTable` (serialization, the thread-local `STRING_REGION_ENCODER_PATH`
+via `resetStringRegionPathCandidate`). The original install went on the first, so **no page written to
+disk ever converted**, while every format test passed. The resolver is now set on the second, after
+`reset()` and unconditionally including to `null` — `reset()` does not clear it and that encoder is
+reused across pages.
+
+**2. Derived value elision collides with the lane — it blocks SERIALIZATION, and is on by default.**
+`ElisionDeriver#deriveTypeAndWidth` recovers each elided slot's width by calling
+`StringRegion.decodeStringLength`, i.e. from the region's stored string LENGTH — exactly what the lane
+deletes — and the byte-readers correctly refuse a global tag. So with `sirix.page.body.derivedElision`
+ON a converted page cannot be written at all. **§6.4's length table is un-superseded by this**: see the
+amendment below.
+
+**3. Chunked bodies gate reading, and are off by default.** Laziness is decided at WRITE time —
+`ChunkedBodyConfig.enabled()` sets a flag the serialized page carries and `deserializePageLazily` reads
+it — so a page written without it can only be expanded eagerly, where no table can exist. A converted
+resource must be written with `sirix.chunkedBody.enable=true`.
+
+**4. The versioning combine can never resolve.** `getPageFragments`/`materializeFragments` run inside the
+record-page cache's compute, so a dictionary walk there re-enters the same cache. Refused loudly with a
+message naming the combine. It only bites a page that already has fragment history, which a freshly
+built resource has for none.
+
+## §6.4 length table — the strikethrough is AMENDED
+
+The strikethrough above is correct about its original motivation (q28 is served by the verdict and record
+caches) and **wrong about the lane**, which needs the same table for a different reason: prerequisite 2
+above. A per-LOCAL-dictionary-entry length lane would let `ElisionDeriver` keep deriving widths on a
+converted page and keep derived elision on.
+
+**Measured cost, 1M ClickBench (`sp1m` rev 44, 4,000 consecutive DOCUMENT leaves, all carrying a string
+region): a leaf holds only ~9.7 ROWS.** ClickBench's ~106 records per row makes a 1,024-slot leaf about
+ten rows, so per string tag per leaf there are **9.7 values and 1.0–5.7 distinct, maximum ever 10**,
+across 32 string tags with essentially no suppression (3 suppressed instances in 4,000 leaves). A length
+lane is therefore ~6 varints per tag per leaf — roughly 6–12 bytes against the ~6 × 184 B ≈ 1.1 KB of URL
+bytes the lane removes from that leaf, about **1 %** of the lever.
+
+The same number retires two assumptions the seam rested on: resolution is ~6 dictionary point reads per
+tag per leaf, so the ascending-id walk is a handful of reads rather than hundreds; and
+`ResolvedGlobalStrings` holds ~6 byte arrays per tag rather than ~512. It also re-derives the lever's
+size from measurement rather than extrapolation: ~5.7 distinct × 184 B ≈ 1,050 B per leaf replaced by
+~5.7 ids × 25 bits ≈ 18 B, over ~103k leaves at 1M ≈ 106 MB, so ≈ 10.6 GB at 100M for URL alone.
