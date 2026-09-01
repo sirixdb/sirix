@@ -108,3 +108,23 @@ vindicated by its own violation. Stage B quotes **19.31 GB measured** and gains 
 no longer waits on it. Cross-validation banked: the load log's 0.652 region ratio against the census's
 0.644 at 1M — two instruments sharing no code, two scales, 1.2 % apart — is the census's strongest witness
 yet.
+
+## Stage 2 status after the 2026-08-31→09-01 night session
+
+**Banked, measured:** the 100M three-column DOCUMENT is **52,152,369,152 B, reproduced byte-for-byte across
+two independent 37-minute loads** (baseline WITH its projection: 69.63 GB); the resource-wide dictionaries
+cost **2.91 GB for 7.32 GB of distinct values (0.40)**; the 100M census closed every 1M-derived share
+(converted columns 59.0 %, OriginalURL 9.7 % and growing, temporal 19.8 % and growing, FOR lane −60.0 %);
+per-leaf duplication measured (URL 3.65×, Title 6.5×, Referer 2.9×); the cold sweep ratio measured at 0.184.
+The 1M latency gate: **zero stable regressions, cold and hot, nine pairs.**
+
+**NOT measured:** the finished 100M storage number (the projection build was killed at 58 % by the harness —
+the sandbox reaps even `setsid` process groups — and its relaunch could not finish before the deadline) and
+the 100M query leg. The ~64 GB completion estimate is a one-scale extrapolation, labelled as such. The
+current database carries **~4.05 GB of orphaned bytes** from the killed walk; whoever finishes must subtract
+(credible via measured determinism) or reload.
+
+**Next session, in order:** 1) finish/redo the projection build and take the storage number (raw + adjusted,
+or pristine via one reload); 2) the 100M query leg, two interleaved pairs, baseline re-legged on the same
+build; 3) then the roadmap resumes at the trie lane, with OriginalURL's screen and the temporal encoding as
+the census-mandated additions. Handoff: end of `P2_SEGMENT1_BRIEF.md` (41ac1967c).
