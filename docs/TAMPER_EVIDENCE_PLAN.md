@@ -1,8 +1,10 @@
 # Tamper-Evident Ledger Mode — Design Plan
 
-Status: **proposal** (no implementation yet). Reviewed twice against the
-codebase (storage-layer fact check, adversarial protocol review); all factual
-claims below carry the reviewed semantics.
+Status: **proposal** (no implementation yet). Reviewed three times against the
+codebase (storage-layer fact check; adversarial protocol review; cross-cutting
+review covering availability, erasure, configuration integrity, proof
+semantics, and the open-core boundary); all factual claims below carry the
+reviewed semantics.
 
 Scope: per-resource opt-in "ledger mode" that upgrades SirixDB's append-only,
 immutable-revision storage into a cryptographically tamper-evident system with
@@ -57,6 +59,35 @@ anchor is malleable to adversary C (drop, reorder, rewrite, re-sign, or fork
 from the anchored prefix); only anchored prefixes are protected against C.
 Tamper *prevention* against C is impossible and out of scope.
 
+**The on/off switch is attacker-writable.** `ResourceConfiguration` is plain
+JSON on disk (`ressetting.obj`), covered by no page hash and no signature, and
+it holds `ledgerMode`, `hashAlgorithm`, `hashKind` and
+`verifyChecksumsOnRead`. Adversary B therefore never needs to forge a hash:
+setting `ledgerMode=false` means no verification path is entered at all.
+**Phases 1–3 alone are defeated by a text edit.** The only durable fix is to
+make ledger-mode-ness part of externally anchored state (Phase 4, §5) and to
+have the verifier refuse to open a resource as non-ledger once any anchor
+exists for it. Until Phase 4 ships, this limitation is stated, not solved.
+
+### What is *not* proven, in any phase
+
+Proofs attest that **stored bytes were committed** — nothing more. Users will
+assume more, so these are explicit limitations rather than parentheticals:
+
+- **Query completeness.** No proof says a result set is complete. A writer
+  with legitimate credentials can commit a deliberately skewed secondary
+  index; every later index-served query returns wrong answers, all
+  cryptographically verified. No production ledger system (immudb, Azure SQL
+  ledger, Oracle blockchain tables) solves this either.
+- **Absence.** "This record was never in the database" is not provable here;
+  it needs an authenticated dictionary over keys (a sparse Merkle tree) —
+  a separate project.
+- **Index build-time correctness.** The Merkle tree guarantees an index page
+  is exactly the committed bytes, not that those bytes were a correct index of
+  the data when built. That stays a correctness concern for tests.
+- **Trusted time.** The transaction timestamp is the local clock (Phase 3);
+  only TSA anchoring (Phase 4) supplies time an auditor can rely on.
+
 ## 2. Phase 1 — Cryptographic page-Merkle foundation
 
 **Goal:** make the page trie's existing parent-embedded hash structure a
@@ -101,11 +132,31 @@ decryption keys and couples integrity to pipeline determinism. Decision for
 ledger mode: commit to a **canonical deterministic pre-pipeline encoding**
 (specified byte order, stable field ordering) for unencrypted resources;
 for encrypted resources, hash the ciphertext (plaintext hashes stored beside
-ciphertext would enable content-confirmation attacks) and accept that
-third-party proof verification then requires key access. Serialization
-determinism becomes a hard design requirement, enforced by a differential
-test (`stored hashes == recomputed-from-scratch` across randomized update
-sequences).
+ciphertext would enable content-confirmation attacks). Serialization
+determinism becomes a hard design requirement **for the canonical encoding**,
+enforced by a differential test (`stored hashes == recomputed-from-scratch`
+across randomized update sequences).
+
+The two branches have different verifier stories, and only the first can use
+that test. `Encryptor` is Tink `StreamingAead`, which draws a fresh random
+salt per stream: identical plaintext encrypts to different ciphertext on every
+write, so a ciphertext hash is a function of the *encryption event*, not of
+the data, and can never be re-derived from plaintext. For encrypted resources
+the verifier checks stored-bytes-against-stored-hash plus the chain, and a key
+holder then decrypts to inspect — sound, but "third-party verification
+requires key access" understates it: even with the key, verification is
+*decrypt and look*, never *recompute*. The differential test is scoped to
+unencrypted resources accordingly.
+
+Two further caveats on the ciphertext branch. First, the encryption key is
+stored in cleartext inside the resource directory (`encryptionKey.json`, read
+via `InsecureSecretKeyAccess`), so against adversary B — defined as having
+file access — the confidentiality and integrity boundaries coincide on disk;
+the content-confirmation rationale holds only once key storage leaves the
+resource directory (a key SPI alongside `SignerProvider`, §11). Second,
+ciphertext hashing is what makes **crypto-shredding** (§8) a consequence of
+this design rather than an add-on: destroy the key and every hash and chain
+link still verifies while the plaintext is gone.
 
 **Write-path cost:** streaming hash over serialized page payloads at commit —
 O(bytes written), no node-layout change, zero cost for non-ledger resources.
@@ -134,17 +185,33 @@ resourceIdentity = databaseId ‖ resourceId ‖ resourceUUID
                    // resource; defeats file-swap/transplant/replay of another
                    // resource's valid chain
 
-chainHash(0)     = H( "SIRIX-LEDGER-GENESIS-v1-SHA256" ‖ resourceIdentity
-                      ‖ creationNonce )
+algorithmId      = canonical name of the resource's ledger hash algorithm
+                   // e.g. "SHA256" / "BLAKE3-256"; MUST be derived from the
+                   // algorithm actually in use, never a fixed literal —
+                   // otherwise the tag does not pin the algorithm at all
+
+chainHash(0)     = H( "SIRIX-LEDGER-GENESIS-v1-" ‖ algorithmId
+                      ‖ resourceIdentity ‖ creationNonce )
+                   // creationNonce: 32 random bytes drawn at resource
+                   // creation, stored beside resourceUUID in the superblock.
+                   // A critical field: any change re-roots the chain and
+                   // fails every link (fail-closed by construction)
 
 revHash(N)       = pageHash( RevisionRootPage(N) )
                    // the RevisionRootPage body already serializes revision
                    // number, commit timestamp, commit message, and author —
                    // revHash therefore commits to all of them
 
-chainHash(N)     = H( "SIRIX-LEDGER-CHAIN-v1-SHA256" ‖ resourceIdentity
-                      ‖ revisionNumber(N) ‖ revHash(N) ‖ chainHash(N-1) )
+chainHash(N)     = H( "SIRIX-LEDGER-CHAIN-v1-" ‖ algorithmId
+                      ‖ resourceIdentity ‖ revisionNumber(N) ‖ revHash(N)
+                      ‖ chainHash(N-1) )
 ```
+
+- **Precondition: one writer per resource.** The chain is a total order and
+  is well-defined only because SirixDB has exactly one write transaction per
+  resource at a time. Pin it with a test rather than leave it implicit: any
+  future multi-writer or decentralized commit path turns the chain into a DAG
+  and invalidates this section.
 
 - `chainHash(N-1)` is embedded **in the `RevisionRootPage(N)` body** (a page
   cannot contain its own hash, so each root page carries its *parent's* chain
@@ -171,12 +238,31 @@ chainHash(N)     = H( "SIRIX-LEDGER-CHAIN-v1-SHA256" ‖ resourceIdentity
   (and signed) — it detects **no** historical tampering; `anchored` walks and
   recomputes the chain back to the newest externally witnessed link;
   `full` recomputes from genesis. Ledger-mode default: `anchored` once
-  Phase 4 exists, `full` in the Phases-1+2-only release (there is no anchor
-  to stop at yet).
+  Phase 4 exists; **`head` in the Phases-1+2-only release**, with `full`
+  offered as an explicit `sirix verify` / CI action rather than an open-time
+  default. `full` on open is O(entire history) of page reads on every open,
+  unbounded on a long-lived resource, and it turns one flipped bit in
+  revision 3 into a total denial of service — verification must never be the
+  thing that makes the database unavailable. A locally persisted "verified
+  through revision K" watermark can bound `full` for corruption checks but
+  has no security value: B can write the watermark too.
+- **Verification failure must be reportable, not only fatal.** Every
+  verifier entry point (open, `sirix verify`, REST) produces a structured
+  report — first divergent revision, expected vs. recomputed
+  `revHash`/`chainHash`, signature and anchor status — and open-time policy
+  decides whether to refuse, open read-only with the report attached, or
+  proceed. Regulated operators need "prove the tamper happened"; a dead
+  process cannot supply that.
 - Deliverable gate: adversarial tests — bit-flip in an old revision **and in
   an old page fragment**, replayed commit, swapped revisions, swapped
-  resource files, transplanted chain, truncated tail — every one must fail
-  verification against a trusted head.
+  resource files, transplanted chain, truncated tail, **edited
+  `ressetting.obj`** — every one must fail verification against a trusted
+  head. These are regression cases, not the coverage argument. The coverage
+  argument is a **byte-range fuzzer** over every file in the resource
+  directory asserting, for each mutation, either detection with a correct
+  report or a clean refusal — never a silent success, never an unhandled
+  exception. A fixed attack list covers the attacks its author thought of;
+  the fuzzer does not depend on the author's imagination.
 
 ## 4. Phase 3 — Authenticated commits
 
@@ -191,7 +277,7 @@ chainHash(N)     = H( "SIRIX-LEDGER-CHAIN-v1-SHA256" ‖ resourceIdentity
   resource-confusion. Verification recomputes `chainHash(N)` first (record
   fields are untrusted).
 - Key material via a `SignerProvider` SPI: file keystore (core) → env/KMS/HSM
-  (sirix-enterprise, see §10).
+  (sirix-enterprise, see §11).
 - **Key rotation is not purely in-band** (a compromised current key could
   otherwise rewrite rotation history): rotation events are commits in which
   the *new* key signs the old key's fingerprint and the current head
@@ -213,7 +299,12 @@ window to the commits since the last anchor.
 
 - `AnchorProvider` SPI, policy per resource (`every N commits` / `every T
   seconds` / manual `sdb:anchor()`), publishing
-  `(resourceIdentity, revisionNumber, chainHash, keyFingerprint, signature)`.
+  `(resourceIdentity, revisionNumber, chainHash, keyFingerprint, signature,
+  ledgerParams)`, where `ledgerParams` = (ledger mode on, `algorithmId`, key
+  policy). The anchor is the only place ledger-mode-ness can live that
+  adversary B cannot edit (§1): on open, a resource for which any anchor
+  exists MUST be opened in ledger mode with those parameters, whatever
+  `ressetting.obj` says.
 - **The external witness is the authority.** On open (and in the verifier),
   the newest anchor is fetched *from the provider*, not from local storage:
   require durable head ≥ anchored revision, recomputed
@@ -236,14 +327,34 @@ window to the commits since the last anchor.
 
 **Goal:** auditors and clients verify without trusting the server.
 
-- **Inclusion proofs:** page path from `revHash(N)` down to the fragment
-  containing the target (page-granular; per-fragment hashes from Phase 1 make
-  these sound without whole-chain walks) — `sdb:proof($node)` + REST
-  endpoint, verified client-side against an anchored `chainHash`. The
-  optional per-node hash profile shrinks proofs to node granularity.
-- **Consistency proofs:** chain segment export proving revision M..N is an
-  append-only extension (auditors retain the highest anchored
-  `(revision, chainHash)` they have seen and reject non-extensions).
+Phase 5 is three features with different dependencies and is split
+accordingly; conflating them delays the auditor-facing half by a release.
+
+- **5a — Consistency proofs (depends on Phase 2 only).** Chain segment
+  export proving revision M..N is an append-only extension; auditors retain
+  the highest anchored `(revision, chainHash)` they have seen and reject
+  non-extensions. A pure chain property — none of the Phase 1 Merkle work is
+  needed. Caveat, so it is not overclaimed: a chain over an XXH3 `revHash`
+  (5a shipped before Phase 1) is sound for *history structure* and *commit
+  metadata* — order, authorship, timestamps, messages — but hollow for
+  *data*, since a page with a colliding XXH3 is cheap to construct. That is a
+  real intermediate product ("provable commit history") and must be described
+  as exactly that, never as verifiable data.
+- **5b — Inclusion proofs (depends on Phase 1).** Page path from `revHash(N)`
+  down to the fragment containing the target (page-granular; per-fragment
+  hashes from Phase 1 make these sound without whole-chain walks) —
+  `sdb:proof($node)` + REST endpoint, verified client-side against an
+  anchored `chainHash`. The optional per-node hash profile shrinks proofs to
+  node granularity.
+- **5c — Verifiable diffs (depends on Phase 1; the differentiator).** The
+  diff engine already decides subtree equality by comparing subtree hashes
+  (`AbstractDiff`, `DiffType.SAMEHASH`). Once those hashes are cryptographic,
+  the same traversal yields a proof of the form "between revisions N and M
+  exactly these subtrees changed, and every sibling on the path is
+  unchanged" — the *negative* statement ("nothing else changed") that
+  row-chained ledgers cannot make without rehashing the whole table, and the
+  one an auditor actually asks for. Nearly free given Phase 1 and the existing
+  diff; it is the strongest differentiator in this design and ships with 5b.
 - **Offline verifier:** `sirix verify` in `sirix-kotlin-cli` (native-image
   friendly): full or anchored-prefix re-hash including fragment chains, chain
   recomputation from genesis or anchor, signature checks against the external
@@ -259,11 +370,52 @@ window to the commits since the last anchor.
 - Multi-resource databases: an optional database-level checkpoint chain over
   a Merkle map of per-resource heads (each entry bound to its
   `resourceIdentity`), so one anchor covers all resources.
-- Documentation: threat model + invariants into `docs/formal-verification.md`;
-  the README's "tamper detection" claim upgraded honestly only when Phases
-  1–4 ship.
+- Documentation: threat model + invariants into `docs/formal-verification.md`.
+  The README and `SECURITY.md` now describe the existing hashes as
+  non-cryptographic change detection; they are upgraded to a tamper-evidence
+  claim only when Phases 1–4 ship.
 
-## 8. Sequencing, risk, and effort
+## 8. Erasure and redaction (cross-cutting)
+
+The target market — finance, healthcare, regulated records — is also the
+market with erasure obligations (GDPR Art. 17, HIPAA amendment and erasure,
+right-to-be-forgotten regimes). Ledger mode makes the conflict sharper, not
+softer: it adds a cryptographic commitment to data that may later have to be
+destroyed, on top of copy-on-write storage that physically retains every old
+revision. "Not addressed" is not a survivable answer here, so the plan takes a
+position.
+
+Two mechanisms, chosen per resource:
+
+1. **Crypto-shredding (encrypted resources) — preferred.** Because ledger
+   mode hashes ciphertext (§2), destroying the key erases the plaintext while
+   every page hash, chain link, signature and anchor still verifies
+   byte-for-byte. Granularity follows key granularity: today one key per
+   resource, so this is resource-level erasure. Per-subject erasure needs
+   per-subject keys (envelope encryption keyed by a subject identifier), which
+   is a key-management feature rather than a storage-format change and
+   belongs in the enterprise key SPI (§11). Preferred because it is a
+   consequence of a decision already made and needs no new proof machinery.
+2. **Salted value commitments (unencrypted resources).** Store
+   `H(salt ‖ value)` as the committed leaf and keep `(salt, value)` beside it;
+   erasure deletes `(salt, value)` and leaves the commitment. The chain
+   verifies unchanged, and a redacted leaf is *visibly* redacted — the
+   commitment is present, the preimage is not — which is itself an auditable
+   fact. Costs: a 32-byte salt per committed value, a canonical-encoding rule
+   for which values are committed individually, and a verifier that
+   understands the redacted state. Deferred until a customer needs erasure on
+   an unencrypted ledger resource.
+
+Either way the erasure event is itself a commit (who, when, which key or which
+leaves, under what authority), so the ledger records *that* data was erased
+without recording *what* it was. Operators must understand that the fact of
+erasure is permanent and provable; that is the point.
+
+Non-goal: making old revisions physically disappear from the data file
+without a rewrite. Compaction already never touches reachable bytes; erasing
+reachable bytes is exactly what the two mechanisms above avoid.
+
+## 9. Sequencing, risk, and effort
 
 | Phase | Blast radius | Risk | Depends on |
 |---|---|---|---|
@@ -271,30 +423,34 @@ window to the commits since the last anchor.
 | 2 Chain | commit-record format, commit path | spec discipline (canonical encoding) | 1 |
 | 3 Signatures | commit record, config, key mgmt | key-management UX | 2 |
 | 4 Anchoring | new SPI, open-path check | provider trust classes must be respected by operators | 2 (3 strongly recommended — see threat table) |
-| 5 Proofs/verifier | additive APIs + CLI | none | 1–2 |
+| 5a Consistency proofs + verifier | additive APIs + CLI | overclaim risk if shipped before 1 (§6) | 2 |
+| 5b Inclusion proofs | additive APIs | none | 1 |
+| 5c Verifiable diffs | additive APIs | none | 1 |
 | 6 Ops | docs/tooling | none | 4 |
 
 Phases 1–2 are the engine work. Honest framing of the cut line: after 1–2 the
 system detects corruption and is verifiable against a trusted head; **a
 key-less insider (B) is resisted only once signatures (3) or an external
 anchor (4) exist, and a key-holding one (C) only by anchoring (4), for
-anchored prefixes**. Recommended cut: 1+2 behind `ledgerMode=true` in one
-release; 3+4+5 in the next.
+anchored prefixes; and the ledger on/off switch stays attacker-writable until
+4 (§1)**. Recommended cut: 1+2 behind `ledgerMode=true` in one release, with
+the 5a verifier alongside so the release can actually be checked; 3+4+5b+5c
+in the next.
 
-## 9. Non-goals
+## 10. Non-goals
 
 - Tamper *prevention* against an adversary with unrestricted machine + key +
   witness access (impossible; out of scope).
-- Semantic re-verification of index *contents* against document data (the
-  page-Merkle tree guarantees index pages are exactly the committed bytes;
-  build-time correctness is covered by tests).
+- Semantic re-verification of index *contents* against document data, query
+  completeness, and absence proofs (see "What is *not* proven" in §1 — stated
+  limitations users must be told about, not silent gaps).
 - Confidentiality (already served by the existing encryption pipeline;
   orthogonal — but see the Phase 1 ciphertext-vs-plaintext commitment
   decision for where they touch).
 - Distributed consensus / BFT replication (anchoring covers the integrity
   need without it).
 
-## 10. Open-core boundary (sirix-enterprise)
+## 11. Open-core boundary (sirix-enterprise)
 
 Ledger mode is a candidate for the sirix-enterprise extension layer
 (`ROADMAP.md`), but one property of this feature fixes where the line can go:
