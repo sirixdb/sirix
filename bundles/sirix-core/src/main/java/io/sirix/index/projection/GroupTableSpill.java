@@ -1,6 +1,9 @@
 package io.sirix.index.projection;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
@@ -20,6 +23,38 @@ import static java.util.Objects.requireNonNull;
  * its base ({@link #takeOrCreate}) so nothing is copied twice, and the merge itself is the same
  * {@link NumericGroupAggTable#mergePartitionIndexed} the post-scan already runs — first-seen ordinals,
  * exact sums, identity lanes and the zero-key group all merge the way they always did.
+ * </p>
+ *
+ * <p>
+ * Every table the spill hands out or creates shares one {@link LongChunkPool}: a flushed worker table
+ * {@link NumericGroupAggTable#release releases} its chunks, a growing partition table recycles the
+ * ones it outgrew, and the caller releases the merged tables once a pass has emitted its candidates —
+ * so a pass allocates its storage once and G1 promotes it once, instead of copying ≈ 9 GB of
+ * short-lived tables through the young generation per pass (the q32 profile at 100M). Kill switch
+ * {@code -Dsirix.projection.groupTable.chunkPool=false}.
+ * </p>
+ *
+ * <p>
+ * The workers' tables fill at the same rate, so their flushes arrive together — and a flush that
+ * walked the partitions in one fixed order made every worker queue on the same monitor as the one
+ * ahead of it: a lock convoy that parked a fifth of the workers' wall at 100M (q32's wall profile),
+ * with each shared table's rehashes (six of them, 600 MB copied per partition, from a worker-sized
+ * hint) taken under that lock while the queue waited. Two answers, one kill switch each: every flush
+ * starts its walk at a different partition ({@link #flushStart}, {@code
+ * -Dsirix.projection.groupTable.flushOffset=false}), and a shared table is created at the count the
+ * caller's plan expects it to hold ({@link #sharedTableHint}, {@code
+ * -Dsirix.projection.groupTable.presizeShared=false}) — witnessed per spill by {@link
+ * #sharedRehashes}, which a taken pre-size leaves at zero.
+ * </p>
+ *
+ * <p>
+ * The pass's row groups are dealt to the workers from one shared cursor ({@link #claimLeaves}), a
+ * morsel of {@link #SUB_CHUNK_LEAVES} at a time, not as a fixed slice of the leaf range per worker.
+ * The cost of a row group is a property of the DATA: a leaf range dense in the grouped strings runs
+ * about twice as slow as its neighbours (at 100M, worker 8's slice finished every pass of q16 and q18
+ * 45–57 % after the median worker, with the same slice slowest in every pass and every try), and a
+ * static partition ends its scan with the slowest slice. A shared cursor ends it within one morsel of
+ * the mean, and the workers sweep the file together instead of from twenty starting points.
  * </p>
  */
 public final class GroupTableSpill {
@@ -86,6 +121,138 @@ public final class GroupTableSpill {
   /** Spills whose shared tables were dropped by {@link #releaseTables} (test observability). */
   public static long releaseCount() {
     return RELEASES.sum();
+  }
+
+  /** Recycle table chunks through a per-spill {@link LongChunkPool} (default on). */
+  public static final String CHUNK_POOL_PROPERTY = "sirix.projection.groupTable.chunkPool";
+  private static volatile int chunkPoolForTesting = -1;
+
+  /** Whether spills recycle their tables' chunks: the test override when set, else the property. */
+  public static boolean chunkPoolEnabled() {
+    final int testing = chunkPoolForTesting;
+    if (testing >= 0) {
+      return testing != 0;
+    }
+    return Boolean.parseBoolean(System.getProperty(CHUNK_POOL_PROPERTY, "true"));
+  }
+
+  /**
+   * Test seam for the chunk pool.
+   *
+   * @param value {@code 1} on, {@code 0} off, negative restores the property
+   * @return the previous override, for restoring in a finally block
+   */
+  public static int setChunkPoolForTesting(final int value) {
+    final int previous = chunkPoolForTesting;
+    chunkPoolForTesting = value;
+    return previous;
+  }
+
+  /** Start every flush's partition walk at a different partition (default on). */
+  public static final String FLUSH_OFFSET_PROPERTY = "sirix.projection.groupTable.flushOffset";
+  /** Create a shared partition table at the count the plan expects it to hold (default on). */
+  public static final String PRESIZE_SHARED_PROPERTY = "sirix.projection.groupTable.presizeShared";
+  /** The sizing hint every worker table gets: it flushes long before it would outgrow this twice. */
+  public static final int WORKER_TABLE_HINT = 1 << 16;
+  /** Skew allowance on a shared table's expected share, in percent (a partition's count is ± its root). */
+  private static final int SHARED_HINT_SKEW_PCT = 5;
+  private static volatile int flushOffsetForTesting = -1;
+  private static volatile int presizeSharedForTesting = -1;
+  private static final LongAdder PRESIZED_SHARED = new LongAdder();
+
+  /** Whether flushes start at rotating partitions: the test override when set, else the property. */
+  public static boolean flushOffsetEnabled() {
+    final int testing = flushOffsetForTesting;
+    if (testing >= 0) {
+      return testing != 0;
+    }
+    return Boolean.parseBoolean(System.getProperty(FLUSH_OFFSET_PROPERTY, "true"));
+  }
+
+  /** Whether shared tables are created at the plan's expected count: the override when set, else the property. */
+  public static boolean presizeSharedEnabled() {
+    final int testing = presizeSharedForTesting;
+    if (testing >= 0) {
+      return testing != 0;
+    }
+    return Boolean.parseBoolean(System.getProperty(PRESIZE_SHARED_PROPERTY, "true"));
+  }
+
+  /**
+   * Test seam for the rotating flush start.
+   *
+   * @param value {@code 1} on, {@code 0} off, negative restores the property
+   * @return the previous override, for restoring in a finally block
+   */
+  public static int setFlushOffsetForTesting(final int value) {
+    final int previous = flushOffsetForTesting;
+    flushOffsetForTesting = value;
+    return previous;
+  }
+
+  /**
+   * Test seam for the shared-table pre-size.
+   *
+   * @param value {@code 1} on, {@code 0} off, negative restores the property
+   * @return the previous override, for restoring in a finally block
+   */
+  public static int setPresizeSharedForTesting(final int value) {
+    final int previous = presizeSharedForTesting;
+    presizeSharedForTesting = value;
+    return previous;
+  }
+
+  /** Shared partition tables created at a plan-derived hint, process-wide (test observability). */
+  public static long presizedSharedCount() {
+    return PRESIZED_SHARED.sum();
+  }
+
+  /**
+   * The partition the {@code ordinal}-th flush of a spill starts its walk at: the flushes step
+   * through the partitions by an odd stride near {@code 0.618 × partitions}, so any {@code
+   * partitions} consecutive flushes start at {@code partitions} DISTINCT partitions (an odd stride
+   * is coprime to a power of two) and consecutive ones start far apart (the golden-ratio stride is
+   * the one whose multiples spread most evenly). Workers that flush together therefore meet on a
+   * monitor only by coincidence, not by construction. A spill built with the rotation switched off
+   * starts every flush at partition 0 instead ({@link #flushOffset}).
+   */
+  static int flushStart(final long ordinal, final int partitions) {
+    return (int) (ordinal * flushStride(partitions)) & (partitions - 1);
+  }
+
+  /** The odd stride of {@link #flushStart} for {@code partitions} (a power of two). */
+  static int flushStride(final int partitions) {
+    return (int) ((long) partitions * 0x9E37L >>> 16) | 1;
+  }
+
+  /**
+   * The sizing hint of a shared partition table when the caller's plan knows the shape's group
+   * count, or {@code -1} when it does not (or the pre-size is switched off): the uniform share of
+   * {@code expectedGroups} per partition plus {@value #SHARED_HINT_SKEW_PCT} percent skew allowance,
+   * never past the share of the pass budget — beyond what the budget lets a pass hold, a hint can
+   * only be an estimate's error, and the table grows on demand there as before. Storage is chunked
+   * and a chunk is allocated when its first group lands, so a hint costs only what it fills.
+   */
+  static int sharedTableHint(final long expectedGroups, final int partitions, final int passLo, final int passHi,
+      final long budget) {
+    if (expectedGroups <= 0L || !presizeSharedEnabled()) {
+      return -1;
+    }
+    final long share = Math.min(expectedGroups / partitions, Integer.MAX_VALUE);
+    final long bound = budget / (passHi - passLo);
+    final long hinted = Math.min(share + share * SHARED_HINT_SKEW_PCT / 100L, bound);
+    return (int) Math.max(16L, Math.min(Integer.MAX_VALUE, hinted));
+  }
+
+  /**
+   * Chunks a spill's pool keeps at most: twice the resident state of a pass — {@code budget} groups
+   * plus the workers' unflushed tables — at the table's 3/4 load factor. The pool never holds more than
+   * it was given, so this is a safety net against a runaway caller, not a tuning knob.
+   */
+  static int poolCapacityChunks(final long budget, final int threshold, final int stride, final int chunkLanes) {
+    final double groups = Math.min(budget, 1L << 32) + 64.0 * threshold;
+    final double lanes = groups * stride * (4.0 / 3.0) * 2.0;
+    return (int) Math.max(64, Math.min(1 << 22, Math.ceil(lanes / chunkLanes)));
   }
 
   /** Configured ceiling on resident groups per pass (default heap-derived). */
@@ -268,11 +435,20 @@ public final class GroupTableSpill {
   private final Object[] locks;
   private final int partitions;
   private final int shift;
-  private final Supplier<NumericGroupAggTable> factory;
+  private final IntFunction<NumericGroupAggTable> factory;
+  /** {@link #sharedTableHint}: the hint a shared table is created at, or {@code -1} for the worker hint. */
+  private final int sharedHint;
+  private final boolean flushOffset;
+  private final AtomicLong flushOrdinal = new AtomicLong();
+  /** The next row group no worker has claimed yet; see {@link #claimLeaves}. */
+  private final AtomicInteger leafCursor = new AtomicInteger();
+  private final LongAdder sharedRehashes = new LongAdder();
   private final int threshold;
   private final int passLo;
   private final int passHi;
   private final long budget;
+  /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
+  private final LongChunkPool pool;
   private final LongAdder spilled = new LongAdder();
   private final LongAdder abandoned = new LongAdder();
   private final LongAdder leavesScanned = new LongAdder();
@@ -295,6 +471,21 @@ public final class GroupTableSpill {
    */
   public GroupTableSpill(final int partitions, final int shift, final Supplier<NumericGroupAggTable> factory,
       final int passLo, final int passHi, final long budget) {
+    this(partitions, shift, hint -> requireNonNull(factory, "factory").get(), 0L, passLo, passHi, budget);
+  }
+
+  /**
+   * A pass spill whose SHARED tables are created at the count the caller's plan expects them to hold.
+   *
+   * @param factory builds a table of the worker tables' layout at a sizing hint: worker tables are
+   *        asked for at {@link #WORKER_TABLE_HINT}, shared partition tables at {@link
+   *        #sharedTableHint} when {@code expectedGroups} is known
+   * @param expectedGroups the shape's total group count over ALL partitions as the plan expects it
+   *        (a memoised or abort-estimated count), or {@code 0} when the plan is blind — shared
+   *        tables then start at the worker hint and grow
+   */
+  public GroupTableSpill(final int partitions, final int shift, final IntFunction<NumericGroupAggTable> factory,
+      final long expectedGroups, final int passLo, final int passHi, final long budget) {
     if (partitions <= 0 || (partitions & (partitions - 1)) != 0) {
       throw new IllegalArgumentException("partitions must be a power of two: " + partitions);
     }
@@ -304,27 +495,52 @@ public final class GroupTableSpill {
     if (budget <= 0L) {
       throw new IllegalArgumentException("budget must be positive: " + budget);
     }
+    if (expectedGroups < 0L) {
+      throw new IllegalArgumentException("expectedGroups must be >= 0: " + expectedGroups);
+    }
     this.partitions = partitions;
     this.shift = shift;
     this.factory = requireNonNull(factory, "factory");
     this.passLo = passLo;
     this.passHi = passHi;
     this.budget = budget;
+    this.sharedHint = sharedTableHint(expectedGroups, partitions, passLo, passHi, budget);
+    this.flushOffset = flushOffsetEnabled();
     this.shared = new NumericGroupAggTable[partitions];
     this.locks = new Object[partitions];
     for (int p = 0; p < partitions; p++) {
       locks[p] = new Object();
     }
     this.threshold = flushGroups();
+    if (chunkPoolEnabled()) {
+      // One probe table fixes the layout every table of this spill shares; it never holds a group.
+      final int stride = factory.apply(WORKER_TABLE_HINT).stride();
+      final int chunkLanes = NumericGroupAggTable.fullChunkLanes(stride);
+      this.pool = new LongChunkPool(chunkLanes, poolCapacityChunks(budget, threshold, stride, chunkLanes));
+    } else {
+      this.pool = null;
+    }
   }
 
   /** A fresh worker table from the factory, restricted to this pass's partitions. */
   public NumericGroupAggTable freshLocal() {
-    final NumericGroupAggTable table = factory.get();
+    final NumericGroupAggTable table = adopt(factory.apply(WORKER_TABLE_HINT));
     if (passLo != 0 || passHi != partitions) {
       table.setPassRange(shift, passLo, passHi);
     }
     return table;
+  }
+
+  /** The chunk pool every table of this spill draws from, or {@code null} when switched off. */
+  public LongChunkPool chunkPool() {
+    return pool;
+  }
+
+  /** Attach this spill's pool to a table that holds no group yet. */
+  private NumericGroupAggTable adopt(final NumericGroupAggTable table) {
+    return pool == null
+        ? table
+        : table.attachChunkPool(pool);
   }
 
   /** Whether this spill covers only part of the key space. */
@@ -360,6 +576,33 @@ public final class GroupTableSpill {
   /** A worker reports {@code leaves} row groups scanned; drives the pass estimate on abort. */
   public void noteLeavesScanned(final int leaves) {
     leavesScanned.add(leaves);
+  }
+
+  /**
+   * Claim the next morsel of the pass's row groups for the calling worker: the first of up to
+   * {@code morsel} consecutive row groups no other worker has taken, or {@code leafCount} once every
+   * row group is claimed. Wait-free — one atomic add per morsel — and the morsels are dealt in leaf
+   * order, so at any moment the workers read neighbouring leaves. Morsel starts are multiples of
+   * {@code morsel}, which with {@link #SUB_CHUNK_LEAVES} equal to the column store's leaf-access
+   * window means a morsel is exactly one decoded window per column.
+   *
+   * @param leafCount row groups in the scan
+   * @param morsel row groups per claim, > 0
+   * @return the morsel's first row group, or {@code leafCount} when none is left
+   */
+  public int claimLeaves(final int leafCount, final int morsel) {
+    if (leafCount < 0 || morsel <= 0) {
+      throw new IllegalArgumentException("leafCount " + leafCount + ", morsel " + morsel);
+    }
+    final int start = leafCursor.getAndAdd(morsel);
+    return start < leafCount
+        ? start
+        : leafCount;
+  }
+
+  /** Row groups claimed so far through {@link #claimLeaves}, bounded by nothing: a witness for tests. */
+  public int leavesClaimed() {
+    return leafCursor.get();
   }
 
   /** Row groups the workers reported scanned so far. */
@@ -413,11 +656,24 @@ public final class GroupTableSpill {
   }
 
   /**
-   * Merge every group of {@code local} into the shared partition tables. The caller drops
-   * {@code local} afterwards (it is not cleared here: a fresh table is cheaper than a reset of a
-   * grown one, and the old one becomes garbage at once).
+   * Merge every group of {@code local} into the shared partition tables, then {@link
+   * NumericGroupAggTable#release release} it: its chunks return to the pool for the caller's next
+   * {@link #freshLocal} (a fresh table is cheaper than a reset of a grown one). The caller must not
+   * touch {@code local} afterwards.
    */
   public void flush(final NumericGroupAggTable local) {
+    try {
+      merge(local);
+    } catch (final OutOfMemoryError failure) {
+      // The pass SAW this table's groups whether or not the merge landed them: the abort-time
+      // estimate that plans the restart must count them, or a worker that dies on its first flush
+      // leaves the restart planned blind (nothing spilled, nothing abandoned).
+      abandoned.add(local.size());
+      throw failure;
+    }
+  }
+
+  private void merge(final NumericGroupAggTable local) {
     if (simulateOutOfMemoryOnFlush) {
       simulateOutOfMemoryOnFlush = false;
       throw new OutOfMemoryError("simulated: GroupTableSpill flush (test seam)");
@@ -425,14 +681,20 @@ public final class GroupTableSpill {
     final int[][] index = local.buildPartitionIndex(partitions, shift);
     final NumericGroupAggTable[] sources = {local};
     final int[][][] indexes = {index};
-    for (int p = 0; p < partitions; p++) {
+    // Each flush walks the partitions from its own start, so the workers that flush together (their
+    // tables fill at one rate) queue on a monitor by coincidence, not one behind the other.
+    final int start = flushOffset
+        ? flushStart(flushOrdinal.getAndIncrement(), partitions)
+        : 0;
+    for (int i = 0; i < partitions; i++) {
+      final int p = (start + i) & (partitions - 1);
       if (index[p].length == 0 && !(p == 0 && local.hasZeroKey())) {
         continue;
       }
       synchronized (locks[p]) {
         NumericGroupAggTable target = shared[p];
         if (target == null) {
-          target = factory.get();
+          target = createShared();
           shared[p] = target;
         }
         final int before = target.size();
@@ -440,10 +702,39 @@ public final class GroupTableSpill {
         spilled.add(target.size() - before);
       }
     }
+    local.release();
     FLUSHES.increment();
     if (spilled.sum() > budget) {
       aborted = true;
     }
+  }
+
+  /** A shared partition table: at the plan's expected count when known, else at the worker hint. */
+  private NumericGroupAggTable createShared() {
+    if (sharedHint < 0) {
+      return adopt(factory.apply(WORKER_TABLE_HINT));
+    }
+    PRESIZED_SHARED.increment();
+    return adopt(factory.apply(sharedHint));
+  }
+
+  /**
+   * Rehashes the shared partition tables took under their locks, summed as the tables leave this
+   * spill ({@link #takeOrCreate}, {@link #releaseTables}): zero when the pre-size held, the count a
+   * blind pass paid otherwise. Diag and test observability.
+   */
+  public long sharedRehashes() {
+    return sharedRehashes.sum();
+  }
+
+  /** The hint shared tables are created at, or {@code -1} for the worker hint (test observability). */
+  public int sharedHint() {
+    return sharedHint;
+  }
+
+  /** Whether this spill's flushes start at rotating partitions (test observability). */
+  public boolean flushOffset() {
+    return flushOffset;
   }
 
   /**
@@ -453,13 +744,21 @@ public final class GroupTableSpill {
    * the budget by a forced collection measures whatever is still REFERENCED, not what the arm intends
    * to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live heap, the
    * budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the parallel
-   * section has joined and before re-planning; the spill is not reused.
+   * section has joined and before re-planning; the spill is not reused. The pool is drained for the
+   * same reason: what it holds is retained by intent only, and the measurement must not count it.
    */
   public void releaseTables() {
     for (int p = 0; p < partitions; p++) {
       synchronized (locks[p]) {
-        shared[p] = null;
+        final NumericGroupAggTable table = shared[p];
+        if (table != null) {
+          sharedRehashes.add(table.rehashes());
+          shared[p] = null;
+        }
       }
+    }
+    if (pool != null) {
+      pool.drain();
     }
     RELEASES.increment();
   }
@@ -475,8 +774,10 @@ public final class GroupTableSpill {
       table = shared[part];
       shared[part] = null;
     }
-    return table != null
-        ? table
-        : requireNonNull(fresh, "fresh").get();
+    if (table == null) {
+      return adopt(requireNonNull(fresh, "fresh").get());
+    }
+    sharedRehashes.add(table.rehashes());
+    return table;
   }
 }

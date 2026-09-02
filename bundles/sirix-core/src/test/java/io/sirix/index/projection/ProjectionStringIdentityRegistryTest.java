@@ -4,6 +4,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -311,5 +318,116 @@ final class ProjectionStringIdentityRegistryTest {
     assertThrows(IllegalArgumentException.class, () -> prove(registry, 1, "x"));
     assertEquals(ProjectionStringIdentityRegistry.DEFAULT_MAX_CANONICAL_BYTES,
         ProjectionStringIdentityRegistry.DEFAULT_MAX_CANONICAL_BYTES);
+  }
+
+  @Test
+  @DisplayName("a value the registry has seen re-proves without the monitor, across a grow")
+  void repeatedProofsNeverTakeTheMonitor() {
+    final ProjectionStringIdentityRegistry registry =
+        new ProjectionStringIdentityRegistry(2, ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT, 1 << 24);
+    final int distinct = 5_000; // several doublings past INITIAL_CAPACITY, so grown tables are probed too
+    for (int i = 0; i < distinct; i++) {
+      assertTrue(prove(registry, 0, "value-" + i), "insert " + i);
+      assertTrue(prove(registry, 1, "other-" + i), "insert " + i);
+    }
+    assertEquals(2L * distinct, registry.lockedProves(), "every first sighting takes the monitor exactly once");
+    for (int round = 0; round < 3; round++) {
+      for (int i = 0; i < distinct; i++) {
+        assertTrue(prove(registry, 0, "value-" + i), "re-prove " + i);
+        assertTrue(prove(registry, 1, "other-" + i), "re-prove " + i);
+      }
+    }
+    assertEquals(2L * distinct, registry.lockedProves(), "a repeated value never takes the monitor");
+    assertTrue(registry.identityProven());
+  }
+
+  @Test
+  @DisplayName("with the fast path switched off every proof takes the monitor")
+  void killSwitchSendsEveryProofThroughTheMonitor() {
+    final boolean previous = ProjectionStringIdentityRegistry.setLockFreeProbeForTesting(false);
+    try {
+      final ProjectionStringIdentityRegistry registry =
+          new ProjectionStringIdentityRegistry(1, ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT, 1 << 20);
+      for (int i = 0; i < 100; i++) {
+        assertTrue(prove(registry, 0, "value-" + i));
+      }
+      for (int i = 0; i < 100; i++) {
+        assertTrue(prove(registry, 0, "value-" + i));
+      }
+      assertEquals(200L, registry.lockedProves(), "the switch routes repeats through the monitor too");
+    } finally {
+      ProjectionStringIdentityRegistry.setLockFreeProbeForTesting(previous);
+    }
+  }
+
+  @Test
+  @DisplayName("a mismatch under a shared fingerprint is still caught when the reader found the slot lock-free")
+  void lockFreeReaderStillDefersMismatchToTheMonitor() {
+    final ProjectionStringIdentityRegistry registry =
+        new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    assertTrue(prove(registry, 0, "gold"));
+    assertTrue(prove(registry, 0, "gold"), "byte-equal hit");
+    assertEquals(1L, registry.lockedProves(), "the hit was served without the monitor");
+    assertFalse(prove(registry, 0, "gilt"), "different bytes, same fingerprint: the monitor latches the collision");
+    assertEquals(2L, registry.lockedProves(), "the mismatch went through the monitor");
+    assertTrue(registry.collisionDetected());
+    assertFalse(registry.identityProven());
+  }
+
+  @Test
+  @DisplayName("workers proving a shared vocabulary concurrently, while it grows, all agree and never decline")
+  void concurrentProofsAgreeWhileTheTableGrows() throws Exception {
+    final ProjectionStringIdentityRegistry registry =
+        new ProjectionStringIdentityRegistry(1, ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT, 1 << 26);
+    final int distinct = 40_000;
+    final int workers = 8;
+    final byte[][] vocabulary = new byte[distinct][];
+    final long[] lanesA = new long[distinct];
+    final long[] lanesB = new long[distinct];
+    for (int i = 0; i < distinct; i++) {
+      vocabulary[i] = utf8("shared-" + i);
+      lanesA[i] = registry.laneA(vocabulary[i], 0, vocabulary[i].length, 0L);
+      lanesB[i] = registry.laneB(vocabulary[i], 0, vocabulary[i].length);
+    }
+    final ExecutorService pool = Executors.newFixedThreadPool(workers);
+    try {
+      final CountDownLatch start = new CountDownLatch(1);
+      final List<Future<Long>> results = new ArrayList<>(workers);
+      for (int w = 0; w < workers; w++) {
+        final int stride = 7 + w; // every worker walks the vocabulary in its own order, so inserts race
+        results.add(pool.submit(() -> {
+          start.await();
+          long proven = 0;
+          for (int round = 0; round < 4; round++) {
+            for (int k = 0; k < distinct; k++) {
+              final int i = (int) (((long) k * stride) % distinct);
+              if (registry.prove(0, lanesA[i], lanesB[i], vocabulary[i], 0, vocabulary[i].length)) {
+                proven++;
+              }
+            }
+          }
+          return proven;
+        }));
+      }
+      start.countDown();
+      long proven = 0;
+      for (final Future<Long> f : results) {
+        proven += f.get(60, TimeUnit.SECONDS);
+      }
+      assertEquals((long) workers * 4 * distinct, proven, "every proof of a shared vocabulary succeeds");
+    } finally {
+      pool.shutdownNow();
+    }
+    assertTrue(registry.identityProven(), "no false collision, no budget refusal");
+    final long locked = registry.lockedProves();
+    assertTrue(locked >= distinct, "each distinct value was inserted under the monitor: " + locked);
+    assertTrue(locked < 2L * distinct,
+        "only racing first sightings may take the monitor twice; " + locked + " locked proofs for " + distinct
+            + " values means repeats are taking it");
+    for (int i = 0; i < distinct; i++) {
+      assertTrue(registry.prove(0, lanesA[i], lanesB[i], vocabulary[i], 0, vocabulary[i].length),
+          "value " + i + " survived the concurrent growth");
+    }
+    assertEquals(locked, registry.lockedProves(), "the post-race sweep took the monitor for nothing");
   }
 }

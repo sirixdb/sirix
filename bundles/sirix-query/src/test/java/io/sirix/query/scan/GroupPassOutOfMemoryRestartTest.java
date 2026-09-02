@@ -114,6 +114,7 @@ final class GroupPassOutOfMemoryRestartTest {
       final long restartsBefore = SirixVectorizedExecutor.groupPassRestartsCount();
       final long releasesBefore = GroupTableSpill.releaseCount();
       final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+      final long presizedBefore = GroupTableSpill.presizedSharedCount();
       GroupTableSpill.setSimulateOutOfMemoryOnFlushForTesting(true);
       final String served = run(query, true);
       assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "not served by a group arm: " + query);
@@ -126,6 +127,9 @@ final class GroupPassOutOfMemoryRestartTest {
       // read the pass it is replacing as live heap.
       assertEquals(SirixVectorizedExecutor.groupPassRestartsCount() - restartsBefore,
           GroupTableSpill.releaseCount() - releasesBefore, "one table release per restart for: " + query);
+      // The restarted passes plan from the abort estimate, in every arm: shared tables at that share.
+      assertTrue(GroupTableSpill.presizedSharedCount() > presizedBefore,
+          "the restarted arm must create its shared tables at the estimated share for: " + query);
     }
   }
 

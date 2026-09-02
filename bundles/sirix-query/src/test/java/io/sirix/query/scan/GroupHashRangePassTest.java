@@ -7,6 +7,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.LongChunkPool;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -120,6 +121,8 @@ final class GroupHashRangePassTest {
   void passesAgreeWithTheInterpreter() throws Exception {
     final long restartsBefore = SirixVectorizedExecutor.groupPassRestartsCount();
     final long releasesBefore = GroupTableSpill.releaseCount();
+    final long poolHitsBefore = LongChunkPool.totalHits();
+    final long presizedBefore = GroupTableSpill.presizedSharedCount();
     for (final String query : QUERIES) {
       final String generic = run(query, false);
       final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
@@ -127,12 +130,16 @@ final class GroupHashRangePassTest {
       assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "not served by a group arm: " + query);
       assertEquals(generic, served, "hash-range passes diverge from the interpreter for: " + query);
     }
+    assertTrue(GroupTableSpill.presizedSharedCount() > presizedBefore,
+        "a restarted pass plans from the abort estimate: its shared tables must be created at that share");
     assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > restartsBefore,
         "no arm ever restarted with more passes: the budget seam did not take, the agreement above is vacuous");
     // Every restart released the aborted pass's tables BEFORE re-planning — a budget refreshed by a
     // forced collection must not read the pass it is replacing as live heap.
     assertEquals(SirixVectorizedExecutor.groupPassRestartsCount() - restartsBefore,
         GroupTableSpill.releaseCount() - releasesBefore, "one table release per restart, in every arm");
+    assertTrue(LongChunkPool.totalHits() > poolHitsBefore,
+        "a later pass never took a chunk an earlier pass released: the pool does not span the passes");
   }
 
   @Test
@@ -182,10 +189,13 @@ final class GroupHashRangePassTest {
         assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > firstBefore,
             "the first execution must abort its single pass, or there is no completed pass set to count: " + query);
         final long secondBefore = SirixVectorizedExecutor.groupPassRestartsCount();
+        final long presizedBefore = GroupTableSpill.presizedSharedCount();
         final String second = runWith(session, chain, ctx, query);
         assertEquals(generic, second, "seeded execution diverges for: " + query);
         assertEquals(secondBefore, SirixVectorizedExecutor.groupPassRestartsCount(),
             "the second execution must be seeded from the exact count and never restart: " + query);
+        assertTrue(GroupTableSpill.presizedSharedCount() > presizedBefore,
+            "the seeded execution knows the count: its shared tables must be created at their share: " + query);
       }
     }
   }

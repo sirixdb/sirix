@@ -8,6 +8,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import com.sun.management.OperatingSystemMXBean;
 import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -431,9 +433,15 @@ public final class ClickBenchRunMain {
         }
         try {
           final long[] servingBefore = captureServingCounters();
+          final long cpu0 = processCpuNanos();
+          final long gcCount0 = gcCount();
+          final long gcMillis0 = gcMillis();
           final long t0 = System.nanoTime();
           final String serialized = execute(chain, ctx, text);
-          timings[query.index()][t] = (System.nanoTime() - t0) / 1e9;
+          final double wall = (System.nanoTime() - t0) / 1e9;
+          timings[query.index()][t] = wall;
+          printTryResources(query.index(), t, wall, processCpuNanos() - cpu0, gcCount() - gcCount0,
+              gcMillis() - gcMillis0);
           final EnumSet<ServingRoute> tryRoutes = servingDelta(servingBefore, captureServingCounters());
           queryRoutes.addAll(tryRoutes);
           final String tryProofFailure = servingProofFailureForTry(options.servingProof(), query.index(), t,
@@ -792,6 +800,46 @@ public final class ClickBenchRunMain {
 
   /** Header, two title lines and the largest classes; the {@code Total} line is appended separately. */
   private static final int HISTOGRAM_LINES = 45;
+
+  private static final OperatingSystemMXBean OS_BEAN =
+      (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+  private static final List<GarbageCollectorMXBean> GC_BEANS = ManagementFactory.getGarbageCollectorMXBeans();
+  private static final int CORES = Runtime.getRuntime().availableProcessors();
+
+  /** Process CPU time in nanoseconds (all threads, collector threads included); -1 when unsupported. */
+  private static long processCpuNanos() {
+    return OS_BEAN.getProcessCpuTime();
+  }
+
+  private static long gcCount() {
+    long count = 0;
+    for (final GarbageCollectorMXBean gc : GC_BEANS) {
+      count += Math.max(0L, gc.getCollectionCount());
+    }
+    return count;
+  }
+
+  private static long gcMillis() {
+    long millis = 0;
+    for (final GarbageCollectorMXBean gc : GC_BEANS) {
+      millis += Math.max(0L, gc.getCollectionTime());
+    }
+    return millis;
+  }
+
+  /**
+   * One stderr line per try beside the wall time: process CPU seconds, utilisation as "busy cores" out of the
+   * machine's cores, and the collector's pause count/seconds. A query whose utilisation is far below the core
+   * count is WAITING (I/O, parking, a serial phase), and a pause that overlaps a wait costs no wall time — so
+   * the CPU share of a profile must never be read as a wall share without this line.
+   */
+  private static void printTryResources(final int queryIndex, final int tryIndex, final double wallSeconds,
+      final long cpuNanos, final long gcPauses, final long gcPauseMillis) {
+    final double cpuSeconds = cpuNanos < 0 ? Double.NaN : cpuNanos / 1e9;
+    System.err.printf(Locale.ROOT, "# q%d try %d: wall=%.3f s cpu=%.1f s util=%.1f/%d gc=%d pauses %.2f s%n",
+        queryIndex, tryIndex + 1, wallSeconds, cpuSeconds, cpuSeconds / Math.max(wallSeconds, 1e-9), CORES,
+        gcPauses, gcPauseMillis / 1e3);
+  }
 
   /** ClickBench's hot runtime: the smaller of tries 2 and 3, or NaN if either failed. */
   private static double hot(final double[] tries) {

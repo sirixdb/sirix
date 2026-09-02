@@ -56,6 +56,7 @@ import io.sirix.cache.GlobalVerdictCacheKey;
 import io.sirix.index.projection.GlobalValueDictionary;
 import io.sirix.index.projection.GroupDistinctAccumulator;
 import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.LongChunkPool;
 import io.sirix.index.projection.WindowedSliceArrays;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
@@ -12911,13 +12912,77 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     Arrays.fill(partIdx, null);
   }
 
-  /** One {@code -Dsirix.projDiag} line per completed hash-range pass: the pass-count instrument's timing. */
-  private static void diagPassDone(final String arm, final int pass, final int passes, final int passLo,
-      final int passHi, final long startNanos, final GroupTableSpill spill) {
-    System.err.println("[proj] groupAgg pass done (" + arm + "): " + (pass + 1) + "/" + passes + " range=[" + passLo
-        + "," + passHi + ") ms=" + (System.nanoTime() - startNanos) / 1_000_000L + " spilled=" + spill.groupsSpilled()
-        + " leaves=" + spill.leavesScanned());
+  /**
+   * A pass has taken its candidates from the merged table of one partition: copy the selector's
+   * winners out of the table's storage (they are references into it) and hand the storage back to
+   * the spill's chunk pool for the next pass. The table's counters stay readable.
+   */
+  private static void retireMergedPartition(final NumericGroupAggTable into, final GroupTopKSelector sel) {
+    if (sel != null) {
+      // A stripe is one key lane below the accumulator base and stride - 1 lanes from it on.
+      sel.detachFromStorage(1, into.stride() - 1);
+    }
+    into.release();
   }
+
+  /**
+   * The partition merge has consumed the workers' final tables: hand their storage back to the pool
+   * before the next pass allocates its own. Also drops the partition indexes built over them.
+   */
+  private static void releaseMergedLocals(final NumericGroupAggTable[] tables, final int[][][] partIdx) {
+    for (int t = 0; t < tables.length; t++) {
+      final NumericGroupAggTable table = tables[t];
+      if (table != null) {
+        table.release();
+        tables[t] = null;
+      }
+      partIdx[t] = null;
+    }
+  }
+
+  /**
+   * One {@code -Dsirix.projDiag} line per completed hash-range pass: the pass-count instrument's
+   * timing, split into the parallel scan and the partition merge after it, with the spread of the
+   * workers' scan chunks (min/median/max — the scan ends with its slowest chunk, so the gap between
+   * the median and the max is the wall a static partitioning gives away) and, on the composite arm,
+   * the identity proofs that took the registry's monitor.
+   */
+  private static void diagPassDone(final String arm, final int pass, final int passes, final int passLo,
+      final int passHi, final long startNanos, final long scanEndNanos, final long[] scanNanos,
+      final GroupTableSpill spill, final ProjectionStringIdentityRegistry registry) {
+    final LongChunkPool pool = spill.chunkPool();
+    final long endNanos = System.nanoTime();
+    final StringBuilder line = new StringBuilder(256);
+    line.append("[proj] groupAgg pass done (").append(arm).append("): ").append(pass + 1).append('/').append(passes)
+        .append(" range=[").append(passLo).append(',').append(passHi).append(") ms=")
+        .append((endNanos - startNanos) / 1_000_000L).append(" scanMs=").append((scanEndNanos - startNanos) / 1_000_000L)
+        .append(" mergeMs=").append((endNanos - scanEndNanos) / 1_000_000L);
+    if (scanNanos != null && scanNanos.length > 0) {
+      final long[] sorted = scanNanos.clone();
+      Arrays.sort(sorted);
+      int slowest = 0;
+      for (int w = 1; w < scanNanos.length; w++) {
+        if (scanNanos[w] > scanNanos[slowest]) {
+          slowest = w;
+        }
+      }
+      line.append(" workerMs=").append(sorted[0] / 1_000_000L).append('/').append(sorted[sorted.length / 2] / 1_000_000L)
+          .append('/').append(sorted[sorted.length - 1] / 1_000_000L).append(" slowest=").append(slowest);
+    }
+    line.append(" spilled=").append(spill.groupsSpilled()).append(" leaves=").append(spill.leavesScanned())
+        .append(" sharedHint=").append(spill.sharedHint()).append(" sharedRehashes=").append(spill.sharedRehashes());
+    if (registry != null) {
+      line.append(" lockedProves=").append(registry.lockedProves());
+    }
+    if (pool == null) {
+      line.append(" pool=off");
+    } else {
+      line.append(" pool=").append(pool.hits()).append('/').append(pool.misses()).append(" pooled=").append(pool.pooled())
+          .append(" dropped=").append(pool.dropped());
+    }
+    System.err.println(line);
+  }
+
 
   /**
    * The hash-range pass plan of one group scan — the pass count to start with, the per-pass group
@@ -12988,6 +13053,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private long budget;
     private int passes;
     private long passBudget;
+    /** The total group count the current pass set was planned from; 0 while the plan is blind. */
+    private long plannedGroups;
     private boolean seededCompleted;
     private boolean completedSeedAborted;
     private boolean budgetRefreshed;
@@ -13006,6 +13073,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long known = completed != null
           ? completed.groups()
           : handle.observedGroupsFor(fingerprint);
+      plannedGroups = known;
       refreshBudget(known);
       if (completed != null && this.budget > 0L) {
         passes = seededPasses(completed.groups(), completed.passes(), this.budget, partitions);
@@ -13123,6 +13191,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return passBudget;
     }
 
+    /**
+     * The shape's total group count as the current pass set expects it — the memoised or
+     * abort-estimated figure the passes were planned from, {@code 0} while the plan is blind — so the
+     * spill can create each shared partition table at its share of it instead of growing it under
+     * the partition lock ({@link GroupTableSpill#sharedTableHint}).
+     */
+    long plannedGroups() {
+      return plannedGroups;
+    }
+
     /** The plan's budget as last read (after a refresh, the refreshed figure). */
     long budget() {
       return budget;
@@ -13143,6 +13221,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     void restart(final GroupTableSpill spill, final int rowGroupCount) {
       final long estimated = spill.estimatedTotalGroups(rowGroupCount);
       handle.noteObservedGroups(fingerprint, estimated);
+      plannedGroups = estimated;
       final long budgetBefore = budget;
       refreshBudget(estimated);
       aborts++;
@@ -14344,14 +14423,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
-              () -> new NumericGroupAggTable(aggColsFlat.length, 1 << 16, true, sumExactMask, compositeIdWidth),
-              passLo, passHi, plan.passBudget());
+              hint -> new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask, compositeIdWidth),
+              plan.plannedGroups(), passLo, passHi, plan.passBudget());
+          final long[] scanNanos = PROJ_DIAG
+              ? new long[eff]
+              : null;
           try {
                       parallel(eff, idx -> {
-                        final int from = idx * chunkSize;
-                        final int to = Math.min(from + chunkSize, rowGroupCount);
-                        if (from >= to)
-                          return;
+                        final int subChunk = GroupTableSpill.subChunkLeaves();
+                        int sub = spill.claimLeaves(rowGroupCount, subChunk);
+                        if (sub >= rowGroupCount)
+                          return; // every morsel of the pass is already claimed
                         NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
                         if (cdBlock >= 0) {
                           cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
@@ -14365,9 +14447,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                         final WindowedSliceArrays wsl = windowedSlices && compositeSlicedArm
                             ? new WindowedSliceArrays(groupStore, columnFetcher(), windowedKeepC)
                             : null;
-                        final int subChunk = GroupTableSpill.subChunkLeaves();
-                        for (int sub = from; sub < to; sub += subChunk) {
-                          final int subEnd = Math.min(sub + subChunk, to);
+                        while (sub < rowGroupCount) {
+                          final int subEnd = Math.min(sub + subChunk, rowGroupCount);
                           if (spill.aborted()) {
                             spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                             return; // over the per-pass group budget: the arm restarts with more passes
@@ -14416,14 +14497,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                             wsl.release(sub, subEnd);
                           }
                           spill.noteLeavesScanned(subEnd - sub);
-                          if (subEnd < to && spill.shouldFlush(local)) {
-                            spill.flush(local);
+                          sub = spill.claimLeaves(rowGroupCount, subChunk);
+                          if (sub < rowGroupCount && spill.shouldFlush(local)) {
+                            spill.flush(local); // never right before the final table: the merge takes that one
                             local = spill.freshLocal();
                           }
                         }
                         tables[idx] = local;
                         partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
-                      });
+                      }, scanNanos);
           } catch (final RuntimeException | OutOfMemoryError scanFailed) {
             // A worker out of memory is a pass over its budget, not a defect: restart with more passes
             // (each keeping fewer groups); only when already one pass per partition does it stand.
@@ -14431,6 +14513,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               throw scanFailed;
             }
           }
+          final long scanEndNanos = System.nanoTime();
           if (spill.aborted()) {
             noteAbandonedLocals(spill, tables);
             if (PROJ_DIAG) {
@@ -14509,6 +14592,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final int candidates = into.sizeIncludingZero();
             plan.notePartition(part, candidates);
             if (candidates == 0) {
+              into.release();
               return;
             }
             final GroupTopKSelector sel =
@@ -14552,7 +14636,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
             }
             partSelectors[part] = sel;
+            retireMergedPartition(into, sel);
           });
+          releaseMergedLocals(tables, partIdx);
           if (compositeDistinctCollision[0] != 0) {
             return declineGroupAgg("composite group probe-hash collision with a per-group count(distinct)");
           }
@@ -14560,7 +14646,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             return declineGroupAgg("key-ordered group table carries a zero group without identity lanes");
           }
           if (PROJ_DIAG) {
-            diagPassDone("composite", pass, passes, passLo, passHi, passStartNanos, spill);
+            diagPassDone("composite", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
+                compositeIdentityRegistry);
           }
           } // hash-range passes
           plan.complete();
@@ -14881,14 +14968,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
         final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
-            () -> new NumericGroupAggTable(aggColsFlat.length, 1 << 16, true, sumExactMask), passLo, passHi,
-            plan.passBudget());
+            hint -> new NumericGroupAggTable(aggColsFlat.length, hint, true, sumExactMask), plan.plannedGroups(),
+            passLo, passHi, plan.passBudget());
+        final long[] scanNanos = PROJ_DIAG
+            ? new long[eff]
+            : null;
         try {
                   parallel(eff, idx -> {
-                    final int from = idx * chunkSize;
-                    final int to = Math.min(from + chunkSize, rowGroupCount);
-                    if (from >= to)
-                      return;
+                    final int subChunk = GroupTableSpill.subChunkLeaves();
+                    int sub = spill.claimLeaves(rowGroupCount, subChunk);
+                    if (sub >= rowGroupCount)
+                      return; // every morsel of the pass is already claimed
                     NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
                     final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggColsFlat.length, Long.MAX_VALUE);
                     if (cdBlock >= 0) {
@@ -14904,9 +14994,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                     final WindowedSliceArrays wsl = windowedSlices && stringSlicedArm
                         ? new WindowedSliceArrays(groupStore, columnFetcher(), windowedKeepS)
                         : null;
-                    final int subChunk = GroupTableSpill.subChunkLeaves();
-                    for (int sub = from; sub < to; sub += subChunk) {
-                      final int subEnd = Math.min(sub + subChunk, to);
+                    while (sub < rowGroupCount) {
+                      final int subEnd = Math.min(sub + subChunk, rowGroupCount);
                       if (spill.aborted()) {
                         spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                         return; // over the per-pass group budget: the arm restarts with more passes
@@ -14956,15 +15045,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                         wsl.release(sub, subEnd);
                       }
                       spill.noteLeavesScanned(subEnd - sub);
-                      if (subEnd < to && spill.shouldFlush(local)) {
-                        spill.flush(local);
+                      sub = spill.claimLeaves(rowGroupCount, subChunk);
+                      if (sub < rowGroupCount && spill.shouldFlush(local)) {
+                        spill.flush(local); // never right before the final table: the merge takes that one
                         local = spill.freshLocal();
                       }
                     }
                     tables[idx] = local;
                     partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
                     flatMissing[idx] = missing;
-                  });
+                  }, scanNanos);
         } catch (final RuntimeException | OutOfMemoryError scanFailed) {
           // A worker out of memory is a pass over its budget, not a defect: restart with more passes
           // (each keeping fewer groups); only when already one pass per partition does it stand.
@@ -14972,6 +15062,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             throw scanFailed;
           }
         }
+        final long scanEndNanos = System.nanoTime();
         if (spill.aborted()) {
           noteAbandonedLocals(spill, tables);
           if (PROJ_DIAG) {
@@ -15048,6 +15139,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final int candidates = into.sizeIncludingZero();
           plan.notePartition(part, candidates);
           if (candidates == 0) {
+            into.release();
             return;
           }
           final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
@@ -15081,9 +15173,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           partSelectors[part] = sel;
+          retireMergedPartition(into, sel);
         });
+        releaseMergedLocals(tables, partIdx);
         if (PROJ_DIAG) {
-          diagPassDone("string", pass, passes, passLo, passHi, passStartNanos, spill);
+          diagPassDone("string", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
+                null);
         }
         } // hash-range passes
         plan.complete();
@@ -15903,14 +15998,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       Arrays.fill(partIdx, null);
     }
     final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
-        () -> new NumericGroupAggTable(aggCols.length, 1 << 16, true, sumExactMask), passLo, passHi,
-        plan.passBudget());
+        hint -> new NumericGroupAggTable(aggCols.length, hint, true, sumExactMask), plan.plannedGroups(), passLo,
+        passHi, plan.passBudget());
+    final long[] scanNanos = PROJ_DIAG
+        ? new long[eff]
+        : null;
     try {
           parallel(eff, idx -> {
-            final int from = idx * chunkSize;
-            final int to = Math.min(from + chunkSize, rowGroupCount);
-            if (from >= to)
-              return;
+            final int subChunk = GroupTableSpill.subChunkLeaves();
+            int sub = spill.claimLeaves(rowGroupCount, subChunk);
+            if (sub >= rowGroupCount)
+              return; // every morsel of the pass is already claimed
             NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
             final GlobalValueDictionary.ReadView globalView = globalDictionaryHeaderKey > 0L
                 ? GlobalValueDictionary.readView(globalDictionaryHeaderKey, workerTrx().getStorageEngineReader())
@@ -15922,9 +16020,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final WindowedSliceArrays wsl = windowedSlices && slicedStore != null
                 ? new WindowedSliceArrays(slicedStore, columnFetcher(), windowedKeepP)
                 : null;
-            final int subChunk = GroupTableSpill.subChunkLeaves();
-            for (int sub = from; sub < to; sub += subChunk) {
-              final int subEnd = Math.min(sub + subChunk, to);
+            while (sub < rowGroupCount) {
+              final int subEnd = Math.min(sub + subChunk, rowGroupCount);
               if (spill.aborted()) {
                 spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                 return; // over the per-pass group budget: the arm restarts with more passes
@@ -15954,14 +16051,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 wsl.release(sub, subEnd);
               }
               spill.noteLeavesScanned(subEnd - sub);
-              if (subEnd < to && spill.shouldFlush(local)) {
-                spill.flush(local);
+              sub = spill.claimLeaves(rowGroupCount, subChunk);
+              if (sub < rowGroupCount && spill.shouldFlush(local)) {
+                spill.flush(local); // never right before the final table: the merge takes that one
                 local = spill.freshLocal();
               }
             }
             tables[idx] = local;
             partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
-          });
+          }, scanNanos);
     } catch (final RuntimeException | OutOfMemoryError scanFailed) {
       // A worker out of memory is a pass over its budget, not a defect: restart with more passes
       // (each keeping fewer groups); only when already one pass per partition does it stand.
@@ -15969,6 +16067,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         throw scanFailed;
       }
     }
+    final long scanEndNanos = System.nanoTime();
     if (spill.aborted()) {
       noteAbandonedLocals(spill, tables);
       if (PROJ_DIAG) {
@@ -16039,8 +16138,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       partSelectors[part] = sel;
     });
+    // The partition tables stay: the winners' aux is re-probed from them after the passes.
+    releaseMergedLocals(tables, partIdx);
     if (PROJ_DIAG) {
-      diagPassDone("packed", pass, passes, passLo, passHi, passStartNanos, spill);
+      diagPassDone("packed", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
+                null);
     }
     } // hash-range passes
     plan.complete();
@@ -16242,14 +16344,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       final GroupTableSpill spill = new GroupTableSpill(partitionsF, shift,
-          () -> new NumericGroupAggTable(aggCols.length, 1 << 16, false, sumExactMask), passLo, passHi,
-          plan.passBudget());
+          hint -> new NumericGroupAggTable(aggCols.length, hint, false, sumExactMask), plan.plannedGroups(), passLo,
+          passHi, plan.passBudget());
+      final long[] scanNanos = PROJ_DIAG
+          ? new long[eff]
+          : null;
       try {
               parallel(eff, idx -> {
-                final int from = idx * chunkSize;
-                final int to = Math.min(from + chunkSize, rowGroupCount);
-                if (from >= to)
-                  return;
+                final int subChunk = GroupTableSpill.subChunkLeaves();
+                int sub = spill.claimLeaves(rowGroupCount, subChunk);
+                if (sub >= rowGroupCount)
+                  return; // every morsel of the pass is already claimed
                 NumericGroupAggTable local = spill.freshLocal(); // pass-filtered like every later table
                 final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
                 if (cdBlockIdx >= 0) {
@@ -16258,9 +16363,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 final WindowedSliceArrays wsl = windowedSlices && slicedStore != null
                     ? new WindowedSliceArrays(slicedStore, columnFetcher(), windowedKeep)
                     : null;
-                final int subChunk = GroupTableSpill.subChunkLeaves();
-                for (int sub = from; sub < to; sub += subChunk) {
-                  final int subEnd = Math.min(sub + subChunk, to);
+                while (sub < rowGroupCount) {
+                  final int subEnd = Math.min(sub + subChunk, rowGroupCount);
                   if (spill.aborted()) {
                     spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                     return; // over the per-pass group budget: the arm restarts with more passes
@@ -16309,15 +16413,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                     wsl.release(sub, subEnd);
                   }
                   spill.noteLeavesScanned(subEnd - sub);
-                  if (subEnd < to && spill.shouldFlush(local)) {
-                    spill.flush(local);
+                  sub = spill.claimLeaves(rowGroupCount, subChunk);
+                  if (sub < rowGroupCount && spill.shouldFlush(local)) {
+                    spill.flush(local); // never right before the final table: the merge takes that one
                     local = spill.freshLocal();
                   }
                 }
                 tables[idx] = local;
                 partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
                 perThreadMissing[idx] = missing;
-              });
+              }, scanNanos);
       } catch (final RuntimeException | OutOfMemoryError scanFailed) {
         // A worker out of memory is a pass over its budget, not a defect: restart with more passes
         // (each keeping fewer groups); only when already one pass per partition does it stand.
@@ -16325,6 +16430,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           throw scanFailed;
         }
       }
+      final long scanEndNanos = System.nanoTime();
       if (spill.aborted()) {
         noteAbandonedLocals(spill, tables);
         if (PROJ_DIAG) {
@@ -16392,6 +16498,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final int candidates = into.sizeIncludingZero();
         plan.notePartition(part, candidates);
         if (candidates == 0) {
+          into.release();
           return;
         }
         final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
@@ -16423,9 +16530,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
         partSelectors[part] = sel;
+        retireMergedPartition(into, sel);
       });
+      releaseMergedLocals(tables, partIdx);
       if (PROJ_DIAG) {
-        diagPassDone("numeric", pass, passes, passLo, passHi, passStartNanos, spill);
+        diagPassDone("numeric", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
+                null);
       }
       } // hash-range passes
       plan.complete();
@@ -18725,6 +18835,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ordKeys[0] = ordKey;
         }
         siftDown(0, size);
+      }
+    }
+
+    /**
+     * Copy every retained accumulator out of the storage it points into — {@code lanesBefore} lanes
+     * ahead of its base and {@code lanesAfter} from the base on, clipped to the array — and rebase
+     * onto the copies, so the table that produced the candidates can be
+     * {@link NumericGroupAggTable#release released} while this selector keeps its winners. Nothing
+     * the plan compares changes, so the heap order stands.
+     */
+    void detachFromStorage(final int lanesBefore, final int lanesAfter) {
+      for (int i = 0; i < size; i++) {
+        final long[] acc = accs[i];
+        final int base = bases[i];
+        final int from = Math.max(0, base - lanesBefore);
+        final int to = Math.min(acc.length, base + lanesAfter);
+        accs[i] = Arrays.copyOfRange(acc, from, to);
+        bases[i] = base - from;
       }
     }
 
@@ -26911,6 +27039,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   void parallel(int n, ChunkTask task) {
+    parallel(n, task, null);
+  }
+
+  /**
+   * {@link #parallel(int, ChunkTask)} that also records each chunk's wall time, in nanoseconds, into
+   * {@code chunkNanos[index]} — the straggler instrument of a statically chunked scan: the phase
+   * ends with its slowest chunk, and the spread between the fastest and the slowest chunk is the
+   * wall the partitioning gives away. {@code null} records nothing and costs one branch per chunk.
+   */
+  void parallel(int n, ChunkTask task, long[] chunkNanos) {
     enterExecution();
     try {
       try {
@@ -26928,7 +27066,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               for (int i = 0; i < n; i++) {
                 final int idx = i;
                 final Future<?> future = workerPool.submit(() -> {
-                  runChunk(task, idx);
+                  runChunkTimed(task, idx, chunkNanos);
                   return null;
                 });
                 // Increment only AFTER submit succeeds: a rejection must not leave a null entry
@@ -26944,7 +27082,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         if (runInline) {
           for (int i = 0; i < n; i++) {
-            runChunk(task, i);
+            runChunkTimed(task, i, chunkNanos);
           }
           return;
         }
@@ -27009,6 +27147,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       task.run(index);
     } finally {
       executionLifecycle.leaveAcceptedWork();
+    }
+  }
+
+  /** {@link #runChunk} that records the chunk's wall time when the caller asked for it. */
+  private void runChunkTimed(final ChunkTask task, final int index, final long[] chunkNanos) throws Exception {
+    if (chunkNanos == null) {
+      runChunk(task, index);
+      return;
+    }
+    final long started = System.nanoTime();
+    try {
+      runChunk(task, index);
+    } finally {
+      chunkNanos[index] = System.nanoTime() - started;
     }
   }
 

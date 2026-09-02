@@ -66,6 +66,7 @@ final class GroupPassesBudgetRefreshTest {
     assertEquals(1, plan.passes());
     assertEquals(1_000L, plan.budget());
     assertEquals(0, collections.get());
+    assertEquals(0L, plan.plannedGroups(), "a blind plan expects no count: shared tables start at the worker hint");
 
     // The pass aborted having seen 2,500 groups (all in never-flushed worker tables) over half the
     // leaves: 5,000 estimated. Six passes at 1,000; ONE at the 10,000 a clean heap yields.
@@ -80,6 +81,7 @@ final class GroupPassesBudgetRefreshTest {
     assertEquals(1, plan.passes(), "the widened budget holds the estimate in one pass: no floor above the fit");
     assertEquals(10_000L, plan.passBudget());
     assertEquals(5_000L, handle.observedGroupsFor(FINGERPRINT));
+    assertEquals(5_000L, plan.plannedGroups(), "the restarted pass set is planned from the abort estimate");
     assertFalse(plan.seededCompleted());
 
     // A second abort of the same execution: the estimate has grown to 20,000 and a ceiling of 100,000
@@ -98,6 +100,7 @@ final class GroupPassesBudgetRefreshTest {
     assertEquals(10_000L, plan.budget());
     assertEquals(2, plan.passes(), "20,000 at 10,000: two passes of sixteen partitions, and twice the one pass");
     assertEquals(20_000L, handle.observedGroupsFor(FINGERPRINT), "the memo keeps the maximum estimate");
+    assertEquals(20_000L, plan.plannedGroups());
   }
 
   @Test
@@ -152,6 +155,7 @@ final class GroupPassesBudgetRefreshTest {
     assertEquals(1, fromEstimate.passes());
     assertEquals(10_000L, fromEstimate.passBudget());
     assertFalse(fromEstimate.seededCompleted());
+    assertEquals(5_000L, fromEstimate.plannedGroups(), "planned from the memoed estimate");
 
     // A completed scan: six passes completed at the collapsed budget; the refreshed budget holds the
     // exact count in one, and the completed count only ever caps.
@@ -164,6 +168,7 @@ final class GroupPassesBudgetRefreshTest {
     assertEquals(1, fromCompleted.passes());
     assertTrue(fromCompleted.seededCompleted());
     assertEquals(10_000L, fromCompleted.passBudget(), "the pass budget never drops below the plan's budget");
+    assertEquals(5_000L, fromCompleted.plannedGroups(), "planned from the completed count");
 
     // An unknown shape has nothing to judge the refresh by: no collection at construction.
     final ProjectionIndexRegistry.Handle unknown = new ProjectionIndexRegistry.Handle(new String[] {"a"}, List.of());

@@ -48,6 +48,13 @@ import it.unimi.dsi.fastutil.HashCommon;
  * incremental rehashing); only the physical allocation changes.
  *
  * <p>
+ * Chunks may come from a {@link LongChunkPool} attached before the first insertion
+ * ({@link #attachChunkPool}): a rehash hands its old chunks back, and {@link #release} hands back
+ * every chunk of a table that is done — so a grouped scan whose worker tables flush and whose
+ * partition tables grow many times per pass promotes each chunk into the old generation ONCE instead
+ * of copying a fresh generation of them through every young pause.
+ *
+ * <p>
  * This replaces {@code Long2ObjectOpenHashMap<long[]>} in the high-cardinality group-by kernel: no
  * boxed accumulator per group and no per-group allocation. The real group value {@code 0} cannot
  * live in a bucket (its key lane would read as empty), so it takes a dedicated side slot.
@@ -66,6 +73,9 @@ public final class NumericGroupAggTable {
 
   /** 128 KiB of primitive lanes per backing array. */
   static final int MAX_STORAGE_CHUNK_LANES = 1 << 14;
+
+  /** Spine of a {@link #release released} table: no chunk, so any probe fails loudly. */
+  private static final long[][] RELEASED_STORAGE = new long[0][];
 
   /**
    * Stands in for a probe hash of {@code 0} in identity mode, because {@code 0} in the key lane is
@@ -115,12 +125,16 @@ public final class NumericGroupAggTable {
   /** Lane distance from a stripe's accumulator base to its first identity lane. */
   private final int idOffsetFromAcc;
   private long[][] storage;
+  /** Chunk recycler, or {@code null} for plain allocation. Set once, before the first insertion. */
+  private LongChunkPool pool;
   private int bucketsPerChunk;
   private int chunkBucketMask;
   private int chunkBucketShift;
   private int mask;
   private int size;
   private int growAt;
+  /** Times {@link #rehash} ran — zero for a table hinted at its final count (see {@link #rehashes}). */
+  private int rehashes;
   private boolean hasZeroKey;
   /**
    * Set the moment {@link #acquireExact} walks past a bucket whose key matches but whose identity
@@ -272,6 +286,80 @@ public final class NumericGroupAggTable {
     return storage.length;
   }
 
+  /** Lanes per backing array at the moment. */
+  public int chunkLanes() {
+    return bucketsPerChunk * stride;
+  }
+
+  /**
+   * Lanes per backing array of any table with {@code stride} lanes per group once its capacity has
+   * reached the chunk ceiling — the one length a {@link LongChunkPool} shared by such tables recycles.
+   */
+  public static int fullChunkLanes(final int stride) {
+    if (stride <= 0 || stride > MAX_STORAGE_CHUNK_LANES) {
+      throw new IllegalArgumentException("stride out of range: " + stride);
+    }
+    return Integer.highestOneBit(MAX_STORAGE_CHUNK_LANES / stride) * stride;
+  }
+
+  /**
+   * Take this table's chunks from (and return them to) {@code pool}. Only before the first insertion:
+   * a table that already holds groups would mix pooled and private chunks.
+   *
+   * @return this table
+   * @throws IllegalStateException if the table already holds a group
+   */
+  public NumericGroupAggTable attachChunkPool(final LongChunkPool pool) {
+    if (size != 0 || hasZeroKey) {
+      throw new IllegalStateException("chunk pool attached after the first insertion");
+    }
+    this.pool = pool;
+    return this;
+  }
+
+  /** The attached chunk recycler, or {@code null}. */
+  public LongChunkPool chunkPool() {
+    return pool;
+  }
+
+  /**
+   * Hand every backing array back to the attached pool (or to the collector) and leave the table
+   * without storage. The counters ({@link #size}, {@link #hasZeroKey}, the zero group's slot) survive;
+   * probing or walking the table afterwards is a contract violation and fails on the empty spine.
+   * A caller that still points INTO the storage — a top-k selector holding accumulator references —
+   * must copy what it keeps before this call.
+   */
+  public void release() {
+    final long[][] chunks = storage;
+    for (int i = 0; i < chunks.length; i++) {
+      final long[] chunk = chunks[i];
+      if (chunk != null) {
+        chunks[i] = null;
+        recycle(chunk);
+      }
+    }
+    storage = RELEASED_STORAGE;
+  }
+
+  /** Whether {@link #release} has run. */
+  public boolean released() {
+    return storage == RELEASED_STORAGE;
+  }
+
+  private long[] newChunk(final int lanes) {
+    final LongChunkPool p = pool;
+    return p != null && lanes == p.chunkLanes()
+        ? p.take()
+        : new long[lanes];
+  }
+
+  private void recycle(final long[] chunk) {
+    final LongChunkPool p = pool;
+    if (p != null) {
+      p.give(chunk);
+    }
+  }
+
   /**
    * One backing array for a sequential table walk, or {@code null} when its logical bucket range was
    * never touched. Every live stripe is wholly contained in one non-null chunk and starts at an
@@ -305,6 +393,15 @@ public final class NumericGroupAggTable {
   /** Distinct non-zero keys inserted. */
   public int size() {
     return size;
+  }
+
+  /**
+   * Rehashes since construction: a table hinted at the count it ends up holding reports zero. The
+   * witness that a sizing hint TOOK — a spill's shared partition table grows under its partition
+   * lock, so every rehash there is a copy the other workers queue behind.
+   */
+  public int rehashes() {
+    return rehashes;
   }
 
   /**
@@ -502,7 +599,7 @@ public final class NumericGroupAggTable {
           : chunk[off];
     }
     if (chunk == null) {
-      chunk = new long[bucketsPerChunk * st];
+      chunk = newChunk(bucketsPerChunk * st);
       chunks[chunkIndex] = chunk;
     }
     chunk[off] = key;
@@ -573,7 +670,7 @@ public final class NumericGroupAggTable {
           : chunk[off];
     }
     if (chunk == null) {
-      chunk = new long[bucketsPerChunk * st];
+      chunk = newChunk(bucketsPerChunk * st);
       chunks[chunkIndex] = chunk;
     }
     chunk[off] = key;
@@ -698,11 +795,12 @@ public final class NumericGroupAggTable {
           targetChunk = grown[chunkIndex];
         }
         if (targetChunk == null) {
-          targetChunk = new long[newBucketsPerChunk * st];
+          targetChunk = newChunk(newBucketsPerChunk * st);
           grown[chunkIndex] = targetChunk;
         }
         System.arraycopy(oldChunk, o, targetChunk, to, st);
       }
+      recycle(oldChunk);
     }
     storage = grown;
     bucketsPerChunk = newBucketsPerChunk;
@@ -710,6 +808,7 @@ public final class NumericGroupAggTable {
     chunkBucketShift = newChunkBucketShift;
     mask = newMask;
     growAt = newCap - (newCap >>> 2);
+    rehashes++;
   }
 
   private void installEmptyStorage(final int capacity) {

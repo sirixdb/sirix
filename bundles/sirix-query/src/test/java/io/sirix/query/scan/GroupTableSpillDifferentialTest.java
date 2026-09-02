@@ -7,6 +7,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.LongChunkPool;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -117,6 +118,7 @@ final class GroupTableSpillDifferentialTest {
   @DisplayName("every group shape agrees with the interpreter while spilling constantly")
   void spillingAgreesWithTheInterpreter() throws Exception {
     final long flushesBefore = GroupTableSpill.flushCount();
+    final long poolHitsBefore = LongChunkPool.totalHits();
     for (final String query : QUERIES) {
       final String generic = run(query, false);
       final long servedBefore = groupArmsServed();
@@ -127,6 +129,9 @@ final class GroupTableSpillDifferentialTest {
     }
     assertTrue(GroupTableSpill.flushCount() > flushesBefore,
         "no worker table was ever flushed: the threshold seam did not take, the agreement above is vacuous");
+    // The flushed tables' chunks must have been RECYCLED into later tables — the pool engaged, the
+    // agreement above ran over recycled (zeroed) storage, and the winners survived the pass-end release.
+    assertTrue(LongChunkPool.totalHits() > poolHitsBefore, "no recycled chunk was ever taken: the chunk pool is idle");
   }
 
   private static long groupArmsServed() {

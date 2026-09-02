@@ -3,8 +3,11 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Proves that a composite group-by's per-leaf dictionary STRING components are identified EXACTLY,
@@ -39,6 +42,19 @@ import java.util.Objects;
  * in cache from hashing them — never per row. Callers additionally memoize the fingerprints they
  * have already cleared, so a worker consults this shared structure once per distinct value rather
  * than once per dictionary entry per leaf.
+ *
+ * <h2>Lock-free on the hot path</h2>
+ *
+ * Twenty workers proving the same few million values would serialise on one monitor — a 100M-row
+ * scan spent a third of its wall time parked here. So a slot is WRITE-ONCE and PUBLISHED by a
+ * release store of its canonical bytes: a reader probes the current table without any lock and
+ * returns {@code true} on a byte-equal hit, which is the only outcome the hot path ever produces.
+ * Everything else — an unseen fingerprint, a byte mismatch — falls through to the synchronized path,
+ * which re-probes under the monitor and is the sole writer (insert, collision latch, growth). A grow
+ * builds a NEW table and publishes it; the old one is never mutated again, so a reader holding it can
+ * at worst miss a later insert and take the locked path, never read a torn slot. Kill switch:
+ * {@code -Dsirix.projection.compositeIdentity.lockFreeProbe=false} sends every proof through the
+ * monitor; witness: {@link #lockedProves()} counts the proofs that took it.
  *
  * <h2>Conservative by construction</h2>
  *
@@ -139,15 +155,65 @@ public final class ProjectionStringIdentityRegistry {
   private final Fingerprint fingerprint;
   private final long maxCanonicalBytes;
 
-  /** Open-addressed, one table per component. {@code slotUsed} marks live slots. */
-  private long[][] lanesA;
-  private long[][] lanesB;
-  private byte[][][] canonical;
-  private boolean[][] used;
-  private int[] sizes;
-  private int[] masks;
+  /**
+   * Whether repeated proofs may probe without the monitor. A behaviour gate for an A/B, never a
+   * format: the locked path proves exactly the same identities.
+   */
+  public static final String LOCK_FREE_PROBE_PROPERTY = "sirix.projection.compositeIdentity.lockFreeProbe";
+  private static volatile boolean lockFreeProbe =
+      Boolean.parseBoolean(System.getProperty(LOCK_FREE_PROBE_PROPERTY, "true"));
+
+  /** Whether repeated proofs currently bypass the monitor. */
+  public static boolean lockFreeProbe() {
+    return lockFreeProbe;
+  }
+
+  /**
+   * Flip the lock-free probe for a test; returns the previous setting so the caller can restore it.
+   *
+   * @param enabled {@code false} sends every proof through the monitor
+   * @return the previous setting
+   */
+  public static boolean setLockFreeProbeForTesting(final boolean enabled) {
+    final boolean previous = lockFreeProbe;
+    lockFreeProbe = enabled;
+    return previous;
+  }
+
+  /** Release/acquire access to one slot's canonical bytes — the slot's publication point. */
+  private static final VarHandle VALUES = MethodHandles.arrayElementVarHandle(byte[][].class);
+
+  /**
+   * One component's open-addressed table. A slot is live once {@code values[slot]} is non-null;
+   * {@code lanesA}/{@code lanesB} of a live slot were written BEFORE that reference was released and
+   * are never written again. Only the monitor's holder writes; {@code size} is read and written under
+   * it alone. {@link #grow} replaces the whole table rather than touching a published one.
+   */
+  private static final class Table {
+    final long[] lanesA;
+    final long[] lanesB;
+    final byte[][] values;
+    final int mask;
+    int size;
+
+    Table(final int capacity) {
+      this.lanesA = new long[capacity];
+      this.lanesB = new long[capacity];
+      this.values = new byte[capacity][];
+      this.mask = capacity - 1;
+    }
+
+    int growAt() {
+      return (mask + 1) * 3 / 4;
+    }
+  }
+
+  /** The current table per component; a grow publishes its replacement here. */
+  private final AtomicReferenceArray<Table> tables;
 
   private long canonicalBytes;
+  /** Proofs that took the monitor: first sightings, mismatches and every call while the fast path is off. */
+  private long lockedProves;
   private volatile boolean collision;
   private volatile boolean unproven;
 
@@ -171,14 +237,9 @@ public final class ProjectionStringIdentityRegistry {
     this.components = components;
     this.fingerprint = Objects.requireNonNull(fingerprint, "fingerprint must not be null");
     this.maxCanonicalBytes = maxCanonicalBytes;
-    this.lanesA = new long[components][];
-    this.lanesB = new long[components][];
-    this.canonical = new byte[components][][];
-    this.used = new boolean[components][];
-    this.sizes = new int[components];
-    this.masks = new int[components];
+    this.tables = new AtomicReferenceArray<>(components);
     for (int c = 0; c < components; c++) {
-      allocate(c, INITIAL_CAPACITY);
+      tables.set(c, new Table(INITIAL_CAPACITY));
     }
   }
 
@@ -215,15 +276,6 @@ public final class ProjectionStringIdentityRegistry {
     this(components, installedFingerprint, maxCanonicalBytes);
   }
 
-  private void allocate(final int component, final int capacity) {
-    lanesA[component] = new long[capacity];
-    lanesB[component] = new long[capacity];
-    canonical[component] = new byte[capacity][];
-    used[component] = new boolean[capacity];
-    masks[component] = capacity - 1;
-    sizes[component] = 0;
-  }
-
   /** Identity lane A for a value whose FNV-1a the caller already has. */
   public long laneA(final byte[] utf8, final int off, final int len, final long fnv1a64) {
     return fingerprint.primary(utf8, off, len, fnv1a64);
@@ -255,6 +307,11 @@ public final class ProjectionStringIdentityRegistry {
   /**
    * Prove that {@code (laneA, laneB)} denotes exactly one value for {@code component}.
    *
+   * <p>
+   * Lock-free for a value the registry has already seen: the probe reads the current table and
+   * returns on a byte-equal hit. An unseen fingerprint or a byte mismatch goes through
+   * {@link #proveLocked}, the single writer.
+   *
    * @param component the key component ordinal
    * @param laneA identity lane A, from {@link #laneA}
    * @param laneB identity lane B, from {@link #laneB}
@@ -264,7 +321,7 @@ public final class ProjectionStringIdentityRegistry {
    * @return {@code true} when the fingerprint provably denotes this value, {@code false} when the
    *         scan must decline
    */
-  public synchronized boolean prove(final int component, final long laneA, final long laneB, final byte[] utf8,
+  public boolean prove(final int component, final long laneA, final long laneB, final byte[] utf8,
       final int off, final int len) {
     if (component < 0 || component >= components) {
       throw new IllegalArgumentException("component " + component + " out of range");
@@ -277,15 +334,46 @@ public final class ProjectionStringIdentityRegistry {
     if (collision || unproven) {
       return false;
     }
-    final int mask = masks[component];
-    final long[] a = lanesA[component];
-    final long[] b = lanesB[component];
-    final byte[][] values = canonical[component];
-    final boolean[] live = used[component];
+    if (lockFreeProbe) {
+      final Table t = tables.get(component);
+      final int mask = t.mask;
+      final long[] a = t.lanesA;
+      final long[] b = t.lanesB;
+      final byte[][] values = t.values;
+      int slot = (int) mix(laneA ^ mix(laneB)) & mask;
+      for (;;) {
+        // The table is kept below 3/4 full, so an empty slot always ends the walk.
+        final byte[] stored = (byte[]) VALUES.getAcquire(values, slot);
+        if (stored == null) {
+          break; // unseen so far: the monitor's holder decides
+        }
+        if (a[slot] == laneA && b[slot] == laneB) {
+          if (stored.length == len && Arrays.equals(stored, 0, len, utf8, off, off + len)) {
+            return true;
+          }
+          break; // a mismatch is the locked path's verdict, never the reader's
+        }
+        slot = slot + 1 & mask;
+      }
+    }
+    return proveLocked(component, laneA, laneB, utf8, off, len);
+  }
+
+  /** The authoritative path: re-probes under the monitor, inserts, latches a collision, grows. */
+  private synchronized boolean proveLocked(final int component, final long laneA, final long laneB,
+      final byte[] utf8, final int off, final int len) {
+    lockedProves++;
+    if (collision || unproven) {
+      return false;
+    }
+    final Table t = tables.get(component);
+    final int mask = t.mask;
+    final long[] a = t.lanesA;
+    final long[] b = t.lanesB;
+    final byte[][] values = t.values;
     int slot = (int) mix(laneA ^ mix(laneB)) & mask;
-    while (live[slot]) {
+    for (byte[] stored = values[slot]; stored != null; stored = values[slot]) {
       if (a[slot] == laneA && b[slot] == laneB) {
-        final byte[] stored = values[slot];
         if (stored.length != len || !Arrays.equals(stored, 0, len, utf8, off, off + len)) {
           // Two different values, one fingerprint: the lanes cannot represent them apart, and
           // acquireExact would fold them WITHOUT ever setting hasProbeKeyCollision.
@@ -305,45 +393,51 @@ public final class ProjectionStringIdentityRegistry {
       unproven = true;
       return false;
     }
-    live[slot] = true;
+    // Lanes first, bytes last with release semantics: a lock-free reader that acquires the bytes
+    // sees the lanes that belong to them.
     a[slot] = laneA;
     b[slot] = laneB;
-    values[slot] = Arrays.copyOfRange(utf8, off, off + len);
+    VALUES.setRelease(values, slot, Arrays.copyOfRange(utf8, off, off + len));
     canonicalBytes += charge;
-    if (++sizes[component] > (mask + 1) * 3 / 4) {
-      grow(component);
+    if (++t.size > t.growAt()) {
+      grow(component, t);
     }
     return true;
   }
 
-  private void grow(final int component) {
-    final long[] oldA = lanesA[component];
-    final long[] oldB = lanesB[component];
-    final byte[][] oldValues = canonical[component];
-    final boolean[] oldLive = used[component];
-    final int oldCapacity = oldLive.length;
+  /** Proofs that took the monitor so far; a repeated value must not add to this while the fast path is on. */
+  public synchronized long lockedProves() {
+    return lockedProves;
+  }
+
+  /** Builds the doubled table beside the old one and publishes it; the old table is never written again. */
+  private void grow(final int component, final Table old) {
+    final int oldCapacity = old.mask + 1;
     if (oldCapacity >= MAX_COMPONENT_CAPACITY) {
       // Refuse to double rather than allocate a table whose reference arrays alone are
       // major-GC-scale. Declining is always available; a pause is not.
       unproven = true;
       return;
     }
-    allocate(component, oldCapacity << 1);
-    final int mask = masks[component];
+    final Table fresh = new Table(oldCapacity << 1);
+    final int mask = fresh.mask;
     for (int i = 0; i < oldCapacity; i++) {
-      if (!oldLive[i]) {
+      final byte[] value = old.values[i];
+      if (value == null) {
         continue;
       }
-      int slot = (int) mix(oldA[i] ^ mix(oldB[i])) & mask;
-      while (used[component][slot]) {
+      int slot = (int) mix(old.lanesA[i] ^ mix(old.lanesB[i])) & mask;
+      while (fresh.values[slot] != null) {
         slot = slot + 1 & mask;
       }
-      used[component][slot] = true;
-      lanesA[component][slot] = oldA[i];
-      lanesB[component][slot] = oldB[i];
-      canonical[component][slot] = oldValues[i];
-      sizes[component]++;
+      fresh.lanesA[slot] = old.lanesA[i];
+      fresh.lanesB[slot] = old.lanesB[i];
+      fresh.values[slot] = value;
+      fresh.size++;
     }
+    // A volatile publication: every plain write above happens-before a reader's acquisition of
+    // the new table.
+    tables.set(component, fresh);
   }
 
   /**
