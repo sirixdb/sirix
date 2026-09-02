@@ -2824,19 +2824,6 @@ public final class ProjectionColumnStore {
     }
   }
 
-  /** One segment chain's per-leaf addressing, collected once per column of the windowed access. */
-  private static final class ChainOffsets {
-    final long[] offsets;
-    final byte @Nullable [][] inlineBytes;
-    final boolean @Nullable [] absent;
-
-    ChainOffsets(final long[] offsets, final byte @Nullable [][] inlineBytes, final boolean @Nullable [] absent) {
-      this.offsets = offsets;
-      this.inlineBytes = inlineBytes;
-      this.absent = absent;
-    }
-  }
-
   private final class WindowedLeafAccess implements LeafColumnAccess {
     /**
      * Decoded leaves kept per column, LRU. A miss decodes the leaf's whole window (sequential scans
@@ -2850,12 +2837,9 @@ public final class ProjectionColumnStore {
     private final long @Nullable [] keepWords;
     private final int windowLeaves;
     private final int leafCount = directories.size();
-    private final ChainOffsets[] bodyChains = new ChainOffsets[columnKinds.length];
-    private final ChainOffsets[] dictChains = new ChainOffsets[columnKinds.length];
     @SuppressWarnings("unchecked")
     private final Int2ObjectLinkedOpenHashMap<ColumnSlice>[] leafCache =
         new Int2ObjectLinkedOpenHashMap[columnKinds.length];
-    private ChainOffsets keysChain;
     private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
 
     WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
@@ -2918,55 +2902,77 @@ public final class ProjectionColumnStore {
       return decoded[leaf - from];
     }
 
-    private ChainOffsets chain(final int col, final int segId, final boolean optional) {
-      final long[] offsets = new long[leafCount];
-      final boolean[] absent = optional
-          ? new boolean[leafCount]
-          : null;
-      final byte[][] inline = collectColumnOffsets(segId, offsets, optional, absent);
-      return new ChainOffsets(offsets, inline, absent);
-    }
-
-    /** Fetch, verify and hand back the segments of {@code [from, to)} of one chain (nulls where absent). */
-    private byte[][] fetchWindow(final ChainOffsets chain, final int from, final int to, final int segId,
-        final byte segKind, final boolean maskedChain) {
-      final byte[][] out = new byte[leafCount][];
+    /**
+     * Fetch, verify and hand back the segments of leaves {@code [from, to)} of one chain (nulls where
+     * absent). The window's offsets are collected HERE, for these leaves only: an access used to
+     * collect the chain of every leaf of the store once per column (97,654 descriptor binary searches
+     * per column at 100M) and every worker builds its own access, so a pruned scan that touched twelve
+     * windows still paid twenty whole-column collections — ~100 ms per column per worker, the entire
+     * cost of a pruned q36–q42 once the fetch itself was gone. Per window the collection is 64 lookups
+     * and the fetch arrays are window-sized instead of {@code leafCount} entries zeroed per call.
+     */
+    private byte[][] fetchWindow(final int from, final int to, final int segId, final byte segKind,
+        final boolean optional) {
+      final int len = to - from;
+      final long[] offsets = new long[len];
+      byte[][] inlineBytes = null;
+      boolean[] absent = null;
       boolean any = false;
       for (int i = from; i < to; i++) {
-        if (chain.offsets[i] != Constants.NULL_ID_LONG && !(maskedChain && pruned(i))) {
+        final RowGroupDirectory dir = directories.get(i);
+        final int entry = RowGroupDescriptor.entryIndexOf(dir.descriptor(), segId);
+        if (entry < 0) {
+          if (!optional) {
+            throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
+          }
+          if (absent == null) {
+            absent = new boolean[len];
+          }
+          absent[i - from] = true;
+          offsets[i - from] = Constants.NULL_ID_LONG;
+          continue;
+        }
+        // A small segment lives inline in its OWN segment slot, captured while the directory was built.
+        final byte[] inlineForEntry = dir.inlineBytesAt(entry);
+        if (inlineForEntry != null) {
+          if (inlineBytes == null) {
+            inlineBytes = new byte[len][];
+          }
+          inlineBytes[i - from] = inlineForEntry;
+          offsets[i - from] = Constants.NULL_ID_LONG;
+        } else {
+          offsets[i - from] = dir.columnSegmentOffsets()[entry];
           any = true;
-          break;
         }
       }
+      final byte[][] out = new byte[len][];
       if (any) {
         // Pruned leaves are fetched with their window (their offsets stay real); the kernel never
         // reads them, and the window's contiguity is what the backend's run coalescing lives on.
         try {
-          fetcher.fetchRange(chain.offsets, from, to, out);
+          fetcher.fetchRange(offsets, 0, len, out);
         } catch (final RuntimeException fetchFailed) {
           throw new IllegalStateException("Windowed segment fetch failed for segment id " + segId + ": "
               + fetchFailed.getMessage(), fetchFailed);
         }
       }
-      final byte[][] segments = new byte[to - from][];
-      for (int i = from; i < to; i++) {
+      for (int i = 0; i < len; i++) {
+        if (absent != null && absent[i]) {
+          out[i] = null;
+          continue;
+        }
         byte[] segment = out[i];
-        if (chain.inlineBytes != null && chain.inlineBytes[i] != null) {
-          segment = chain.inlineBytes[i];
-        }
-        if (chain.absent != null && chain.absent[i]) {
-          continue;
-        }
-        if (maskedChain && pruned(i)) {
-          continue;
+        if (inlineBytes != null && inlineBytes[i] != null) {
+          segment = inlineBytes[i];
+          out[i] = segment;
         }
         if (segment == null) {
-          throw new IllegalStateException("Windowed fetch returned no segment " + segId + " for leaf " + i);
+          throw new IllegalStateException("Windowed fetch returned no segment " + segId + " for leaf " + (from + i));
         }
-        ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segment, segId, segKind);
-        segments[i - from] = segment;
+        ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(from + i).descriptor(), segment, segId,
+            segKind);
       }
-      return segments;
+      return out;
     }
 
     private ColumnSlice[] decodeWindow(final int col, final int window) {
@@ -2974,32 +2980,15 @@ public final class ProjectionColumnStore {
       final int to = Math.min(from + windowLeaves, leafCount);
       final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
       final boolean string = set || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
-      ChainOffsets body = bodyChains[col];
-      if (body == null) {
-        body = chain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col), false);
-        bodyChains[col] = body;
-      }
-      ChainOffsets dict = null;
-      if (string) {
-        dict = dictChains[col];
-        if (dict == null) {
-          dict = chain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col), true);
-          dictChains[col] = dict;
-        }
-      }
-      final boolean maskedChain = false; // windows decode every leaf; pruning is the predicate view's business
-      final byte[][] bodies = fetchWindow(body, from, to, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
-          ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, maskedChain);
-      final byte[][] dicts = dict != null
-          ? fetchWindow(dict, from, to, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
-              ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, maskedChain)
+      // Windows decode every leaf; pruning is the predicate view's business (predicateSlice).
+      final byte[][] bodies = fetchWindow(from, to, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+          ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false);
+      final byte[][] dicts = string
+          ? fetchWindow(from, to, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+              ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true)
           : null;
       final ColumnSlice[] decoded = new ColumnSlice[to - from];
       for (int i = from; i < to; i++) {
-        if (maskedChain && pruned(i)) {
-          decoded[i - from] = PRUNED_SLICE;
-          continue;
-        }
         final byte[] descriptor = directories.get(i).descriptor();
         final byte[] bodySeg = bodies[i - from];
         final byte[] dictSeg = dicts != null
@@ -3024,12 +3013,9 @@ public final class ProjectionColumnStore {
         return hit;
       }
       final int window = leaf / windowLeaves;
-      if (keysChain == null) {
-        keysChain = chain(-1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), false);
-      }
       final int from = window * windowLeaves;
       final int to = Math.min(from + windowLeaves, leafCount);
-      final byte[][] segments = fetchWindow(keysChain, from, to, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+      final byte[][] segments = fetchWindow(from, to, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
           ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, false);
       final long[][] decoded = new long[to - from][];
       for (int i = from; i < to; i++) {
