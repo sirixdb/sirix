@@ -190,8 +190,8 @@ chainHash(N)     = H( "SIRIX-LEDGER-CHAIN-v1-SHA256" ‖ resourceIdentity
   transitively signs them all; `keyId` and identity prevent key- and
   resource-confusion. Verification recomputes `chainHash(N)` first (record
   fields are untrusted).
-- Key material via a `SignerProvider` SPI: file keystore → env/KMS/HSM
-  (enterprise module).
+- Key material via a `SignerProvider` SPI: file keystore (core) → env/KMS/HSM
+  (sirix-enterprise, see §10).
 - **Key rotation is not purely in-band** (a compromised current key could
   otherwise rewrite rotation history): rotation events are commits in which
   the *new* key signs the old key's fingerprint and the current head
@@ -293,3 +293,63 @@ release; 3+4+5 in the next.
   decision for where they touch).
 - Distributed consensus / BFT replication (anchoring covers the integrity
   need without it).
+
+## 10. Open-core boundary (sirix-enterprise)
+
+Ledger mode is a candidate for the sirix-enterprise extension layer
+(`ROADMAP.md`), but one property of this feature fixes where the line can go:
+**a tamper-evidence system is only worth anything if a third party can verify
+it without trusting the vendor.** A closed verifier is "trust us" — the exact
+thing the feature exists to remove. So the specification and the verifier are
+open by necessity, not by choice. Phase 1 also changes the on-disk format
+(`SerializationType`, `PageFragmentKey`, superblock version), and a format
+change cannot live in an extension module.
+
+The resulting cut follows the standard open-core pattern — **the primitive is
+open, the operationalization is paid**:
+
+| Open core (sirix-core / sirix-query / sirix-kotlin-cli) | sirix-enterprise |
+|---|---|
+| Cryptographic page-Merkle DAG, chained commit records, the public byte specification (Phases 1–2) | `SignerProvider` implementations for KMS / HSM / Vault / PKCS#11 |
+| `SignerProvider` SPI with a file-keystore Ed25519 implementation (Phase 3) — so the open ledger is meaningful, not a stub | Production `AnchorProvider`s: RFC 3161 TSA, S3 Object Lock, Azure immutable blob, Trillian/Rekor-style transparency logs |
+| `AnchorProvider` SPI with a local-directory implementation (dev/availability tier only; explicitly *not* a trust anchor against adversary C, per the Phase 4 trust classes) | Anchoring policy scheduler, anchor monitoring, alerting on verification failure |
+| Proof generation (`sdb:proof`), consistency-proof export, offline `sirix verify`, client-side proof verification (Phase 5) | Key rotation workflow and trusted-key-set management |
+| Adversarial and fuzz test suites | Signed compliance reports, scheduled verification jobs, GUI audit views |
+| | Redaction / crypto-shredding workflow for erasure requests (GDPR, HIPAA) |
+| | Database-level checkpoint chain, verified backup/restore (Phase 6) |
+
+Invariant for the split: **the open build must be a complete, honest,
+end-to-end ledger** — sign with a file key, anchor to a directory, verify from
+genesis. What is paid is production-grade trust anchors and the compliance
+workflow around them. An open build that can write hashes but not verify them
+would be worse than no ledger mode at all.
+
+Design consequences for Phases 1–5:
+
+- `SignerProvider` and `AnchorProvider` are core SPIs discovered via
+  `ServiceLoader` (as `StorageProvider` already is), never referenced by
+  concrete class from core.
+- Anchor records must carry the ledger parameters (algorithm, mode, key
+  policy) in addition to `(resourceIdentity, revisionNumber, chainHash,
+  keyFingerprint)`, and the verifier must refuse to open a resource as
+  non-ledger when an anchor exists for it. `ResourceConfiguration` is plain
+  JSON on disk (`ressetting.obj`), covered by no hash and no signature; without
+  this rule an adversary with file access disables every verification path by
+  editing one flag. The external anchor is the only place that state can live.
+- Verification failure must be able to produce a *report* (first divergent
+  revision, expected vs. recomputed hashes, signature and anchor status)
+  rather than only an exception; the open verifier emits the report, the
+  enterprise layer signs, schedules, and distributes it.
+
+Positioning: sell the compliance mapping (SEC 17a-4, 21 CFR Part 11, SOC 2
+audit-trail controls, ISO 27001 integrity requirements), not the cryptography.
+The hash algorithm is a commodity; the regulatory workflow, the KMS
+integrations, and the support behind them are the product. The open
+`AnchorProvider` implementations are a few hundred lines each and will be
+reimplemented by others under the BSD license — the defensible paid surface is
+the part with ongoing maintenance burden, not the part with clever code.
+
+Sequencing: define the SPIs during Phase 1 (they shape the commit path), ship
+the open implementations with Phases 3–5, and build the first paid provider
+only when a customer names the KMS or anchor service they need. Do not build
+enterprise integrations ahead of demand.
