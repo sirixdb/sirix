@@ -62,6 +62,22 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * silently stop checking: it latches {@link #unproven()}, which declines exactly as a collision
  * does. Anything this class cannot PROVE, it refuses.
  *
+ * <h2>Proving a column once</h2>
+ *
+ * Identity is a property of the column's DATA, not of the query: once every string in every leaf
+ * dictionary of a column has been proven pairwise distinct under a fingerprint, any later scan over
+ * that column meets a subset of those strings and needs no proof at all. The executor therefore
+ * runs a FULL-coverage scan (no predicate can drop a leaf or a row) in {@link #proveEveryEntry()}
+ * mode — every dictionary entry is proven in the dictionary pass, not merely the entries surviving
+ * rows name — and, when the scan completes with {@link #identityProven()}, memoizes the verdict per
+ * column on the projection handle. A later registry over a memoized column has the component
+ * {@link #markPreProven marked pre-proven}: the kernel neither consults the registry nor builds a
+ * {@link LocalProofCache} for it, and the registry retains no canonical bytes for it. A component
+ * whose query supplies a literal in the column's domain (a conditional key's else branch) is never
+ * pre-proven: the literal could collide with a stored string the empty registry has not seen. Both
+ * modes are behaviour gates the executor sets before the workers start; the kernels read them once
+ * per call.
+ *
  * <p>
  * Not needed at all when every component is numeric or substring-cast — those carry their raw value
  * in an exact lane, and the executor then builds no registry.
@@ -216,6 +232,14 @@ public final class ProjectionStringIdentityRegistry {
   private long lockedProves;
   private volatile boolean collision;
   private volatile boolean unproven;
+  /**
+   * Components whose every value is already proven pairwise distinct — by a column memo or by a
+   * completed full-coverage pass of this scan. Copy-on-write: a mark publishes a fresh array, so a
+   * kernel that reads the field once sees a consistent snapshot without a lock.
+   */
+  private volatile boolean[] preProven;
+  /** Whether a kernel must prove EVERY dictionary entry in its dictionary pass (full-coverage scans only). */
+  private volatile boolean proveEveryEntry;
 
   /**
    * @param components number of key components (only string ones are ever registered)
@@ -241,6 +265,7 @@ public final class ProjectionStringIdentityRegistry {
     for (int c = 0; c < components; c++) {
       tables.set(c, new Table(INITIAL_CAPACITY));
     }
+    this.preProven = new boolean[components];
   }
 
   /**
@@ -302,6 +327,65 @@ public final class ProjectionStringIdentityRegistry {
   /** Whether the scan may trust its string identity lanes. */
   public boolean identityProven() {
     return !collision && !unproven;
+  }
+
+  /** The fingerprint this registry proves identities under — what a column memo must be keyed by. */
+  public Fingerprint fingerprint() {
+    return fingerprint;
+  }
+
+  /** The number of key components this registry was built for. */
+  public int components() {
+    return components;
+  }
+
+  /**
+   * Whether {@code component}'s values are already proven pairwise distinct, so a kernel may carry
+   * its fingerprint lanes as exact identity without consulting this registry.
+   *
+   * @param component the key component ordinal
+   * @return {@code true} when no proof is needed for the component
+   */
+  public boolean preProven(final int component) {
+    if (component < 0 || component >= components) {
+      throw new IllegalArgumentException("component " + component + " out of range");
+    }
+    return preProven[component];
+  }
+
+  /**
+   * Mark {@code component} pre-proven: every value it can meet is known to be pairwise distinct
+   * under {@link #fingerprint()}. Set by the executor from a column memo before the workers start,
+   * or after a full-coverage pass completed with {@link #identityProven()}; never by a kernel.
+   *
+   * @param component the key component ordinal
+   */
+  public synchronized void markPreProven(final int component) {
+    if (component < 0 || component >= components) {
+      throw new IllegalArgumentException("component " + component + " out of range");
+    }
+    if (preProven[component]) {
+      return;
+    }
+    final boolean[] next = preProven.clone();
+    next[component] = true;
+    preProven = next;
+  }
+
+  /** Whether kernels must prove every dictionary entry eagerly in their dictionary pass. */
+  public boolean proveEveryEntry() {
+    return proveEveryEntry;
+  }
+
+  /**
+   * Switch eager proving on or off. On, a kernel proves EVERY entry of every leaf dictionary it
+   * hashes — the precondition for memoizing the column, since a lazy pass proves only the entries
+   * surviving rows name. Only meaningful for a scan whose coverage is complete; the executor decides.
+   *
+   * @param eager {@code true} to prove every entry
+   */
+  public void setProveEveryEntry(final boolean eager) {
+    proveEveryEntry = eager;
   }
 
   /**

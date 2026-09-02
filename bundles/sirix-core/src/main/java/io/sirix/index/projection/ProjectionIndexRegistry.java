@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
@@ -943,6 +944,51 @@ public final class ProjectionIndexRegistry {
       final CompletedGroupScan scan = new CompletedGroupScan(groups, passes);
       synchronized (completedGroupScans) {
         completedGroupScans.put(fingerprint, scan);
+      }
+    }
+
+    /**
+     * Dictionary-string columns whose EVERY per-leaf dictionary entry was proven pairwise distinct
+     * under a {@link ProjectionStringIdentityRegistry.Fingerprint}, by column ordinal. A verdict is
+     * a property of the column's data in this handle's revision, so it holds for every later scan
+     * over the column whatever its predicates: a subset of pairwise-distinct strings is pairwise
+     * distinct. Keyed by the fingerprint INSTANCE the proof ran under — a test that installs an
+     * adversarial fingerprint must not inherit a verdict the production functions earned. Only a
+     * PROVEN verdict is ever stored: a collision or a budget refusal declines that query and leaves
+     * the memo untouched, so the next query proves again.
+     */
+    private final Int2ObjectOpenHashMap<ProjectionStringIdentityRegistry.Fingerprint> provenStringIdentities =
+        new Int2ObjectOpenHashMap<>();
+
+    /**
+     * Whether {@code column}'s strings were proven pairwise distinct under {@code fingerprint}.
+     *
+     * @param column the column ordinal
+     * @param fingerprint the fingerprint the asking registry proves under
+     * @return {@code true} when a scan over the column needs no identity proof
+     */
+    public boolean stringIdentityProven(final int column, final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
+      Objects.requireNonNull(fingerprint, "fingerprint must not be null");
+      synchronized (provenStringIdentities) {
+        return provenStringIdentities.get(column) == fingerprint;
+      }
+    }
+
+    /**
+     * Record that a FULL-coverage scan proved every dictionary entry of {@code column} pairwise
+     * distinct under {@code fingerprint}. Callers must have proven every entry of every leaf — a
+     * lazy or predicated scan proves only the entries its surviving rows name and must not note.
+     *
+     * @param column the column ordinal
+     * @param fingerprint the fingerprint the proof ran under
+     */
+    public void noteStringIdentityProven(final int column, final ProjectionStringIdentityRegistry.Fingerprint fingerprint) {
+      Objects.requireNonNull(fingerprint, "fingerprint must not be null");
+      if (column < 0) {
+        throw new IllegalArgumentException("column must be >= 0: " + column);
+      }
+      synchronized (provenStringIdentities) {
+        provenStringIdentities.put(column, fingerprint);
       }
     }
 

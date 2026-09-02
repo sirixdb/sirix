@@ -3106,7 +3106,19 @@ public final class ProjectionIndexByteScan {
     for (int k = 0; k < keyCount; k++) {
       twoLane[k] = idLane[k + 1] - idLane[k] == 2;
     }
-    final ProjectionStringIdentityRegistry.LocalProofCache proofCache = identityRegistry != null
+    // Pre-proven components carry their lanes as exact identity (their column's strings are
+    // memoized pairwise distinct under this registry's fingerprint); eager mode proves every
+    // dictionary entry in the dictionary pass — the sliced kernel's contract, mirrored exactly.
+    final boolean[] compPreProven = new boolean[keyCount];
+    boolean anyProof = false;
+    for (int k = 0; k < keyCount; k++) {
+      if (identityRegistry != null && twoLane[k]) {
+        compPreProven[k] = identityRegistry.preProven(k);
+        anyProof |= !compPreProven[k];
+      }
+    }
+    final boolean eagerProof = anyProof && identityRegistry.proveEveryEntry();
+    final ProjectionStringIdentityRegistry.LocalProofCache proofCache = anyProof
         ? new ProjectionStringIdentityRegistry.LocalProofCache(keyCount)
         : null;
     final int[] condPresOff = keyCondCols != null
@@ -3142,6 +3154,10 @@ public final class ProjectionIndexByteScan {
           condElseIdA[k] = condElseHash[k];
           condElseIdB[k] = GlobalValueDictionary.secondaryValueHash(keyCondElse[k], 0, keyCondElse[k].length);
           if (identityRegistry != null && twoLane[k]) {
+            if (compPreProven[k]) {
+              throw new IllegalStateException(
+                  "composite key component " + k + " is pre-proven but carries an else literal");
+            }
             final byte[] lit = keyCondElse[k];
             final long a = identityRegistry.laneA(lit, 0, lit.length, condElseHash[k]);
             final long b = identityRegistry.laneB(lit, 0, lit.length);
@@ -3238,7 +3254,9 @@ public final class ProjectionIndexByteScan {
             dictOff = compDictOff[k] = new int[Math.max(64, dictSize)];
           }
           compDictLenOff[k] = lenHeaderOff;
-          compNeedsProof[k] = identityRegistry != null && subStart <= 0;
+          final boolean proveEntries = identityRegistry != null && subStart <= 0 && !compPreProven[k];
+          final boolean proveEagerly = proveEntries && eagerProof;
+          compNeedsProof[k] = proveEntries && !eagerProof;
           if (compNeedsProof[k]) {
             final int words = dictSize + 63 >>> 6;
             long[] proven = compDictProven[k];
@@ -3269,7 +3287,11 @@ public final class ProjectionIndexByteScan {
                 hashes[i] = a;
                 idA[i] = a;
                 idB[i] = b;
-                // The byte proof waits for the first surviving row that names this entry.
+                // Eager: every entry is proven here. Lazy: the byte proof waits for the first
+                // surviving row that names this entry.
+                if (proveEagerly && !proofCache.prove(identityRegistry, k, a, b, payload, off, len)) {
+                  return; // fingerprint collision or exhausted budget — the caller declines
+                }
               }
             }
             dictOff[i] = off;

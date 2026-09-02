@@ -430,4 +430,48 @@ final class ProjectionStringIdentityRegistryTest {
     }
     assertEquals(locked, registry.lockedProves(), "the post-race sweep took the monitor for nothing");
   }
+  @Test
+  @DisplayName("pre-proven and eager flags start clear, publish per component and validate the ordinal")
+  void preProvenAndEagerFlags() {
+    final ProjectionStringIdentityRegistry registry =
+        new ProjectionStringIdentityRegistry(3, ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT, 1 << 20);
+    assertEquals(3, registry.components());
+    assertTrue(registry.fingerprint() == ProjectionStringIdentityRegistry.DEFAULT_FINGERPRINT,
+        "the memo is keyed by the fingerprint INSTANCE, so the getter must hand back the very one");
+    for (int k = 0; k < 3; k++) {
+      assertFalse(registry.preProven(k), "a fresh registry has nothing pre-proven");
+    }
+    assertFalse(registry.proveEveryEntry(), "eager proving is opt-in");
+    registry.markPreProven(1);
+    assertFalse(registry.preProven(0));
+    assertTrue(registry.preProven(1));
+    assertFalse(registry.preProven(2));
+    registry.markPreProven(1); // idempotent
+    assertTrue(registry.preProven(1));
+    registry.setProveEveryEntry(true);
+    assertTrue(registry.proveEveryEntry());
+    registry.setProveEveryEntry(false);
+    assertFalse(registry.proveEveryEntry());
+    assertThrows(IllegalArgumentException.class, () -> registry.preProven(3));
+    assertThrows(IllegalArgumentException.class, () -> registry.markPreProven(-1));
+    // Marking is a verdict about the component's DATA; it neither proves nor unproves anything the
+    // registry itself has seen, so the terminal state and the counters are untouched.
+    assertTrue(registry.identityProven());
+    assertEquals(0L, registry.lockedProves());
+  }
+
+  @Test
+  @DisplayName("a pre-proven mark never overrides a latched collision")
+  void preProvenDoesNotUnlatchACollision() {
+    final ProjectionStringIdentityRegistry registry = new ProjectionStringIdentityRegistry(1, ALL_COLLIDE, 1 << 20);
+    final byte[] one = "one".getBytes(StandardCharsets.UTF_8);
+    final byte[] two = "two".getBytes(StandardCharsets.UTF_8);
+    assertTrue(registry.prove(0, 1L, 2L, one, 0, one.length));
+    assertFalse(registry.prove(0, 1L, 2L, two, 0, two.length), "distinct bytes under one pair: a collision");
+    assertTrue(registry.collisionDetected());
+    registry.markPreProven(0);
+    assertTrue(registry.preProven(0));
+    assertFalse(registry.identityProven(),
+        "the executor notes a column only from identityProven(); a mark must not launder a refuted scan");
+  }
 }

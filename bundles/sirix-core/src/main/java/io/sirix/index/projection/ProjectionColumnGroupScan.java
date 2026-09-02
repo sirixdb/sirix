@@ -949,9 +949,24 @@ public final class ProjectionColumnGroupScan {
     for (int k = 0; k < keyCount; k++) {
       twoLane[k] = idLane[k + 1] - idLane[k] == 2;
     }
+    // A component the executor marked PRE-PROVEN (its column's strings are memoized pairwise
+    // distinct under this registry's fingerprint) carries its lanes as exact identity: no proof,
+    // no cache, no canonical bytes. In EAGER mode the dictionary pass proves every entry it hashes
+    // — the full-coverage precondition for that memo — so the row loop has nothing left to prove.
+    final boolean[] compPreProven = new boolean[keyCount];
+    boolean anyProof = false;
+    for (int k = 0; k < keyCount; k++) {
+      if (identityRegistry != null && twoLane[k]) {
+        compPreProven[k] = identityRegistry.preProven(k);
+        anyProof |= !compPreProven[k];
+      }
+    }
+    final boolean eagerProof = anyProof && identityRegistry.proveEveryEntry();
     // Worker-local, bounded: the same string recurs in most leaves, so this keeps the shared
     // registry off the per-dictionary-entry path while still comparing canonical bytes on every hit.
-    final ProjectionStringIdentityRegistry.LocalProofCache proofCache = identityRegistry != null
+    // Built only when some component still has something to prove: a fully pre-proven key pays
+    // neither its arena nor a single registry probe.
+    final ProjectionStringIdentityRegistry.LocalProofCache proofCache = anyProof
         ? new ProjectionStringIdentityRegistry.LocalProofCache(keyCount)
         : null;
     final long[] condElseHash = keyCondCols != null
@@ -997,6 +1012,12 @@ public final class ProjectionColumnGroupScan {
           if (identityRegistry != null && twoLane[k]) {
             // The substitution literal is a value in the component's own domain and can collide
             // with a stored one, so it is proven exactly like a dictionary entry — once, up front.
+            // A pre-proven component has no registry entries to prove it against: the executor
+            // never marks a literal-bearing component, and a kernel must not paper over it.
+            if (compPreProven[k]) {
+              throw new IllegalStateException(
+                  "composite key component " + k + " is pre-proven but carries an else literal");
+            }
             final byte[] lit = keyCondElseBytes[k];
             final long a = identityRegistry.laneA(lit, 0, lit.length, condElseHash[k]);
             final long b = identityRegistry.laneB(lit, 0, lit.length);
@@ -1072,7 +1093,11 @@ public final class ProjectionColumnGroupScan {
           }
           compDictBytes[k] = dictBytes;
           compDictOffsets[k] = dictOffsets;
-          compNeedsProof[k] = identityRegistry != null && subStart <= 0;
+          // Entries need proving unless the component is pre-proven; eagerly (every entry, here)
+          // when the executor demanded full coverage, lazily (on first row use) otherwise.
+          final boolean proveEntries = identityRegistry != null && subStart <= 0 && !compPreProven[k];
+          final boolean proveEagerly = proveEntries && eagerProof;
+          compNeedsProof[k] = proveEntries && !eagerProof;
           if (compNeedsProof[k]) {
             final int words = dictSize + 63 >>> 6;
             long[] proven = compDictProven[k];
@@ -1109,7 +1134,11 @@ public final class ProjectionColumnGroupScan {
                 hashes[i] = a;
                 idA[i] = a;
                 idB[i] = b;
-                // The byte proof waits for the first surviving row that names this entry.
+                // Eager: every entry is proven here, whether or not a row names it. Lazy: the byte
+                // proof waits for the first surviving row that names this entry.
+                if (proveEagerly && !proofCache.prove(identityRegistry, k, a, b, dictBytes, off, len)) {
+                  return; // fingerprint collision or exhausted budget — the caller declines
+                }
               }
             }
           }

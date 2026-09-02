@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -25,12 +26,21 @@ import java.util.concurrent.atomic.LongAdder;
  * chunks (2.75 GB) that the previous pass had just handed back to a pool nobody would read again,
  * 5.5 GB of the 12.4 GB a hot try allocated, and the only part of it G1 promoted and copied. The
  * {@link #shared(int, int) shared} pools outlive the scan: one per chunk length for the JVM, holding
- * at most {@link #RETAIN_BYTES_PROPERTY} bytes in total (default a quarter of the maximum heap — one
+ * at most {@link #RETAIN_BYTES_PROPERTY} bytes IN TOTAL (default a quarter of the maximum heap — one
  * pass's tables at the clean-heap group budget). What they hold is retained BY INTENT and readable as
  * live heap by every collector record, so the group budget adds {@link #retainedBytes()} back to the
  * headroom it plans against ({@link GroupTableSpill#groupBudget()}): the next pass takes those chunks
  * instead of allocating, which is exactly the memory the budget would have planned to allocate.
  * {@code -Dsirix.projection.groupTable.chunkPool.retain=false} restores a pool per scan.
+ *
+ * <p>
+ * The ceiling bounds the RESOURCE, not each pool: a scan's stride fixes its chunk length, a suite of
+ * group-bys visits several strides, and a ceiling applied per pool let every geometry keep a pass's
+ * tables at once — at 100M the leg after q16 held one such pool per stride it had run, until q28 ran
+ * 199 collections per try and q30 stalled at a full heap. So {@link #shared(int, int)} drains every
+ * OTHER geometry's pool (during this scan their chunks are dead weight, and the next scan of that
+ * length allocates once, as it did before pooling), and {@link #give} refuses a chunk that would carry
+ * the total retained past the ceiling regardless of the pool it lands in.
  *
  * <p>
  * Chunks are zeroed when GIVEN, not when taken: a pooled chunk is therefore always an empty bucket
@@ -47,6 +57,9 @@ public final class LongChunkPool {
   private static final long RETAIN_BYTES = retainBytesConfigured();
   private static final ConcurrentHashMap<Integer, LongChunkPool> SHARED = new ConcurrentHashMap<>();
   private static volatile int retainForTesting = -1;
+  private static volatile long retainBytesForTesting = -1L;
+  /** Bytes every shared pool holds right now: the one figure the ceiling is checked against. */
+  private static final AtomicLong RETAINED_BYTES = new AtomicLong();
 
   private static final LongAdder HITS = new LongAdder();
   private static final LongAdder GIVES = new LongAdder();
@@ -81,27 +94,54 @@ public final class LongChunkPool {
   /**
    * The JVM-lifetime pool for {@code chunkLanes}-lane chunks, its capacity raised to {@code
    * maxChunks} when the caller's scan needs more than an earlier one did — never above the retain
-   * ceiling's share for this chunk length.
+   * ceiling. Every other chunk length's pool is drained first: one retained geometry at a time is
+   * what keeps the ceiling a bound on the heap rather than on each pool.
    */
   public static LongChunkPool shared(final int chunkLanes, final int maxChunks) {
     final LongChunkPool pool = SHARED.computeIfAbsent(chunkLanes, lanes -> new LongChunkPool(lanes, 1, true));
+    for (final LongChunkPool other : SHARED.values()) {
+      if (other != pool) {
+        other.drain();
+      }
+    }
     pool.raiseCapacity(Math.min(maxChunks, retainCeilingChunks(chunkLanes)));
     return pool;
+  }
+
+  /** The byte ceiling over every shared pool: the property, or the test override. */
+  static long retainBytes() {
+    final long testing = retainBytesForTesting;
+    return testing >= 0L
+        ? testing
+        : RETAIN_BYTES;
+  }
+
+  /**
+   * Test seam: pin the retain ceiling so the bound can be exercised with a handful of chunks.
+   *
+   * @param value the ceiling in bytes, or a negative value to restore the property
+   * @return the previous override, for restoring in a finally block
+   */
+  public static long setRetainBytesForTesting(final long value) {
+    final long previous = retainBytesForTesting;
+    retainBytesForTesting = value;
+    return previous;
   }
 
   /** Chunks of {@code chunkLanes} lanes the retain ceiling admits, at least one. */
   static int retainCeilingChunks(final int chunkLanes) {
     final long chunkBytes = (long) chunkLanes * Long.BYTES;
-    return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, RETAIN_BYTES / chunkBytes));
+    return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, retainBytes() / chunkBytes));
   }
 
   /** Bytes the shared pools hold right now — retained by intent, live to every collector record. */
   public static long retainedBytes() {
-    long bytes = 0L;
-    for (final LongChunkPool pool : SHARED.values()) {
-      bytes += (long) pool.pooled() * pool.chunkLanes * Long.BYTES;
-    }
-    return bytes;
+    return RETAINED_BYTES.get();
+  }
+
+  /** The shared pool of this chunk length if one exists (test observability). */
+  static LongChunkPool sharedOrNull(final int chunkLanes) {
+    return SHARED.get(chunkLanes);
   }
 
   /** Drop every chunk of every shared pool to the collector (tests; a caller shedding heap). */
@@ -183,6 +223,9 @@ public final class LongChunkPool {
     final long[] chunk = free.poll();
     if (chunk != null) {
       pooled.decrementAndGet();
+      if (shared) {
+        RETAINED_BYTES.addAndGet(-chunkBytes());
+      }
       hits.increment();
       HITS.increment();
       return chunk;
@@ -205,6 +248,16 @@ public final class LongChunkPool {
       dropped.increment();
       return false;
     }
+    if (shared) {
+      // The ceiling is a bound on the heap: checked against what EVERY shared pool holds.
+      final long bytes = chunkBytes();
+      if (RETAINED_BYTES.addAndGet(bytes) > retainBytes()) {
+        RETAINED_BYTES.addAndGet(-bytes);
+        pooled.decrementAndGet();
+        dropped.increment();
+        return false;
+      }
+    }
     Arrays.fill(chunk, 0L);
     free.offer(chunk);
     gives.increment();
@@ -220,7 +273,14 @@ public final class LongChunkPool {
   public void drain() {
     while (free.poll() != null) {
       pooled.decrementAndGet();
+      if (shared) {
+        RETAINED_BYTES.addAndGet(-chunkBytes());
+      }
     }
+  }
+
+  private long chunkBytes() {
+    return (long) chunkLanes * Long.BYTES;
   }
 
   /** Chunks currently held. */

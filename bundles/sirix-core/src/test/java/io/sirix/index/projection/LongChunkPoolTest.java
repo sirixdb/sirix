@@ -97,6 +97,71 @@ final class LongChunkPoolTest {
   }
 
   @Test
+  @DisplayName("the shared pools retain ONE geometry at a time: taking another chunk length drains the rest")
+  void sharedPoolsRetainOneGeometryAtATime() {
+    final int retain = LongChunkPool.setRetainForTesting(1);
+    final long ceiling = LongChunkPool.setRetainBytesForTesting(1L << 20);
+    try {
+      LongChunkPool.releaseShared();
+      final LongChunkPool a = LongChunkPool.shared(1024, 4);
+      assertTrue(a.isShared());
+      assertTrue(a.give(new long[1024]));
+      assertTrue(a.give(new long[1024]));
+      assertEquals(2, a.pooled());
+      assertEquals(2L * 1024 * Long.BYTES, LongChunkPool.retainedBytes());
+      final LongChunkPool b = LongChunkPool.shared(512, 4);
+      assertNotSame(a, b);
+      assertEquals(0, a.pooled(), "a scan of another chunk length finds the earlier geometry dead weight");
+      assertEquals(0L, LongChunkPool.retainedBytes());
+      assertTrue(b.give(new long[512]));
+      assertEquals(512L * Long.BYTES, LongChunkPool.retainedBytes());
+      assertSame(a, LongChunkPool.shared(1024, 4), "the pool object is stable per chunk length");
+      assertEquals(0, b.pooled());
+      assertEquals(0L, LongChunkPool.retainedBytes());
+    } finally {
+      LongChunkPool.releaseShared();
+      LongChunkPool.setRetainBytesForTesting(ceiling);
+      LongChunkPool.setRetainForTesting(retain);
+    }
+  }
+
+  @Test
+  @DisplayName("the retain ceiling bounds the heap, not each pool: a give past it is dropped in ANY shared pool")
+  void retainCeilingIsGlobalAcrossSharedPools() {
+    final int retain = LongChunkPool.setRetainForTesting(1);
+    final long ceiling = LongChunkPool.setRetainBytesForTesting(3L * 1024 * Long.BYTES);
+    try {
+      LongChunkPool.releaseShared();
+      final LongChunkPool a = LongChunkPool.shared(1024, 100);
+      assertEquals(3, a.maxChunks(), "the per-pool cap is the ceiling's share of this chunk length");
+      final LongChunkPool b = LongChunkPool.shared(512, 100);
+      // A is drained but still a live pool object: give it the whole ceiling, then B's give must be refused
+      // by the GLOBAL bound although B itself is empty and under its own cap.
+      assertTrue(a.give(new long[1024]));
+      assertTrue(a.give(new long[1024]));
+      assertTrue(a.give(new long[1024]));
+      assertFalse(a.give(new long[1024]), "the per-pool cap");
+      assertEquals(3L * 1024 * Long.BYTES, LongChunkPool.retainedBytes());
+      final long droppedBefore = b.dropped();
+      assertFalse(b.give(new long[512]), "the global ceiling");
+      assertEquals(droppedBefore + 1L, b.dropped());
+      assertEquals(0, b.pooled());
+      assertEquals(3L * 1024 * Long.BYTES, LongChunkPool.retainedBytes(), "the refused give left the total untouched");
+      // A take frees room under the ceiling for the other pool.
+      assertEquals(1024, a.take().length);
+      assertEquals(2L * 1024 * Long.BYTES, LongChunkPool.retainedBytes());
+      assertTrue(b.give(new long[512]));
+      assertEquals(2L * 1024 * Long.BYTES + 512L * Long.BYTES, LongChunkPool.retainedBytes());
+      a.drain();
+      assertEquals(512L * Long.BYTES, LongChunkPool.retainedBytes(), "a drain gives its bytes back to the ceiling");
+    } finally {
+      LongChunkPool.releaseShared();
+      LongChunkPool.setRetainBytesForTesting(ceiling);
+      LongChunkPool.setRetainForTesting(retain);
+    }
+  }
+
+  @Test
   @DisplayName("constructor arguments are checked")
   void argumentsAreChecked() {
     assertThrows(IllegalArgumentException.class, () -> new LongChunkPool(0, 8));

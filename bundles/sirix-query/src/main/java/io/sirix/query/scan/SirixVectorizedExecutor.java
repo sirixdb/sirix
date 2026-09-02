@@ -12970,7 +12970,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static void diagPassDone(final String arm, final int pass, final int passes, final int passLo,
       final int passHi, final long startNanos, final long scanEndNanos, final long[] scanNanos,
-      final GroupTableSpill spill, final ProjectionStringIdentityRegistry registry) {
+      final GroupTableSpill spill, final ProjectionStringIdentityRegistry registry, final int passPreProven,
+      final boolean passEager) {
     final LongChunkPool pool = spill.chunkPool();
     final long endNanos = System.nanoTime();
     final StringBuilder line = new StringBuilder(256);
@@ -12993,8 +12994,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     line.append(" spilled=").append(spill.groupsSpilled()).append(" leaves=").append(spill.leavesScanned())
         .append(" sharedHint=").append(spill.sharedHint()).append(" sharedRehashes=").append(spill.sharedRehashes());
     if (registry != null) {
-      line.append(" lockedProves=").append(registry.lockedProves());
+      // The identity state the pass RAN with (a completed eager pass re-marks the registry before this line).
+      line.append(" lockedProves=").append(registry.lockedProves()).append(" preProven=").append(passPreProven)
+          .append('/').append(registry.components()).append(" eager=").append(passEager);
     }
+    line.append(" retainedMB=").append(LongChunkPool.retainedBytes() >> 20);
     if (pool == null) {
       line.append(" pool=off");
     } else {
@@ -14761,6 +14765,40 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final long[] windowedKeepC = windowedSlices && compositeSlicedArm
               ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, tree, columnFetcher())
               : null;
+          // Identity is a property of the COLUMN, not the query: a component whose column the handle
+          // memoized as pairwise distinct under this registry's fingerprint is pre-proven, and the
+          // kernels carry its lanes as exact identity without a registry probe, a proof cache or a
+          // canonical byte. The memo is earned by a FULL-coverage scan (no predicate, no tree, no
+          // keep mask — every leaf's every dictionary entry is hashed) run in eager mode, and noted
+          // only once every pass completed with identity proven. A component whose query supplies
+          // a literal in its domain (a conditional else branch) is never pre-proven: the literal
+          // could collide with a stored string an empty registry has not seen.
+          // Per component: fingerprinted, literal-free and NOT yet memoized — what this scan can
+          // prove for the handle. A memoized component is marked pre-proven here and needs nothing.
+          final boolean[] identityToProve = new boolean[keyCount];
+          boolean eagerIdentity = false;
+          if (compositeIdentityRegistry != null) {
+            final ProjectionStringIdentityRegistry.Fingerprint fingerprint = compositeIdentityRegistry.fingerprint();
+            boolean allPreProven = true;
+            for (int k = 0; k < keyCount; k++) {
+              if (CompositeGroupIdentity.lanesFor(identityKinds, keySubstrEff, k) != 2) {
+                continue; // exact in one lane: nothing to prove
+              }
+              final boolean literalFree = keyCondElseBytes == null || keyCondElseBytes[k] == null;
+              if (literalFree && handle.stringIdentityProven(groupCols[k], fingerprint)) {
+                compositeIdentityRegistry.markPreProven(k);
+              } else {
+                allPreProven = false;
+                identityToProve[k] = literalFree;
+              }
+            }
+            if (allPreProven) {
+              GROUP_IDENTITY_PREPROVEN.increment();
+            } else if (preds.length == 0 && tree == null && windowedKeepC == null) {
+              compositeIdentityRegistry.setProveEveryEntry(true);
+              eagerIdentity = true;
+            }
+          }
           final int slotWidth = 2 + 4 * aggColsFlat.length;
           // ORD_KEY on THIS arm: the key lane is a source reference, so the order value comes from
           // the group's EXACT identity, which for a monotonic transformed key (the only shape whose
@@ -14798,6 +14836,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           int passes = plan.passes();
           for (int pass = 0; pass < passes; pass++) {
           final long passStartNanos = System.nanoTime();
+          int passPreProven = 0;
+          boolean passEager = false;
+          if (PROJ_DIAG && compositeIdentityRegistry != null) {
+            for (int k = 0; k < keyCount; k++) {
+              if (compositeIdentityRegistry.preProven(k)) {
+                passPreProven++;
+              }
+            }
+            passEager = compositeIdentityRegistry.proveEveryEntry();
+          }
           final int passLo = GroupTableSpill.passLo(partitionsF, passes, pass);
           final int passHi = GroupTableSpill.passHi(partitionsF, passes, pass);
           if (passes > 1) {
@@ -14933,6 +14981,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 ? "composite string key fingerprint collision — byte identity disproved"
                 : "composite string key identity could not be proven within the canonical-byte budget");
           }
+          if (eagerIdentity && compositeIdentityRegistry.proveEveryEntry()) {
+            // A completed eager pass visited every leaf and proved every dictionary entry of every
+            // eligible component: the later passes of this scan carry those lanes as exact identity
+            // and prove nothing. (An aborted pass never reaches here — its restart proves again.)
+            for (int k = 0; k < keyCount; k++) {
+              if (identityToProve[k]) {
+                compositeIdentityRegistry.markPreProven(k);
+              }
+            }
+            compositeIdentityRegistry.setProveEveryEntry(false);
+          }
           if (transformDecline != null && transformDecline[0] != 0) {
             // A matching row hit a transform the interpreter RAISES on (missing operand or a
             // lexically invalid substring) or an overflowing shift — the generic pipeline
@@ -15042,10 +15101,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
           if (PROJ_DIAG) {
             diagPassDone("composite", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
-                compositeIdentityRegistry);
+                compositeIdentityRegistry, passPreProven, passEager);
           }
           } // hash-range passes
           plan.complete();
+          if (eagerIdentity && compositeIdentityRegistry.identityProven()) {
+            // Every pass completed and no proof failed: each eligible component's column is proven
+            // pairwise distinct under this fingerprint for the life of the handle. The verdict is
+            // what is memoized, never the evidence — a REFUTED or budget-bound scan noted nothing.
+            final ProjectionStringIdentityRegistry.Fingerprint fingerprint = compositeIdentityRegistry.fingerprint();
+            for (int k = 0; k < keyCount; k++) {
+              if (identityToProve[k] && compositeIdentityRegistry.preProven(k)) {
+                handle.noteStringIdentityProven(groupCols[k], fingerprint);
+                GROUP_IDENTITY_MEMOED.increment();
+              }
+            }
+          }
           int winnerCount = 0;
           for (final GroupTopKSelector sel : partSelectors) {
             if (sel != null) {
@@ -15580,7 +15651,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         releaseMergedLocals(tables, partIdx);
         if (PROJ_DIAG) {
           diagPassDone("string", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
-                null);
+                null, 0, false);
         }
         } // hash-range passes
         plan.complete();
@@ -16560,7 +16631,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     releaseMergedLocals(tables, partIdx);
     if (PROJ_DIAG) {
       diagPassDone("packed", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
-                null);
+                null, 0, false);
     }
     } // hash-range passes
     plan.complete();
@@ -16960,7 +17031,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       releaseMergedLocals(tables, partIdx);
       if (PROJ_DIAG) {
         diagPassDone("numeric", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill,
-                null);
+                null, 0, false);
       }
       } // hash-range passes
       plan.complete();
@@ -18720,6 +18791,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /** Restarts of a group arm with more hash-range passes (test observability). */
   private static final LongAdder GROUP_PASS_RESTARTS = new LongAdder();
+
+  /** Composite serves whose string components were ALL pre-proven from the handle's column memo. */
+  private static final LongAdder GROUP_IDENTITY_PREPROVEN = new LongAdder();
+
+  /** Column identity verdicts noted on a handle by a completed full-coverage composite serve. */
+  private static final LongAdder GROUP_IDENTITY_MEMOED = new LongAdder();
+
+  /** Test observability for {@link #GROUP_IDENTITY_PREPROVEN}. */
+  public static long groupIdentityPreProvenCount() {
+    return GROUP_IDENTITY_PREPROVEN.sum();
+  }
+
+  /** Test observability for {@link #GROUP_IDENTITY_MEMOED}. */
+  public static long groupIdentityMemoedCount() {
+    return GROUP_IDENTITY_MEMOED.sum();
+  }
 
   /** Test observability for {@link #GROUP_PASS_RESTARTS}. */
   public static long groupPassRestartsCount() {

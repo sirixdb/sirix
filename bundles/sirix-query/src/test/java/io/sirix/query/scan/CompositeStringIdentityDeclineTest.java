@@ -67,6 +67,11 @@ public final class CompositeStringIdentityDeclineTest {
       + "group by $d, $k let $c := count($u) order by $c descending "
       + "return {\"d\": $d, \"k\": $k, \"c\": $c}, 1, 20)";
 
+  /** The same shape under a row predicate: partial coverage, so it can USE the column memo but never EARN it. */
+  private static final String PREDICATED_QUERY = "subsequence(for $u in " + SRC + " where $u.amount < 50 "
+      + "let $d := $u.dept, $k := $u.k7 group by $d, $k let $c := count($u) order by $c descending "
+      + "return {\"d\": $d, \"k\": $k, \"c\": $c}, 1, 20)";
+
   private Path dbDir;
 
   @BeforeEach
@@ -139,6 +144,77 @@ public final class CompositeStringIdentityDeclineTest {
         "the declined query must still return the interpreter's answer, not a merged one");
     assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
         "the group-aggregate route must DECLINE when string identity cannot be proven byte-wise");
+  }
+
+  @Test
+  @DisplayName("a completed full-coverage serve memoizes the column and the next serve is pre-proven")
+  void fullCoverageServeMemoizesTheColumn() throws Exception {
+    final String interpreted = run(QUERY, false);
+    final long memoedBefore = SirixVectorizedExecutor.groupIdentityMemoedCount();
+    final long preProvenBefore = SirixVectorizedExecutor.groupIdentityPreProvenCount();
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(interpreted, run(QUERY, true));
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.groupAggServedCount(), "the first serve must serve");
+    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(),
+        "the ONE string component's column is noted on the handle by a completed full-coverage serve");
+    assertEquals(preProvenBefore, SirixVectorizedExecutor.groupIdentityPreProvenCount(),
+        "the first serve had to prove: nothing was pre-proven");
+    assertEquals(interpreted, run(QUERY, true));
+    assertEquals(servedBefore + 2, SirixVectorizedExecutor.groupAggServedCount(), "the second serve must serve");
+    assertEquals(preProvenBefore + 1, SirixVectorizedExecutor.groupIdentityPreProvenCount(),
+        "the second serve carries the memoized column as exact identity without a proof");
+    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(),
+        "a pre-proven serve has nothing to note");
+  }
+
+  @Test
+  @DisplayName("the column memo is keyed by the fingerprint it was earned under — an adversary cannot inherit it")
+  void memoIsNotTrustedUnderAnotherFingerprint() throws Exception {
+    final String interpreted = run(QUERY, false);
+    final long memoedBefore = SirixVectorizedExecutor.groupIdentityMemoedCount();
+    assertEquals(interpreted, run(QUERY, true));
+    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(),
+        "precondition: the production fingerprint earned the memo");
+    // NO clearCache: the handle — and its memo — survive into the adversarial run. A memo keyed by
+    // the column alone would now skip the proof and MERGE the five departments.
+    ProjectionStringIdentityRegistry.installFingerprintForTesting(ALL_COLLIDE);
+    final long preProvenBefore = SirixVectorizedExecutor.groupIdentityPreProvenCount();
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final String underCollision = run(QUERY, true);
+    assertEquals(20, countGroups(underCollision),
+        "groups were merged under an inherited memo instead of proven: " + underCollision);
+    assertEquals(interpreted, underCollision);
+    assertEquals(preProvenBefore, SirixVectorizedExecutor.groupIdentityPreProvenCount(),
+        "a memo earned under another fingerprint must not pre-prove anything");
+    assertEquals(servedBefore, SirixVectorizedExecutor.groupAggServedCount(),
+        "the adversarial fingerprint must still DECLINE — the memo did not launder it");
+    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(),
+        "a refuted scan notes nothing");
+  }
+
+  @Test
+  @DisplayName("a predicated serve never earns the memo but uses one a full serve earned")
+  void predicatedServeUsesButNeverEarnsTheMemo() throws Exception {
+    final String interpretedPredicated = run(PREDICATED_QUERY, false);
+    final String interpretedFull = run(QUERY, false);
+    final long memoedBefore = SirixVectorizedExecutor.groupIdentityMemoedCount();
+    final long preProvenBefore = SirixVectorizedExecutor.groupIdentityPreProvenCount();
+    long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(interpretedPredicated, run(PREDICATED_QUERY, true));
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.groupAggServedCount(),
+        "the predicated shape must serve — otherwise this proves nothing about coverage");
+    assertEquals(memoedBefore, SirixVectorizedExecutor.groupIdentityMemoedCount(),
+        "partial coverage proves only the strings its surviving rows name: it must not note the column");
+    assertEquals(preProvenBefore, SirixVectorizedExecutor.groupIdentityPreProvenCount());
+    servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(interpretedFull, run(QUERY, true));
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.groupAggServedCount());
+    assertEquals(memoedBefore + 1, SirixVectorizedExecutor.groupIdentityMemoedCount(), "the full serve earns it");
+    servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    assertEquals(interpretedPredicated, run(PREDICATED_QUERY, true));
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.groupAggServedCount());
+    assertEquals(preProvenBefore + 1, SirixVectorizedExecutor.groupIdentityPreProvenCount(),
+        "a subset of pairwise-distinct strings is pairwise distinct: the predicated serve is pre-proven");
   }
 
   private static int countGroups(final String serialized) {

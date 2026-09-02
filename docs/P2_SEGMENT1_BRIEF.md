@@ -2029,3 +2029,50 @@ COUNT(*) DESC LIMIT k` (pass A hashes keys into a counting sketch, pass B aggreg
 tie-break count desc / first-seen asc preserved; applies to q12–q16, q18, q21, q22, q30–q35), (c) per-row
 decode/hash cost. Decision on a FRESH async-profiler CPU profile of q16 hot (the q18 profile predates the
 lock-free registry probe).
+
+## 2026-09-02 ~23:40: LEVERS D0 + D1 — retained group-table chunks (1de0c49df) and the identity-proof memo; c6a hot rank 27 → 24, combined 13 → 10
+
+Two costs that the fresh q16 profile named and that live OUTSIDE the scan itself:
+
+**D0 — the pass tables were dying young-to-old.** A group-by pass allocates ≈ 21,500 × 128 KiB `long[]` chunks
+(≈ 2.75 GB) that live exactly one pass, get tenured, are copied by the old-gen collector and freed as one dead
+generation: 18–23 collections and 0.5 s of pauses per hot try. `LongChunkPool.shared(chunkLanes, maxChunks)` is
+a JVM-lifetime pool; `GroupTableSpill` takes chunks from it and returns them on `releaseTables`; the pass budget
+adds `LongChunkPool.retainedBytes()` back to the headroom so the retained pool cannot halve the budget it exists
+to serve. Kill switch `-Dsirix.projection.groupTable.chunkPool.retain=false`, ceiling
+`-Dsirix.projection.groupTable.chunkPool.retainBytes` (default maxMemory/4).
+
+**D0's defect, found only by the FULL leg (D1FULL1 stalled at q30, heap 12.4/12.58 GB, 1 young region; q28 5 →
+199 collections/try):** the ceiling was applied PER POOL and there is one pool per chunk length
+(`fullChunkLanes(stride)` differs per query shape), so the suite retained one pass's tables per stride it had
+visited — the fourth instance of "a budget per unit against a bound per resource"; the Javadoc said "in total"
+beside a per-pool ceiling. Fix: `shared()` drains every OTHER geometry's pool (one retained geometry at a time)
+and a global `RETAINED_BYTES` counter refuses a give past the ceiling in ANY pool (`give` → dropped). Witnesses
+`sharedPoolsRetainOneGeometryAtATime`, `retainCeilingIsGlobalAcrossSharedPools`; mutants "no drain" and "no
+global ceiling" killed. A single-query leg CANNOT witness a per-resource bound.
+
+**D1 — identity was proved per pass, per execution.** The composite kernels re-proved string fingerprint
+identity on EVERY pass of EVERY execution (`lockedProves=6,019,1xx` per pass, synchronized `proveLocked` +
+`Arrays.copyOfRange`); pass 2 of the same scan was 0.9 s faster than pass 1 with nothing else different. Identity
+is a property of the COLUMN's bytes, not the query: a FULL-coverage scan (`preds.length == 0 && tree == null &&
+windowedKeepC == null`) runs the registry in `proveEveryEntry` mode — the dictionary pass proves every entry of
+every leaf, not only the surviving rows' — and after `plan.complete()` with `identityProven()` the verdict is
+memoized on the revision-scoped `ProjectionIndexRegistry.Handle` (`noteStringIdentityProven(column,
+fingerprint)`), keyed by the `Fingerprint` INSTANCE. Later registries mark the component `preProven`; kernels
+skip registry and `LocalProofCache`. Rules, each with a killed mutant in `CompositeStringIdentityDeclineTest`:
+predicated / tree / windowed scans USE the memo but never EARN it (pruned leaves are unvisited); an injected
+ALL_COLLIDE fingerprint must not inherit the production verdict; else-literal components are never memoized
+(kernels throw if one arrives pre-proven); only PROVEN is memoized. Diag: ` lockedProves=… preProven=N/M
+eager=bool` prints the state the pass RAN with, ` retainedMB=` the pool.
+
+**D1Q16 (3 tries, diag):** hot 4.29/4.24 (D0) → 2.600/2.473 s, `lockedProves=0`, pass 1 ≈ pass 2 ≈ 1.25 s, gc
+6–9 → 5/try. **D1FULL2 (43 queries, 3 tries, no diag):** 42/43 byte-identical to `results-vec`, q17 oracle
+10/10 (any-k). Suite hot Σ 59.6 → 50.5 s, cold 105.7 → 101.8; q16 4.964 → 2.538, q18 11.547 → 7.499, q31
+2.881 → 2.239, q32 17.416 → 15.963; gc per hot try q18 43–63 → 7–9, q16 15 → 2–4, q28 unchanged 5–6 (the
+per-geometry defect is gone), q32 still 80–86 with 2.6–2.7 s of pauses. **Metric: c6a hot 6.42 → 6.09, rank
+27 → 24/141 (Σln 77.66; rank 15 needs −16.9, rank 10 −25.7); c6a combined 6.79 → 6.38, rank 13 → 10/136; c6a
+cold 6.83 → 6.46, rank 11 → 10.** Remaining worst (c6a hot): q32 3.83, q22 3.31, q31 2.78, q4 2.78, q14 2.64,
+q21 2.64, q30 2.62, q11 2.54, q16 2.53, q29 2.37, q41 2.29, q2 2.26, q35 2.25, q17 2.23.
+
+Next: the pass MULTIPLIER (q32 8 passes, q18 4–5) and the remaining per-pass allocation — q32's 80+ collections
+per hot try say the group-by path is still far from allocation-free.
