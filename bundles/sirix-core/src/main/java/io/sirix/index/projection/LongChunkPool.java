@@ -1,6 +1,7 @@
 package io.sirix.index.projection;
 
 import java.util.Arrays;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
@@ -19,14 +20,96 @@ import java.util.concurrent.atomic.LongAdder;
  * while every array stays below the humongous threshold the storage design commits to.
  *
  * <p>
+ * A pool per SCAN still allocates every chunk once per hash-range pass — the pass's spill is new,
+ * so its pool starts empty: at 100M (q16) each of the two passes of every try allocated 21,504
+ * chunks (2.75 GB) that the previous pass had just handed back to a pool nobody would read again,
+ * 5.5 GB of the 12.4 GB a hot try allocated, and the only part of it G1 promoted and copied. The
+ * {@link #shared(int, int) shared} pools outlive the scan: one per chunk length for the JVM, holding
+ * at most {@link #RETAIN_BYTES_PROPERTY} bytes in total (default a quarter of the maximum heap — one
+ * pass's tables at the clean-heap group budget). What they hold is retained BY INTENT and readable as
+ * live heap by every collector record, so the group budget adds {@link #retainedBytes()} back to the
+ * headroom it plans against ({@link GroupTableSpill#groupBudget()}): the next pass takes those chunks
+ * instead of allocating, which is exactly the memory the budget would have planned to allocate.
+ * {@code -Dsirix.projection.groupTable.chunkPool.retain=false} restores a pool per scan.
+ *
+ * <p>
  * Chunks are zeroed when GIVEN, not when taken: a pooled chunk is therefore always an empty bucket
  * range, a take is one dequeue, and a stale reference into a released chunk reads EMPTY buckets
  * instead of another table's groups. Thread-safe; the counters are for diagnostics and tests.
  */
 public final class LongChunkPool {
 
+  /** Keep chunks across scans in JVM-lifetime pools (default on); {@code false} = a pool per scan. */
+  public static final String RETAIN_PROPERTY = "sirix.projection.groupTable.chunkPool.retain";
+  /** Byte ceiling over every shared pool's retained chunks; default {@code maxMemory / 4}. */
+  public static final String RETAIN_BYTES_PROPERTY = "sirix.projection.groupTable.chunkPool.retainBytes";
+  private static final boolean RETAIN = !"false".equalsIgnoreCase(System.getProperty(RETAIN_PROPERTY, "true"));
+  private static final long RETAIN_BYTES = retainBytesConfigured();
+  private static final ConcurrentHashMap<Integer, LongChunkPool> SHARED = new ConcurrentHashMap<>();
+  private static volatile int retainForTesting = -1;
+
   private static final LongAdder HITS = new LongAdder();
   private static final LongAdder GIVES = new LongAdder();
+
+  private static long retainBytesConfigured() {
+    final long configured = Long.getLong(RETAIN_BYTES_PROPERTY, -1L);
+    return configured >= 0L
+        ? configured
+        : Runtime.getRuntime().maxMemory() / 4L;
+  }
+
+  /** Whether scans draw from the shared pools (the property, or the test override). */
+  public static boolean retainAcrossScans() {
+    final int testing = retainForTesting;
+    return testing >= 0
+        ? testing != 0
+        : RETAIN;
+  }
+
+  /**
+   * Test seam: force the shared pools on or off.
+   *
+   * @param value {@code 1} on, {@code 0} off, negative restores the property
+   * @return the previous override, for restoring in a finally block
+   */
+  public static int setRetainForTesting(final int value) {
+    final int previous = retainForTesting;
+    retainForTesting = value;
+    return previous;
+  }
+
+  /**
+   * The JVM-lifetime pool for {@code chunkLanes}-lane chunks, its capacity raised to {@code
+   * maxChunks} when the caller's scan needs more than an earlier one did — never above the retain
+   * ceiling's share for this chunk length.
+   */
+  public static LongChunkPool shared(final int chunkLanes, final int maxChunks) {
+    final LongChunkPool pool = SHARED.computeIfAbsent(chunkLanes, lanes -> new LongChunkPool(lanes, 1, true));
+    pool.raiseCapacity(Math.min(maxChunks, retainCeilingChunks(chunkLanes)));
+    return pool;
+  }
+
+  /** Chunks of {@code chunkLanes} lanes the retain ceiling admits, at least one. */
+  static int retainCeilingChunks(final int chunkLanes) {
+    final long chunkBytes = (long) chunkLanes * Long.BYTES;
+    return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, RETAIN_BYTES / chunkBytes));
+  }
+
+  /** Bytes the shared pools hold right now — retained by intent, live to every collector record. */
+  public static long retainedBytes() {
+    long bytes = 0L;
+    for (final LongChunkPool pool : SHARED.values()) {
+      bytes += (long) pool.pooled() * pool.chunkLanes * Long.BYTES;
+    }
+    return bytes;
+  }
+
+  /** Drop every chunk of every shared pool to the collector (tests; a caller shedding heap). */
+  public static void releaseShared() {
+    for (final LongChunkPool pool : SHARED.values()) {
+      pool.drain();
+    }
+  }
 
   /** Takes served from the pool instead of the allocator, across every pool (test observability). */
   public static long totalHits() {
@@ -39,11 +122,13 @@ public final class LongChunkPool {
   }
 
   private final int chunkLanes;
-  private final int maxChunks;
+  private final boolean shared;
+  private volatile int maxChunks;
   private final ConcurrentLinkedQueue<long[]> free = new ConcurrentLinkedQueue<>();
   private final AtomicInteger pooled = new AtomicInteger();
   private final LongAdder hits = new LongAdder();
   private final LongAdder misses = new LongAdder();
+  private final LongAdder gives = new LongAdder();
   private final LongAdder dropped = new LongAdder();
 
   /**
@@ -52,6 +137,10 @@ public final class LongChunkPool {
    * @param maxChunks chunks the pool keeps at most; a give past it is dropped to the collector
    */
   public LongChunkPool(final int chunkLanes, final int maxChunks) {
+    this(chunkLanes, maxChunks, false);
+  }
+
+  private LongChunkPool(final int chunkLanes, final int maxChunks, final boolean shared) {
     if (chunkLanes <= 0) {
       throw new IllegalArgumentException("chunkLanes must be positive: " + chunkLanes);
     }
@@ -60,6 +149,12 @@ public final class LongChunkPool {
     }
     this.chunkLanes = chunkLanes;
     this.maxChunks = maxChunks;
+    this.shared = shared;
+  }
+
+  /** Whether this pool outlives the scan that took it ({@link #shared(int, int)}). */
+  public boolean isShared() {
+    return shared;
   }
 
   /** Array length this pool recycles. */
@@ -70,6 +165,17 @@ public final class LongChunkPool {
   /** Upper bound on the chunks kept. */
   public int maxChunks() {
     return maxChunks;
+  }
+
+  /** Raise the ceiling to {@code chunks} when it is above the current one; never lowers it. */
+  private void raiseCapacity(final int chunks) {
+    if (chunks > maxChunks) {
+      synchronized (this) {
+        if (chunks > maxChunks) {
+          maxChunks = chunks;
+        }
+      }
+    }
   }
 
   /** An all-zero chunk of {@link #chunkLanes} lanes: a pooled one when there is one, else fresh. */
@@ -101,6 +207,7 @@ public final class LongChunkPool {
     }
     Arrays.fill(chunk, 0L);
     free.offer(chunk);
+    gives.increment();
     GIVES.increment();
     return true;
   }
@@ -129,6 +236,11 @@ public final class LongChunkPool {
   /** Takes that had to allocate. */
   public long misses() {
     return misses.sum();
+  }
+
+  /** Chunks this pool accepted. */
+  public long gives() {
+    return gives.sum();
   }
 
   /** Gives refused because the pool was full. */

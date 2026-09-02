@@ -185,7 +185,8 @@ public final class HeapHeadroom {
     final long pools = liveAfterLastPoolCollection();
     final long live = liveAfterLastGc();
     return "liveMB=" + (live >> 20) + " latestGcMB=" + (latest >> 20) + " poolsGcMB=" + (pools >> 20) + " usedMB="
-        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20);
+        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20) + " pooledMB="
+        + (LongChunkPool.retainedBytes() >> 20);
   }
 
   /** {@code maxMemory - liveAfterLastGc()}, never negative; the test override when set. */

@@ -266,7 +266,8 @@ public final class GroupTableSpill {
    * heap and a quarter of the current {@link HeapHeadroom} at {@value #BYTES_PER_GROUP} bytes per
    * group, floored at 2^20 and capped at 2^26 groups. The headroom term is what lets a query late in
    * a leg — after earlier queries retained fills, fingerprints and windows — split into more passes
-   * instead of dying in a worker.
+   * instead of dying in a worker. The chunks the shared {@link LongChunkPool}s retain count as
+   * headroom here: they are the tables of the next pass, taken instead of allocated.
    */
   public static long groupBudget() {
     final long testing = groupBudgetForTesting;
@@ -277,7 +278,9 @@ public final class GroupTableSpill {
     if (configured > 0L) {
       return configured;
     }
-    return groupBudgetFor(Runtime.getRuntime().maxMemory(), HeapHeadroom.headroomBytes());
+    // The shared chunk pools' contents are live to every collector record and are exactly the memory
+    // the next pass's tables take without allocating: headroom for this budget, for no other.
+    return groupBudgetFor(Runtime.getRuntime().maxMemory(), HeapHeadroom.headroomBytes() + LongChunkPool.retainedBytes());
   }
 
   /**
@@ -516,7 +519,12 @@ public final class GroupTableSpill {
       // One probe table fixes the layout every table of this spill shares; it never holds a group.
       final int stride = factory.apply(WORKER_TABLE_HINT).stride();
       final int chunkLanes = NumericGroupAggTable.fullChunkLanes(stride);
-      this.pool = new LongChunkPool(chunkLanes, poolCapacityChunks(budget, threshold, stride, chunkLanes));
+      final int capacity = poolCapacityChunks(budget, threshold, stride, chunkLanes);
+      // The shared pool outlives this pass: the chunks the previous pass (or the previous query)
+      // handed back are this pass's tables, and nothing is allocated for them.
+      this.pool = LongChunkPool.retainAcrossScans()
+          ? LongChunkPool.shared(chunkLanes, capacity)
+          : new LongChunkPool(chunkLanes, capacity);
     } else {
       this.pool = null;
     }
@@ -754,10 +762,13 @@ public final class GroupTableSpill {
         if (table != null) {
           sharedRehashes.add(table.rehashes());
           shared[p] = null;
+          // Its storage is the restart's tables: hand it back instead of dropping it to the collector.
+          table.release();
         }
       }
     }
-    if (pool != null) {
+    if (pool != null && !pool.isShared()) {
+      // A per-scan pool is invisible to the budget; a shared one is added back to the headroom.
       pool.drain();
     }
     RELEASES.increment();

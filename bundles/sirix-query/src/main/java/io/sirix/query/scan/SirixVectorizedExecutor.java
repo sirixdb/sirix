@@ -12923,6 +12923,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static void releaseAbortedPass(final GroupTableSpill spill, final NumericGroupAggTable[] tables,
       final int[][][] partIdx) {
     spill.releaseTables();
+    for (int t = 0; t < tables.length; t++) {
+      final NumericGroupAggTable table = tables[t];
+      if (table != null && !table.released()) {
+        table.release(); // its chunks are the restart's tables
+      }
+    }
     Arrays.fill(tables, null);
     Arrays.fill(partIdx, null);
   }

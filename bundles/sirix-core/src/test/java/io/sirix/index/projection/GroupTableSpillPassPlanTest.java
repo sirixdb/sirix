@@ -182,11 +182,14 @@ final class GroupTableSpillPassPlanTest {
         }
       }
       assertTrue(allocated > 1, "3000 groups span several chunks");
-      final int pooledBefore = pool.pooled();
+      final long givesBefore = pool.gives();
+      final long droppedBefore = pool.dropped();
       spill.flush(local);
       assertTrue(local.released(), "flush releases the worker table it merged");
-      assertTrue(pool.pooled() >= pooledBefore + allocated - pool.dropped(),
-          "the flushed table's chunks are in the pool: " + pool);
+      // Counted as gives, not as a pooled delta: the merge's partition tables TAKE from the same
+      // pool, and a shared pool that earlier scans filled serves those takes as hits.
+      assertTrue(pool.gives() - givesBefore + pool.dropped() - droppedBefore >= allocated,
+          "the flushed table's chunks were handed to the pool: " + pool);
       for (int p = 0; p < 32; p++) {
         final NumericGroupAggTable shared = spill.takeOrCreate(p, () -> new NumericGroupAggTable(1, 16, true, 0L, 0));
         assertSame(pool, shared.chunkPool(), "shared partition table " + p + " draws from the pool too");
@@ -201,9 +204,10 @@ final class GroupTableSpillPassPlanTest {
   }
 
   @Test
-  @DisplayName("releasing an aborted pass drains the pool: a forced collection must not measure recycled chunks")
+  @DisplayName("releasing an aborted pass drains a PER-SCAN pool: a forced collection must not measure recycled chunks")
   void releaseTablesDrainsThePool() {
     final int previous = GroupTableSpill.setChunkPoolForTesting(1);
+    final int retainBefore = LongChunkPool.setRetainForTesting(0);
     try {
       final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0),
           0, 32, 50L);
@@ -214,12 +218,71 @@ final class GroupTableSpillPassPlanTest {
       spill.flush(local);
       assertTrue(spill.aborted());
       final LongChunkPool pool = spill.chunkPool();
+      assertTrue(!pool.isShared(), "retention off: the spill owns its pool");
       assertTrue(pool.pooled() > 0, "the flushed table's chunks sit in the pool before the release: " + pool);
       spill.releaseTables();
       assertEquals(0, pool.pooled(), "nothing pooled survives the release");
     } finally {
+      LongChunkPool.setRetainForTesting(retainBefore);
       GroupTableSpill.setChunkPoolForTesting(previous);
     }
+  }
+
+  @Test
+  @DisplayName("the shared pool outlives the spill: an aborted pass's tables and a finished pass's chunks are the next spill's tables")
+  void sharedPoolOutlivesTheSpill() {
+    final int previous = GroupTableSpill.setChunkPoolForTesting(1);
+    final int retainBefore = LongChunkPool.setRetainForTesting(1);
+    try {
+      final GroupTableSpill first = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0),
+          0, 32, 50L);
+      final LongChunkPool pool = first.chunkPool();
+      assertTrue(pool.isShared(), "retention on: the spill draws from the JVM-lifetime pool");
+      final NumericGroupAggTable local = first.freshLocal();
+      for (long key = 1; key <= 3_000; key++) {
+        local.acquire(key, key);
+      }
+      first.flush(local);
+      assertTrue(first.aborted());
+      final NumericGroupAggTable shared = first.takeOrCreate(0, () -> new NumericGroupAggTable(1, 16, true, 0L, 0));
+      first.flush(shared); // a shared table exists again for releaseTables to hand back
+      final int pooledBeforeRelease = pool.pooled();
+      first.releaseTables();
+      assertTrue(pool.pooled() >= pooledBeforeRelease, "the release keeps (and grows) the shared pool: " + pool);
+      assertTrue(pool.pooled() > 0, "the aborted pass's chunks are retained: " + pool);
+      assertTrue(LongChunkPool.retainedBytes() >= (long) pool.pooled() * pool.chunkLanes() * Long.BYTES,
+          "the retained bytes account for this pool");
+
+      final GroupTableSpill second = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0),
+          0, 32, 50L);
+      assertSame(pool, second.chunkPool(), "the next spill of the same layout shares the pool");
+      final long hitsBefore = pool.hits();
+      final long missesBefore = pool.misses();
+      final NumericGroupAggTable next = second.freshLocal();
+      next.acquire(77L, 0L);
+      assertTrue(pool.hits() > hitsBefore, "the next spill's first chunk is a retained one: " + pool);
+      assertEquals(missesBefore, pool.misses(), "nothing was allocated for it");
+    } finally {
+      LongChunkPool.setRetainForTesting(retainBefore);
+      GroupTableSpill.setChunkPoolForTesting(previous);
+    }
+  }
+
+  @Test
+  @DisplayName("the shared pool's capacity is the largest scan's demand under the retain ceiling")
+  void sharedPoolCapacityFollowsDemandUnderTheCeiling() {
+    final int lanes = 96; // a layout no other test shares, so the capacity starts at this test's demand
+    final LongChunkPool small = LongChunkPool.shared(lanes, 3);
+    assertTrue(small.isShared());
+    assertTrue(small.maxChunks() >= 3, "capacity raised to the first demand: " + small);
+    final LongChunkPool larger = LongChunkPool.shared(lanes, 7);
+    assertSame(small, larger, "one pool per chunk length");
+    assertTrue(larger.maxChunks() >= 7, "capacity follows the larger demand: " + larger);
+    final LongChunkPool smallerAgain = LongChunkPool.shared(lanes, 2);
+    assertTrue(smallerAgain.maxChunks() >= 7, "a smaller demand never lowers it: " + smallerAgain);
+    final LongChunkPool huge = LongChunkPool.shared(lanes, Integer.MAX_VALUE);
+    assertEquals(LongChunkPool.retainCeilingChunks(lanes), huge.maxChunks(),
+        "the retain ceiling bounds the capacity whatever the demand");
   }
 
   @Test
