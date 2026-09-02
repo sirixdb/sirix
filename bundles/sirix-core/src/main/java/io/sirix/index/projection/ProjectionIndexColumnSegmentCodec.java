@@ -1613,6 +1613,16 @@ public final class ProjectionIndexColumnSegmentCodec {
    */
   static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor, final byte[] bodyColumnSegment,
       final int col) {
+    return decodeBodySlice(descriptor, bodyColumnSegment, col, null);
+  }
+
+  /**
+   * {@link #decodeBodySlice(byte[], byte[], int)} taking the presence and numeric value arrays from
+   * {@code pool} when one is given — the windowed accesses' recycling seam. The decoders overwrite every
+   * word of both arrays, so a recycled array is indistinguishable from a fresh one to the slice.
+   */
+  static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor, final byte[] bodyColumnSegment,
+      final int col, final @Nullable SliceArrayPool pool) {
     final int rowCount = RowGroupDescriptor.rowCount(descriptor);
     final byte kind = RowGroupDescriptor.kind(descriptor, col);
     final int bodyId = bodyColumnSegmentId(col);
@@ -1623,7 +1633,9 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int presWords = rowCount > 0
         ? (rowCount + 63) >>> 6
         : 0;
-    final long[] presence = new long[presWords];
+    final long[] presence = pool != null
+        ? pool.presence(presWords)
+        : new long[presWords];
     if (rowCount == 0) {
       return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE, presence, null, null, null,
           null, null);
@@ -1631,16 +1643,23 @@ public final class ProjectionIndexColumnSegmentCodec {
     final long min = body.readLong();
     final long max = body.readLong();
     ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, presWords, rowCount);
-    return switch (kind) {
+    switch (kind) {
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
           ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
-          ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
-        new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence,
-            ProjectionIndexRowGroupCodec.decodeForBitPackedColumn(body, rowCount), null, null, null, null);
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> new ProjectionColumnStore.ColumnSlice(rowCount, flags,
-          min, max, presence, null, ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords), null, null, null);
+          ProjectionIndexRowGroupPage.COLUMN_KIND_DATE -> {
+        final long[] values = pool != null
+            ? pool.values(rowCount)
+            : new long[rowCount];
+        ProjectionIndexRowGroupCodec.decodeForBitPackedColumnInto(body, rowCount, values);
+        return new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, values, null, null, null,
+            null);
+      }
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
+        return new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, null,
+            ProjectionIndexRowGroupCodec.decodeBooleanWords(body, presWords), null, null, null);
+      }
       default -> throw new IllegalStateException("Column " + col + " (kind " + kind + ") is not body-only sliceable");
-    };
+    }
   }
 
   /**

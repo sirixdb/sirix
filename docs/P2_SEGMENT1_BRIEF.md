@@ -2076,3 +2076,57 @@ q21 2.64, q30 2.62, q11 2.54, q16 2.53, q29 2.37, q41 2.29, q2 2.26, q35 2.25, q
 
 Next: the pass MULTIPLIER (q32 8 passes, q18 4–5) and the remaining per-pass allocation — q32's 80+ collections
 per hot try say the group-by path is still far from allocation-free.
+
+## 2026-09-03 ~00:30: LEVER E — SearchPhrase becomes a STRING_GLOBAL column; the global kind gains leaf pruning and any-k pricing
+
+q17's any-k selection ([[lever C]]) declined every group whose key was a STRING_GLOBAL column, and an equality
+over a global column read the WHOLE store: `pruneLeaves` only stabbed zones for `isOrderedLongKind`, although a
+global column's long lane holds dictionary ids whose descriptor min/max bound them exactly. Containment needs no
+value order, so EQ is containment and NE a collapsed zone whatever order the ids were minted in — the same test
+`evalLeafInto` applied AFTER fetching each leaf now runs on the memoized zones BEFORE any leaf is read
+(`ProjectionColumnScan.zonePrunableKind`, counter `leavesPrunedCount()` — "has zones" proves nothing until a
+predicate is SEEN to drop leaves). The any-k planner samples and prices a STRING_GLOBAL key as a NUMERIC key
+over its ids and resolves the chosen id back to its string for the emitted equality
+(`AnyKGroupsGlobalKeyRewriteTest`, 5/5; decline when the dictionary header is unreadable).
+
+The 100M database is being REBUILT with four global columns (URL, Title, Referer, SearchPhrase;
+`$S/inc100mW.sh`, `-DversioningType=FULL` pinned, rank pass from the frozen value files) — OriginalURL is not
+projected at all. Acceptance: `rowGroups=97654 rows=99997497`, whole-DB `du -sb` against 63,326,782,966 B (the
+user's law: no storage regression from versioning types), then a fresh 3-try leg is the new baseline.
+
+## 2026-09-03 ~01:15: LEVER F — windowed slices decode into recycled arrays (SliceArrayPool)
+
+**The profile lied by one inlined frame.** q32's allocation profile (93 GB over two hot tries) attributed
+44.7 GB of `long[]` to `decodePresenceInto`, which allocates nothing: the frames were the adjacent
+`ProjectionIndexColumnSegmentCodec.decodeBodySlice` allocations (`new long[presWords]` and
+`decodeForBitPackedColumn`'s `new long[rowCount]`) inlined into it — ~32 KB per leaf × column × pass under
+`WindowedLeafAccess.slice → decodeWindow → decodeLeafSlices`, ≈ 3.2 GB per 100M-row pass. The lifetime is the
+window LRU's eviction: a slice's arrays are dead the moment `cache.removeFirst()` drops it, and the next window
+of the same column needs arrays of exactly the same lengths (1024-row leaves, 16 presence words).
+
+**Fix.** `SliceArrayPool` (package-private, per recycling access, ≤ 1024 arrays per stack) receives the
+`presenceWords`/`numericValues` of every evicted slice and hands them to the next decode when the length matches
+EXACTLY — consumers read `numericValues().length` as the row count, so a short last leaf gets a fresh array
+(`aShortLeafIsNotHandedAPooledArray`). Every decoder that writes into a recycled array overwrites every cell:
+`decodeForBitPackedColumnInto` / `decodePlainForBitPackedInto` / `ProjectionAlpEncoding.decodeInto`
+(`unpackInto` fills even at width 0), and `decodePresenceInto` mode 1 now `Arrays.fill`s zero instead of relying
+on a fresh array (`reusedArraysCarryNoStaleWords`; mutant M2 "relies on a zeroed array" killed). Only the
+composite pass loop's `WindowedSliceArrays` (3-arg ctor: window 64, cache 128) recycles — its arrays are valid
+until `release(from, to)`, and `maxFillLeaves = cache − window + 1` refuses a fill wider than the cache can hold
+(`recyclingArraysRefuseAFillWiderThanTheCache`). Every other `windowedLeafAccess` user, including the one-leaf
+winner emission, keeps allocating (the recycled arrays would outlive the eviction). Steady state: window k
+decodes into window k−2's arrays; only the first two windows of a worker allocate.
+
+**Witnesses.** `WindowedSliceRecyclingTest` (6/6): identical answers, window 3 owns window 0's arrays, no stale
+words, exact lengths only, fill-width refusal. `WindowedSliceRecyclingQueryTest`: a 205,120-row, 640-group
+composite group-by with `-Dsirix.vec.threads=1` (twenty workers with ten leaves each never evict — one worker
+with 201 leaves against a 128-leaf cache is four windows), fill budget 1 byte, group budget 200 → three passes,
+`recycledSliceArraysCount() > 1000` and the answer byte-equal to the interpreter. Mutants: M1 eviction drops the
+arrays (killed by both, e2e `recycled: 0`), M2 no zeroing (killed by the unit test), M3 pool wired for presence
+only (killed by both, e2e `recycled: 672`). Diag line gains ` sliceReuse=`. Regression: GroupWindowedSlicesTest
+38/38, AnyK 4/4 + 5/5, MultiLiteralEvidence 5/5, CompositeStringIdentityDecline 5/5.
+
+**Not yet measured at 100M** (the rebuild owns the machine): expected q32 gc 80–86/try to fall by the share of
+the 44.7 GB in its 93 GB. Still allocating per pass: 25.6 GB chunk-pool misses (q32's ~4.6 GB/pass working set
+exceeds the 3 GB retain ceiling) and 18.9 GB of page `byte[]` from re-deserializing column-segment pages every
+pass — the next two GC levers.

@@ -25,10 +25,22 @@ import static java.util.Objects.requireNonNull;
  * releases them: the kernels are unchanged, only the two to four columns a query needs are decoded, and
  * the working set is two windows per column. Single-threaded: one instance per parallel worker.
  * </p>
+ *
+ * <p>
+ * <b>The arrays of a filled slice are valid until {@link #release}.</b> The sub-chunk constructor asks the
+ * access to RECYCLE an evicted slice's presence and value arrays into the next window's decode: a pass
+ * over 100M rows minted 3.2 GB of {@code long[1024]} per column set per pass otherwise, every array dead
+ * two windows later. The cache holds two windows and a sub-chunk is at most one, so a slice released
+ * by the kernel is evicted (and its arrays rewritten) no earlier than the fill after next; a caller
+ * that reads a slice after releasing its range breaks that contract. The one-leaf emission shape keeps
+ * allocating: its consumers resolve winners scattered across the store in no window order.
+ * </p>
  */
 public final class WindowedSliceArrays {
   private final LeafColumnAccess access;
   private final int leafCount;
+  /** Longest fill range a recycling access can serve without evicting a slice of the range itself; unbounded when not recycling. */
+  private final int maxFillLeaves;
   private final Int2ObjectOpenHashMap<ColumnSlice[]> arrays = new Int2ObjectOpenHashMap<>();
   private final IntArrayList filled = new IntArrayList();
 
@@ -40,7 +52,8 @@ public final class WindowedSliceArrays {
    */
   public WindowedSliceArrays(final ProjectionColumnStore store, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
       final long @Nullable [] keepWords) {
-    this(store, fetcher, keepWords, ProjectionColumnStore.LEAF_ACCESS_WINDOW, 2 * ProjectionColumnStore.LEAF_ACCESS_WINDOW);
+    this(store, fetcher, keepWords, ProjectionColumnStore.LEAF_ACCESS_WINDOW, 2 * ProjectionColumnStore.LEAF_ACCESS_WINDOW,
+        true);
   }
 
   /**
@@ -50,9 +63,24 @@ public final class WindowedSliceArrays {
    */
   public WindowedSliceArrays(final ProjectionColumnStore store, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
       final long @Nullable [] keepWords, final int windowLeaves, final int cacheLeaves) {
+    this(store, fetcher, keepWords, windowLeaves, cacheLeaves, false);
+  }
+
+  /**
+   * @param recycleSlices recycle an evicted slice's long-lane arrays into the next decode — only for the
+   *        fill / kernel / release discipline described on the class
+   */
+  public WindowedSliceArrays(final ProjectionColumnStore store, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
+      final long @Nullable [] keepWords, final int windowLeaves, final int cacheLeaves, final boolean recycleSlices) {
     requireNonNull(store, "store");
-    this.access = store.windowedLeafAccess(requireNonNull(fetcher, "fetcher"), keepWords, windowLeaves, cacheLeaves);
+    this.access = store.windowedLeafAccess(requireNonNull(fetcher, "fetcher"), keepWords, windowLeaves, cacheLeaves,
+        recycleSlices);
     this.leafCount = store.rowGroupCount();
+    // A range of L leaves touches at most ceil((L - 1) / window) + 1 windows; the cache must hold them
+    // all, or filling the range's tail would evict (and rewrite) its head before the kernel runs.
+    this.maxFillLeaves = recycleSlices
+        ? cacheLeaves - windowLeaves + 1
+        : Integer.MAX_VALUE;
   }
 
   private ColumnSlice[] arrayFor(final int col) {
@@ -67,6 +95,10 @@ public final class WindowedSliceArrays {
   private void checkRange(final int from, final int to) {
     if (from < 0 || to > leafCount || from > to) {
       throw new IndexOutOfBoundsException("leaves [" + from + ", " + to + ") of " + leafCount);
+    }
+    if (to - from > maxFillLeaves) {
+      throw new IllegalArgumentException("fill of " + (to - from) + " leaves exceeds the " + maxFillLeaves
+          + " a recycling access can hold at once");
     }
   }
 

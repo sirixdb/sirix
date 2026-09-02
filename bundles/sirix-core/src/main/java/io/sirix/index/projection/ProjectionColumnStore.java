@@ -3321,7 +3321,8 @@ public final class ProjectionColumnStore {
       return new ResidentLeafAccess(fetcher, keepWords);
     }
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN);
+    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN,
+        false);
   }
 
   /** The resident access regardless of budget (tests and callers that already hold the fills). */
@@ -3341,8 +3342,26 @@ public final class ProjectionColumnStore {
    */
   public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
       final int windowLeaves, final int cacheLeaves) {
+    return windowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, false);
+  }
+
+  /**
+   * The windowed access with, when {@code recycleSlices}, the long-lane arrays of an EVICTED slice
+   * recycled into the next window's decode. That makes a slice's arrays valid only while the slice
+   * is in the access's cache, so it is for callers whose consumers finish with a window before the
+   * access moves {@code cacheLeaves} past it — the sliced group kernels' fill / kernel / release
+   * discipline ({@link WindowedSliceArrays}). A caller that keeps slices across windows (a top-k heap
+   * resolving old entries) must not ask for it.
+   */
+  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
+      final int windowLeaves, final int cacheLeaves, final boolean recycleSlices) {
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves);
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, recycleSlices);
+  }
+
+  /** Test observability: presence/value arrays a windowed access reused instead of allocating. */
+  public static long recycledSliceArraysCount() {
+    return SliceArrayPool.reusedCount();
   }
 
   /**
@@ -3486,6 +3505,16 @@ public final class ProjectionColumnStore {
    */
   private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
       final ColumnSegmentFetcher fetcher) {
+    return decodeLeafSlices(col, leaves, base, len, fetcher, null);
+  }
+
+  /**
+   * {@link #decodeLeafSlices(int, int[], int, int, ColumnSegmentFetcher)} with the long-lane arrays of the
+   * body-only kinds taken from {@code pool} — the windowed access's recycling seam; string kinds
+   * decode as before.
+   */
+  private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
+      final ColumnSegmentFetcher fetcher, final @Nullable SliceArrayPool pool) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable");
     }
@@ -3511,7 +3540,7 @@ public final class ProjectionColumnStore {
           ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
           : string
               ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
-              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col, pool);
     }
     return decoded;
   }
@@ -3673,9 +3702,11 @@ public final class ProjectionColumnStore {
     private final Int2ObjectLinkedOpenHashMap<ColumnSlice>[] leafCache =
         new Int2ObjectLinkedOpenHashMap[columnKinds.length];
     private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
+    /** Recycles an evicted slice's long-lane arrays into the next decode; {@code null} = allocate. */
+    private final @Nullable SliceArrayPool slicePool;
 
     WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
-        final int cacheLeaves) {
+        final int cacheLeaves, final boolean recycleSlices) {
       if (windowLeaves <= 0) {
         throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
       }
@@ -3686,6 +3717,9 @@ public final class ProjectionColumnStore {
       this.keepWords = keepWords;
       this.windowLeaves = windowLeaves;
       this.cacheLeaves = cacheLeaves;
+      this.slicePool = recycleSlices
+          ? new SliceArrayPool()
+          : null;
     }
 
     @Override
@@ -3729,7 +3763,12 @@ public final class ProjectionColumnStore {
         cache.putAndMoveToLast(from + i, decoded[i]);
       }
       while (cache.size() > cacheLeaves) {
-        cache.removeFirst();
+        // Eviction is the arrays' death under the windowed contract: a recycling access hands them to
+        // its pool here and the NEXT window's decode takes them back instead of allocating.
+        final ColumnSlice evicted = cache.removeFirst();
+        if (slicePool != null) {
+          slicePool.recycle(evicted);
+        }
       }
       return decoded[leaf - from];
     }
@@ -3737,7 +3776,7 @@ public final class ProjectionColumnStore {
     private ColumnSlice[] decodeWindow(final int col, final int window) {
       final int from = window * windowLeaves;
       final int to = Math.min(from + windowLeaves, leafCount);
-      return decodeLeafSlices(col, null, from, to - from, fetcher);
+      return decodeLeafSlices(col, null, from, to - from, fetcher, slicePool);
     }
 
     @Override

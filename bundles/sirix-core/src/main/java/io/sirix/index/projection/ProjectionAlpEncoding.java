@@ -242,6 +242,13 @@ final class ProjectionAlpEncoding {
    * byte inside it is corruption and rejects loudly).
    */
   static long[] decode(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount) {
+    final long[] cells = new long[rowCount];
+    decodeInto(in, rowCount, cells);
+    return cells;
+  }
+
+  /** {@link #decode} into a caller-owned array of length {@code rowCount}; every cell is overwritten. */
+  static void decodeInto(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount, final long[] cells) {
     final int e = in.readByte() & 0xFF;
     final int f = in.readByte() & 0xFF;
     if (e > 18 || f > e) {
@@ -252,7 +259,7 @@ final class ProjectionAlpEncoding {
       throw new IllegalStateException("Corrupt ALP exception count " + exceptionCount
           + " for rowCount " + rowCount);
     }
-    final long[] cells = ProjectionIndexRowGroupCodec.decodePlainForBitPacked(in, rowCount);
+    ProjectionIndexRowGroupCodec.decodePlainForBitPackedInto(in, rowCount, cells);
     final double expF = EXP10[f];
     final double expE = EXP10[e];
     for (int i = 0; i < rowCount; i++) {
@@ -265,6 +272,5 @@ final class ProjectionAlpEncoding {
       }
       cells[row] = in.readLong();
     }
-    return cells;
   }
 }

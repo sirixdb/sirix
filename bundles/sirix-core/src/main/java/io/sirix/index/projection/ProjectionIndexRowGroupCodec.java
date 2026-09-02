@@ -1133,15 +1133,31 @@ final class ProjectionIndexRowGroupCodec {
    * bits), with no version machinery.
    */
   static long[] decodeForBitPackedColumn(final Cursor in, final int rowCount) {
+    final long[] values = new long[rowCount];
+    decodeForBitPackedColumnInto(in, rowCount, values);
+    return values;
+  }
+
+  /**
+   * {@link #decodeForBitPackedColumn} into a caller-owned array of length {@code rowCount} — the
+   * windowed accesses decode a leaf per column per pass and hand the array back on eviction, so the
+   * decoder must write EVERY element (FOR width 0 fills the base, ALP overwrites every cell) and may
+   * assume nothing about the array's prior contents.
+   */
+  static void decodeForBitPackedColumnInto(final Cursor in, final int rowCount, final long[] out) {
+    if (out.length != rowCount) {
+      throw new IllegalArgumentException("values array of " + out.length + " for rowCount " + rowCount);
+    }
     final long base = in.readLong();
     final int width = in.readByte() & 0xFF;
     if (width == ProjectionAlpEncoding.WIDTH_ESCAPE_ALP) {
-      return ProjectionAlpEncoding.decode(in, rowCount);
+      ProjectionAlpEncoding.decodeInto(in, rowCount, out);
+      return;
     }
     if (width > 64) {
       throw new IllegalStateException("Reserved numeric-encoding escape " + width + " — written by a newer version");
     }
-    return unpackFor(in, rowCount, base, width);
+    unpackInto(in, rowCount, width, base, out, 0);
   }
 
   /**
@@ -1149,18 +1165,19 @@ final class ProjectionIndexRowGroupCodec {
    * ALP payload is corruption, not nesting).
    */
   static long[] decodePlainForBitPacked(final Cursor in, final int rowCount) {
+    final long[] values = new long[rowCount];
+    decodePlainForBitPackedInto(in, rowCount, values);
+    return values;
+  }
+
+  /** {@link #decodePlainForBitPacked} into a caller-owned array of length {@code rowCount}. */
+  static void decodePlainForBitPackedInto(final Cursor in, final int rowCount, final long[] out) {
     final long base = in.readLong();
     final int width = in.readByte() & 0xFF;
     if (width > 64) {
       throw new IllegalStateException("Corrupt nested numeric-encoding escape " + width);
     }
-    return unpackFor(in, rowCount, base, width);
-  }
-
-  private static long[] unpackFor(final Cursor in, final int rowCount, final long base, final int width) {
-    final long[] values = new long[rowCount];
-    unpackInto(in, rowCount, width, base, values, 0);
-    return values;
+    unpackInto(in, rowCount, width, base, out, 0);
   }
 
   /** Boolean column body: packed words verbatim. */
@@ -1270,7 +1287,9 @@ final class ProjectionIndexRowGroupCodec {
         }
       }
       case 1 -> {
-        /* all-missing — words stay zero */ }
+        // all-missing: a reused (recycled) array carries the previous leaf's words, so zero explicitly
+        Arrays.fill(bits, 0, presWords, 0L);
+      }
       case 2 -> {
         for (int w = 0; w < presWords; w++) {
           bits[w] = in.readLong();
