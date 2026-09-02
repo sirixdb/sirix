@@ -211,10 +211,7 @@ public final class NumericGroupAggTable {
       throw new IllegalArgumentException(
           "aggregate stripe of " + stride + " lanes exceeds the non-humongous chunk ceiling");
     }
-    int cap = (int) (Long.highestOneBit(Math.max(16, Math.min(MAX_CAPACITY, (long) expectedEntries * 4 / 3)) - 1) << 1);
-    if (cap < 16) {
-      cap = 16;
-    }
+    int cap = capacityFor(expectedEntries);
     while ((long) cap * stride > MAX_ARRAY_LENGTH) {
       cap >>>= 1;
     }
@@ -225,6 +222,20 @@ public final class NumericGroupAggTable {
     this.mask = cap - 1;
     this.growAt = cap - (cap >>> 2);
     this.zeroSlot = newAcc(slotWidth);
+  }
+
+  /**
+   * THE bucket capacity a sizing hint buys: the power of two at or above 4/3 × {@code expectedEntries}
+   * (the table grows at 3/4 load), floored at 16 — before the per-stride array-length clamp. Public so a
+   * planner that derives a hint ({@link GroupTableSpill#sharedTableHint}) sees the same boundary the
+   * constructor applies: a hint one past 3/4 × 2^k costs a table twice the size of one at it, and with
+   * hashed placement every chunk of that capacity is touched, so the doubling is paid in full.
+   */
+  public static int capacityFor(final int expectedEntries) {
+    final int cap = (int) (Long.highestOneBit(Math.max(16, Math.min(MAX_CAPACITY, (long) expectedEntries * 4 / 3)) - 1) << 1);
+    return cap < 16
+        ? 16
+        : cap;
   }
 
   private static long[] newAcc(final int slotWidth) {

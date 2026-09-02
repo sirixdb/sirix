@@ -156,6 +156,13 @@ public final class GroupTableSpill {
   public static final int WORKER_TABLE_HINT = 1 << 16;
   /** Skew allowance on a shared table's expected share, in percent (a partition's count is ± its root). */
   private static final int SHARED_HINT_SKEW_PCT = 5;
+  /**
+   * Standard deviations of a hash partition's count (≈ √share) the hint must still cover when the
+   * percent allowance alone would double the table's capacity; eight roots (p < 1e-15 for a binomial
+   * split) is never exceeded by placement, so the residual risk is the estimate's own error — one
+   * rehash, not a doubled pass.
+   */
+  private static final int SHARED_HINT_TIGHT_ROOTS = 8;
   private static volatile int flushOffsetForTesting = -1;
   private static volatile int presizeSharedForTesting = -1;
   private static final LongAdder PRESIZED_SHARED = new LongAdder();
@@ -231,7 +238,18 @@ public final class GroupTableSpill {
    * {@code expectedGroups} per partition plus {@value #SHARED_HINT_SKEW_PCT} percent skew allowance,
    * never past the share of the pass budget — beyond what the budget lets a pass hold, a hint can
    * only be an estimate's error, and the table grows on demand there as before. Storage is chunked
-   * and a chunk is allocated when its first group lands, so a hint costs only what it fills.
+   * and a chunk is allocated when its first group lands — but hashed placement touches every chunk of
+   * the capacity, so a hint costs the whole power of two it rounds up to
+   * ({@link NumericGroupAggTable#capacityFor}).
+   *
+   * <p>
+   * Hence the allowance is refused when IT ALONE crosses that boundary: at 100M rows a share of
+   * 3,124,927 groups fits a 2^22-bucket table (grows at 3,145,728) and its 5 % allowance asked for
+   * 2^23 — every shared table of every pass doubled, 2.1 GB of fresh chunks per pass past the retained
+   * pool, and the hot tries ran SLOWER per pass than the cold one (q32: 1.5 → 1.8 s, gc 32 → 42). A
+   * partition's count deviates from its share by about its root, so the tighter hint keeps
+   * {@value #SHARED_HINT_TIGHT_ROOTS} roots of headroom and lets an estimate that is truly off pay one
+   * rehash instead.
    */
   static int sharedTableHint(final long expectedGroups, final int partitions, final int passLo, final int passHi,
       final long budget) {
@@ -240,8 +258,17 @@ public final class GroupTableSpill {
     }
     final long share = Math.min(expectedGroups / partitions, Integer.MAX_VALUE);
     final long bound = budget / (passHi - passLo);
-    final long hinted = Math.min(share + share * SHARED_HINT_SKEW_PCT / 100L, bound);
+    long hinted = Math.min(share + share * SHARED_HINT_SKEW_PCT / 100L, bound);
+    final long tight = Math.min(share + SHARED_HINT_TIGHT_ROOTS * (long) Math.ceil(Math.sqrt((double) share)), bound);
+    if (tight < hinted && capacityOf(hinted) > capacityOf(tight)) {
+      hinted = tight;
+    }
     return (int) Math.max(16L, Math.min(Integer.MAX_VALUE, hinted));
+  }
+
+  /** {@link NumericGroupAggTable#capacityFor} over the hint's saturated int. */
+  private static int capacityOf(final long hint) {
+    return NumericGroupAggTable.capacityFor((int) Math.max(16L, Math.min(Integer.MAX_VALUE, hint)));
   }
 
   /**

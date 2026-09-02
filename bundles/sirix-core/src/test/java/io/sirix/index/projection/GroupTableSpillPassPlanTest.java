@@ -367,6 +367,32 @@ final class GroupTableSpillPassPlanTest {
     }
   }
 
+  @Test
+  @DisplayName("the skew allowance is refused when it alone would double the shared table's capacity")
+  void sharedHintNeverDoublesTheTableForItsSkewAllowance() {
+    // 100M rows over 32 partitions: the share fits a 2^22-bucket table (it grows at 3,145,728) and the 5 %
+    // allowance asked for 2^23 — the observed q32 doubling. The hint stays inside the smaller table with
+    // eight roots of headroom above the share.
+    final long expected = 99_997_672L;
+    final long share = expected / 32; // 3,124,927
+    final int hint = GroupTableSpill.sharedTableHint(expected, 32, 0, 4, Long.MAX_VALUE);
+    assertEquals(1 << 22, NumericGroupAggTable.capacityFor(hint), "the allowance must not buy a doubled table");
+    assertTrue(hint > share, "the hint still covers the share: " + hint);
+    assertTrue(hint - share >= 8L * (long) Math.sqrt((double) share), "eight roots of headroom: " + (hint - share));
+    assertTrue(hint <= 3_145_728, "inside the smaller table's growth threshold: " + hint);
+    // Where the share ITSELF needs the larger table, the allowance stays: nothing to refuse.
+    final long big = 3_200_000L * 32;
+    final int bigHint = GroupTableSpill.sharedTableHint(big, 32, 0, 4, Long.MAX_VALUE);
+    assertEquals(3_200_000 + 160_000, bigHint, "share + 5 % when the share already needs 2^23");
+    assertEquals(1 << 23, NumericGroupAggTable.capacityFor(bigHint));
+    // Where the allowance stays inside the share's power of two, it is kept unchanged.
+    assertEquals(3_150, GroupTableSpill.sharedTableHint(96_000L, 32, 0, 32, Long.MAX_VALUE), "3,000 + 5 %");
+    // The capacity rule the hint reasons with IS the constructor's rule.
+    assertEquals(16, NumericGroupAggTable.capacityFor(1));
+    assertEquals(1 << 22, NumericGroupAggTable.capacityFor(3_145_728), "exactly 3/4 of 2^22 still fits 2^22");
+    assertEquals(1 << 23, NumericGroupAggTable.capacityFor(3_145_729), "one past 3/4 of 2^22 doubles");
+  }
+
   /** A factory that records the hint every table was asked for. */
   private static IntFunction<NumericGroupAggTable> recordingFactory(final List<Integer> hints) {
     return hint -> {
