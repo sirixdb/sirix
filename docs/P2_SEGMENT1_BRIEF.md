@@ -1740,3 +1740,100 @@ count-distinct in one dictionary pass. Hot suite: ≈ 200 → ≈ 174 s.
 Aside seen while reading the windowed access: `WindowedLeafAccess.fetchWindow` allocates a
 `new byte[leafCount][]` (97,654 slots, ~780 KB) per window per chain — ~2.4 GB of zeroed arrays per
 100M column sweep. Not tonight's lever; a `from`-offset scratch would remove it.
+
+## 2026-09-02 ~01:35: HH1 validation leg (q16-18, q27-35, 3 tries) — 12/12 answers identical, four wins, two regressions
+
+After bb3e69bf6 (HeapHeadroom takes the smaller of the two live-heap records; the completed-configuration
+memo) and 858b09cb7 (q5), the same 12-query selection as MEMO2, paired hot (MEMO2 → HH1): q16 10.48 → 10.01,
+q17 10.85 → 10.35, **q18 43.2 → 23.8 (8 → 4 passes; `[io] segBatch` 148,674 → 75,430)**, q27 7.25 → 7.31,
+**q28 5.58 → 9.12 (cold 12.2 → 26.5) REGRESSED**, q29 0.196 → 0.055, q30 2.54 → 2.29,
+**q31 10.6 → 5.05 (one pass again)**, q32 33.5 → 28.5, **q33 1.55 → 0.53 and q34 1.56 → 0.54** (route now
+`+global-dictionary-group`), **q35 2.15 → 5.07 (cold 4.7 → 12.7) REGRESSED** — aborted at
+`spilled=7562527 budget=7407417` and paid two passes. Abort budgets along the leg: q16 12,582,912 (the
+fresh-heap figure at -Xmx12g), q17 12,582,912, q31 6,447,104, q32 4,779,329, q35 7,407,417. So the
+budget STILL shrinks late in the leg — after q31 the records imply ≈ 9.5 GB "live" of 12 GB, where the
+known residents are the 3 GB fill budget plus the 256 MB dictionary record cache plus memos. Either the
+records still overstate (dead promoted tables not yet collected) or something untracked is retained; the
+`[groupBudget]` diag line (both records, current usage, share) plus a `-Xlog:gc*` log in the next leg
+settles which. q28's diag lines are IDENTICAL between the legs (20 segment batches on the cold try, none
+on the hot ones — the Referer column was resident), so its 2.2× cold / 1.6× hot loss is runtime state, not
+a route change; the same leg re-measures it with GC visibility.
+
+Per-query length tables (q27 `AVG(length(URL))`, q28 `AVG(length(Referer))`): the executor derived
+`GlobalValueDictionary.ReadView.lengthTable` on the planning thread on EVERY try — one full walk of the
+18M-entry URL dictionary per q27 execution. Now `Handle.stringLengthTable(headerKey, mode)` memoises the
+table per (dictionary, mode) within `sirix.projection.stringLength.memoBytes` (512 MB default, 0 = never
+keep), and a miss derives it over disjoint id ranges in parallel (`ReadView.fillLengthTable`, one view per
+lane). Witnesses `projectionStringLengthTableMemoHitCount()` / `...BuildCount()`; `[lengthTable]` diag line
+with ms. Test `GlobalValueDictionaryLengthTableTest` (2): ranged fills by seven views equal the whole-view
+table in both modes with spilled (> 64 KiB) and multi-byte entries present (mutation check: a broken
+code-point count fails it), and the memo keeps within its bound, first derivation winning.
+
+## 2026-09-02 ~01:55: LT1 leg (q16-18, q27-28, q31-35, 3 tries, `-Xlog:gc*`) — 10/10 identical; the memo works; the late-leg budget collapse is HALF real
+
+All ten dumps `cmp` identical to `results-vec`. Cold | hot: q16 16.44 | 10.27, q17 10.65 | 10.66,
+**q18 46.2 | 43.3 (the pass lottery: abort `spilled=18,096,169 budget=12,582,912` → 8 passes this time,
+HH1 had 4 → 23.8 s)**, **q27 9.22 | 4.96 (was 10.6 | 7.31: the URL length table, 18.3M ids, built once in
+1,626 ms over 20 lanes, then `memo=hit`)**, q28 9.32 | 6.04 (HH1's 9.12 was transient), **q31 10.9 | 10.5 (two
+passes: hot-try budgets 6,450,830 / 6,170,512, `liveMB=9138 / 9275` right after q28)**, q32 34.4 | 31.1 (abort
+budget 6,317,758), q33 2.69 | 0.616, q34 0.50 | 0.51, q35 8.64 | 4.20 (budgets 10.29M → 4.96M → 4.67M as
+`liveMB` 7263 → 9868 → 10008).
+
+`gc-LT1.log` (410 s): 64 young, 200 concurrent-start, 209 mixed pauses (~30 s of pauses) and TWO Full GCs —
+`12281M->8986M` at 257 s (inside q31) and **`12283M->6940M` at 280 s (q32's start)**. So at q32's start the
+true live set was ≈ 6.9 GB: the records (9.2–10.4 GB) overstated by ≈ 2.4 GB, but the real live set is still
+≈ 3.5 GB above the residents the process knows about (3 GB fills + 256 MB dictionary record cache + ~150 MB
+length tables). Humongous regions stayed at 21 (168 MB), so the fills are not humongous arrays. Traced and
+ruled out as the owner: decoded dictionary records (every read goes through the weighed 256 MB
+`GlobalDictionaryRecordCache`; the reader never stores decoded records back into pages — `getDataRecord`
+refuses on purpose) and the fill charge itself (`projectedColumnFillBytes` prices BODY + DICT bytes plus
+the decoded arrays). The next leg (HIST1) takes an in-process live class histogram after q18/q28/q31/q32
+(`ClickBenchRunMain --histogram-after`, `GC.class_histogram` via the DiagnosticCommand MBean — the sandbox
+hides the JVM from `jcmd`) to name the owner before any structural budget change (a lower bound from
+tracked residents + slack is only safe once the untracked 3.5 GB is explained).
+
+## 2026-09-02 ~02:20: HIST1 leg — the untracked 3.5 GB named by one class histogram: 181,737 swizzled dictionary OverflowPages
+
+`ClickBenchRunMain --histogram-after 18,28,31,32` (live objects after a forced full GC, `GC.class_histogram`
+through the `DiagnosticCommand` MBean): live **921 MB after q18, 5,083 MB after q28**, unchanged through q31
+and q32, against 1,074 MB of column fills + ~150 MB of length tables the process knew about. Top of the
+histogram after q28: `[B` 3.88 GB, **181,737 `io.sirix.page.OverflowPage`**, 184k `LinkedHashMap$Entry` + `Long`
+(the `KeyValueLeafPage.references` maps of NAME-index pages), 2.09M `PageReference`. The two length-table
+walks (URL 18.3M ids, Referer 19.7M) had read every 64 KiB value-dictionary block, and
+`NodeStorageEngineReader.readOverflowPage` swizzled each decoded page onto its reference (#1076's fix for
+DOCUMENT sibling walks). The reference lives in the owning record page, that page in the record-page cache,
+and that cache weighs SLOT memory only — so the swizzle was an unbounded on-heap copy of everything ever
+walked, beside the weighed 256 MB `GlobalDictionaryRecordCache` that exists to bound exactly this retention.
+HIST1 timings (cold | hot): q16 17.6 | 10.6, q17 11.0 | 10.7, q18 48.4 | 44.5, q27 9.8 | 4.5, q28 10.1 | 2.8,
+q31 5.6 | 3.9, **q32 39.6 | 30.2** (hot: a 16-pass budget collapse, `liveMB` ≈ 8.4 GB at plan time).
+
+## 2026-09-02 ~02:35: SWZ1 + SWZ2 — swizzle DOCUMENT overflow pages only; verified at 100M
+
+Fix: `readOverflowPage(reference, ownerPage)` swizzles only when the owner's index type is DOCUMENT (kill
+switch `-Dsirix.overflow.swizzleIndexPages=true` restores the old behaviour; witnesses
+`overflowPagesSwizzled()` / `overflowPagesReadUnpinned()`; `OverflowPageSwizzleTest` — mutation- and
+switch-checked — reads a 3,000-entry dictionary unpinned and an 8,000-byte DOCUMENT value swizzled).
+
+**SWZ1** (q16-18, q27-28, q31-35, 3 tries): 10/10 dumps `cmp`-identical to
+`clickbench-100m-campaign-20260831-0257/results-vec`. Cold | hot: q16 17.77 | 10.16, q17 10.25 | 10.69,
+q18 45.93 | 43.45, q27 23.84 | 9.58, q28 10.13 | 3.10, **q31 5.72 | 3.41 (one pass again; LT1 10.5)**,
+**q32 100.81 | 18.95**, q33 3.95 | 0.55, q34 0.52 | 0.52, q35 8.21 | 3.65. Every `[groupBudget]` line but two
+reads the cap 12,582,912 with `liveMB` 4.0–5.4 GB (LT1: 9–10 GB); the full GCs inside q32 leave 5.2 / 5.2 /
+4.0 GB live (HIST1 7.3–8.4, LT1 9.0 / 6.9).
+
+**SWZ2, interleaved A/B on q27-28** (OFF = fix, ON = old swizzle; OFFa, ONa, OFFb, ONb; `--histogram-after 28`):
+live after q28 **2,820 / 2,835 MB with the fix vs 5,099 / 5,097 MB without**; `[B` 1.54 vs 3.89 GB; the
+`OverflowPage` line is gone. Timings cold | hot — q27: 8.10 | 4.14, 9.99 | 4.99 (fix) vs 9.57 | 4.67,
+9.50 | 4.42 (old); q28: 7.85 | 2.69, 9.38 | 2.97 (fix) vs 11.89 | 3.09, 10.67 | 3.08 (old). 6 of 8 pairs favour
+the fix, none regresses beyond leg noise; SWZ1's q27 23.8 s cold was a leg-position artefact (q27 right after
+q18's ~10 GB of dead tables, LT1 had 9.2 s at the same position), not the swizzle.
+
+**What SWZ1 left open — the stale-record collapse is now the whole remainder.** q32 cold 100.8 s: try 1
+planned at `[groupBudget] budget=2026894 liveMB=11298 latestGcMB=11354 poolsGcMB=11298 usedMB=11370` — the
+collector had not yet collected q31's dead tables — aborted its single pass at `spilled=5242880 budget=2026894`
+and ran 32 passes (`[io] segBatch` 148,531 vs 37,066 / 37,086 for the 8-pass tries 2 and 3). On a clean heap
+the same query planned 8 passes and took 39.6 s (HIST1). A forced full GC at 12 GB with 4–5 GB live costs
+120–200 ms (three measured: 200 / 149 / 122 ms) — cheaper than one pass by a factor of twenty, so a
+need-based refresh (only when a clean-heap budget would save at least one pass) is the next lever; the
+second is the power-of-two pass count (q18: ~50M groups at a 12.58M budget sits on the 4/8 boundary and paid
+8 passes in LT1/SWZ1, 4 in HH1 — 5 balanced passes would do).

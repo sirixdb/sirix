@@ -11680,6 +11680,108 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return PROJECTION_COUNT_DISTINCT_SERVED.sum();
   }
 
+  /** Global-column length tables the handle memo served ({@link #globalLengthTable}). */
+  private static final LongAdder PROJECTION_STRING_LENGTH_TABLE_MEMO_HITS = new LongAdder();
+
+  /** Global-column length tables derived by a dictionary walk ({@link #globalLengthTable}). */
+  private static final LongAdder PROJECTION_STRING_LENGTH_TABLE_BUILDS = new LongAdder();
+
+  /** Total global string-length tables the per-handle memo served since process start. */
+  public static long projectionStringLengthTableMemoHitCount() {
+    return PROJECTION_STRING_LENGTH_TABLE_MEMO_HITS.sum();
+  }
+
+  /** Total global string-length tables derived by walking a dictionary since process start. */
+  public static long projectionStringLengthTableBuildCount() {
+    return PROJECTION_STRING_LENGTH_TABLE_BUILDS.sum();
+  }
+
+  /**
+   * Diagnostic probe: {@code -Dsirix.projection.groupPasses.gcProbe=true} asks the collector for a
+   * full collection before every group budget is read, so the budget derives from the live set of
+   * that instant instead of the last pause's record. It costs a stop-the-world collection per plan
+   * and exists to MEASURE how far the records overstate after a large query, never to run by default.
+   */
+  private static final boolean GROUP_BUDGET_GC_PROBE = Boolean.getBoolean("sirix.projection.groupPasses.gcProbe");
+
+  /**
+   * The per-pass group budget of one grouped arm, read once per plan, with the heap figures it
+   * derives from beside it under {@code sirix.projDiag} — see {@link HeapHeadroom#describe()}.
+   */
+  private static long plannedGroupBudget() {
+    if (GROUP_BUDGET_GC_PROBE) {
+      System.gc();
+    }
+    final long budget = GroupTableSpill.groupBudget();
+    if (PROJ_DIAG) {
+      System.err.println("[groupBudget] budget=" + budget + " " + HeapHeadroom.describe());
+    }
+    return budget;
+  }
+
+  /** Ids per lane below which a length-table walk stays on the planning thread. */
+  private static final int LENGTH_TABLE_IDS_PER_LANE = 1 << 16;
+
+  /**
+   * The per-id string-length table of a GLOBAL dictionary column in a length mode — the operand of
+   * {@code AVG(length(col))} and its kin, indexed per row by the group kernels.
+   *
+   * <p>
+   * The handle's memo answers when it holds the table: it is a pure function of the dictionary the
+   * handle's build revision reads, and deriving it walks EVERY id (q27 at 100M re-decoded the whole
+   * 18M-entry URL dictionary on every try). A miss derives it over disjoint id ranges in parallel —
+   * one {@link GlobalValueDictionary.ReadView} per lane, because a view's slice caches are
+   * single-threaded — and offers it to the memo, which keeps it within its byte bound
+   * ({@code sirix.projection.stringLength.memoBytes}; {@code 0} = never keep). The table the query
+   * uses is the same either way.
+   * </p>
+   */
+  private int[] globalLengthTable(final ProjectionIndexRegistry.Handle handle, final int col, final long headerKey,
+      final byte lengthMode, final GlobalValueDictionary.ReadView view) {
+    final int[] memoised = handle.stringLengthTable(headerKey, lengthMode);
+    if (memoised != null) {
+      PROJECTION_STRING_LENGTH_TABLE_MEMO_HITS.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[lengthTable] col=" + col + " mode=" + lengthMode + " ids=" + (memoised.length - 1) + " memo=hit");
+      }
+      return memoised;
+    }
+    final long t0 = PROJ_DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int idCount = view.entryCount();
+    final int[] table = new int[idCount + 1];
+    final int lanes = Math.max(1, Math.min(threads, idCount / LENGTH_TABLE_IDS_PER_LANE));
+    if (lanes == 1) {
+      view.fillLengthTable(lengthMode, 1, idCount, table);
+    } else {
+      parallel(lanes, idx -> {
+        final int lo = 1 + (int) ((long) idCount * idx / lanes);
+        final int hi = (int) ((long) idCount * (idx + 1) / lanes); // inclusive
+        if (lo > hi) {
+          return;
+        }
+        final GlobalValueDictionary.ReadView laneView =
+            GlobalValueDictionary.readView(headerKey, workerTrx().getStorageEngineReader());
+        if (laneView == null) {
+          throw new IllegalStateException("global string-length dictionary became unreadable mid-query");
+        }
+        if (laneView.entryCount() != idCount) {
+          throw new IllegalStateException("global string-length dictionary changed size mid-query: " + idCount
+              + " -> " + laneView.entryCount());
+        }
+        laneView.fillLengthTable(lengthMode, lo, hi, table);
+      });
+    }
+    PROJECTION_STRING_LENGTH_TABLE_BUILDS.increment();
+    final boolean kept = handle.noteStringLengthTable(headerKey, lengthMode, table);
+    if (PROJ_DIAG) {
+      System.err.println("[lengthTable] col=" + col + " mode=" + lengthMode + " ids=" + idCount + " memo="
+          + (kept ? "built+kept" : "built") + " lanes=" + lanes + " ms=" + (System.nanoTime() - t0) / 1_000_000L);
+    }
+    return table;
+  }
+
   /** Of those, the results the hashed dictionary union produced ({@link #distinctDictUnionParallel}). */
   private static final LongAdder PROJECTION_COUNT_DISTINCT_DICT_UNION_SERVED = new LongAdder();
 
@@ -13495,7 +13597,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (globalLengthTablesFlat == null) {
               globalLengthTablesFlat = new int[aggCols.length][];
             }
-            globalLengthTablesFlat[i] = lengthView.lengthTable(lengthMode);
+            globalLengthTablesFlat[i] = globalLengthTable(handle, col, headerKey, lengthMode, lengthView);
           } else if (lengthKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
             return declineGroupAgg("string-length aggregate needs a STRING_DICT or STRING_GLOBAL column");
           }
@@ -14060,7 +14162,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final int keyPresenceLane = orderOnKeyLane
               ? slotWidth + 1
               : -1;
-          final long groupBudget = GroupTableSpill.groupBudget();
+          final long groupBudget = plannedGroupBudget();
           // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
           // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
           final long[] zeroGroupWithoutIdentity = new long[1];
@@ -14561,7 +14663,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, columnFetcher())
             : null;
         final int slotWidth = 2 + 4 * aggColsFlat.length;
-        final long groupBudget = GroupTableSpill.groupBudget();
+        final long groupBudget = plannedGroupBudget();
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         long[] missingMergedFlatHeld = null;
         // A GLOBAL regex key gets its transformed-key hash PRECOMPUTED for every id by one
@@ -15619,7 +15721,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, columnFetcher())
         : null;
     final int slotWidth = 2 + 4 * aggCols.length;
-    final long groupBudget = GroupTableSpill.groupBudget();
+    final long groupBudget = plannedGroupBudget();
     final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
     final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
     // HASH-RANGE PASSES — see the composite arm; seeded from the same handle memo.
@@ -15941,7 +16043,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, columnFetcher())
           : null;
       final int slotWidth = 2 + 4 * aggCols.length;
-      final long groupBudget = GroupTableSpill.groupBudget();
+      final long groupBudget = plannedGroupBudget();
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       long[] missingMergedHeld = null;
       // HASH-RANGE PASSES — see the composite arm: past the per-pass group budget the scan restarts

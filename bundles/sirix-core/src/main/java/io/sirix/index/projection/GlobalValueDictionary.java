@@ -358,12 +358,34 @@ public final class GlobalValueDictionary {
      * returned table is immutable by convention and safe to share across scan workers.
      */
     public int[] lengthTable(final byte lengthMode) {
+      final int[] table = new int[entryCount + 1];
+      fillLengthTable(lengthMode, 1, entryCount, table);
+      return table;
+    }
+
+    /**
+     * Fill {@code table[fromId..toId]} with the per-id string lengths of this view, in the given
+     * mode — the id-range half of {@link #lengthTable(byte)}, so callers holding one view PER WORKER
+     * can derive one table over disjoint id ranges in parallel (the view's slice caches are
+     * single-threaded; the table's disjoint ranges need no coordination). Ids are walked in order,
+     * so every block of the range is decoded once.
+     *
+     * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
+     *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
+     * @param fromId first id to derive, at least 1
+     * @param toId last id to derive, inclusive, at most {@link #entryCount()}
+     * @param table the table indexed by id, at least {@code toId + 1} long
+     */
+    public void fillLengthTable(final byte lengthMode, final int fromId, final int toId, final int[] table) {
       if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
           && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
         throw new IllegalArgumentException("not a string length mode: " + lengthMode);
       }
-      final int[] table = new int[entryCount + 1];
-      for (int id = 1; id <= entryCount; id++) {
+      if (fromId < 1 || toId > entryCount || toId >= table.length) {
+        throw new IllegalArgumentException("id range [" + fromId + ", " + toId + "] outside 1.." + entryCount
+            + " or the table of " + table.length);
+      }
+      for (int id = fromId; id <= toId; id++) {
         final int slot = sliceSlot(id);
         final ValueDictionaryEntryNode spill = cachedSpills[slot];
         if (spill != null) {
@@ -387,7 +409,6 @@ public final class GlobalValueDictionary {
           table[id] = codePoints;
         }
       }
-      return table;
     }
 
     /**

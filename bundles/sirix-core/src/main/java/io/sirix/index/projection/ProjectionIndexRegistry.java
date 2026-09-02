@@ -56,6 +56,26 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class ProjectionIndexRegistry {
 
+  /**
+   * Byte bound of the per-handle string-length table memo ({@code sirix.projection.stringLength.memoBytes},
+   * default 512 MB; {@code 0} disables retention). An int per dictionary id: 72 MB for an 18M-id URL
+   * dictionary, so the default holds every global column of the 100M ClickBench resource.
+   */
+  private static volatile long stringLengthMemoBytes =
+      Math.max(0L, Long.getLong("sirix.projection.stringLength.memoBytes", 512L << 20));
+
+  /**
+   * Test seam: bound the string-length memo so a small table already exceeds it.
+   *
+   * @param value the bound in bytes
+   * @return the previous bound, for restoring in a finally block
+   */
+  static long setStringLengthMemoBytesForTesting(final long value) {
+    final long previous = stringLengthMemoBytes;
+    stringLengthMemoBytes = Math.max(0L, value);
+    return previous;
+  }
+
   private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionIndexRegistry.class);
 
   /**
@@ -924,6 +944,68 @@ public final class ProjectionIndexRegistry {
       synchronized (completedGroupScans) {
         completedGroupScans.put(fingerprint, scan);
       }
+    }
+
+    /**
+     * Per-id string-length tables of GLOBAL dictionary columns, by {@code (dictionary header key,
+     * length mode)}: what {@code AVG(length(col))} over a global column indexes per row. A table is
+     * one walk of the whole dictionary — every block decoded once, ~18M ids for URL at 100M — and it
+     * is a pure function of the dictionary this handle's build revision reads, so the first query to
+     * need it derives it and every later one indexes it. Retention is bounded in BYTES by
+     * {@code sirix.projection.stringLength.memoBytes}; past the bound a table is still returned to its query but
+     * not kept (the "0 disables" of the property is the kill switch).
+     */
+    private final Long2ObjectOpenHashMap<int[]> stringLengthTables = new Long2ObjectOpenHashMap<>();
+
+    /** Bytes {@link #stringLengthTables} retains; guarded by the map's monitor. */
+    private long stringLengthTableBytes;
+
+    /** The memoised length table of a dictionary in a mode, or {@code null} when none is retained. */
+    public int @Nullable [] stringLengthTable(final long dictionaryHeaderKey, final byte lengthMode) {
+      final long key = stringLengthTableKey(dictionaryHeaderKey, lengthMode);
+      synchronized (stringLengthTables) {
+        return stringLengthTables.get(key);
+      }
+    }
+
+    /**
+     * Retain a derived length table for later queries when the memo's byte bound allows it.
+     *
+     * @return whether the table is now retained (also {@code true} when an equal-sized table already
+     *         was — the first derivation wins and the caller keeps using its own)
+     */
+    public boolean noteStringLengthTable(final long dictionaryHeaderKey, final byte lengthMode, final int[] table) {
+      Objects.requireNonNull(table, "table");
+      final long bytes = 16L + 4L * table.length;
+      final long key = stringLengthTableKey(dictionaryHeaderKey, lengthMode);
+      synchronized (stringLengthTables) {
+        if (stringLengthTables.containsKey(key)) {
+          return true;
+        }
+        if (bytes > stringLengthMemoBytes - stringLengthTableBytes) {
+          return false;
+        }
+        stringLengthTables.put(key, table);
+        stringLengthTableBytes += bytes;
+        return true;
+      }
+    }
+
+    /** Bytes of string-length tables this handle retains. */
+    public long stringLengthTableBytes() {
+      synchronized (stringLengthTables) {
+        return stringLengthTableBytes;
+      }
+    }
+
+    private static long stringLengthTableKey(final long dictionaryHeaderKey, final byte lengthMode) {
+      if (dictionaryHeaderKey <= 0L || dictionaryHeaderKey > Long.MAX_VALUE >>> 2) {
+        throw new IllegalArgumentException("dictionary header key out of range: " + dictionaryHeaderKey);
+      }
+      if (lengthMode < 0 || lengthMode > 3) {
+        throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+      }
+      return (dictionaryHeaderKey << 2) | lengthMode;
     }
 
     /** One-shot latch for the background whole-projection segment readahead. */

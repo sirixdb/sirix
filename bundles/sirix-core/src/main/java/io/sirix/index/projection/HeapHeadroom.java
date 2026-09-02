@@ -171,6 +171,23 @@ public final class HeapHeadroom {
     return Math.max(0L, Math.min(afterGc, now));
   }
 
+  /**
+   * One line naming every figure a budget derives from, in MB: the two collector records, their
+   * minimum, the current usage, the maximum heap and the planned share. Diagnostics only — a budget
+   * that shrinks between two queries of one leg is explained by which record moved, and a bare
+   * budget cannot say that.
+   */
+  public static String describe() {
+    final Runtime runtime = Runtime.getRuntime();
+    final long max = runtime.maxMemory();
+    final long used = runtime.totalMemory() - runtime.freeMemory();
+    final long latest = liveAfterLastCollection();
+    final long pools = liveAfterLastPoolCollection();
+    final long live = liveAfterLastGc();
+    return "liveMB=" + (live >> 20) + " latestGcMB=" + (latest >> 20) + " poolsGcMB=" + (pools >> 20) + " usedMB="
+        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20);
+  }
+
   /** {@code maxMemory - liveAfterLastGc()}, never negative; the test override when set. */
   public static long headroomBytes() {
     final long testing = headroomForTesting;
