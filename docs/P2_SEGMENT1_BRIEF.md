@@ -1979,3 +1979,53 @@ unmutated copy.
 Deferred: a descriptor flag `COLUMN_FLAG_ALL_PRESENT = 0x08` written at build time would make
 `allPresentLeaves` a descriptor read instead of a BODY-chain pass (fresh builds only); memoising the
 per-(column, direction) best-first order would cut q25's ~50 ms plan.
+
+## 2026-09-02 ~22:30: LEVER C — any-k group selection (f2d26d4d9); q17 4.98 → 0.093 s hot; c6a hot rank 42 → 27, combined 21 → 13
+
+`GROUP BY UserID, SearchPhrase LIMIT 10` without ORDER BY (q17) ran the full 100M-row composite pass — two
+hash-range passes, 4.98 s hot, 6.21 ln units against a 0.000 s best — to return ten arbitrary groups. The
+answer set is non-unique by construction: any k groups whose aggregates are exact are correct. New planner
+`SirixVectorizedExecutor.anyKGroupsPredicate`: sample ≤ 8 leaves, collect candidate (key…) tuples (≤ 256,
+≤ 64 distinct string values per key), price each by the leaves it can touch — ONE batched bloom walk over
+all candidates' hashes for STRING_DICT keys (`ColumnEvidence.pruneMany` / `applyBloomPruneMany`,
+chunk-parallel above 32 chunks) and zone stabbing for NUMERIC_LONG keys — pick the k cheapest, engage iff
+`unionBits × 4 ≤ leafCount`, rewrite as `OR(AND(k1 = v, k2 = w)…)` and serve through the existing predicate
+group-by route; the served set must hold EXACTLY k groups or the full pass is served. Gate in
+`groupByAggregate` after `rowGroupMaterializer`: no predicate, no order, no HAVING, `limit × keys ≤
+PredicateTree.MAX_LEAVES` (now 64), plain keys only. General "GROUP BY … LIMIT k without ORDER BY"
+mechanism — not a benchmark shape; kill switch `-Dsirix.query.anyKGroups=false`.
+
+Store side: `computeTreeKeepMask` folds per-leaf keep masks by reference count — a leaf referenced twice by
+the tree is CLONED, never aliased (the first tree fold corrupted the second reference's mask in place), and
+the fold stack is sized by the program's max depth. `ProjectionIndexColumnSegmentCodec.bloomWordsMayContainHash`
++ `bloomBlockLeafWords` expose the per-leaf words so one walk answers many hashes.
+
+**C1Q17D4 (3 tries, diag):** `[anyK] sampled=8 candidates=… union=63/97654 -> rewrite`, planMs 33–40 hot,
+pass 38–176 ms; q17 hot 0.093 s, cold 0.603. **Oracle** (`$S/agents/p2s1/q17oracle.sh`, separate JVMs after
+the leg): each returned group's count re-derived by an independent `WHERE UserID = v AND SearchPhrase = "w"`
+query — 10/10 equal, exactly 10 distinct groups. **C1FULL1 (43 queries, 3 tries, no diag):** 42/43
+byte-identical to `results-vec`, q17 legitimately different (same ten groups as C1Q17D4). Suite hot Σ 64.8 →
+59.6 s, cold 110.6 → 105.7; q36–q42 read 20–80 % faster hot for warm-up reasons (q40 0.181 → 0.036) —
+noise of the JIT, not the lever. **Metric: c6a hot 6.42 → rank 27/141 (Σln 79.95; rank 15 needs −19.2, rank
+10 −28.0); c6a combined 6.79 → rank 13/136 (INSIDE the top 15 on the site's default weighting); c6a cold
+6.83 → rank 11.** Remaining worst (c6a hot): q32 3.91, q22 3.23, q16 3.20, q31 3.03, q4 2.84, q30 2.75, q14
+2.65, q18 2.60, q21 2.54, q29 2.43, q11 2.31, q2 2.30, q35 2.30, q5 2.26 — the group-by pass family
+(q16/q18/q31/q32 ≈ 12.7 units) is now the whole game.
+
+Traps of this lever: (1) the leg runner's `--queries` spec and `rank.py` labels are 0-INDEXED (ClickBench
+Q0…Q42) — three diag legs ran Q16 (ordered) under the name "q17" and reported `ordered=true`, blaming the
+planner for a query it never saw; (2) result dumps are `qNN.jsonl` with TWO digits — a `cmp` loop with
+`q%d` reports q0–q9 as differing; (3) brackit takes a raw `&` in string literals (`&amp;` made group 2
+unmatched in the oracle) and doubles `"`.
+
+Witnesses: `MultiLiteralEvidenceTest` (5 — pruneMany equals one prune per hash, tree fold with a shared leaf,
+depth-sized stack), `AnyKGroupsRewriteTest` (4 — rewrite engages, exact-k guard declines a short answer,
+union divisor declines a fat candidate, kill switch), `ProjectionBloomChunksTest` (12).
+
+Next: the group-by pass family. Per pass ≈ 2.2 s hot for 100M rows (≈ 440 ns/row/worker; Umbra ≈ 59); q32
+= 8 passes (≈ 100M groups at 12.6M groups/pass), q18 4–5, q16 2. Candidates: (a) denser numeric composite
+entries (q32 ≈ 40 B/group → 3 passes), (b) a general sketch-guided exact top-k-by-COUNT for `ORDER BY
+COUNT(*) DESC LIMIT k` (pass A hashes keys into a counting sketch, pass B aggregates candidate rows exactly;
+tie-break count desc / first-seen asc preserved; applies to q12–q16, q18, q21, q22, q30–q35), (c) per-row
+decode/hash cost. Decision on a FRESH async-profiler CPU profile of q16 hot (the q18 profile predates the
+lock-free registry probe).
