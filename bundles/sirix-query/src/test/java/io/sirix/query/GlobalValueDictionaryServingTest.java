@@ -164,6 +164,43 @@ public final class GlobalValueDictionaryServingTest extends AbstractJsonTest {
     });
   }
 
+  /**
+   * ClickBench Q27's shape: a numeric group key, a string-length aggregate over a GLOBAL operand and
+   * a non-empty predicate on that same operand — {@code AVG(length(URL)) … WHERE URL <> '' GROUP BY
+   * CounterID}.
+   */
+  private static final String GLOBAL_LENGTH_AVG = """
+        subsequence(
+          for $e in jn:doc('json-path1','serving.jn')[]
+          where $e.did != ""
+          let $k := $e.n, $len := jn:utf8-length($e.did)
+          group by $k
+          let $c := count($e)
+          let $l := xs:double(avg($len))
+          order by $l descending, $k
+          return {"n": $k, "l": $l, "c": $c}, 1, 5)
+      """;
+
+  @Test
+  public void stringLengthOverAGlobalOperandIsServedFromColumnSlices() throws IOException {
+    buildUnderDefault();
+    withExecutor(GLOBAL_LENGTH_AVG, (chain, ctx, generic) -> {
+      final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+      final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+      Assertions.assertEquals(generic, evaluateQuery(chain, ctx, GLOBAL_LENGTH_AVG),
+          "the global length fold disagreed with the generic pipeline");
+      Assertions.assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore,
+          "a string-length aggregate over a global operand must be served by the group arm");
+      // The length of a GLOBAL operand is a per-query id → length table indexed by the row's id lane;
+      // nothing about it needs the whole-leaf payload. A tick missing here means the numeric arm fell
+      // back to assembling every leaf — the 58 % of ClickBench Q27 this route exists to remove.
+      Assertions.assertTrue(SirixVectorizedExecutor.groupAggSlicedServedCount() > slicedBefore,
+          "the numeric arm read whole-leaf payloads for a global string-length operand instead of "
+              + "folding the id→length table over column slices");
+      Assertions.assertTrue(generic.contains("\"l\":"), "the average length lane is missing: " + generic);
+    });
+  }
+
   @Test
   public void equalityAgainstAGlobalColumnIsServedByOneProbe() throws IOException {
     buildUnderDefault();

@@ -42,21 +42,28 @@ public final class ProjectionColumnGroupScan {
    * {@code [fromLeaf, toLeaf)} in ABSOLUTE store indices; the caller resolves every column ONCE
    * before the parallel fan-out (twenty workers racing the first fill would multiply the I/O) and
    * hands the shared immutable slice arrays in. {@code stringLengthModes[a]} selects codepoint or
-   * UTF-8-byte length over STRING_DICT operands (null = all-numeric aggregates). {@code cdStringDict}
-   * marks the distinct block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id
-   * → content-hash identity it feeds the set.
+   * UTF-8-byte length over STRING_DICT operands (null = all-numeric aggregates); a STRING_GLOBAL
+   * length operand instead supplies {@code globalLengthTables[a]}, the per-query id → length table the
+   * fold indexes with the row's id lane — no dictionary bytes are touched per leaf (the same table the
+   * whole-leaf twin and the composite arm consume). {@code cdStringDict} marks the distinct block's
+   * operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id → content-hash identity it
+   * feeds the set.
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
       final byte[] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
       final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
-      final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict) {
+      final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
+      final int[][] globalLengthTables) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
     if (cdStringDict && distinctBlock < 0) {
       throw new IllegalArgumentException("cdStringDict without a distinct block");
+    }
+    if (globalLengthTables != null && (stringLengthModes == null || globalLengthTables.length < aggCols.length)) {
+      throw new IllegalArgumentException("globalLengthTables needs a string-length mode per aggregate");
     }
     final long[] mask = MASK.get();
     // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query
@@ -97,9 +104,16 @@ public final class ProjectionColumnGroupScan {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
         if (stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE) {
-          precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
-          aggIds[a] = agg.stringDictIds();
-          aggValues[a] = null;
+          if (globalLengthTables != null && globalLengthTables[a] != null) {
+            // GLOBAL operand: the per-query id→length table replaces the per-leaf entry pass —
+            // the fold reads table[(int) idLane[row]] and no dictionary bytes are touched.
+            aggValues[a] = agg.numericValues();
+            aggIds[a] = null;
+          } else {
+            precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
+            aggIds[a] = agg.stringDictIds();
+            aggValues[a] = null;
+          }
         } else if (cdStringDict && a == distinctBlock) {
           cdHash = cdHashesFor(ds, agg);
           cdDictBytes = agg.dictHashes() != null
@@ -179,7 +193,8 @@ public final class ProjectionColumnGroupScan {
             }
           }
           foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask, null);
+              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask,
+              globalLengthTables);
         }
       }
     }

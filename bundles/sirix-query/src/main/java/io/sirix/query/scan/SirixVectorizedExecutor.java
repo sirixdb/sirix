@@ -14145,10 +14145,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
       // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
-      // Global length operands fold in the whole-leaf numeric kernel only (the sliced arm reads
-      // per-leaf dictionaries for its length pass) — routing, not a decline.
-      final boolean numericSlicedArm =
-          groupSliced && numericSingleKey && !anyKeyTransform && globalLengthTablesFlat == null;
+      // A GLOBAL length operand slices too: the sliced kernel folds the per-query id→length table
+      // against the row's id lane, the same table the whole-leaf kernel reads — the gate that once
+      // excluded it made q27-shaped queries (AVG(length(URL)) GROUP BY CounterID) assemble every
+      // whole-leaf payload, 58 % of the query in the profile.
+      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform;
       // The string flat arm slices too (regex + strlen + distinct included); deferred string
       // extrema keep whole-leaf — pass 2's winner matching scans payloads.
       // A GLOBAL regex key slices as well: the per-id transformed-hash table (built in one
@@ -16395,7 +16396,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                         cdBlockIdx >= 0
                             ? cdBudgets[idx]
                             : null,
-                        cdStringDict);
+                        cdStringDict, globalLengthTables);
                   } else {
                     ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(sub, subEnd), preds,
                         groupCol, aggCols, local, missing, sub, cdBlockIdx, cdBlockIdx >= 0
@@ -16597,12 +16598,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final int subEnd = Math.min(sub + subChunk, to);
             ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds,
                 wsl.predicateColumns(preds, sub, subEnd), null, null, wsl.column(groupCol, sub, subEnd),
-                wsl.columns(aggCols, sub, subEnd), null, sub, subEnd, localT, missing, -1, null, null, null, false);
+                wsl.columns(aggCols, sub, subEnd), null, sub, subEnd, localT, missing, -1, null, null, null, false, null);
             wsl.release(sub, subEnd);
           }
         } else {
           ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, legPredCols, null, null, legGroupCol,
-              legAggCols, null, from, to, localT, missing, -1, null, null, null, false);
+              legAggCols, null, from, to, localT, missing, -1, null, null, null, false, null);
         }
         perThread[idx] = drainNumericGroupTable(localT, aggCols.length);
       } else {
