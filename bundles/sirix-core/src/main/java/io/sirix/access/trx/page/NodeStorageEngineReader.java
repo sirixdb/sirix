@@ -582,7 +582,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(nodeKey);
         if (isReadableOverflowReference(reference)) {
-          final var data = readOverflowPage(reference).getData();
+          final var data = readOverflowPage(reference, page).getData();
           record = getDataRecord(nodeKey, offset, data, page);
         } else {
           if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvl) {
@@ -654,18 +654,56 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Read an {@link OverflowPage} through its reference, swizzling the deserialized page onto the
-   * reference so subsequent lookups reuse it. Overflow records are re-resolved on every navigation
-   * step (they have no slot), so without the swizzle each {@code moveTo} would pay a full page read +
-   * decompression — quadratic cost for sibling walks over large values (#1076). The page wraps an
-   * immutable byte[], so racy swizzles by concurrent readers are benign.
+   * Whether overflow records of INDEX pages (everything but {@link IndexType#DOCUMENT}) are swizzled
+   * onto their reference too. Off by default — see {@link #readOverflowPage}; the switch restores the
+   * previous behaviour for an A/B, it does not change what a read returns.
    */
-  private OverflowPage readOverflowPage(final PageReference reference) {
+  private static final boolean SWIZZLE_INDEX_OVERFLOW_PAGES = Boolean.getBoolean("sirix.overflow.swizzleIndexPages");
+
+  private static final LongAdder OVERFLOW_PAGES_SWIZZLED = new LongAdder();
+  private static final LongAdder OVERFLOW_PAGES_READ_UNPINNED = new LongAdder();
+
+  /** Overflow pages read from storage and swizzled onto their reference (DOCUMENT pages). */
+  public static long overflowPagesSwizzled() {
+    return OVERFLOW_PAGES_SWIZZLED.sum();
+  }
+
+  /** Overflow pages read from storage and handed back WITHOUT being pinned on the reference. */
+  public static long overflowPagesReadUnpinned() {
+    return OVERFLOW_PAGES_READ_UNPINNED.sum();
+  }
+
+  /**
+   * Read an {@link OverflowPage} through its reference. For a {@link IndexType#DOCUMENT} page the
+   * deserialized page is swizzled onto the reference so subsequent lookups reuse it: overflow records
+   * are re-resolved on every navigation step (they have no slot), so without the swizzle each
+   * {@code moveTo} would pay a full page read + decompression — quadratic cost for sibling walks over
+   * large values (#1076). The page wraps an immutable byte[], so racy swizzles by concurrent readers
+   * are benign.
+   *
+   * <p>
+   * Index pages are deliberately NOT swizzled. A swizzled page lives as long as the record page
+   * owning the reference stays cached, and the record-page cache weighs slot memory only — so on an
+   * index whose records are mostly overlong (the projection value dictionary's 64 KiB blocks) the
+   * swizzle was an unbounded on-heap copy of everything ever walked: 181,737 blocks, 3.9 GB, after two
+   * 100M-row dictionary walks, never released, starving every heap-derived budget for the rest of the
+   * process. The dictionary already has its weighed cross-transaction record cache
+   * ({@code BufferManager#getGlobalDictionaryRecordCache}) for exactly this retention, and the
+   * navigation argument above does not apply to index reads. Same rule as
+   * {@link #readSideOverflowPage} states for projection side pages.
+   * </p>
+   */
+  private OverflowPage readOverflowPage(final PageReference reference, final KeyValuePage<?> owner) {
     if (reference.getPage() instanceof OverflowPage overflowPage) {
       return overflowPage;
     }
     final OverflowPage overflowPage = (OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig());
-    reference.setPage(overflowPage);
+    if (SWIZZLE_INDEX_OVERFLOW_PAGES || owner.getIndexType() == IndexType.DOCUMENT) {
+      reference.setPage(overflowPage);
+      OVERFLOW_PAGES_SWIZZLED.increment();
+    } else {
+      OVERFLOW_PAGES_READ_UNPINNED.increment();
+    }
     return overflowPage;
   }
 
@@ -1308,7 +1346,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(recordKey);
         if (isReadableOverflowReference(reference)) {
-          data = readOverflowPage(reference).getData();
+          data = readOverflowPage(reference, page).getData();
         }
       } catch (final SirixIOException e) {
         page.releaseGuard();
@@ -1409,7 +1447,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         final PageReference reference = page.getPageReference(recordKey);
         if (isReadableOverflowReference(reference)) {
-          data = readOverflowPage(reference).getData();
+          data = readOverflowPage(reference, page).getData();
         }
       } catch (final SirixIOException e) {
         page.releaseGuard();
@@ -2702,7 +2740,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (record == null) {
       final PageReference overflowReference = page.getPageReference(recordKey);
       if (isReadableOverflowReference(overflowReference)) {
-        final byte[] data = readOverflowPage(overflowReference).getDataBytes();
+        final byte[] data = readOverflowPage(overflowReference, page).getDataBytes();
         record = deserializeDetachedRecord(data, recordKey, offset, page);
       }
     }

@@ -14,6 +14,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.index.projection.HeapHeadroom;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.cache.Allocators;
@@ -30,6 +31,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,6 +48,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 
 /**
  * Runs the 43 ClickBench queries against a loaded SirixDB resource under the ClickBench protocol
@@ -148,7 +152,7 @@ public final class ClickBenchRunMain {
   /** The harness's command line, after parsing and validation. */
   private record Options(Path dbDir, int tries, int variant, int threads, double loadTime, boolean reuseExecutor,
       Path dumpDir, Path jsonOut, String comment, String adHoc, Set<Integer> selected, boolean buildProjection,
-      ServingProof servingProof) {
+      ServingProof servingProof, Set<Integer> histogramAfter) {
   }
 
   public static void main(final String[] args) throws Exception {
@@ -156,7 +160,8 @@ public final class ClickBenchRunMain {
       System.err.println("Usage: ClickBenchRunMain <dbDir> [--tries N] [--queries 0,3,7-12] "
           + "[--variant N] [--dump DIR] [--json FILE] [--threads N] [--query-file F] "
           + "[--load-time SECONDS] [--reuse-executor] [--build-projection] "
-          + "[--require-vectorized-serving|--require-generic-serving] [--comment TEXT]");
+          + "[--require-vectorized-serving|--require-generic-serving] [--comment TEXT] "
+          + "[--histogram-after 31,35]");
       System.exit(2);
       return;
     }
@@ -259,6 +264,7 @@ public final class ClickBenchRunMain {
     Set<Integer> selected = null;
     boolean buildProjection = false;
     ServingProof servingProof = ServingProof.NONE;
+    Set<Integer> histogramAfter = Set.of();
 
     for (int i = 1; i < args.length; i++) {
       switch (args[i]) {
@@ -270,6 +276,9 @@ public final class ClickBenchRunMain {
         case "--json" -> jsonOut = Path.of(requireValue(args, ++i, "--json"));
         case "--comment" -> comment = requireValue(args, ++i, "--comment");
         case "--queries" -> selected = parseSelection(requireValue(args, ++i, "--queries"));
+        // Diagnostics, never timing: a live-object histogram forces a full collection, so it runs
+        // after ALL tries of the named queries and prints what the heap still holds between queries.
+        case "--histogram-after" -> histogramAfter = parseSelection(requireValue(args, ++i, "--histogram-after"));
         // A file, not a literal: the gradle wrapper task splits its argument string on whitespace,
         // and every interesting JSONiq body has spaces in it.
         case "--query-file" ->
@@ -284,7 +293,7 @@ public final class ClickBenchRunMain {
       }
     }
     return validate(new Options(dbDir, tries, variant, threads, loadTime, reuseExecutor, dumpDir, jsonOut, comment,
-        adHoc, selected, buildProjection, servingProof));
+        adHoc, selected, buildProjection, servingProof, histogramAfter));
   }
 
   private static ServingProof selectServingProof(final ServingProof current, final ServingProof requested,
@@ -464,6 +473,9 @@ public final class ClickBenchRunMain {
               ? "-"
               : Long.toString(rows),
           note);
+      if (options.histogramAfter().contains(query.index())) {
+        printLiveClassHistogram(query.index());
+      }
     }
     // Which fast paths actually took the work. A route that silently declines is
     // indistinguishable from one that works — the timings alone cannot tell them apart, so a
@@ -748,6 +760,38 @@ public final class ClickBenchRunMain {
     }
     return new JsonPrimitive(value);
   }
+
+  /**
+   * The JVM's own {@code GC.class_histogram} over LIVE objects, taken in-process through the
+   * diagnostic-command MBean (the sandbox this runs under hides the JVM from {@code jcmd}). Forces a
+   * full collection, so the {@code Total} line is the heap the previous queries really left behind
+   * — the figure every heap-derived budget (group passes, distinct ceiling, residency) should see —
+   * and the top classes say who owns it. Diagnostics only; never inside a timed try.
+   */
+  private static void printLiveClassHistogram(final int queryIndex) {
+    try {
+      final MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+      final ObjectName name = new ObjectName("com.sun.management:type=DiagnosticCommand");
+      final String histogram = (String) server.invoke(name, "gcClassHistogram", new Object[] {new String[0]},
+          new String[] {String[].class.getName()});
+      final Runtime runtime = Runtime.getRuntime();
+      System.err.println("# histogram after q" + queryIndex + " (live objects after a forced full GC; usedMB="
+          + ((runtime.totalMemory() - runtime.freeMemory()) >> 20) + " headroom: " + HeapHeadroom.describe() + ")");
+      final String[] lines = histogram.split("\n");
+      final int shown = Math.min(lines.length, HISTOGRAM_LINES);
+      for (int i = 0; i < shown; i++) {
+        System.err.println("#   " + lines[i]);
+      }
+      if (lines.length > shown) {
+        System.err.println("#   " + lines[lines.length - 1]);
+      }
+    } catch (final Exception e) {
+      System.err.println("# histogram after q" + queryIndex + " unavailable: " + e);
+    }
+  }
+
+  /** Header, two title lines and the largest classes; the {@code Total} line is appended separately. */
+  private static final int HISTOGRAM_LINES = 45;
 
   /** ClickBench's hot runtime: the smaller of tries 2 and 3, or NaN if either failed. */
   private static double hot(final double[] tries) {
