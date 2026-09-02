@@ -55,6 +55,7 @@ public final class GroupTableSpill {
   private static final int DEFAULT_FLUSH_GROUPS = 1 << 18;
   private static volatile int flushGroupsForTesting = -1;
   private static final LongAdder FLUSHES = new LongAdder();
+  private static final LongAdder RELEASES = new LongAdder();
 
   /** The threshold in effect: the property when set, else 2^18 groups (≈ 25 MB per worker). */
   public static int flushGroups() {
@@ -80,6 +81,11 @@ public final class GroupTableSpill {
   /** Test observability: flushes performed process-wide. */
   public static long flushCount() {
     return FLUSHES.sum();
+  }
+
+  /** Spills whose shared tables were dropped by {@link #releaseTables} (test observability). */
+  public static long releaseCount() {
+    return RELEASES.sum();
   }
 
   /** Configured ceiling on resident groups per pass (default heap-derived). */
@@ -116,6 +122,89 @@ public final class GroupTableSpill {
   public static long groupBudgetFor(final long maxMemory, final long headroom) {
     final long planned = HeapHeadroom.plannedShareBytes(maxMemory, headroom) / BYTES_PER_GROUP;
     return Math.max(1L << 20, Math.min(1L << 26, planned));
+  }
+
+  /**
+   * The budget a CLEAN heap of this size yields — {@link #groupBudgetFor} at a headroom of the whole
+   * heap — or the fixed figure when the property or the test override sets one. A plan compares the
+   * budget it read against this to decide whether a collection could widen it: the two collector
+   * records a budget derives from are upper bounds on the live set, and right after a large grouped
+   * query both still count that query's dead tables (q32 at 100M planned at a sixth of the ceiling,
+   * and ran thirty-two passes where eight held).
+   */
+  public static long groupBudgetCeiling() {
+    final long testing = groupBudgetForTesting;
+    if (testing >= 0L) {
+      return testing;
+    }
+    final long configured = Long.getLong(GROUP_BUDGET_PROPERTY, -1L);
+    if (configured > 0L) {
+      return configured;
+    }
+    final long maxMemory = Runtime.getRuntime().maxMemory();
+    return groupBudgetFor(maxMemory, maxMemory);
+  }
+
+  /**
+   * Partitions the largest of {@code passes} BALANCED hash-range passes over {@code partitions} owns:
+   * pass {@code p} owns {@code [passLo(p), passHi(p))}, consecutive ranges whose sizes differ by at
+   * most one — so any pass count up to the partition count is admissible, not only the powers of two
+   * that divide it. At 100M q18 (~50M groups, a 12.58M budget) that is five passes where the powers
+   * of two offered four (too few, the abort) or eight.
+   */
+  public static int largestPassShare(final int partitions, final int passes) {
+    return (partitions + passes - 1) / passes;
+  }
+
+  /** First partition (inclusive) of pass {@code pass} of {@code passes} balanced passes. */
+  public static int passLo(final int partitions, final int passes, final int pass) {
+    return (int) ((long) pass * partitions / passes);
+  }
+
+  /** Last partition (exclusive) of pass {@code pass} of {@code passes} balanced passes. */
+  public static int passHi(final int partitions, final int passes, final int pass) {
+    return (int) ((long) (pass + 1) * partitions / passes);
+  }
+
+  /**
+   * The fewest balanced passes whose LARGEST share holds {@code groups} uniformly hashed groups within
+   * {@code budget}: one pass while the count fits the budget, else the smallest count whose largest
+   * share's expected groups fit, at most one pass per partition (where the caller's abort machinery
+   * decides what a pass cannot hold).
+   */
+  public static int passesFor(final long groups, final long budget, final int partitions) {
+    if (groups <= budget) {
+      return 1;
+    }
+    for (int passes = 2; passes < partitions; passes++) {
+      if (expectedLargestPass(groups, passes, partitions) <= budget) {
+        return passes;
+      }
+    }
+    return partitions;
+  }
+
+  /** The groups the largest of {@code passes} balanced passes over {@code groups} is expected to hold. */
+  public static long expectedLargestPass(final long groups, final int passes, final int partitions) {
+    final long share = largestPassShare(partitions, passes);
+    return (groups * share + partitions - 1) / partitions;
+  }
+
+  /**
+   * The smallest group count for which {@link #passesFor} answers at least {@code passes} at
+   * {@code budget}: the count that makes {@code passes - 1} passes insufficient. A completed pass set
+   * whose SEED aborted records this instead of its exact count, so the next seeding lands on the
+   * pass count that completed instead of the one that aborted again.
+   */
+  public static long groupsForcingPasses(final int passes, final long budget, final int partitions) {
+    if (passes <= 1) {
+      return 0L;
+    }
+    final long share = largestPassShare(partitions, Math.min(passes, partitions) - 1);
+    if (budget > Long.MAX_VALUE / partitions) {
+      return Long.MAX_VALUE;
+    }
+    return budget * partitions / share + 1L;
   }
 
   private static volatile boolean simulateOutOfMemoryOnFlush;
@@ -185,6 +274,7 @@ public final class GroupTableSpill {
   private final int passHi;
   private final long budget;
   private final LongAdder spilled = new LongAdder();
+  private final LongAdder abandoned = new LongAdder();
   private final LongAdder leavesScanned = new LongAdder();
   private volatile boolean aborted;
 
@@ -272,29 +362,49 @@ public final class GroupTableSpill {
     leavesScanned.add(leaves);
   }
 
-  /**
-   * The pass count to restart with after an abort: the groups seen so far, extrapolated over the
-   * unscanned leaves and the partitions this pass did not own, divided by the budget — rounded up to
-   * a power of two, at least twice the current count and at most one pass per partition.
-   */
-  public int recommendedPasses(final int currentPasses, final int totalLeaves) {
-    final double fraction = Math.max(0.01, (double) leavesScanned.sum() / Math.max(1, totalLeaves));
-    final double estimated = groupsSpilled() / fraction * currentPasses;
-    long passes = 1L;
-    while (passes * budget < estimated) {
-      passes <<= 1;
-    }
-    return (int) Math.min(partitions, Math.max((long) currentPasses * 2L, passes));
+  /** Row groups the workers reported scanned so far. */
+  public long leavesScanned() {
+    return leavesScanned.sum();
   }
 
   /**
-   * The abort-time total-group estimate {@link #recommendedPasses} divides by the budget — exposed
-   * so the caller can memo it on the handle and seed the NEXT execution's pass count directly,
+   * A worker that leaves an aborted pass reports the groups of the local table it drops, and the arm
+   * reports the final tables of the workers that had finished before the abort: those groups were
+   * never flushed, so {@link #groupsSpilled} alone undercounts what the pass had seen by up to
+   * {@code workers × flushGroups} — at 100M the pass estimate was low by a fifth, and a pass count
+   * seeded from it aborted again.
+   */
+  public void noteAbandonedLocal(final int groups) {
+    if (groups > 0) {
+      abandoned.add(groups);
+    }
+  }
+
+  /** Groups reported through {@link #noteAbandonedLocal} (test observability). */
+  public long groupsAbandoned() {
+    return abandoned.sum();
+  }
+
+  /**
+   * The pass count an abort recommends at {@code budget}: the fewest balanced passes that hold the
+   * {@link #estimatedTotalGroups estimated total}, at most one pass per partition. No floor above the
+   * aborted count here — the caller knows whether the budget it restarts with is the one that
+   * aborted (then at least one more pass) or a refreshed, wider one (then the fit as it is).
+   */
+  public int recommendedPasses(final int totalLeaves, final long budget) {
+    return Math.min(partitions, passesFor(estimatedTotalGroups(totalLeaves), budget, partitions));
+  }
+
+  /**
+   * The abort-time total-group estimate: the groups this pass saw (spilled plus abandoned in worker
+   * tables), extrapolated over the unscanned leaves and over the partitions this pass did not own —
+   * exposed so the caller can memo it on the handle and seed the NEXT execution's pass count directly,
    * skipping the aborted scan this execution already paid for.
    */
-  public long estimatedTotalGroups(final int currentPasses, final int totalLeaves) {
+  public long estimatedTotalGroups(final int totalLeaves) {
     final double fraction = Math.max(0.01, (double) leavesScanned.sum() / Math.max(1, totalLeaves));
-    return (long) (groupsSpilled() / fraction * currentPasses);
+    final double seen = spilled.sum() + abandoned.sum();
+    return (long) (seen / fraction * partitions / (passHi - passLo));
   }
 
   /** Whether {@code local} has grown past the threshold and should be flushed. */
@@ -334,6 +444,24 @@ public final class GroupTableSpill {
     if (spilled.sum() > budget) {
       aborted = true;
     }
+  }
+
+  /**
+   * Drop the shared partition tables of an ABORTED pass. The estimate and the pass recommendation need
+   * only the counters ({@link #groupsSpilled}, {@link #groupsAbandoned}, leaves scanned), but the
+   * tables stay reachable through this spill until the arm has re-planned — and a restart that refreshes
+   * the budget by a forced collection measures whatever is still REFERENCED, not what the arm intends
+   * to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live heap, the
+   * budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the parallel
+   * section has joined and before re-planning; the spill is not reused.
+   */
+  public void releaseTables() {
+    for (int p = 0; p < partitions; p++) {
+      synchronized (locks[p]) {
+        shared[p] = null;
+      }
+    }
+    RELEASES.increment();
   }
 
   /**

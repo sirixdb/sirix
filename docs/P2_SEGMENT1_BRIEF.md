@@ -1837,3 +1837,65 @@ the same query planned 8 passes and took 39.6 s (HIST1). A forced full GC at 12 
 need-based refresh (only when a clean-heap budget would save at least one pass) is the next lever; the
 second is the power-of-two pass count (q18: ~50M groups at a 12.58M budget sits on the 4/8 boundary and paid
 8 passes in LT1/SWZ1, 4 in HH1 — 5 balanced passes would do).
+
+## 2026-09-02 ~16:00: PASS1 — balanced hash-range passes + need-based budget refresh; full suite cold Σ 177.1 s / hot Σ 118.7 s, 43/43 identical
+
+Two levers, one commit. **A — balanced pass counts** (`GroupTableSpill.passesFor/passLo/passHi/
+groupsForcingPasses`): a pass owns a consecutive partition range differing by at most one partition
+from its siblings, and the plan takes the SMALLEST count whose largest share fits the budget — no
+power-of-two rounding (q18's 56.4M groups: 5 passes, not 8). **B — need-based refresh**
+(`SirixVectorizedExecutor.GroupPasses`): an abort estimates the total (`estimatedTotalGroups`, now
+counting the finished workers' never-flushed locals via `noteAbandonedLocal` — a pass HOLDS
+budget + locals, the estimate was low by a fifth without them), memoes it on the handle, and refreshes
+the budget by one forced collection only when a clean-heap budget would save at least one pass
+(`refreshWorthIt`); a completed seed that aborts memoes the count that forces its pass count. Kill
+switches `sirix.projection.groupPasses.seedCompleted`, `sirix.projection.groupPasses.refreshBudgetByGc`;
+witness `budgetRefreshCount()`; tests `GroupTableSpillPassPlanTest` (5), `GroupPassesBudgetRefreshTest`
+(5, seam `setBudgetRefreshForTesting`), `GroupHashRangePassTest` (4); 9 mutants killed, 1 equivalent.
+
+**PASS1 (full 43-query leg, 3 tries, `-Dsirix.projDiag`, `-Xlog:gc*`):** 43/43 dumps `cmp`-identical to
+`clickbench-100m-campaign-20260831-0257/results-vec`. **Cold Σ 257.9 → 177.1 s, hot Σ 206.8 → 118.7 s**
+(MEMO1 → PASS1). Pairs, cold | hot: q18 46.7 | 43.4 → 28.8 | 27.1 (5 passes; `[io] segBatch` per pass-scan
+≈ 5,800); q27 24.3 | 9.6 → 8.4 | 4.2; q35 8.2 | 3.65 → 4.5 | 1.80; q32 100.8 | 22.8 → 31.5 | 22.4;
+q16 17.8 | 10.2 → 14.6 | 10.4; q17 10.3 | 10.7 → 10.4 | 10.3 (2 passes hot — a 1-pass hot needs a budget
+≥ 24M, the 2× budget-share A/B is deferred). Hot tail after PASS1: q18 27.1, q32 22.4, q16 10.4, q17 10.3,
+q14 4.9, q25 4.4, q27 4.2, q13 3.8, q31 3.5, q26 3.3 — the other 29 queries sum to 16.0 s.
+
+**Two findings in the log.** (1) q32's cold try ran 1 abort + **16** passes (31.5 s): the restart-time refresh
+measured `liveMB=8422` — the ABORTED pass's spill tables (16.6M groups) and the finished workers' locals
+were still referenced from the arm's frame — and the budget went DOWN, 11,514,639 → 7,917,288
+(`[groupBudget] refreshed by gc` … `groupAgg restart: passes=1 -> 16`); hot tries refreshed 8.06M / 7.43M →
+12.58M and ran 8 passes. A heap measurement reads reachability, not intent. (2) q33/q34 hot 1.43 / 1.52 vs
+SWZ1's 0.55 / 0.52 is the LEG POSITION: the fixed 3 GB `sirix.projection.eagerMaterializeBytes` fill budget is
+exhausted by q32 in a full leg (12 "windowed slices: the fill budget refused residency" lines vs 6 in SWZ1),
+so q33–q35 decode windows instead of reading resident columns; MEMO1 (full leg) had 1.53 / 1.61 at the same
+position. A residency-policy lever, not a pass lever. Also seen: q32 hot tries 33.7 vs 22.4 s with IDENTICAL
+8-pass plans and the same GC pause totals (4.6 vs 3.9 s) — unexplained; a per-pass diag line now exists to
+attribute it.
+
+## 2026-09-02 ~16:20: REL1 — release the aborted pass's tables BEFORE the refreshing collection; q32 cold 31.5 → 21.9 s
+
+Fix: `releaseAbortedPass(spill, tables, partIdx)` at the four arms' abort blocks, before `plan.restart` —
+`GroupTableSpill.releaseTables()` drops the shared partition tables (the estimate needs only the
+counters), the arm nulls the workers' final locals and their partition indexes. Witness
+`GroupTableSpill.releaseCount()`: one release per restart, asserted per query in
+`GroupPassOutOfMemoryRestartTest` (the only test that restarts all FOUR arms — `GroupHashRangePassTest`
+never reaches the packed arm, and a packed-arm mutant survived there until the OOM test got the witness)
+and in `GroupHashRangePassTest`; `GroupTableSpillPassPlanTest.releaseDropsTheTablesAndKeepsTheCounters`.
+Five mutants (keep-tables; no-release in each arm) all killed. New diag: `-Dsirix.projDiag` prints
+`[proj] groupAgg pass done (arm): k/n range=[lo,hi) ms=… spilled=… leaves=…` per completed pass.
+
+**REL1 (q16-18, q31-33, 3 tries):** 6/6 identical. q32 cold **21.9** (PASS1 31.5): the restart now reads
+`liveMB=837` and refreshes 8,716,288 → 12,582,912, `passes=1 -> 8`; hot **18.49 / 18.49** (PASS1 33.7 / 22.4;
+SWZ1 18.95 / 22.84). Per-pass times: q32 2.2–2.4 s (first pass of the cold try 3.8 s), q16/q17 5.0–5.9 s,
+q18 5.3–5.5 s, q31 (one pass, 10.2M groups) 3.2–4.6 s. Rest: q16 17.1 | 10.15 (first query of the leg, JVM
+warm-up in the cold), q17 10.6 | 9.95, q18 29.9 | 26.95, q31 4.8 | 3.2, q33 1.53 | 0.29 (resident here — the
+position effect again).
+
+**What the per-pass line says about the next lever.** A q16/q17/q18 pass costs ~5.2 s whether it keeps 9.7M
+(q16) or 8.7M (q18) groups, and a q32 pass 2.3 s at 10.6M — the pass is SCAN-bound, not table-bound: at 20
+workers a q32 pass spends ~0.47 µs per row and a q16 pass ~1 µs per row on decode + partition filter, with
+only 1/8 (1/2) of the rows inserted. Full-suite projection with REL1's q32: hot Σ ≈ 114.8 s. The remaining
+hot tail is q18 27 + q32 18.5 + q16 10 + q17 10 = 65.5 s of 115 — all four are pass scans, so the row cost of
+the windowed-slice scan (decode path, LZ77 heap-vs-native, per-window allocation) is the lever that moves
+them together; the 2× budget share moves q16/q17 alone (1 pass ≈ 5.5 s).

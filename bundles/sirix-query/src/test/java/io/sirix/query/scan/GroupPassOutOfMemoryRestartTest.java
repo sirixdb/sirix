@@ -112,6 +112,7 @@ final class GroupPassOutOfMemoryRestartTest {
       final String generic = run(query, false);
       final long abortsBefore = GroupTableSpill.outOfMemoryAbortsCount();
       final long restartsBefore = SirixVectorizedExecutor.groupPassRestartsCount();
+      final long releasesBefore = GroupTableSpill.releaseCount();
       final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
       GroupTableSpill.setSimulateOutOfMemoryOnFlushForTesting(true);
       final String served = run(query, true);
@@ -121,6 +122,10 @@ final class GroupPassOutOfMemoryRestartTest {
       assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > restartsBefore,
           "the arm must have restarted with more passes for: " + query);
       assertEquals(generic, served, "the restarted arm diverges from the interpreter for: " + query);
+      // Each arm releases the aborted pass's tables before it re-plans — the budget refresh must not
+      // read the pass it is replacing as live heap.
+      assertEquals(SirixVectorizedExecutor.groupPassRestartsCount() - restartsBefore,
+          GroupTableSpill.releaseCount() - releasesBefore, "one table release per restart for: " + query);
     }
   }
 

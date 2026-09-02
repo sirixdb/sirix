@@ -145,6 +145,7 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.function.LongSupplier;
 import java.util.function.IntConsumer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -12880,11 +12881,42 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (observedGroups <= 0L || budget <= 0L) {
       return 1;
     }
-    long passes = 1L;
-    while (passes * budget < observedGroups && passes < partitions) {
-      passes <<= 1;
+    return GroupTableSpill.passesFor(observedGroups, budget, partitions);
+  }
+
+  /**
+   * The final tables of the workers that had finished their chunk before a pass aborted: never
+   * flushed, so the pass estimate would not see their groups without this.
+   */
+  private static void noteAbandonedLocals(final GroupTableSpill spill, final NumericGroupAggTable[] tables) {
+    for (final NumericGroupAggTable table : tables) {
+      if (table != null) {
+        spill.noteAbandonedLocal(table.size());
+      }
     }
-    return (int) passes;
+  }
+
+  /**
+   * An aborted pass's tables — the spill's shared partitions and the finished workers' locals with
+   * their partition indexes — are dead the moment the arm decides to restart, yet still REFERENCED
+   * while {@link GroupPasses#restart} refreshes the budget by a forced collection, which measures
+   * reachability, not intent: at 100M (q32) it read 8.4 GB live instead of 4.6, the budget fell
+   * 11.5M → 7.9M and the restart paid 16 passes for 8. Release before re-planning; the estimate needs
+   * only the spill's counters, which {@link GroupTableSpill#releaseTables} keeps.
+   */
+  private static void releaseAbortedPass(final GroupTableSpill spill, final NumericGroupAggTable[] tables,
+      final int[][][] partIdx) {
+    spill.releaseTables();
+    Arrays.fill(tables, null);
+    Arrays.fill(partIdx, null);
+  }
+
+  /** One {@code -Dsirix.projDiag} line per completed hash-range pass: the pass-count instrument's timing. */
+  private static void diagPassDone(final String arm, final int pass, final int passes, final int passLo,
+      final int passHi, final long startNanos, final GroupTableSpill spill) {
+    System.err.println("[proj] groupAgg pass done (" + arm + "): " + (pass + 1) + "/" + passes + " range=[" + passLo
+        + "," + passHi + ") ms=" + (System.nanoTime() - startNanos) / 1_000_000L + " spilled=" + spill.groupsSpilled()
+        + " leaves=" + spill.leavesScanned());
   }
 
   /**
@@ -12934,35 +12966,119 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     /** Kill switch: {@code -Dsirix.projection.groupPasses.seedCompleted=false} seeds from the estimate alone. */
     private static final boolean SEED_COMPLETED =
         !"false".equalsIgnoreCase(System.getProperty("sirix.projection.groupPasses.seedCompleted", "true"));
+    /**
+     * Kill switch: {@code -Dsirix.projection.groupPasses.refreshBudgetByGc=false} plans against the
+     * budget as read, never asking the collector for a fresh figure — see {@link #refreshBudget}.
+     */
+    private static final boolean REFRESH_BUDGET_BY_GC =
+        !"false".equalsIgnoreCase(System.getProperty("sirix.projection.groupPasses.refreshBudgetByGc", "true"));
     private static final int COMPLETED_SEED_TOLERANCE_PCT = 10;
     private static final int COMPLETED_PASS_MARGIN_PCT = 5;
     private static final int COMPLETED_PASS_MARGIN_SIGMAS = 6;
     private static final int COMPLETED_REPLAY_MAX_BUDGET_MULTIPLE = 2;
+    private static final LongAdder BUDGET_REFRESHES = new LongAdder();
+    /** Test seam: the clean-heap ceiling a refresh compares against; negative = the real one. */
+    private static volatile long ceilingForTesting = -1L;
+    /** Test seam: stands in for the collection plus the budget re-read; {@code null} = the real one. */
+    private static volatile @Nullable LongSupplier refreshedBudgetForTesting;
     private final ProjectionIndexRegistry.Handle handle;
     private final long fingerprint;
-    private final long budget;
+    private final int partitions;
     private final long[] partitionGroups;
+    private long budget;
     private int passes;
     private long passBudget;
     private boolean seededCompleted;
     private boolean completedSeedAborted;
+    private boolean budgetRefreshed;
+    private int aborts;
 
     GroupPasses(final ProjectionIndexRegistry.Handle handle, final long fingerprint, final long budget,
         final int partitions) {
       this.handle = handle;
       this.fingerprint = fingerprint;
       this.budget = budget;
+      this.partitions = partitions;
       this.partitionGroups = new long[partitions];
       final ProjectionIndexRegistry.Handle.CompletedGroupScan completed = SEED_COMPLETED
           ? handle.completedGroupScanFor(fingerprint)
           : null;
-      if (completed != null && budget > 0L) {
-        passes = seededPasses(completed.groups(), completed.passes(), budget, partitions);
-        passBudget = Math.max(budget, perPassBudget(completed.groups(), passes));
+      final long known = completed != null
+          ? completed.groups()
+          : handle.observedGroupsFor(fingerprint);
+      refreshBudget(known);
+      if (completed != null && this.budget > 0L) {
+        passes = seededPasses(completed.groups(), completed.passes(), this.budget, partitions);
+        passBudget = Math.max(this.budget, perPassBudget(completed.groups(), passes, partitions));
         seededCompleted = true;
       } else {
-        passes = seedPasses(handle.observedGroupsFor(fingerprint), budget, partitions);
-        passBudget = budget;
+        passes = seedPasses(known, this.budget, partitions);
+        passBudget = this.budget;
+      }
+    }
+
+    /**
+     * Budget refreshes that ran a collection (test observability; the leg's diag line says by how much).
+     */
+    static long budgetRefreshCount() {
+      return BUDGET_REFRESHES.sum();
+    }
+
+    /**
+     * Test seam for {@link #refreshBudget}: {@code ceiling} is what a clean heap would yield and
+     * {@code refreshed} answers the re-read after the (skipped) collection; {@code -1, null} restores
+     * the real collector.
+     */
+    static void setBudgetRefreshForTesting(final long ceiling, final @Nullable LongSupplier refreshed) {
+      ceilingForTesting = ceiling;
+      refreshedBudgetForTesting = refreshed;
+    }
+
+    /**
+     * Whether a budget read at {@code budget} is worth one collection for a shape of {@code groups}
+     * groups: only when the ceiling a clean heap yields would plan FEWER passes. A pass is a full scan
+     * and a full collection at 12 GB costs a fifth of a second, so the refresh pays for itself
+     * twenty-fold whenever it fires and costs nothing when the heap is already clean (the budget then
+     * reads the ceiling) or the shape is small (one pass either way).
+     */
+    static boolean refreshWorthIt(final long groups, final long budget, final long ceiling, final int partitions) {
+      return groups > 0L && ceiling > budget
+          && GroupTableSpill.passesFor(groups, ceiling, partitions) < GroupTableSpill.passesFor(groups, budget, partitions);
+    }
+
+    /**
+     * Re-read the budget after ONE forced collection when {@link #refreshWorthIt} says a clean heap
+     * would save a pass. The budget derives from what the collector recorded as live after its last
+     * pause, and right after a large grouped query that record still counts the dead tables of the
+     * previous query — q32 at 100M planned at 2.0M groups per pass (`liveMB=11298` of 12288) and ran
+     * thirty-two passes in 100.8 s where a clean heap planned eight in 39.6 s. The collection makes
+     * the live set the record; what it finds is the budget, higher or lower. Once per plan: a second
+     * collection cannot find anything the first did not.
+     */
+    private void refreshBudget(final long groups) {
+      if (!REFRESH_BUDGET_BY_GC || budgetRefreshed) {
+        return;
+      }
+      final long testingCeiling = ceilingForTesting;
+      final long ceiling = testingCeiling >= 0L
+          ? testingCeiling
+          : GroupTableSpill.groupBudgetCeiling();
+      if (!refreshWorthIt(groups, budget, ceiling, partitions)) {
+        return;
+      }
+      budgetRefreshed = true;
+      final long before = budget;
+      final LongSupplier refreshed = refreshedBudgetForTesting;
+      if (refreshed != null) {
+        budget = refreshed.getAsLong();
+      } else {
+        System.gc();
+        budget = GroupTableSpill.groupBudget();
+      }
+      BUDGET_REFRESHES.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[groupBudget] refreshed by gc: " + before + " -> " + budget + " groups=" + groups + " "
+            + HeapHeadroom.describe());
       }
     }
 
@@ -12972,19 +13088,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      * completed while replaying it keeps each pass within the replay multiple of the budget.
      */
     static int seededPasses(final long groups, final int completedPasses, final long budget, final int partitions) {
-      final int implied = seedPasses(groups, budget + budget / 100L * COMPLETED_SEED_TOLERANCE_PCT, partitions);
+      final int implied = seedPasses(groups, tolerantBudget(budget), partitions);
       if (completedPasses >= implied) {
         return implied;
       }
-      final long perCompletedPass = (groups + completedPasses - 1) / completedPasses;
+      final long perCompletedPass = GroupTableSpill.expectedLargestPass(groups, completedPasses, partitions);
       return perCompletedPass <= COMPLETED_REPLAY_MAX_BUDGET_MULTIPLE * budget
           ? completedPasses
           : implied;
     }
 
-    /** The groups one of {@code passes} passes over {@code groups} groups holds, plus the skew margin. */
-    static long perPassBudget(final long groups, final int passes) {
-      final long perPass = (groups + passes - 1) / passes;
+    /** The budget an exact count is judged against: the plain one plus the seed tolerance. */
+    static long tolerantBudget(final long budget) {
+      return budget + budget / 100L * COMPLETED_SEED_TOLERANCE_PCT;
+    }
+
+    /**
+     * The groups the largest of {@code passes} balanced passes over {@code groups} groups holds, plus
+     * the skew margin.
+     */
+    static long perPassBudget(final long groups, final int passes, final int partitions) {
+      final long perPass = GroupTableSpill.expectedLargestPass(groups, passes, partitions);
       final long margin = perPass / 100L * COMPLETED_PASS_MARGIN_PCT
           + COMPLETED_PASS_MARGIN_SIGMAS * (long) Math.sqrt((double) perPass) + 1L;
       return perPass + margin;
@@ -12999,19 +13123,46 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return passBudget;
     }
 
+    /** The plan's budget as last read (after a refresh, the refreshed figure). */
+    long budget() {
+      return budget;
+    }
+
     /** Whether the current pass count came from a completed scan (diag only). */
     boolean seededCompleted() {
       return seededCompleted;
     }
 
-    /** An aborted pass: memo the abort-time estimate and restart with more passes at the plain budget. */
+    /**
+     * An aborted pass: memo the abort-time estimate, refresh the budget when a clean heap would save a
+     * pass, and restart with the fewest balanced passes that hold the estimate at the plain budget — at
+     * least one more than before unless the refresh widened the budget; from the second abort of one
+     * execution at least twice as many, so an estimate that keeps falling short cannot cost a scan per
+     * extra pass.
+     */
     void restart(final GroupTableSpill spill, final int rowGroupCount) {
-      handle.noteObservedGroups(fingerprint, spill.estimatedTotalGroups(passes, rowGroupCount));
-      passes = spill.recommendedPasses(passes, rowGroupCount);
+      final long estimated = spill.estimatedTotalGroups(rowGroupCount);
+      handle.noteObservedGroups(fingerprint, estimated);
+      final long budgetBefore = budget;
+      refreshBudget(estimated);
+      aborts++;
+      // A pass that aborted at the budget it restarts with needs more passes whatever the estimate
+      // says; one that aborted at a budget the refresh has since widened is re-planned on the fit alone.
+      final int floor = budget > budgetBefore
+          ? 1
+          : aborts >= 2
+              ? passes * 2
+              : passes + 1;
+      final int before = passes;
+      passes = Math.min(partitions, Math.max(floor, spill.recommendedPasses(rowGroupCount, budget)));
       passBudget = budget;
       completedSeedAborted |= seededCompleted;
       seededCompleted = false;
       Arrays.fill(partitionGroups, 0L);
+      if (PROJ_DIAG) {
+        System.err.println("[proj] groupAgg restart: passes=" + before + " -> " + passes + " estimated=" + estimated
+            + " budget=" + budget + " aborts=" + aborts);
+      }
     }
 
     /** The merged group count of one partition; each partition is owned by exactly one pass. */
@@ -13026,9 +13177,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         total += groups;
       }
       if (completedSeedAborted) {
-        // The count alone re-seeds the pass count that just aborted; record what the completing
-        // pass count implies instead, so the next seeding starts where this one ended.
-        total = Math.max(total, (long) passes * budget);
+        // The count alone re-seeds the pass count that just aborted; record the smallest count that
+        // forces the completing pass count instead, so the next seeding starts where this one ended.
+        total = Math.max(total, GroupTableSpill.groupsForcingPasses(passes, tolerantBudget(budget), partitions));
       }
       handle.noteCompletedGroupScan(fingerprint, total, passes);
     }
@@ -14179,8 +14330,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               new GroupPasses(handle, groupShapeFingerprint(groupCols, preds, tree, cdBlock), groupBudget, partitionsF);
           int passes = plan.passes();
           for (int pass = 0; pass < passes; pass++) {
-          final int passLo = pass * (partitionsF / passes);
-          final int passHi = passLo + partitionsF / passes;
+          final long passStartNanos = System.nanoTime();
+          final int passLo = GroupTableSpill.passLo(partitionsF, passes, pass);
+          final int passHi = GroupTableSpill.passHi(partitionsF, passes, pass);
           if (passes > 1) {
             Arrays.fill(tables, null);
             Arrays.fill(partIdx, null);
@@ -14217,6 +14369,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                         for (int sub = from; sub < to; sub += subChunk) {
                           final int subEnd = Math.min(sub + subChunk, to);
                           if (spill.aborted()) {
+                            spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                             return; // over the per-pass group budget: the arm restarts with more passes
                           }
                           if (compositeSlicedArm) {
@@ -14279,14 +14432,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           if (spill.aborted()) {
+            noteAbandonedLocals(spill, tables);
             if (PROJ_DIAG) {
               System.err.println("[proj] groupAgg pass aborted: passes=" + passes + " range=[" + passLo + "," + passHi
-                  + ") spilled=" + spill.groupsSpilled() + " budget=" + plan.passBudget() + " completedSeed="
+                  + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned() + " estimated="
+                  + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget() + " completedSeed="
                   + plan.seededCompleted() + " leaves=" + rowGroupCount);
             }
             if (passes >= partitionsF) {
               return declineGroupAgg("composite group state exceeds the per-pass budget even at one pass per partition");
             }
+            releaseAbortedPass(spill, tables, partIdx);
             plan.restart(spill, rowGroupCount);
             passes = plan.passes();
             Arrays.fill(partSelectors, null);
@@ -14402,6 +14558,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
           if (zeroGroupWithoutIdentity[0] != 0L) {
             return declineGroupAgg("key-ordered group table carries a zero group without identity lanes");
+          }
+          if (PROJ_DIAG) {
+            diagPassDone("composite", pass, passes, passLo, passHi, passStartNanos, spill);
           }
           } // hash-range passes
           plan.complete();
@@ -14707,8 +14866,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             new GroupPasses(handle, groupShapeFingerprint(groupCols, preds, tree, cdBlock), groupBudget, partitionsF);
         int passes = plan.passes();
         for (int pass = 0; pass < passes; pass++) {
-        final int passLo = pass * (partitionsF / passes);
-        final int passHi = passLo + partitionsF / passes;
+        final long passStartNanos = System.nanoTime();
+        final int passLo = GroupTableSpill.passLo(partitionsF, passes, pass);
+        final int passHi = GroupTableSpill.passHi(partitionsF, passes, pass);
         if (passes > 1) {
           Arrays.fill(tables, null);
           Arrays.fill(partIdx, null);
@@ -14748,6 +14908,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                     for (int sub = from; sub < to; sub += subChunk) {
                       final int subEnd = Math.min(sub + subChunk, to);
                       if (spill.aborted()) {
+                        spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                         return; // over the per-pass group budget: the arm restarts with more passes
                       }
                       if (stringSlicedArm) {
@@ -14812,14 +14973,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
         if (spill.aborted()) {
+          noteAbandonedLocals(spill, tables);
           if (PROJ_DIAG) {
             System.err.println("[proj] groupAgg pass aborted (string): passes=" + passes + " range=[" + passLo + ","
-                + passHi + ") spilled=" + spill.groupsSpilled() + " budget=" + plan.passBudget() + " completedSeed="
+                + passHi + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned() + " estimated="
+                  + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget() + " completedSeed="
                 + plan.seededCompleted());
           }
           if (passes >= partitionsF) {
             return declineGroupAgg("string group state exceeds the per-pass budget even at one pass per partition");
           }
+          releaseAbortedPass(spill, tables, partIdx);
           plan.restart(spill, rowGroupCount);
           passes = plan.passes();
           Arrays.fill(partSelectors, null);
@@ -14918,6 +15082,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
           partSelectors[part] = sel;
         });
+        if (PROJ_DIAG) {
+          diagPassDone("string", pass, passes, passLo, passHi, passStartNanos, spill);
+        }
         } // hash-range passes
         plan.complete();
         final long[] missingMergedFlat = missingMergedFlatHeld != null
@@ -15728,8 +15895,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final GroupPasses plan = new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF);
     int passes = plan.passes();
     for (int pass = 0; pass < passes; pass++) {
-    final int passLo = pass * (partitionsF / passes);
-    final int passHi = passLo + partitionsF / passes;
+    final long passStartNanos = System.nanoTime();
+    final int passLo = GroupTableSpill.passLo(partitionsF, passes, pass);
+    final int passHi = GroupTableSpill.passHi(partitionsF, passes, pass);
     if (passes > 1) {
       Arrays.fill(tables, null);
       Arrays.fill(partIdx, null);
@@ -15758,6 +15926,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             for (int sub = from; sub < to; sub += subChunk) {
               final int subEnd = Math.min(sub + subChunk, to);
               if (spill.aborted()) {
+                spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                 return; // over the per-pass group budget: the arm restarts with more passes
               }
               if (slicedStore != null) {
@@ -15801,14 +15970,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
     }
     if (spill.aborted()) {
+      noteAbandonedLocals(spill, tables);
       if (PROJ_DIAG) {
         System.err.println("[proj] groupAgg pass aborted (packed): passes=" + passes + " range=[" + passLo + ","
-            + passHi + ") spilled=" + spill.groupsSpilled() + " budget=" + plan.passBudget() + " completedSeed="
+            + passHi + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned() + " estimated="
+                  + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget() + " completedSeed="
             + plan.seededCompleted());
       }
       if (passes >= partitionsF) {
         return declineGroupAgg("packed substring group state exceeds the per-pass budget even at one pass per partition");
       }
+      releaseAbortedPass(spill, tables, partIdx);
       plan.restart(spill, rowGroupCount);
       passes = plan.passes();
       Arrays.fill(partSelectors, null);
@@ -15867,6 +16039,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       partSelectors[part] = sel;
     });
+    if (PROJ_DIAG) {
+      diagPassDone("packed", pass, passes, passLo, passHi, passStartNanos, spill);
+    }
     } // hash-range passes
     plan.complete();
     int winnerCount = 0;
@@ -16052,8 +16227,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final GroupPasses plan = new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF);
       int passes = plan.passes();
       for (int pass = 0; pass < passes; pass++) {
-      final int passLo = pass * (partitionsF / passes);
-      final int passHi = passLo + partitionsF / passes;
+      final long passStartNanos = System.nanoTime();
+      final int passLo = GroupTableSpill.passLo(partitionsF, passes, pass);
+      final int passHi = GroupTableSpill.passHi(partitionsF, passes, pass);
       if (passes > 1) {
         Arrays.fill(tables, null);
         Arrays.fill(partIdx, null);
@@ -16086,6 +16262,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 for (int sub = from; sub < to; sub += subChunk) {
                   final int subEnd = Math.min(sub + subChunk, to);
                   if (spill.aborted()) {
+                    spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                     return; // over the per-pass group budget: the arm restarts with more passes
                   }
                   if (slicedStore != null) {
@@ -16149,14 +16326,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       if (spill.aborted()) {
+        noteAbandonedLocals(spill, tables);
         if (PROJ_DIAG) {
           System.err.println("[proj] groupAgg pass aborted (numeric): passes=" + passes + " range=[" + passLo + ","
-              + passHi + ") spilled=" + spill.groupsSpilled() + " budget=" + plan.passBudget() + " completedSeed="
+              + passHi + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned() + " estimated="
+                  + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget() + " completedSeed="
               + plan.seededCompleted());
         }
         if (passes >= partitionsF) {
           return declineGroupAgg("numeric group state exceeds the per-pass budget even at one pass per partition");
         }
+        releaseAbortedPass(spill, tables, partIdx);
         plan.restart(spill, rowGroupCount);
         passes = plan.passes();
         Arrays.fill(partSelectors, null);
@@ -16244,6 +16424,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         partSelectors[part] = sel;
       });
+      if (PROJ_DIAG) {
+        diagPassDone("numeric", pass, passes, passLo, passHi, passStartNanos, spill);
+      }
       } // hash-range passes
       plan.complete();
       final long[] missingMergedFinal = missingMergedHeld != null
