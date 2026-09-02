@@ -1260,6 +1260,50 @@ public final class ProjectionIndexColumnSegmentCodec {
         && bloomBit(block, wordsOffset, (hash >>> 42) & mask);
   }
 
+  /**
+   * Locate leaf {@code leafIndex}'s fingerprint WORDS in a validated block, packed as
+   * {@code (mBits << 32) | wordsOffset}, or {@link #NO_FINGERPRINT} when the leaf carries none (no
+   * evidence — every probe answers "may contain"). One location serves any number of probes through
+   * {@link #bloomWordsMayContainHash}: a pass that prices MANY literals against the same leaf (a
+   * disjunction of equalities, a planner ranking candidate group values) pays the offset-table walk
+   * once per leaf instead of once per literal.
+   */
+  static long bloomBlockLeafWords(final byte[] block, final int leafIndex, final int leafCount) {
+    final int tableBase = BLOOM_BLOCK_HEADER_BYTES;
+    final int off = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + leafIndex * Integer.BYTES);
+    final int end = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + (leafIndex + 1) * Integer.BYTES);
+    if (end == off) {
+      return NO_FINGERPRINT;
+    }
+    final int segmentOffset = tableBase + (leafCount + 1) * Integer.BYTES + off;
+    final int mBits = ProjectionIndexRowGroupCodec.getIntLE(block, segmentOffset + SEGMENT_HEADER_BYTES);
+    final int wordsOffset = segmentOffset + SEGMENT_HEADER_BYTES + Integer.BYTES;
+    return ((long) mBits << 32) | wordsOffset;
+  }
+
+  /**
+   * Locate a stand-alone fingerprint segment's words (the per-leaf chain path), packed like
+   * {@link #bloomBlockLeafWords}; a malformed or absent segment is {@link #NO_FINGERPRINT}.
+   */
+  static long bloomSegmentWords(final byte[] segment) {
+    if (segment == null || !bloomSegmentIsWellFormedAt(segment, 0, segment.length)) {
+      return NO_FINGERPRINT;
+    }
+    final int mBits = ProjectionIndexRowGroupCodec.getIntLE(segment, SEGMENT_HEADER_BYTES);
+    return ((long) mBits << 32) | (SEGMENT_HEADER_BYTES + Integer.BYTES);
+  }
+
+  /** {@link #bloomBlockLeafWords} / {@link #bloomSegmentWords} answer for a leaf without evidence. */
+  static final long NO_FINGERPRINT = -1L;
+
+  /** Probe words located by {@link #bloomBlockLeafWords} or {@link #bloomSegmentWords}. */
+  static boolean bloomWordsMayContainHash(final byte[] bytes, final long packedWords, final long hash) {
+    final int mask = (int) (packedWords >>> 32) - 1;
+    final int wordsOffset = (int) packedWords;
+    return bloomBit(bytes, wordsOffset, hash & mask) && bloomBit(bytes, wordsOffset, (hash >>> 21) & mask)
+        && bloomBit(bytes, wordsOffset, (hash >>> 42) & mask);
+  }
+
   /** FNV-1a 64 over the value bytes — the fingerprint's one hash; probes derive from it. */
   private static long fnv64(final byte[] bytes) {
     return fnv64(bytes, 0, bytes.length);

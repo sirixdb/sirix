@@ -1696,13 +1696,30 @@ public final class ProjectionColumnScan {
     if (n == 0) {
       return null;
     }
-    final long[][] stack = new long[tree.leaves.length][];
+    final long[][] masks = leafEvidenceMasks(store, tree.leaves, fetcher);
+    // The program owns every pushed array (AND/OR fold into the left operand in place), so a leaf
+    // the program references more than once pushes a COPY on every reference — the first push
+    // would otherwise be narrowed in place before the second one reads it.
+    final int[] refs = new int[masks.length];
+    int depth = 0;
+    int maxDepth = 0;
+    for (final byte insn : tree.program) {
+      if (insn >= 0) {
+        refs[insn]++;
+        maxDepth = Math.max(maxDepth, ++depth);
+      } else if (insn != ProjectionIndexScan.PredicateTree.OP_NOT) {
+        depth--;
+      }
+    }
+    // The stack is as deep as the PROGRAM gets (a leaf may be referenced more than once), which
+    // PredicateTree.of bounds by MAX_LEAVES, not by the leaf count.
+    final long[][] stack = new long[maxDepth][];
     int top = 0;
     for (final byte insn : tree.program) {
       if (insn >= 0) {
-        final long[] m = allKept(n);
-        pruneLeaves(store, tree.leaves[insn], m, fetcher);
-        stack[top++] = m;
+        stack[top++] = refs[insn] > 1
+            ? masks[insn].clone()
+            : masks[insn];
       } else if (insn == ProjectionIndexScan.PredicateTree.OP_AND) {
         final long[] b = stack[--top];
         final long[] a = stack[top - 1];
@@ -1724,6 +1741,169 @@ public final class ProjectionColumnScan {
     return Arrays.equals(result, full)
         ? null
         : result;
+  }
+
+  /**
+   * One fresh evidence mask per leaf predicate — all-kept, narrowed by what the predicate PROVES.
+   * String equalities on the same STRING_DICT column are priced in ONE fingerprint walk
+   * ({@link ProjectionColumnStore#applyBloomPruneMany}): the walk is the whole cost of a bloom prune,
+   * so an OR of k literals over one column costs one walk instead of k. Everything else goes through
+   * {@link #pruneLeaves} one predicate at a time.
+   */
+  private static long[][] leafEvidenceMasks(final ProjectionColumnStore store, final ColumnPredicate[] leaves,
+      final ColumnSegmentFetcher fetcher) {
+    final int n = store.leafCount();
+    final long[][] masks = new long[leaves.length][];
+    for (int i = 0; i < leaves.length; i++) {
+      masks[i] = allKept(n);
+    }
+    // Batch: per column, the string-EQ leaves not yet priced.
+    final boolean[] done = new boolean[leaves.length];
+    for (int i = 0; i < leaves.length; i++) {
+      if (done[i]) {
+        continue;
+      }
+      final ColumnPredicate first = leaves[i];
+      if (!bloomPrunable(store, first)) {
+        pruneLeaves(store, first, masks[i], fetcher);
+        done[i] = true;
+        continue;
+      }
+      int members = 0;
+      for (int j = i; j < leaves.length; j++) {
+        if (!done[j] && leaves[j].column == first.column && bloomPrunable(store, leaves[j])) {
+          members++;
+        }
+      }
+      if (members == 1) {
+        pruneLeaves(store, first, masks[i], fetcher);
+        done[i] = true;
+        continue;
+      }
+      final long[] hashes = new long[members];
+      final long[][] keeps = new long[members][];
+      int m = 0;
+      for (int j = i; j < leaves.length; j++) {
+        if (!done[j] && leaves[j].column == first.column && bloomPrunable(store, leaves[j])) {
+          hashes[m] = ProjectionIndexColumnSegmentCodec.bloomHash(leaves[j].stringLitBytes);
+          keeps[m] = masks[j];
+          m++;
+          done[j] = true;
+        }
+      }
+      final long dropped = store.applyBloomPruneMany(first.column, hashes, keeps, fetcher);
+      if (DIAG) {
+        System.err.println("[prune] col=" + first.column + " kind=" + store.columnKind(first.column) + " op=EQ bloom x"
+            + members + " (one walk): dropped=" + dropped);
+      }
+    }
+    return masks;
+  }
+
+  /** Whether {@link #pruneLeaves} would price {@code p} by string fingerprint (Op.EQ on STRING_DICT). */
+  private static boolean bloomPrunable(final ProjectionColumnStore store, final ColumnPredicate p) {
+    return p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
+        && store.columnKind(p.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+  }
+
+  /** The all-kept mask over {@code n} leaves (tail bits clear) — the starting point of every prune. */
+  public static long[] allKeptMask(final int n) {
+    if (n < 0) {
+      throw new IllegalArgumentException("n < 0: " + n);
+    }
+    return allKept(n);
+  }
+
+  /**
+   * Zone stabbing for MANY values of one ordered-long column in ONE pass over the memoized
+   * {@link ProjectionColumnStore.ZoneIndex}: SET bit {@code leaf} in {@code keeps[j]} when the leaf
+   * MAY hold {@code sortedValues[j]} — its descriptor range covers the value, or the range is
+   * unknown (no evidence is never a proof of absence). A leaf whose every cell is missing sets
+   * nothing. Values must be strictly ascending; masks are OR-ed into (callers pass zeroed masks for
+   * a pure answer). Per leaf the work is two binary searches over the values plus the covered span,
+   * so k values cost about one {@link #pruneLeaves} walk rather than k.
+   *
+   * @return the number of bits set
+   */
+  public static long zoneStabSorted(final ProjectionColumnStore store, final int col, final long[] sortedValues,
+      final long[][] keeps) {
+    if (store == null || sortedValues == null || keeps == null || sortedValues.length != keeps.length) {
+      throw new IllegalArgumentException("store, values and masks must pair up");
+    }
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(col))) {
+      throw new IllegalArgumentException("column " + col + " is not an ordered-long column");
+    }
+    final int n = store.leafCount();
+    final int words = (n + 63) >>> 6;
+    final int k = sortedValues.length;
+    for (int j = 1; j < k; j++) {
+      if (sortedValues[j - 1] >= sortedValues[j]) {
+        throw new IllegalArgumentException("values must be strictly ascending");
+      }
+    }
+    for (final long[] keep : keeps) {
+      if (keep == null || keep.length < words) {
+        throw new IllegalArgumentException("every mask must cover " + n + " leaves");
+      }
+    }
+    if (k == 0 || n == 0) {
+      return 0L;
+    }
+    final ProjectionColumnStore.ZoneIndex zone = store.zoneIndex(col);
+    long set = 0L;
+    for (int leaf = 0; leaf < n; leaf++) {
+      final int word = leaf >>> 6;
+      final long bit = 1L << (leaf & 63);
+      final int from;
+      final int to;
+      if (!zone.known(leaf)) {
+        from = 0;
+        to = k;
+      } else {
+        final long min = zone.min(leaf);
+        final long max = zone.max(leaf);
+        if (min > max) {
+          continue;
+        }
+        from = lowerBound(sortedValues, min);
+        to = upperBound(sortedValues, max);
+      }
+      for (int j = from; j < to; j++) {
+        keeps[j][word] |= bit;
+        set++;
+      }
+    }
+    return set;
+  }
+
+  /** First index whose value is {@code >= key} ({@code a.length} when none). */
+  private static int lowerBound(final long[] a, final long key) {
+    int lo = 0;
+    int hi = a.length;
+    while (lo < hi) {
+      final int mid = (lo + hi) >>> 1;
+      if (a[mid] < key) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
+  /** First index whose value is {@code > key} ({@code a.length} when none). */
+  private static int upperBound(final long[] a, final long key) {
+    int lo = 0;
+    int hi = a.length;
+    while (lo < hi) {
+      final int mid = (lo + hi) >>> 1;
+      if (a[mid] <= key) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
   }
 
   private static int cardinality(final long[] words) {
@@ -1754,21 +1934,22 @@ public final class ProjectionColumnScan {
     final int n = store.leafCount();
     final byte kind = store.columnKind(p.column);
     if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind) && p.stringLitBytes == null) {
-      final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(p.column);
+      // The memoized zone mirrors: built once per column from the descriptors, then every predicate
+      // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
+      // descriptor binary search per leaf.
+      final ProjectionColumnStore.ZoneIndex zone = store.zoneIndex(p.column);
       int dropped = 0;
       int noEvidence = 0;
       for (int i = 0; i < n; i++) {
         if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
           continue;
         }
-        final byte[] d = store.leafDescriptor(i);
-        final int e = RowGroupDescriptor.entryIndexOf(d, bodyId);
-        if (e < 0) {
+        if (!zone.known(i)) {
           noEvidence++;
           continue; // no descriptor evidence — keep
         }
-        final long min = RowGroupDescriptor.entryMin(d, e);
-        final long max = RowGroupDescriptor.entryMax(d, e);
+        final long min = zone.min(i);
+        final long max = zone.max(i);
         if (min > max || zoneSkip(p, min, max)) {
           keep[i >>> 6] &= ~(1L << (i & 63));
           dropped++;

@@ -279,8 +279,13 @@ public final class ProjectionIndexScan {
    * Stack depth is bounded by {@link #MAX_LEAVES}; {@link #of} validates shape.
    */
   public static final class PredicateTree {
-    /** Max leaf predicates (= max program stack depth) — bounds kernel scratch. */
-    public static final int MAX_LEAVES = 16;
+    /**
+     * Max leaf predicates (= max program stack depth) — bounds kernel scratch, which every consumer
+     * sizes per thread (a {@code long[MAX_LEAVES][rows/64]} mask stack, a boolean per leaf), so 64
+     * costs ≤ 8 KiB per worker. 64 admits the any-k group rewrite's {@code OR_k AND_c (col = v)}
+     * shape for {@code k × columns ≤ 64} beside the hand-written IN/BETWEEN trees that fit in 16.
+     */
+    public static final int MAX_LEAVES = 64;
 
     public static final byte OP_AND = -1;
     public static final byte OP_OR = -2;

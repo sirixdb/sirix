@@ -51,6 +51,7 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.cache.GlobalVerdictCacheKey;
 import io.sirix.index.projection.GlobalValueDictionary;
@@ -89,17 +90,22 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
+import it.unimi.dsi.fastutil.bytes.ByteArrays;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenCustomHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
@@ -13273,6 +13279,337 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // ==================== any-k group selection: GROUP BY … LIMIT k without ORDER BY ====================
+
+  /**
+   * Kill switch for the any-k group rewrite ({@code -Dsirix.query.anyKGroups=false}). Behaviour
+   * only: with or without it the served groups are a legal answer, the switch decides the route.
+   */
+  private static final boolean ANY_K_GROUPS = Boolean.parseBoolean(System.getProperty("sirix.query.anyKGroups", "true"));
+
+  /** How many non-empty leaves the any-k planner decodes, at most, to collect candidate groups. */
+  private static final int ANY_K_SAMPLE_LEAVES = 8;
+
+  /** Candidate groups the any-k planner prices, at most — bounds the planning work. */
+  private static final int ANY_K_MAX_CANDIDATES = 256;
+
+  /** Distinct values per string key the planner prices, at most (one fingerprint walk prices them all). */
+  private static final int ANY_K_MAX_STRING_VALUES = 64;
+
+  /** The rewrite engages only when the chosen groups' leaves are at most 1/this of the store. */
+  private static final int ANY_K_UNION_DIVISOR = 4;
+
+  private static final LongAdder ANY_K_GROUPS_REWRITTEN = new LongAdder();
+
+  /** Witness: GROUP BY … LIMIT k requests served through the any-k group rewrite. */
+  public static long anyKGroupsRewriteCount() {
+    return ANY_K_GROUPS_REWRITTEN.sum();
+  }
+
+  /** Whether every per-key transform annotation is absent (a bare {@code GROUP BY} on column values). */
+  private static boolean anyKPlainKeys(final int keyCount, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondElse, final String[] keyRegexPattern, final long[] keyDivMod, final boolean[] keyStringify) {
+    for (int g = 0; g < keyCount; g++) {
+      if (keyOffsets != null && keyOffsets[g] != 0L) {
+        return false;
+      }
+      if (keySubstr != null && (keySubstr[2 * g] != 0 || keySubstr[2 * g + 1] != 0)) {
+        return false;
+      }
+      if (keyCondElse != null && keyCondElse[g] != null) {
+        return false;
+      }
+      if (keyRegexPattern != null && keyRegexPattern[g] != null) {
+        return false;
+      }
+      if (keyDivMod != null && (keyDivMod[2 * g] != 0L || keyDivMod[2 * g + 1] != 0L)) {
+        return false;
+      }
+      if (keyStringify != null && keyStringify[g]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * {@code GROUP BY k1..kn LIMIT k} without ORDER BY asks for ANY k groups: SQL leaves the choice
+   * to the engine and XQuery's group-by emission order is implementation-defined. The aggregate
+   * route would still scan every row into a table of every group (9.7M groups for ClickBench q17)
+   * to keep ten of them. This planner picks k groups the store can aggregate CHEAPLY and returns the
+   * predicate {@code OR_g AND_c (col_c = v_gc)} that selects exactly those groups, so the aggregate
+   * over the predicate's kept leaves is exact for each of them:
+   * <ol>
+   * <li>decode the first non-empty leaves until enough distinct all-keys-present groups are seen;</li>
+   * <li>price every candidate value with ONE evidence walk per key column — a multi-literal
+   * fingerprint pass for STRING_DICT ({@link ProjectionColumnStore#applyBloomPruneMany}), zone
+   * stabbing for NUMERIC_LONG ({@link ProjectionColumnScan#zoneStabSorted}) — and every candidate
+   * group by the AND of its values' masks;</li>
+   * <li>take the k groups with the fewest leaves that may hold them (first seen breaks ties) and
+   * insist that their union covers at most 1/{@value #ANY_K_UNION_DIVISOR} of the store —
+   * otherwise the rewrite would not beat the full pass and the planner returns {@code null}.</li>
+   * </ol>
+   * Exactness never rests on the evidence: fingerprints and zones only decide WHICH groups are
+   * chosen; the recursive aggregate re-evaluates the equality predicate on every kept row.
+   *
+   * @return the selecting predicate, or {@code null} when the rewrite does not apply
+   */
+  private @Nullable PredicateNode anyKGroupsPredicate(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final String[] groupFields, final int k) {
+    final long t0 = System.nanoTime();
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store == null || k < 1) {
+      if (PROJ_DIAG) {
+        System.err.println("[anyK] declined: " + (store == null ? "no column store on the handle" : "k=" + k));
+      }
+      return null;
+    }
+    final int keyCount = groupFields.length;
+    final int leafCount = store.leafCount();
+    final int words = (leafCount + 63) >>> 6;
+    final int[] cols = new int[keyCount];
+    final boolean[] stringKey = new boolean[keyCount];
+    for (int g = 0; g < keyCount; g++) {
+      final int col = handle.columnOf(groupFields[g]);
+      final byte kind = col < 0
+          ? -1
+          : store.columnKind(col);
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        stringKey[g] = true;
+      } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        // Only kinds with leaf evidence (a fingerprint or a zone) can be priced.
+        if (PROJ_DIAG) {
+          System.err.println("[anyK] declined: key " + groupFields[g] + " col=" + col + " kind=" + kind
+              + " has no leaf evidence");
+        }
+        return null;
+      }
+      cols[g] = col;
+    }
+    // (1) Sample: the first non-empty leaves, decoded once through a leaf-set access.
+    final int[] sampleLeaves = new int[ANY_K_SAMPLE_LEAVES];
+    int sampled = 0;
+    for (int leaf = 0; leaf < leafCount && sampled < ANY_K_SAMPLE_LEAVES; leaf++) {
+      if (store.rowCount(leaf) > 0) {
+        sampleLeaves[sampled++] = leaf;
+      }
+    }
+    if (sampled == 0) {
+      if (PROJ_DIAG) {
+        System.err.println("[anyK] declined: no non-empty leaf to sample");
+      }
+      return null;
+    }
+    // Per string key: canonical value ids (dict ids are per leaf) by bytes; per candidate group:
+    // one long per key — the numeric value or the canonical string id.
+    @SuppressWarnings("unchecked")
+    final Object2IntOpenCustomHashMap<byte[]>[] stringIds = new Object2IntOpenCustomHashMap[keyCount];
+    @SuppressWarnings("unchecked")
+    final ObjectArrayList<byte[]>[] stringValues = new ObjectArrayList[keyCount];
+    for (int g = 0; g < keyCount; g++) {
+      if (stringKey[g]) {
+        stringIds[g] = new Object2IntOpenCustomHashMap<>(ANY_K_MAX_STRING_VALUES, ByteArrays.HASH_STRATEGY);
+        stringIds[g].defaultReturnValue(-1);
+        stringValues[g] = new ObjectArrayList<>(ANY_K_MAX_STRING_VALUES);
+      }
+    }
+    final ObjectOpenCustomHashSet<long[]> seen = new ObjectOpenCustomHashSet<>(ANY_K_MAX_CANDIDATES, LongArrays.HASH_STRATEGY);
+    final ObjectArrayList<long[]> candidates = new ObjectArrayList<>(ANY_K_MAX_CANDIDATES);
+    final ProjectionColumnStore.LeafColumnAccess access = store.leafSetAccess(fetcher, null, sampleLeaves, 0, sampled);
+    final ProjectionColumnStore.ColumnSlice[] slices = new ProjectionColumnStore.ColumnSlice[keyCount];
+    final int[][] dictToCanon = new int[keyCount][];
+    long[] tuple = new long[keyCount];
+    leaves: for (int i = 0; i < sampled; i++) {
+      final int leaf = sampleLeaves[i];
+      int rows = -1;
+      for (int g = 0; g < keyCount; g++) {
+        final ProjectionColumnStore.ColumnSlice slice = access.slice(cols[g], leaf);
+        if (slice == null || slice.rowCount() <= 0 || slice.presenceWords() == null
+            || (stringKey[g] ? slice.stringDictIds() == null : slice.numericValues() == null)) {
+          continue leaves;
+        }
+        if (rows < 0) {
+          rows = slice.rowCount();
+        } else if (slice.rowCount() != rows) {
+          continue leaves;
+        }
+        slices[g] = slice;
+        if (stringKey[g]) {
+          final int dictSize = slice.dictSize();
+          if (dictToCanon[g] == null || dictToCanon[g].length < dictSize) {
+            dictToCanon[g] = new int[Math.max(dictSize, 16)];
+          }
+          Arrays.fill(dictToCanon[g], 0, dictSize, -2); // -2 = not yet resolved, -1 = over the cap
+        }
+      }
+      rows: for (int r = 0; r < rows; r++) {
+        for (int g = 0; g < keyCount; g++) {
+          final ProjectionColumnStore.ColumnSlice slice = slices[g];
+          if ((slice.presenceWords()[r >>> 6] & 1L << (r & 63)) == 0L) {
+            continue rows; // a missing key: not a group this rewrite can name
+          }
+          if (stringKey[g]) {
+            final int id = slice.stringDictIds()[r];
+            int canon = dictToCanon[g][id];
+            if (canon == -2) {
+              final byte[] bytes = Arrays.copyOfRange(slice.dictBytes(), slice.dictOffset(id),
+                  slice.dictOffset(id) + slice.dictLength(id));
+              canon = stringIds[g].getInt(bytes);
+              if (canon < 0) {
+                if (stringValues[g].size() >= ANY_K_MAX_STRING_VALUES) {
+                  canon = -1;
+                } else {
+                  canon = stringValues[g].size();
+                  stringValues[g].add(bytes);
+                  stringIds[g].put(bytes, canon);
+                }
+              }
+              dictToCanon[g][id] = canon;
+            }
+            if (canon < 0) {
+              continue rows;
+            }
+            tuple[g] = canon;
+          } else {
+            tuple[g] = slice.numericValues()[r];
+          }
+        }
+        if (seen.add(tuple)) {
+          candidates.add(tuple);
+          if (candidates.size() >= ANY_K_MAX_CANDIDATES) {
+            break leaves;
+          }
+          tuple = new long[keyCount];
+        }
+      }
+    }
+    final int candidateCount = candidates.size();
+    if (candidateCount < k) {
+      if (PROJ_DIAG) {
+        System.err.println("[anyK] declined: " + candidateCount + " candidate groups < k=" + k + " from " + sampled
+            + " sampled leaves");
+      }
+      return null;
+    }
+    // (2) Evidence: one walk per key column, then AND per candidate.
+    final long[][][] valueMasks = new long[keyCount][][];
+    final Long2IntOpenHashMap[] numericIndex = new Long2IntOpenHashMap[keyCount];
+    long bloomNanos = 0L;
+    long zoneNanos = 0L;
+    int stringCands = 0;
+    int numCands = 0;
+    for (int g = 0; g < keyCount; g++) {
+      if (stringKey[g]) {
+        final int v = stringValues[g].size();
+        final long[] hashes = new long[v];
+        final long[][] keeps = new long[v][];
+        for (int j = 0; j < v; j++) {
+          hashes[j] = ProjectionIndexColumnSegmentCodec.bloomHash(stringValues[g].get(j));
+          keeps[j] = ProjectionColumnScan.allKeptMask(leafCount);
+        }
+        final long tb = System.nanoTime();
+        store.applyBloomPruneMany(cols[g], hashes, keeps, fetcher);
+        bloomNanos += System.nanoTime() - tb;
+        valueMasks[g] = keeps;
+        stringCands += v;
+      } else {
+        final LongOpenHashSet distinct = new LongOpenHashSet(candidateCount);
+        for (int c = 0; c < candidateCount; c++) {
+          distinct.add(candidates.get(c)[g]);
+        }
+        final long[] sorted = distinct.toLongArray();
+        Arrays.sort(sorted);
+        final long[][] keeps = new long[sorted.length][];
+        final Long2IntOpenHashMap index = new Long2IntOpenHashMap(sorted.length);
+        for (int j = 0; j < sorted.length; j++) {
+          keeps[j] = new long[words];
+          index.put(sorted[j], j);
+        }
+        final long tz = System.nanoTime();
+        ProjectionColumnScan.zoneStabSorted(store, cols[g], sorted, keeps);
+        zoneNanos += System.nanoTime() - tz;
+        valueMasks[g] = keeps;
+        numericIndex[g] = index;
+        numCands += sorted.length;
+      }
+    }
+    final int[] kept = new int[candidateCount];
+    final long[] groupMask = new long[words];
+    for (int c = 0; c < candidateCount; c++) {
+      final long[] cand = candidates.get(c);
+      Arrays.fill(groupMask, -1L);
+      for (int g = 0; g < keyCount; g++) {
+        final long[] m = stringKey[g]
+            ? valueMasks[g][(int) cand[g]]
+            : valueMasks[g][numericIndex[g].get(cand[g])];
+        for (int w = 0; w < words; w++) {
+          groupMask[w] &= m[w];
+        }
+      }
+      int bits = 0;
+      for (int w = 0; w < words; w++) {
+        bits += Long.bitCount(groupMask[w]);
+      }
+      kept[c] = bits;
+    }
+    // (3) Choose the k cheapest (stable on first appearance), gate on the union.
+    final int[] order = new int[candidateCount];
+    for (int c = 0; c < candidateCount; c++) {
+      order[c] = c;
+    }
+    IntArrays.mergeSort(order, (a, b) -> Integer.compare(kept[a], kept[b]));
+    final long[] union = new long[words];
+    for (int i = 0; i < k; i++) {
+      final long[] cand = candidates.get(order[i]);
+      Arrays.fill(groupMask, -1L);
+      for (int g = 0; g < keyCount; g++) {
+        final long[] m = stringKey[g]
+            ? valueMasks[g][(int) cand[g]]
+            : valueMasks[g][numericIndex[g].get(cand[g])];
+        for (int w = 0; w < words; w++) {
+          groupMask[w] &= m[w];
+        }
+      }
+      for (int w = 0; w < words; w++) {
+        union[w] |= groupMask[w];
+      }
+    }
+    int unionBits = 0;
+    for (int w = 0; w < words; w++) {
+      unionBits += Long.bitCount(union[w]);
+    }
+    final boolean engage = (long) unionBits * ANY_K_UNION_DIVISOR <= leafCount;
+    if (PROJ_DIAG) {
+      final StringBuilder chosen = new StringBuilder();
+      for (int i = 0; i < k; i++) {
+        chosen.append(i == 0 ? "" : ",").append(kept[order[i]]);
+      }
+      System.err.println("[anyK] leafCount=" + leafCount + " sampledLeaves=" + sampled + " groups=" + candidateCount
+          + " stringCands=" + stringCands + " numCands=" + numCands + " bloomMs=" + bloomNanos / 1_000_000
+          + " zoneMs=" + zoneNanos / 1_000_000 + " chosenKept=[" + chosen + "] union=" + unionBits + " planMs="
+          + (System.nanoTime() - t0) / 1_000_000 + (engage ? " -> rewrite" : " -> declined (union too large)"));
+    }
+    if (!engage) {
+      return null;
+    }
+    final List<PredicateNode> groups = new ArrayList<>(k);
+    for (int i = 0; i < k; i++) {
+      final long[] cand = candidates.get(order[i]);
+      final List<PredicateNode> parts = new ArrayList<>(keyCount);
+      for (int g = 0; g < keyCount; g++) {
+        parts.add(stringKey[g]
+            ? new PredicateNode.StrEq(groupFields[g], new String(stringValues[g].get((int) cand[g]), StandardCharsets.UTF_8))
+            : new PredicateNode.NumCmp(groupFields[g], "eq", cand[g]));
+      }
+      groups.add(parts.size() == 1
+          ? parts.get(0)
+          : PredicateNode.and(parts));
+    }
+    return groups.size() == 1
+        ? groups.get(0)
+        : PredicateNode.or(groups);
+  }
+
   private static @Nullable ServedGroups declineGroupAgg(final String reason) {
     GROUP_AGG_DECLINED.increment();
     if (PROJ_DIAG) {
@@ -13412,6 +13749,41 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      if (PROJ_DIAG) {
+        System.err.println("[groupAgg] keys=" + keyCount + " limit=" + limit + " ordered=" + (orderIndexes != null)
+            + " predicate=" + (predicateOrNull != null) + " having=" + (having != null) + " wholeLeafOnly="
+            + wholeLeafOnly + " budgetRefused=" + budgetRefused);
+      }
+      // GROUP BY … LIMIT k with neither ORDER BY nor a predicate: any k groups are the answer, so
+      // pick k the store can aggregate cheaply and serve them through the predicate route
+      // (anyKGroupsPredicate). A decline of the rewritten request falls through to the full pass.
+      if (ANY_K_GROUPS && !wholeLeafOnly && !budgetRefused && predicateOrNull == null && orderIndexes == null
+          && having == null && limit >= 1 && limit * (long) keyCount <= ProjectionIndexScan.PredicateTree.MAX_LEAVES
+          && anyKPlainKeys(keyCount, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, keyStringify)) {
+        final PredicateNode anyK = anyKGroupsPredicate(handle, fetcher, groupFields, (int) limit);
+        if (anyK != null) {
+          final ServedGroups served = groupByAggregate(ctx, sourcePath, anyK, groupFields, keyNames, funcs, aggFields,
+              outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+              keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false);
+          // The planner saw every chosen group in its sample, so the rewritten pass must return
+          // exactly k of them; anything else means the evidence and the aggregate disagree and the
+          // full pass — never a short answer — is served.
+          if (served != null && served.groups().size().intValue() == limit) {
+            ANY_K_GROUPS_REWRITTEN.increment();
+            return served;
+          }
+          if (PROJ_DIAG) {
+            System.err.println(served == null
+                ? "[anyK] rewritten request declined; serving the full pass"
+                : "[anyK] rewritten request returned " + served.groups().size() + " groups, expected " + limit
+                    + "; serving the full pass");
+          }
+        }
+      } else if (PROJ_DIAG && ANY_K_GROUPS && predicateOrNull == null && orderIndexes == null && limit >= 1) {
+        System.err.println("[anyK] not attempted: wholeLeafOnly=" + wholeLeafOnly + " budgetRefused=" + budgetRefused
+            + " having=" + (having != null) + " limit*keys=" + limit * (long) keyCount + " plainKeys="
+            + anyKPlainKeys(keyCount, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, keyStringify));
+      }
       final int[] groupCols = new int[keyCount];
       // A single NUMERIC_LONG group key is servable under the same two gates the count-only
       // route uses. COMPOSITE keys may mix NUMERIC_LONG (integral) and STRING_DICT components —

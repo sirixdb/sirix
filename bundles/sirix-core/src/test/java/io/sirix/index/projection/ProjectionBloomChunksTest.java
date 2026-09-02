@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -318,6 +319,136 @@ final class ProjectionBloomChunksTest {
     } finally {
       writer.release();
     }
+  }
+
+  @Test
+  void pruneManyNarrowsEveryMaskLikeOnePruneEachInOneWalk() {
+    // Five chunks; leaf i holds "v-" + (i % 37): every literal has a known home set, spread over
+    // every chunk, and 37 distinct values keep each leaf's filter small enough for real rejections.
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    final int rowGroupCount = ProjectionBloomChunks.CHUNK_LEAVES * 5;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup[] byValue =
+        new ProjectionIndexColumnSegmentCodec.EncodedRowGroup[37];
+    for (int v = 0; v < byValue.length; v++) {
+      byValue[v] = encodedRowGroup("v-" + v);
+    }
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
+          writer.append(byValue[(rowGroupId - 1) % 37], rowGroupId, storage);
+        }
+        writer.finishChunks(storage, rowGroupCount, COLUMN_KINDS);
+        writer.publishManifests(storage, rowGroupCount);
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        assertNotNull(evidence);
+        assertEquals(5, evidence[0].chunkCount());
+        final ProjectionColumnStore.ColumnSegmentFetcher delegate =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
+        final int[] fetches = new int[1];
+        final ProjectionColumnStore.ColumnSegmentFetcher tracking = offsets -> {
+          fetches[0]++;
+          return delegate.fetchAll(offsets);
+        };
+        final String[] literals = {"v-0", "v-36", "v-5", "absent-a", "v-18", "absent-b", "v-1", "v-1"};
+        final long[] hashes = new long[literals.length];
+        for (int j = 0; j < hashes.length; j++) {
+          hashes[j] = ProjectionIndexColumnSegmentCodec.bloomHash(literals[j].getBytes(StandardCharsets.UTF_8));
+        }
+        // One walk for all literals ...
+        final long[][] many = new long[hashes.length][];
+        for (int j = 0; j < hashes.length; j++) {
+          many[j] = filled(rowGroupCount);
+        }
+        fetches[0] = 0;
+        final long manyDropped = evidence[0].pruneMany(hashes, many, rowGroupCount, tracking, 0, 5);
+        assertEquals(2, fetches[0], "eight literals over five chunks fetch two windows, once");
+        assertTrue(ProjectionBloomChunks.fetchScratchIsClearForTesting());
+        // ... equals one walk per literal.
+        long singleDropped = 0;
+        for (int j = 0; j < hashes.length; j++) {
+          final long[] one = filled(rowGroupCount);
+          singleDropped += evidence[0].prune(hashes[j], one, rowGroupCount, delegate);
+          assertArrayEquals(one, many[j], "literal " + literals[j]);
+        }
+        assertEquals(singleDropped, manyDropped);
+        // No false negatives: every home leaf of a present literal survives; absent ones lose leaves.
+        for (int leaf = 0; leaf < rowGroupCount; leaf++) {
+          final int v = leaf % 37;
+          if (v == 0) {
+            assertKept(many[0], leaf);
+          }
+          if (v == 36) {
+            assertKept(many[1], leaf);
+          }
+          if (v == 5) {
+            assertKept(many[2], leaf);
+          }
+          if (v == 18) {
+            assertKept(many[4], leaf);
+          }
+          if (v == 1) {
+            assertKept(many[6], leaf);
+            assertKept(many[7], leaf);
+          }
+        }
+        assertTrue(cardinality(many[3]) < rowGroupCount / 2, "absent-a is rejected somewhere");
+        assertTrue(cardinality(many[5]) < rowGroupCount / 2, "absent-b is rejected somewhere");
+        assertTrue(cardinality(many[0]) < rowGroupCount / 2, "v-0 lives on 1/37 of the leaves");
+        assertArrayEquals(many[6], many[7], "the same literal twice narrows both masks identically");
+        // A split walk over chunk ranges equals the whole walk (this is what the parallel path runs).
+        final long[][] split = new long[hashes.length][];
+        for (int j = 0; j < hashes.length; j++) {
+          split[j] = filled(rowGroupCount);
+        }
+        final long splitDropped = evidence[0].pruneMany(hashes, split, rowGroupCount, delegate, 0, 2)
+            + evidence[0].pruneMany(hashes, split, rowGroupCount, delegate, 2, 5);
+        assertEquals(manyDropped, splitDropped);
+        for (int j = 0; j < hashes.length; j++) {
+          assertArrayEquals(many[j], split[j], "split ranges, literal " + literals[j]);
+        }
+        // An already narrowed mask only loses bits: a literal restricted to one chunk stays there.
+        final long[] narrowed = new long[(rowGroupCount + 63) >>> 6];
+        for (int leaf = ProjectionBloomChunks.CHUNK_LEAVES; leaf < 2 * ProjectionBloomChunks.CHUNK_LEAVES; leaf++) {
+          narrowed[leaf >>> 6] |= 1L << (leaf & 63);
+        }
+        evidence[0].pruneMany(new long[] {hashes[0]}, new long[][] {narrowed}, rowGroupCount, delegate, 0, 5);
+        for (int leaf = 0; leaf < rowGroupCount; leaf++) {
+          final boolean inChunk = leaf >= ProjectionBloomChunks.CHUNK_LEAVES && leaf < 2 * ProjectionBloomChunks.CHUNK_LEAVES;
+          final boolean bit = (narrowed[leaf >>> 6] & 1L << (leaf & 63)) != 0;
+          assertTrue(inChunk || !bit, "leaf " + leaf + " outside the narrowed chunk must stay dropped");
+          assertTrue(!(inChunk && leaf % 37 == 0) || bit, "home leaf " + leaf + " inside the chunk survives");
+        }
+        assertThrows(IllegalArgumentException.class,
+            () -> evidence[0].pruneMany(hashes, new long[hashes.length - 1][], rowGroupCount, delegate, 0, 5));
+        assertThrows(IllegalArgumentException.class,
+            () -> evidence[0].pruneMany(hashes, many, rowGroupCount, delegate, 3, 2));
+        assertTrue(ProjectionBloomChunks.fetchScratchIsClearForTesting());
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
+  private static long[] filled(final int leafCount) {
+    final long[] keep = new long[(leafCount + 63) >>> 6];
+    Arrays.fill(keep, -1L);
+    return keep;
+  }
+
+  private static int cardinality(final long[] mask) {
+    int bits = 0;
+    for (final long w : mask) {
+      bits += Long.bitCount(w);
+    }
+    return bits;
   }
 
   @Test

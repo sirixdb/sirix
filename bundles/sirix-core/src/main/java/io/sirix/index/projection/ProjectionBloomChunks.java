@@ -238,18 +238,57 @@ public final class ProjectionBloomChunks {
       if (keep == null || keep.length < ((leafCount + 63) >>> 6) || fetcher == null) {
         throw new IllegalArgumentException("keep/fetcher must cover the evidence leaf count");
       }
-      return pruneChunks(hash, keep, fetcher);
+      return pruneChunks(new long[] {hash}, new long[][] {keep}, fetcher, 0, chunks.size());
     }
 
-    private int pruneChunks(final long hash, final long[] keep,
-        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    /**
+     * {@link #prune} for MANY literals in ONE walk over the evidence: {@code keeps[j]} is narrowed by
+     * {@code hashes[j]}, every chunk fetched and validated once and every leaf's fingerprint located
+     * once for all literals. A disjunction of equalities or a planner pricing candidate values pays
+     * the chunk walk once instead of once per literal (measured: one walk ≈ one {@link #prune}).
+     *
+     * @param chunkFrom first chunk (inclusive), {@code chunkTo} exclusive — callers that split the
+     *        walk over threads hand each a disjoint chunk range; chunks own disjoint 256-leaf ranges,
+     *        so two ranges never touch the same keep word
+     * @return newly cleared bits summed over every mask
+     */
+    int pruneMany(final long[] hashes, final long[][] keeps, final int leafCount,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int chunkFrom, final int chunkTo) {
+      if (leafCount != rowGroupCount) {
+        throw new IllegalArgumentException("leafCount " + leafCount + " != evidence rowGroupCount " + rowGroupCount);
+      }
+      if (hashes == null || keeps == null || hashes.length != keeps.length || fetcher == null) {
+        throw new IllegalArgumentException("hashes/keeps must pair up and a fetcher is required");
+      }
+      final int words = (leafCount + 63) >>> 6;
+      for (final long[] keep : keeps) {
+        if (keep == null || keep.length < words) {
+          throw new IllegalArgumentException("every keep mask must cover the evidence leaf count");
+        }
+      }
+      if (chunkFrom < 0 || chunkTo > chunks.size() || chunkFrom > chunkTo) {
+        throw new IllegalArgumentException("chunk range [" + chunkFrom + ", " + chunkTo + ") outside 0.." + chunks.size());
+      }
+      if (hashes.length == 0) {
+        return 0;
+      }
+      return pruneChunks(hashes, keeps, fetcher, chunkFrom, chunkTo);
+    }
+
+    /** How many 256-leaf chunks this evidence spans (the unit {@link #pruneMany} splits over). */
+    int chunkCount() {
+      return chunks.size();
+    }
+
+    private int pruneChunks(final long[] hashes, final long[][] keeps,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int chunkFrom, final int chunkTo) {
       final ProjectionIndexHOTStorage.BlobLocators localChunks = chunks;
       final FetchScratch scratch = acquireScratch();
       int dropped = 0;
       try {
-        for (int windowBase = 0; windowBase < localChunks.size(); windowBase += FETCH_WINDOW_CHUNKS) {
+        for (int windowBase = chunkFrom; windowBase < chunkTo; windowBase += FETCH_WINDOW_CHUNKS) {
           scratch.clearPayloadsAndOffsets();
-          final int inWindow = Math.min(FETCH_WINDOW_CHUNKS, localChunks.size() - windowBase);
+          final int inWindow = Math.min(FETCH_WINDOW_CHUNKS, chunkTo - windowBase);
           boolean needsFetch = false;
           for (int j = 0; j < inWindow; j++) {
             final int chunkId = windowBase + j;
@@ -290,7 +329,7 @@ public final class ProjectionBloomChunks {
                       : null;
             }
             if (block != null) {
-              dropped += pruneBlock(block, chunkId * CHUNK_LEAVES, expectedLeaves, hash, keep, logicalByPhysical);
+              dropped += pruneBlock(block, chunkId * CHUNK_LEAVES, expectedLeaves, hashes, keeps, logicalByPhysical);
             }
           }
           // The payload window is not live across the next fetch. This explicit clear matters for
@@ -316,9 +355,10 @@ public final class ProjectionBloomChunks {
         && ProjectionIndexColumnSegmentCodec.bloomBlockIsWellFormed(block, expectedLeaves);
   }
 
-  private static int pruneBlock(final byte[] block, final int firstLeaf, final int leafCount, final long hash,
-      final long[] keep, final int @Nullable [] logicalByPhysical) {
+  private static int pruneBlock(final byte[] block, final int firstLeaf, final int leafCount, final long[] hashes,
+      final long[][] keeps, final int @Nullable [] logicalByPhysical) {
     int dropped = 0;
+    final int literals = hashes.length;
     for (int localLeaf = 0; localLeaf < leafCount; localLeaf++) {
       final int physicalLeaf = firstLeaf + localLeaf;
       final int leaf = logicalByPhysical == null
@@ -330,11 +370,38 @@ public final class ProjectionBloomChunks {
         // Recycled physical slot: it has no logical keep bit and contributes no negative evidence.
         continue;
       }
+      final int word = leaf >>> 6;
       final long mask = 1L << (leaf & 63);
-      if ((keep[leaf >>> 6] & mask) != 0
-          && !ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHashValidated(block, localLeaf, leafCount, hash)) {
-        keep[leaf >>> 6] &= ~mask;
-        dropped++;
+      if (literals == 1) {
+        // The single-literal path keeps the allocation-free probe it always had.
+        final long[] keep = keeps[0];
+        if ((keep[word] & mask) != 0
+            && !ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHashValidated(block, localLeaf, leafCount,
+                hashes[0])) {
+          keep[word] &= ~mask;
+          dropped++;
+        }
+        continue;
+      }
+      // Locate the leaf's fingerprint words once, then probe every literal against them.
+      long packed = 0L;
+      boolean located = false;
+      for (int j = 0; j < literals; j++) {
+        final long[] keep = keeps[j];
+        if ((keep[word] & mask) == 0) {
+          continue;
+        }
+        if (!located) {
+          packed = ProjectionIndexColumnSegmentCodec.bloomBlockLeafWords(block, localLeaf, leafCount);
+          located = true;
+          if (packed == ProjectionIndexColumnSegmentCodec.NO_FINGERPRINT) {
+            break;
+          }
+        }
+        if (!ProjectionIndexColumnSegmentCodec.bloomWordsMayContainHash(block, packed, hashes[j])) {
+          keep[word] &= ~mask;
+          dropped++;
+        }
       }
     }
     return dropped;

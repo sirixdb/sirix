@@ -266,6 +266,115 @@ public final class ProjectionColumnStore {
   }
 
   /**
+   * {@link #applyBloomPrune} for MANY literals of ONE column in ONE evidence walk: {@code keeps[j]} is
+   * narrowed by {@code hashes[j]}. The chunk blocks are fetched once for all literals (the walk is
+   * the whole cost of a prune; probing is three bit tests per literal), so a disjunction of
+   * equalities or a planner pricing candidate values costs one prune instead of one per literal.
+   * Splits the chunk walk over the common pool when the column spans enough chunks and the fetcher
+   * permits concurrent ranged fetches — chunks own disjoint 256-leaf ranges, so two ranges never
+   * write the same keep word.
+   *
+   * @return number of bits newly cleared, summed over every mask
+   */
+  public long applyBloomPruneMany(final int col, final long[] hashes, final long[][] keeps,
+      final ColumnSegmentFetcher fetcher) {
+    if (hashes == null || keeps == null || hashes.length != keeps.length) {
+      throw new IllegalArgumentException("hashes and keeps must pair up");
+    }
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher is required");
+    }
+    final int n = directories.size();
+    final int words = (n + 63) >>> 6;
+    for (final long[] keep : keeps) {
+      if (keep == null || keep.length < words) {
+        throw new IllegalArgumentException("every keep mask must cover " + n + " leaves");
+      }
+    }
+    if (hashes.length == 0) {
+      return 0L;
+    }
+    final ProjectionBloomChunks.ColumnEvidence[] blocks = bloomBlocks;
+    final ProjectionBloomChunks.ColumnEvidence block = blocks != null
+        ? blocks[col]
+        : null;
+    if (block != null) {
+      final int chunkCount = block.chunkCount();
+      final int ranges = chunkCount < BLOOM_MANY_PARALLEL_MIN_CHUNKS || !fetcher.rangedFetchIsConcurrent()
+          ? 1
+          : Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(),
+              chunkCount / BLOOM_MANY_CHUNKS_PER_RANGE));
+      if (ranges <= 1) {
+        return block.pruneMany(hashes, keeps, n, fetcher, 0, chunkCount);
+      }
+      final long[] droppedByRange = new long[ranges];
+      final int rangeLen = (chunkCount + ranges - 1) / ranges;
+      final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+      IntStream.range(0, ranges).parallel().forEach(r -> {
+        final int from = r * rangeLen;
+        final int to = Math.min(from + rangeLen, chunkCount);
+        if (from >= to || failed.get() != null) {
+          return;
+        }
+        try {
+          droppedByRange[r] = block.pruneMany(hashes, keeps, n, fetcher, from, to);
+        } catch (final RuntimeException rangeFailed) {
+          failed.compareAndSet(null, rangeFailed);
+        }
+      });
+      final RuntimeException rangeFailed = failed.get();
+      if (rangeFailed != null) {
+        throw rangeFailed;
+      }
+      long dropped = 0L;
+      for (final long d : droppedByRange) {
+        dropped += d;
+      }
+      return dropped;
+    }
+    final byte[][] chain = stringBloomSegments(col, fetcher);
+    if (chain == null) {
+      return 0L;
+    }
+    long dropped = 0L;
+    final int literals = hashes.length;
+    for (int i = 0; i < n; i++) {
+      final byte[] segment = chain[i];
+      if (segment == null) {
+        continue;
+      }
+      final int word = i >>> 6;
+      final long bit = 1L << (i & 63);
+      long packed = 0L;
+      boolean located = false;
+      for (int j = 0; j < literals; j++) {
+        final long[] keep = keeps[j];
+        if ((keep[word] & bit) == 0) {
+          continue;
+        }
+        if (!located) {
+          packed = ProjectionIndexColumnSegmentCodec.bloomSegmentWords(segment);
+          located = true;
+          if (packed == ProjectionIndexColumnSegmentCodec.NO_FINGERPRINT) {
+            break;
+          }
+        }
+        if (!ProjectionIndexColumnSegmentCodec.bloomWordsMayContainHash(segment, packed, hashes[j])) {
+          keep[word] &= ~bit;
+          dropped++;
+        }
+      }
+    }
+    return dropped;
+  }
+
+  /** Below this many bloom chunks a multi-literal prune stays serial (the fan-out costs more). */
+  private static final int BLOOM_MANY_PARALLEL_MIN_CHUNKS = 32;
+
+  /** At least this many chunks per parallel range of a multi-literal prune (one range ≈ 4 fetches). */
+  private static final int BLOOM_MANY_CHUNKS_PER_RANGE = 16;
+
+  /**
    * Per-column permanent-corruption memo (1 = a fill hit a decode/hash/missing-segment failure, which
    * cannot heal for this build). Plain byte writes of a single value are race-benign; fetch-level
    * (transient) failures never set it.
