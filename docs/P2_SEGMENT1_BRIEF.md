@@ -2130,3 +2130,22 @@ only (killed by both, e2e `recycled: 672`). Diag line gains ` sliceReuse=`. Regr
 the 44.7 GB in its 93 GB. Still allocating per pass: 25.6 GB chunk-pool misses (q32's ~4.6 GB/pass working set
 exceeds the 3 GB retain ceiling) and 18.9 GB of page `byte[]` from re-deserializing column-segment pages every
 pass — the next two GC levers.
+
+## 2026-09-03 ~01:25: LEVER G — a 5 % skew allowance bought a 100 % table (4e7b6e424)
+
+Read from the ALLOC32 diag: q32's cold try ran its eight passes at 1.5 s each with `pool=…/400` misses per
+pass; the HOT tries ran them at 1.8 s with ~16,800 misses per pass (2.1 GB of fresh chunks past the retained
+pool, `dropped` climbing 17k per pass, gc 32 → 42, pauses 0.55 → 1.39 s). The only difference in the diag:
+`sharedHint=3145728` (cold: the hint capped at `budget/4`, which happens to be exactly 3/4 × 2^22) versus
+`sharedHint=3281167` (hot: the memo's exact share 3,124,927 plus the 5 % skew allowance).
+`NumericGroupAggTable` sizes a table at the power of two ≥ 4/3 × hint, so the allowance crossed 2^22 → 2^23 and
+every shared partition table of every pass doubled; chunked storage did not save anything because hashed
+placement touches every chunk of the capacity. A hash partition's count deviates from its share by about
+its ROOT (≈ 1,770 here), so 5 % (156,246) was 88 standard deviations of contingency.
+
+Fix: `NumericGroupAggTable.capacityFor(int)` is THE public capacity rule; `sharedTableHint` computes the
+allowance as before, and when the allowance ALONE crosses a power-of-two boundary it falls back to share +
+8 roots (p < 1e-15 for a binomial split) — an estimate that is truly off pays one rehash, not a doubled pass.
+Witness `sharedHintNeverDoublesTheTableForItsSkewAllowance` (the 100M numbers, the share-needs-2^23 case,
+the unchanged 3,000 + 5 % case, and the boundary of `capacityFor`); mutant "never refuse" killed
+(`expected 4194304 but was 8388608`). Unmeasured at 100M until the rebuild frees the machine.
