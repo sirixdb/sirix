@@ -2157,3 +2157,43 @@ queries never perform these lookups — the same fact that made the query leg th
 Sirix as a general database a 25 % point-lookup regression is paid by exactly the access pattern
 chunked bodies exist to accelerate. "Set 16 KB and take the 12.9 %" is defensible for a benchmark build
 and not obviously right as a product default. That is a product call.
+
+---
+
+## Overflow-compression re-verdict (storage half), 1M under the shipped configuration
+
+`-Dsirix.page.overflow.compress` shipped opt-in after a 100M build took 69.6 → 64.9 GB, rejected as a
+default because q16/q17 hot went +85 %: the OS page cache holds the payload compressed, so a repeated
+scan decodes again where an uncompressed page was free on its second read. Re-measured now that the
+prebuilt-dictionary route has shipped and changed this class's composition.
+
+Single variable, both arms prebuilt + `versioningType=FULL`; `KeyValueLeafPage` is byte-identical
+across them (453,488,477 both), so the whole delta is this class:
+
+| | compress=false | compress=true | |
+|---|---|---|---|
+| OverflowPage | 131,247,599 | 73,534,379 | **ratio 0.560** |
+| per page | 5,878 B | 3,293 B | |
+| whole DB (census) | 609,115,080 | 551,401,860 | **−9.5 %** |
+| class share of the DB | **21.5 %** | 13.3 % | |
+
+**The prediction that opened this task was wrong.** I argued the prize would be small because prebuilt
+cuts overflow 664 → 131 MB at 1M. The cut is real, but the class is still **21.5 %** of the database —
+prebuilt shrank the database, not this class's share of it.
+
+**The ratio improved: 0.560 against the prior 0.731 at 100M.** That 0.731 was attributed to the class
+being dominated by FOR-packed projection segments — exactly the payload prebuilt replaced with id
+lanes. Removing the incompressible part left a more compressible remainder, so the prize per byte rose.
+
+**Not projected to 100M**, deliberately: the ratio was historically *worse* at 100M than at 1M
+(0.731 vs 0.621), and composition differs by scale.
+
+**The query half is unchanged and 1M cannot answer it.** The rejection mechanism needs a class larger
+than the query heap; at 1M everything fits in cache, so a 1M query leg would show no regression and the
+absence would mean nothing — the same trap as gating a storage lever on the 43-query leg. What has moved
+in compression's favour is that q16/q17 hot are now ~10.5 s rather than ~20.5, halving the absolute cost
+of an unchanged ratio.
+
+**State: the storage case is stronger than when it was rejected, and the reason for the rejection is
+untested against today's engine.** Settling it is a 100M pair — build with and without, query leg on
+each.
