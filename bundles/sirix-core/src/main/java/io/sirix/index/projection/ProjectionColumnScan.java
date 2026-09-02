@@ -5,15 +5,21 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.StringValueExtrema;
+import io.sirix.index.projection.ProjectionColumnStore.ZoneIndex;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrays;
 import net.openhft.hashing.LongTupleHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.IntStream;
 
 /**
  * Column-sliced scan kernels (P5b stage 3, docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-7): the
@@ -82,18 +88,6 @@ public final class ProjectionColumnScan {
   public static long treeLeavesPrunedCount() {
     return TREE_LEAVES_PRUNED.sum();
   }
-
-  /** Sort-key kind: a raw long, compared directly. */
-  private static final byte KEY_NUMERIC = 0;
-
-  /** Sort-key kind: a packed {@code (leaf, dictId)} whose entries compare as unsigned bytes. */
-  private static final byte KEY_STRING_BYTES = 1;
-
-  /** Sort-key kind: as {@link #KEY_STRING_BYTES}, but a supplementary character forces decoding. */
-  private static final byte KEY_STRING_COLLATED = 2;
-
-  /** Sort-key kind: a resource-wide dictionary id resolved through a revision-bound read view. */
-  private static final byte KEY_STRING_GLOBAL = 3;
 
   private static final GlobalValueDictionary.ReadView[] NO_GLOBAL_SORT_VIEWS = {};
 
@@ -709,32 +703,39 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Bounded top-{@code k} sorted scan, fused with collection — the R2 "heap over zone-map-pruned
-   * leaves" shape: once the heap is full, a leaf whose FIRST order key's zone bounds cannot beat the
-   * current worst kept row is skipped without evaluating its mask at all. Sound because entering the
-   * heap requires beating the worst row, the first key is compared first, and the prune only fires
-   * when the leaf's every row is STRICTLY worse on it — ties fall through to full evaluation. The
-   * prune additionally requires the leaf's order columns to be all-present: a skipped leaf must not
-   * be able to hide a matching row with a missing order key, which obliges the caller to decline
-   * outright.
+   * Bounded top-{@code k} sorted scan, fused with collection: the {@code k} best rows under the order
+   * keys (per-key direction, then document rank — exactly the full stable sort's prefix), emitted as
+   * record keys. Never fills a column for itself: whatever the store already holds resident is served
+   * from it, everything else is decoded for exactly the leaves the scan visits, in one batched fetch
+   * per column per slab ({@link ProjectionColumnStore#leafSetAccess}). A {@code LIMIT 10} over a fat
+   * string column at 100M rows therefore touches tens to thousands of leaves, never the column.
    *
    * <p>
-   * <b>Best-first visitation.</b> Document order makes that prune a late bloomer: it can only fire
-   * after enough leaves have filled the heap with good rows, so the scan pays full mask evaluation
-   * over the whole prefix. When every leaf's order columns are all-present — the same precondition
-   * the prune already needs — the leaves are instead visited in order of their BEST POSSIBLE first
-   * key, and the walk STOPS at the first leaf that cannot beat the worst kept row: all remaining
-   * leaves are ordered no better, so none can contribute. A `k` of 10 over a thousand leaves then
-   * touches tens of leaves rather than all of them. Emission is unaffected — ranks are the leaf's
-   * DOCUMENT-order base plus the row index, so the heap's total order (and its stable-sort tiebreak)
-   * does not depend on visitation order.
+   * <b>The plan comes from descriptor and memo truth — zero leaf decodes.</b> Each leaf's BEST possible
+   * first key is its zone bound for a numeric kind ({@link ProjectionColumnStore#zoneIndex}) and its
+   * smallest / largest referenced dictionary VALUE for a per-leaf string kind
+   * ({@link ProjectionColumnStore#stringValueExtrema} — dict ids are meaningless for value order). A
+   * {@code <>} predicate on the first key that names that extremum moves the bound to the SECOND
+   * distinct extremum (q25's shape, {@code WHERE SearchPhrase <> '' ORDER BY SearchPhrase}: the empty
+   * string is every leaf's minimum, so without the refinement every leaf ties and nothing can ever
+   * be skipped); a leaf without a second one holds no matching row at all and is dropped. A bound is
+   * USABLE only when every matching row of the leaf is guaranteed to carry every order key: the
+   * column is all-present on the leaf ({@link ProjectionColumnStore#allPresentLeaves}) or a
+   * predicate names it (every predicate op is missing ⇒ false). Otherwise the leaf may hide a
+   * matching row with an empty key — which the interpreter places by the empty-least/greatest mode
+   * and this scan can only answer by declining — so it is visited unconditionally, and FIRST, so the
+   * heap it fills bounds every leaf after it.
    *
    * <p>
-   * The plan needs a per-leaf VALUE extremum of the first key. Numeric slices carry one already
-   * ({@code min()}/{@code max()}); STRING_DICT slices do NOT — theirs are dict ids — so the string
-   * arm reads {@link ProjectionColumnStore#stringValueExtrema}, which is data-derived and memoized
-   * per column. Any leaf without one (no dict lanes, no present value) makes the plan inadmissible
-   * and the scan falls back to the document-order walk unchanged.
+   * <b>Best-first, chunked, parallel.</b> Leaves with a usable bound follow, best-first, in doubling
+   * chunks (1, 2, 4, …, {@value #TOPK_CHUNK_MAX}); each chunk is split into contiguous slabs evaluated
+   * in parallel, one {@link TopKHeap} per slab, merged into the global heap after the chunk. A leaf
+   * whose bound is strictly worse than the worst row of a FULL heap — the global one, frozen for the
+   * chunk, or the slab's own — is skipped without a decode; the walk STOPS at the first chunk whose
+   * next leaf is skippable, because every leaf after it is ordered no better. Ties on the first key
+   * fall through to evaluation, so the selection is exact; ranks are the leaf's document-order base
+   * plus the row index, so the total order never depends on visitation. When every leaf offers the
+   * same best key the reordering cannot skip anything and the leaves are walked in document order.
    *
    * @return record keys of the first {@code k} rows of the full stable sort, in emission order — or
    *         {@code null} when a matching row misses an order key, which only the generic pipeline can
@@ -757,240 +758,589 @@ public final class ProjectionColumnScan {
     if (!topKSortColumnsOrderable(store, sortColumns, globalSortViews)) {
       return null; // the generic pipeline knows the values; this heap would only know their ids
     }
-    final long tPhase0 = DIAG
+    final long tStart = DIAG
         ? System.nanoTime()
         : 0L;
     validateSortColumns(store, sortColumns);
     if (k <= 0) {
       return new long[0];
     }
-    final long tPhase1 = DIAG
-        ? System.nanoTime()
-        : 0L;
-    // Zone-map pruning from the descriptors alone; then ONE leaf at a time through the access —
-    // resident slices when every column fits the fill budget, decoded per window otherwise, so a
-    // fat string column at 100M rows serves this exact kernel without a whole-column residency.
-    final long[] keep = computeKeepMask(store, predicates, fetcher);
-    final int[] needed = new int[sortColumns.length + predicates.length];
-    System.arraycopy(sortColumns, 0, needed, 0, sortColumns.length);
-    for (int i = 0; i < predicates.length; i++) {
-      needed[sortColumns.length + i] = predicates[i].column;
-    }
-    final ProjectionColumnStore.LeafColumnAccess access = store.leafAccess(fetcher, keep, needed, true);
-    final long tPhase2 = DIAG
-        ? System.nanoTime()
-        : 0L;
-    final long tPhase3 = DIAG
-        ? System.nanoTime()
-        : 0L;
-    long tMask = 0L;
-    long tHeap = 0L;
-    long nCand = 0L;
-    long nLeavesPruned = 0L;
-    final Scratch s = SCRATCH.get();
     final int keyCount = sortColumns.length;
-    final long tPlan0 = DIAG
-        ? System.nanoTime()
-        : 0L;
-    // Heap of the K best rows: tuples row-major beside keys and document-order ranks, root =
-    // worst kept. The rank is the stable-sort tiebreak, so bounded selection and the full
-    // stable sort agree exactly.
-    final long[] heapTuple = new long[k * keyCount];
-    final long[] heapKey = new long[k];
-    final long[] heapRank = new long[k];
-    int size = 0;
-    final long[] candidate = new long[keyCount];
+    // Zone-map pruning from the descriptors alone; a dropped leaf carries the PRUNED sentinel in every
+    // predicate slice and is never visited.
+    final long[] keep = computeKeepMask(store, predicates, fetcher);
+    // Residency is OBSERVED, never created: a positive answer pins the lane for this query and the
+    // slab accesses serve it from the retained arrays; everything else is decoded per slab. The
+    // witness counts the scan as non-retaining exactly when it had to decode something itself.
+    boolean resident = store.recordKeysFilled();
+    for (int kk = 0; kk < keyCount; kk++) {
+      resident &= store.columnFilled(sortColumns[kk]);
+    }
+    for (final ColumnPredicate p : predicates) {
+      resident &= store.columnFilled(p.column);
+    }
+    if (!resident) {
+      ProjectionColumnStore.noteWindowedLeafAccess();
+    }
     final int leafCount = store.rowGroupCount();
     final int[] leafRows = new int[leafCount];
-    // Document-order rank base per leaf: the tiebreak must stay document order no matter which
-    // order the leaves are VISITED in, so it can never be a running counter here.
+    // Document-order rank base per leaf: the tiebreak must stay document order no matter which order
+    // the leaves are VISITED in, so it can never be a running counter here.
     final long[] leafRankBase = new long[leafCount];
-    long rankAcc = 0;
+    long rankAcc = 0L;
     for (int leaf = 0; leaf < leafCount; leaf++) {
       leafRows[leaf] = store.rowCount(leaf);
       leafRankBase[leaf] = rankAcc;
       rankAcc += leafRows[leaf];
     }
-    // Best-possible first key per leaf, or null when no admissible best-first plan exists. Built
-    // BEFORE keyKind: its walk over the first key's dictionaries is what establishes that column's
-    // collation verdict, and paying a separate sweep for it costs more than the verdict saves.
-    // A windowed access visits leaves in DOCUMENT order: the best-first plan would hop across the
-    // whole store and re-decode a window per hop, while the sequential walk decodes each window once
-    // and the per-leaf zone prune still skips what the heap has already beaten.
-    long[] leafBestOrNull = TOPK_DOC_ORDER || access.windowed()
-        || store.columnKind(sortColumns[0]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-        ? null
-        : leafBestFirstKeys(store, access, sortColumns, leafRows, descending[0], fetcher);
-    // A string key's heap value is the PACKED (leaf << 32) | dictId — never comparable as a
-    // long (the same value in two leaves packs differently), so every comparison resolves the
-    // entry bytes through sortCols. Numeric keys stay raw longs. The string kinds split on
-    // COLLATION so the comparison never has to re-derive it; an unestablished verdict takes the
-    // exact per-pair path, which is what the scan did before the split existed.
+    final long tPlan0 = DIAG
+        ? System.nanoTime()
+        : 0L;
+    // Built BEFORE keyKind: the extrema walk over the first key's dictionaries is what establishes
+    // that column's collation verdict, and a separate sweep for it would cost more than it saves.
+    final TopKPlan plan = planTopK(store, predicates, sortColumns, descending, keep, leafRows, fetcher);
     final byte[] keyKind = new byte[keyCount];
     for (int kk = 0; kk < keyCount; kk++) {
-      final byte columnKind = store.columnKind(sortColumns[kk]);
-      keyKind[kk] = switch (columnKind) {
+      keyKind[kk] = switch (store.columnKind(sortColumns[kk])) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
           store.stringDictSupplementaryMemo(sortColumns[kk]) == ProjectionColumnStore.SUPPLEMENTARY_NONE
-              ? KEY_STRING_BYTES
-              : KEY_STRING_COLLATED;
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> KEY_STRING_GLOBAL;
-        default -> KEY_NUMERIC;
+              ? TopKHeap.KEY_STRING_BYTES
+              : TopKHeap.KEY_STRING_COLLATED;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> TopKHeap.KEY_STRING_GLOBAL;
+        default -> TopKHeap.KEY_NUMERIC;
       };
     }
-    // Rowless leaves are dropped from the plan rather than ordered: they contribute nothing, and a
-    // sort would have to resolve an extremum they do not have (their slice carries no dictionary).
-    final int[] visit = new int[leafCount];
-    int visitCount = 0;
-    for (int leaf = 0; leaf < leafCount; leaf++) {
-      if (leafRows[leaf] > 0) {
-        visit[visitCount++] = leaf;
-      }
-    }
-    if (leafBestOrNull != null
-        && allLeafExtremaTie(leafBestOrNull, visit, visitCount, keyKind, access, sortColumns, globalSortViews)) {
-      // Every leaf offers the same best key, so the worst kept row can never be beaten by it and the
-      // stop can never fire — the reordering would buy nothing and cost the sequential slice access
-      // the document-order walk enjoys. (Q25's shape: `WHERE SearchPhrase <> ''` excludes the empty
-      // string that is every leaf's minimum, so no leaf is ever prunable. Measured 3.6 ms of masking
-      // turning into 12.9 ms purely on lost locality.)
-      leafBestOrNull = null;
-      TOPK_PLAN_TIED.increment();
-    }
-    final long[] leafBest = leafBestOrNull;
-    if (leafBest != null) {
-      IntArrays.mergeSort(visit, 0, visitCount, (a, b) -> {
-        final int cmp = compareKeyAt(leafBest[a], leafBest[b], 0, keyKind, access, sortColumns, globalSortViews);
-        if (cmp != 0) {
-          return descending[0]
-              ? -cmp
-              : cmp;
-        }
-        return Integer.compare(a, b);
-      });
-    }
+    plan.orderVisit(keyKind[0]);
     final long tPlan1 = DIAG
         ? System.nanoTime()
         : 0L;
-    for (int v = 0; v < visitCount; v++) {
-      final int leaf = visit[v];
-      final int rows = leafRows[leaf];
-      if (size == k) {
-        if (leafBest != null) {
-          // Leaves are ordered best-first on key 0, so the first one whose BEST possible key is
-          // strictly worse than the worst kept row proves the same of every leaf after it.
-          final int cmp = compareKeyAt(leafBest[leaf], heapTuple[0], 0, keyKind, access, sortColumns, globalSortViews);
-          if ((descending[0]
-              ? -cmp
-              : cmp) > 0) {
-            nLeavesPruned += visitCount - v;
-            TOPK_LEAVES_SKIPPED.add(visitCount - v);
-            break;
+    // Slabs decode independently only when the fetcher tolerates concurrent ranged fetches; a plain
+    // fetcher gets the same chunks, slabs and counters on the calling thread.
+    final int workers = fetcher.rangedFetchIsConcurrent()
+        ? TOPK_WORKERS
+        : 1;
+    final TopKRun run = new TopKRun(store, predicates, sortColumns, keyKind, descending, globalSortViews, k, keep,
+        leafRows, leafRankBase, plan, fetcher, workers);
+    final TopKHeap global = run.global;
+    final int visitCount = plan.visitCount;
+    int v = 0;
+    int chunk = 1;
+    int chunks = 0;
+    while (v < visitCount) {
+      final int from = v;
+      final int to = Math.min(visitCount, v + chunk);
+      final int len = to - from;
+      final int slabs = Math.min(workers, Math.max(1, len >>> 1));
+      chunks++;
+      if (slabs == 1) {
+        run.evaluateSlab(0, from, to);
+      } else {
+        final AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        IntStream.range(0, slabs).parallel().forEach(slab -> {
+          try {
+            run.evaluateSlab(slab, from + (int) ((long) len * slab / slabs), from + (int) ((long) len * (slab + 1) / slabs));
+          } catch (final RuntimeException e) {
+            failure.compareAndSet(null, e);
           }
-        } else if (keyKind[0] == KEY_NUMERIC && leafZonePrunable(access, sortColumns, leaf, rows, descending[0], heapTuple)) {
-          // NEVER zone-prune on a string first key without the value extrema above:
-          // ColumnSlice.min()/max() of a STRING_DICT column are dict IDS, meaningless for value
-          // order — pruning on them drops matching leaves silently (the exact hazard the STR_*
-          // predicate ops were split off to avoid).
-          nLeavesPruned++;
-          TOPK_LEAVES_SKIPPED.increment();
-          continue;
+        });
+        final RuntimeException failed = failure.get();
+        if (failed != null) {
+          throw failed;
         }
       }
-      final long rank = leafRankBase[leaf];
-      final long tm0 = DIAG
-          ? System.nanoTime()
-          : 0L;
-      final int rowCount = evaluateMask(predicates, access, leaf, rows, s.mask, s.leafPredicateSlices(predicates.length));
-      if (DIAG) {
-        tMask += System.nanoTime() - tm0;
+      if (run.declined.get()) {
+        return null; // a matching row without an order key — the interpreter places it
       }
-      if (rowCount <= 0) {
-        continue;
+      run.mergeLocals(slabs);
+      v = to;
+      if (plan.sorted && v < visitCount && global.full() && plan.strictlyWorse(global, plan.visit[v])) {
+        // Known leaves are ordered best-first on key 0: the first whose BEST possible key is strictly
+        // worse than the worst kept row proves the same of every leaf after it.
+        TOPK_LEAVES_SKIPPED.add(visitCount - v);
+        run.skipped.add(visitCount - v);
+        break;
       }
-      final long th0 = DIAG
-          ? System.nanoTime()
-          : 0L;
-      final long[] keys = access.recordKeys(leaf);
-      final ColumnSlice[] leafSort = s.leafSortSlices(keyCount);
-      for (int kk = 0; kk < keyCount; kk++) {
-        leafSort[kk] = access.slice(sortColumns[kk], leaf);
-      }
-      final int stride = (rowCount + 63) >>> 6;
-      for (int w = 0; w < stride; w++) {
-        long word = s.mask[w];
-        if (word == 0L) {
-          continue;
-        }
-        long presAll = -1L;
-        for (int kk = 0; kk < keyCount; kk++) {
-          presAll &= leafSort[kk].presenceWords()[w];
-        }
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          final int rowIdx = (w << 6) + bit;
-          if (rowIdx >= rowCount) {
-            break;
-          }
-          if ((presAll & (1L << bit)) == 0L) {
-            return null; // a matching row without an order key — the interpreter places it
-          }
-          for (int kk = 0; kk < keyCount; kk++) {
-            candidate[kk] = switch (keyKind[kk]) {
-              case KEY_STRING_BYTES, KEY_STRING_COLLATED ->
-                (long) leaf << 32 | leafSort[kk].stringDictIds()[rowIdx];
-              default -> leafSort[kk].numericValues()[rowIdx];
-            };
-          }
-          final long rowRank = rank + rowIdx;
-          if (size < k) {
-            final int slot = size++;
-            System.arraycopy(candidate, 0, heapTuple, slot * keyCount, keyCount);
-            heapKey[slot] = keys[rowIdx];
-            heapRank[slot] = rowRank;
-            if (size == k) {
-              for (int i = (k >>> 1) - 1; i >= 0; i--) {
-                siftDownWorst(heapTuple, heapKey, heapRank, i, k, keyCount, descending, access, sortColumns, keyKind,
-                    globalSortViews);
-              }
-            }
-          } else if (compareCandidate(candidate, rowRank, heapTuple, heapRank, 0, keyCount, descending, access,
-              sortColumns, keyKind, globalSortViews) < 0) {
-            System.arraycopy(candidate, 0, heapTuple, 0, keyCount);
-            heapKey[0] = keys[rowIdx];
-            heapRank[0] = rowRank;
-            siftDownWorst(heapTuple, heapKey, heapRank, 0, k, keyCount, descending, access, sortColumns, keyKind,
-                globalSortViews);
-          }
-          if (DIAG) {
-            nCand++;
-          }
-        }
-      }
-      if (DIAG) {
-        tHeap += System.nanoTime() - th0;
-      }
+      chunk = Math.min(chunk << 1, TOPK_CHUNK_MAX);
     }
     if (DIAG) {
+      final long tEnd = System.nanoTime();
       System.err.printf(
-          "[topk] sortCols=%.2fms preds=%.2fms keys=%.2fms plan=%.2fms mask=%.2fms heap=%.2fms cand=%d pruned=%d/%d%n",
-          (tPhase1 - tPhase0) / 1e6, (tPhase2 - tPhase1) / 1e6, (tPhase3 - tPhase2) / 1e6, (tPlan1 - tPlan0) / 1e6,
-          tMask / 1e6, tHeap / 1e6, nCand, nLeavesPruned, store.rowGroupCount());
+          "[topk] k=%d keys=%d preds=%d order=%s leaves=%d visit=%d unknown=%d plan=%.2fms eval=%.2fms chunks=%d "
+              + "evaluated=%d skipped=%d cand=%d workers=%d resident=%b%n",
+          k, keyCount, predicates.length, plan.sorted
+              ? "best-first"
+              : "document", leafCount, visitCount, plan.unknownCount, (tPlan1 - tPlan0) / 1e6, (tEnd - tPlan1) / 1e6,
+          chunks, run.evaluated.sum(), run.skipped.sum(), run.candidates.sum(), workers, resident);
     }
-    // Emit in sort order: primitive index sort over the kept rows under the same total order.
-    final int kept = size;
-    final int[] order = new int[kept];
-    for (int i = 0; i < kept; i++) {
-      order[i] = i;
+    return global.sortedRecordKeys();
+  }
+
+  /** Upper bound on the leaves one chunk of {@link #topKRecordKeys} evaluates before re-checking the stop rule. */
+  static final int TOPK_CHUNK_MAX = 4096;
+
+  /** Slabs per chunk of {@link #topKRecordKeys} when the fetcher tolerates concurrent ranged fetches. */
+  private static final int TOPK_WORKERS =
+      Math.max(1, Integer.getInteger("sirix.topK.workers", Runtime.getRuntime().availableProcessors()));
+
+  /**
+   * The visitation plan of one {@link #topKRecordKeys}: which leaves to visit, in which order, and
+   * each leaf's usable lower bound on the first key ({@link #strictlyWorse}). Built from the store's
+   * descriptors and memos alone.
+   */
+  private static final class TopKPlan {
+    /** Leaves to visit: the unknown-bound ones first in leaf order, then the known ones (sorted by {@link #orderVisit}). */
+    final int[] visit;
+    final int visitCount;
+    final int unknownCount;
+    /** Per leaf: {@code -1} no usable bound; for a numeric first key {@code 0}; for a string one the extrema slot. */
+    private final byte[] lbSlot;
+    private final long @Nullable [] lbNumeric;
+    private final @Nullable StringValueExtrema extrema;
+    private final boolean descendingFirst;
+    /** Whether the known leaves are ordered best-first (and the stop rule applies). */
+    boolean sorted;
+
+    TopKPlan(final int[] visit, final int visitCount, final int unknownCount, final byte[] lbSlot,
+        final long @Nullable [] lbNumeric, final @Nullable StringValueExtrema extrema,
+        final boolean descendingFirst) {
+      this.visit = visit;
+      this.visitCount = visitCount;
+      this.unknownCount = unknownCount;
+      this.lbSlot = lbSlot;
+      this.lbNumeric = lbNumeric;
+      this.extrema = extrema;
+      this.descendingFirst = descendingFirst;
     }
-    IntArrays.mergeSort(order, (a, b) ->
-        compareHeapRows(heapTuple, heapRank, a, b, keyCount, descending, access, sortColumns, keyKind, globalSortViews));
-    final long[] out = new long[kept];
-    for (int i = 0; i < kept; i++) {
-      out[i] = heapKey[order[i]];
+
+    boolean known(final int leaf) {
+      return lbSlot[leaf] >= 0;
     }
-    return out;
+
+    /** Whether {@code leaf}'s every row is strictly worse on the first key than the worst row of the FULL {@code heap}. */
+    boolean strictlyWorse(final TopKHeap heap, final int leaf) {
+      final int slot = lbSlot[leaf];
+      if (slot < 0) {
+        return false;
+      }
+      if (extrema == null) {
+        return heap.firstKeyStrictlyWorse(lbNumeric[leaf]);
+      }
+      return heap.firstKeyStrictlyWorse(extrema.bytes(), extrema.offset(leaf, slot), extrema.length(leaf, slot));
+    }
+
+    /**
+     * Order the known leaves best-first on the first key (ties in leaf order), or leave the whole
+     * visit list in document order when every known leaf offers the same best — then no leaf can ever
+     * be skipped and the reordering would only cost locality — or when the escape hatch asks for it.
+     */
+    void orderVisit(final byte firstKeyKind) {
+      final int knownCount = visitCount - unknownCount;
+      final boolean tied = visitCount < 2 || (unknownCount == 0 && allKnownBestsEqual(firstKeyKind));
+      if (tied && visitCount >= 2) {
+        TOPK_PLAN_TIED.increment();
+      }
+      sorted = !TOPK_DOC_ORDER && !tied;
+      if (!sorted) {
+        // Document order over the admitted leaves — unknown and known interleaved as stored.
+        IntArrays.quickSort(visit, 0, visitCount);
+        return;
+      }
+      if (knownCount < 2) {
+        return; // nothing to order; the unknown leaves already lead
+      }
+      final int from = unknownCount;
+      if (extrema == null) {
+        sortKnownNumeric(from, knownCount);
+      } else if (firstKeyKind == TopKHeap.KEY_STRING_BYTES) {
+        sortKnownStringBytes(from, knownCount);
+      } else {
+        sortKnownStringCollated(from, knownCount);
+      }
+    }
+
+    private boolean allKnownBestsEqual(final byte firstKeyKind) {
+      final int first = visit[unknownCount];
+      if (extrema == null) {
+        final long best = lbNumeric[first];
+        for (int i = unknownCount + 1; i < visitCount; i++) {
+          if (lbNumeric[visit[i]] != best) {
+            return false;
+          }
+        }
+        return true;
+      }
+      final byte[] bytes = extrema.bytes();
+      final int off = extrema.offset(first, lbSlot[first]);
+      final int len = extrema.length(first, lbSlot[first]);
+      for (int i = unknownCount + 1; i < visitCount; i++) {
+        final int leaf = visit[i];
+        final int o = extrema.offset(leaf, lbSlot[leaf]);
+        final int l = extrema.length(leaf, lbSlot[leaf]);
+        if (firstKeyKind == TopKHeap.KEY_STRING_COLLATED
+            ? ProjectionIndexByteScan.compareStrSlices(bytes, off, len, bytes, o, l) != 0
+            : !Arrays.equals(bytes, off, off + len, bytes, o, o + l)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /** Stable radix sort of the known leaves by their numeric best — ascending on {@code ~best} for a descending key. */
+    private void sortKnownNumeric(final int from, final int n) {
+      final long[] keys = new long[n];
+      final int[] perm = new int[n];
+      for (int i = 0; i < n; i++) {
+        final long best = lbNumeric[visit[from + i]];
+        keys[i] = descendingFirst
+            ? ~best
+            : best;
+        perm[i] = i;
+      }
+      LongArrays.radixSortIndirect(perm, keys, true);
+      applyPermutation(from, n, perm);
+    }
+
+    /**
+     * Known leaves by their string best under unsigned byte order: a stable radix sort on the first
+     * eight bytes (zero-padded — consistent with the lexicographic order, a shorter string never sorts
+     * after a longer one sharing its prefix), then every run of equal prefixes refined by the full
+     * comparison. Three orders of magnitude fewer byte comparisons than a merge sort at 100k leaves.
+     */
+    private void sortKnownStringBytes(final int from, final int n) {
+      final byte[] bytes = extrema.bytes();
+      final long[] keys = new long[n];
+      final int[] perm = new int[n];
+      for (int i = 0; i < n; i++) {
+        final int leaf = visit[from + i];
+        final int slot = lbSlot[leaf];
+        final long prefix = unsignedPrefix(bytes, extrema.offset(leaf, slot), extrema.length(leaf, slot));
+        keys[i] = descendingFirst
+            ? ~prefix
+            : prefix;
+        perm[i] = i;
+      }
+      LongArrays.radixSortIndirect(perm, keys, true);
+      int runStart = 0;
+      for (int i = 1; i <= n; i++) {
+        if (i == n || keys[perm[i]] != keys[perm[runStart]]) {
+          if (i - runStart > 1) {
+            IntArrays.mergeSort(perm, runStart, i, (a, b) -> compareKnownBytes(visit[from + a], visit[from + b]));
+          }
+          runStart = i;
+        }
+      }
+      applyPermutation(from, n, perm);
+    }
+
+    private void sortKnownStringCollated(final int from, final int n) {
+      final int[] perm = new int[n];
+      for (int i = 0; i < n; i++) {
+        perm[i] = i;
+      }
+      IntArrays.mergeSort(perm, 0, n, (a, b) -> {
+        final int la = visit[from + a];
+        final int lb = visit[from + b];
+        final byte[] bytes = extrema.bytes();
+        final int cmp = ProjectionIndexByteScan.compareStrSlices(bytes, extrema.offset(la, lbSlot[la]),
+            extrema.length(la, lbSlot[la]), bytes, extrema.offset(lb, lbSlot[lb]), extrema.length(lb, lbSlot[lb]));
+        if (cmp != 0) {
+          return descendingFirst
+              ? -cmp
+              : cmp;
+        }
+        return Integer.compare(la, lb);
+      });
+      applyPermutation(from, n, perm);
+    }
+
+    private int compareKnownBytes(final int la, final int lb) {
+      final byte[] bytes = extrema.bytes();
+      final int oa = extrema.offset(la, lbSlot[la]);
+      final int ob = extrema.offset(lb, lbSlot[lb]);
+      final int cmp = Arrays.compareUnsigned(bytes, oa, oa + extrema.length(la, lbSlot[la]), bytes, ob,
+          ob + extrema.length(lb, lbSlot[lb]));
+      if (cmp != 0) {
+        return descendingFirst
+            ? -cmp
+            : cmp;
+      }
+      return Integer.compare(la, lb);
+    }
+
+    private void applyPermutation(final int from, final int n, final int[] perm) {
+      final int[] sorted = new int[n];
+      for (int i = 0; i < n; i++) {
+        sorted[i] = visit[from + perm[i]];
+      }
+      System.arraycopy(sorted, 0, visit, from, n);
+    }
+
+    /** The first eight bytes as a big-endian long, zero-padded, biased so signed order is unsigned order. */
+    private static long unsignedPrefix(final byte[] bytes, final int off, final int len) {
+      long prefix = 0L;
+      final int n = Math.min(Long.BYTES, len);
+      for (int i = 0; i < n; i++) {
+        prefix = (prefix << 8) | (bytes[off + i] & 0xFFL);
+      }
+      prefix <<= 8 * (Long.BYTES - n);
+      return prefix ^ Long.MIN_VALUE;
+    }
+  }
+
+  /**
+   * Build the {@link TopKPlan}: admitted leaves (kept by the zone mask, rowful, not proven empty by a
+   * {@code <>} on the first key), each with its usable bound. Reads descriptors and memos only.
+   */
+  private static TopKPlan planTopK(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final int[] sortColumns, final boolean[] descending, final long @Nullable [] keep, final int[] leafRows,
+      final ColumnSegmentFetcher fetcher) {
+    final int leafCount = leafRows.length;
+    final int keyCount = sortColumns.length;
+    final int first = sortColumns[0];
+    final byte firstKind = store.columnKind(first);
+    final boolean desc = descending[0];
+    final byte[] lbSlot = new byte[leafCount];
+    Arrays.fill(lbSlot, (byte) -1);
+    final boolean[] dropped = new boolean[leafCount];
+    long[] lbNumeric = null;
+    StringValueExtrema extrema = null;
+    if (firstKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      if (firstKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        extrema = store.stringValueExtrema(first, fetcher);
+        final int slot1 = desc
+            ? StringValueExtrema.MAX1
+            : StringValueExtrema.MIN1;
+        final int slot2 = desc
+            ? StringValueExtrema.MAX2
+            : StringValueExtrema.MIN2;
+        final byte[] bytes = extrema.bytes();
+        for (int leaf = 0; leaf < leafCount; leaf++) {
+          if (leafRows[leaf] <= 0 || !extrema.has(leaf, slot1)) {
+            continue;
+          }
+          int slot = slot1;
+          for (final ColumnPredicate p : predicates) {
+            if (p.column != first || p.op != ProjectionIndexScan.Op.NE || slot != slot1) {
+              continue;
+            }
+            final int off = extrema.offset(leaf, slot);
+            final int len = extrema.length(leaf, slot);
+            if (Arrays.equals(bytes, off, off + len, p.stringLitBytes, 0, p.stringLitBytes.length)) {
+              // The extremum itself is excluded: the second distinct value bounds what remains. Once
+              // on the second slot the bound stays sound whatever else is excluded (the remaining
+              // values are beyond it), so the refinement runs once.
+              if (extrema.has(leaf, slot2)) {
+                slot = slot2;
+              } else {
+                dropped[leaf] = true; // its only present value is excluded; missing cells never match
+                break;
+              }
+            }
+          }
+          if (!dropped[leaf]) {
+            lbSlot[leaf] = (byte) slot;
+          }
+        }
+      } else {
+        final ZoneIndex zone = store.zoneIndex(first);
+        lbNumeric = new long[leafCount];
+        for (int leaf = 0; leaf < leafCount; leaf++) {
+          if (leafRows[leaf] > 0 && zone.known(leaf) && !zone.allMissing(leaf)) {
+            lbNumeric[leaf] = desc
+                ? zone.max(leaf)
+                : zone.min(leaf);
+            lbSlot[leaf] = 0;
+          }
+        }
+      }
+      // A bound is usable only where every matching row is guaranteed to carry every order key: a
+      // predicate on the column (missing ⇒ false) or the column all-present on the leaf.
+      for (int kk = 0; kk < keyCount; kk++) {
+        if (predicateNames(predicates, sortColumns[kk])) {
+          continue;
+        }
+        final long[] allPresent = store.allPresentLeaves(sortColumns[kk], fetcher);
+        for (int leaf = 0; leaf < leafCount; leaf++) {
+          if (lbSlot[leaf] >= 0 && (allPresent[leaf >>> 6] & (1L << (leaf & 63))) == 0L) {
+            lbSlot[leaf] = -1;
+          }
+        }
+      }
+    }
+    // Admitted leaves: unknown bounds first (in leaf order), then the known ones (in leaf order until
+    // orderVisit sorts them). Rowless leaves contribute nothing and have no extremum to order on.
+    final int[] visit = new int[leafCount];
+    int unknownCount = 0;
+    int knownCount = 0;
+    for (int leaf = 0; leaf < leafCount; leaf++) {
+      if (leafRows[leaf] <= 0 || dropped[leaf] || (keep != null && (keep[leaf >>> 6] & (1L << (leaf & 63))) == 0L)) {
+        continue;
+      }
+      if (lbSlot[leaf] < 0) {
+        unknownCount++;
+      } else {
+        knownCount++;
+      }
+    }
+    int u = 0;
+    int w = unknownCount;
+    for (int leaf = 0; leaf < leafCount; leaf++) {
+      if (leafRows[leaf] <= 0 || dropped[leaf] || (keep != null && (keep[leaf >>> 6] & (1L << (leaf & 63))) == 0L)) {
+        continue;
+      }
+      if (lbSlot[leaf] < 0) {
+        visit[u++] = leaf;
+      } else {
+        visit[w++] = leaf;
+      }
+    }
+    return new TopKPlan(visit, unknownCount + knownCount, unknownCount, lbSlot, lbNumeric, extrema, desc);
+  }
+
+  private static boolean predicateNames(final ColumnPredicate[] predicates, final int column) {
+    for (final ColumnPredicate p : predicates) {
+      if (p.column == column) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The shared state of one {@link #topKRecordKeys} evaluation: the global heap, one local heap per slab, counters. */
+  private static final class TopKRun {
+    private final ProjectionColumnStore store;
+    private final ColumnPredicate[] predicates;
+    private final int[] sortColumns;
+    private final int keyCount;
+    private final long @Nullable [] keep;
+    private final int[] leafRows;
+    private final long[] leafRankBase;
+    private final TopKPlan plan;
+    private final ColumnSegmentFetcher fetcher;
+    final TopKHeap global;
+    private final TopKHeap[] locals;
+    private final int k;
+    private final byte[] keyKind;
+    private final boolean[] descending;
+    private final GlobalValueDictionary.ReadView[] globalSortViews;
+    final AtomicBoolean declined = new AtomicBoolean();
+    final LongAdder evaluated = new LongAdder();
+    final LongAdder skipped = new LongAdder();
+    final LongAdder candidates = new LongAdder();
+
+    TopKRun(final ProjectionColumnStore store, final ColumnPredicate[] predicates, final int[] sortColumns,
+        final byte[] keyKind, final boolean[] descending, final GlobalValueDictionary.ReadView[] globalSortViews,
+        final int k, final long @Nullable [] keep, final int[] leafRows, final long[] leafRankBase, final TopKPlan plan,
+        final ColumnSegmentFetcher fetcher, final int workers) {
+      this.store = store;
+      this.predicates = predicates;
+      this.sortColumns = sortColumns;
+      this.keyCount = sortColumns.length;
+      this.keyKind = keyKind;
+      this.descending = descending;
+      this.globalSortViews = globalSortViews;
+      this.k = k;
+      this.keep = keep;
+      this.leafRows = leafRows;
+      this.leafRankBase = leafRankBase;
+      this.plan = plan;
+      this.fetcher = fetcher;
+      this.global = new TopKHeap(k, keyKind, descending, globalSortViews);
+      this.locals = new TopKHeap[workers];
+    }
+
+    /** Fold the slabs' heaps of the chunk just evaluated into the global one (calling thread only). */
+    void mergeLocals(final int slabs) {
+      for (int s = 0; s < slabs; s++) {
+        final TopKHeap local = locals[s];
+        if (local != null && local.size() > 0) {
+          global.mergeFrom(local);
+          local.clear();
+        }
+      }
+    }
+
+    /**
+     * Evaluate {@code plan.visit[from..to)} on slab {@code slab}: skip what the (frozen) global heap
+     * already rules out, decode the rest through ONE leaf-set access, offer every matching row to the
+     * slab's heap, and skip further leaves the slab's own full heap rules out.
+     */
+    void evaluateSlab(final int slab, final int from, final int to) {
+      TopKHeap local = locals[slab];
+      if (local == null) {
+        local = new TopKHeap(k, keyKind, descending, globalSortViews);
+        locals[slab] = local;
+      }
+      final int[] set = new int[to - from];
+      int n = 0;
+      final boolean globalFull = global.full();
+      for (int i = from; i < to; i++) {
+        final int leaf = plan.visit[i];
+        if (globalFull && plan.strictlyWorse(global, leaf)) {
+          TOPK_LEAVES_SKIPPED.increment();
+          skipped.increment();
+          continue;
+        }
+        set[n++] = leaf;
+      }
+      if (n == 0) {
+        return;
+      }
+      final int[] ascending = Arrays.copyOf(set, n);
+      IntArrays.quickSort(ascending);
+      final ProjectionColumnStore.LeafColumnAccess access = store.leafSetAccess(fetcher, keep, ascending, 0, n);
+      final Scratch s = SCRATCH.get();
+      final ColumnSlice[] predicateSlices = s.leafPredicateSlices(predicates.length);
+      final ColumnSlice[] leafSort = s.leafSortSlices(keyCount);
+      long cand = 0L;
+      int visited = 0;
+      for (int i = 0; i < n; i++) {
+        final int leaf = set[i]; // best-first within the slab, so the local heap bounds early
+        if (local.full() && plan.strictlyWorse(local, leaf)) {
+          TOPK_LEAVES_SKIPPED.increment();
+          skipped.increment();
+          continue;
+        }
+        if (declined.get()) {
+          break;
+        }
+        final int rows = leafRows[leaf];
+        visited++;
+        if (evaluateMask(predicates, access, leaf, rows, s.mask, predicateSlices) <= 0) {
+          continue;
+        }
+        final long[] keys = access.recordKeys(leaf);
+        for (int kk = 0; kk < keyCount; kk++) {
+          leafSort[kk] = access.slice(sortColumns[kk], leaf);
+        }
+        final long rank = leafRankBase[leaf];
+        final int stride = (rows + 63) >>> 6;
+        for (int w = 0; w < stride; w++) {
+          long word = s.mask[w];
+          if (word == 0L) {
+            continue;
+          }
+          long presAll = -1L;
+          for (int kk = 0; kk < keyCount; kk++) {
+            presAll &= leafSort[kk].presenceWords()[w];
+          }
+          if ((word & ~presAll) != 0L) {
+            declined.set(true); // a matching row without an order key — the interpreter places it
+            evaluated.add(visited);
+            candidates.add(cand);
+            return;
+          }
+          while (word != 0L) {
+            final int rowIdx = (w << 6) + Long.numberOfTrailingZeros(word);
+            word &= word - 1L;
+            local.offer(leafSort, rowIdx, keys[rowIdx], rank + rowIdx);
+            cand++;
+          }
+        }
+      }
+      evaluated.add(visited);
+      candidates.add(cand);
+    }
   }
 
   /**
@@ -1209,239 +1559,6 @@ public final class ProjectionColumnScan {
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> sink.acceptLong(slice.numericValues()[rowIdx]);
       default -> throw new IllegalStateException("value column kind " + kind + " is not emittable");
     }
-  }
-
-  /**
-   * The BEST POSSIBLE first order key of each leaf — its minimum for an ascending scan, its maximum
-   * for a descending one — in the same encoding the heap tuples use (raw long for a numeric key,
-   * packed {@code (leaf << 32) | dictId} for a string one), or {@code null} when no leaf ordering may
-   * be built at all.
-   *
-   * <p>
-   * Inadmissible, and why each case must be: a leaf whose order columns are NOT all-present could
-   * hide a matching row with an empty key, which the interpreter places by the empty-least/greatest
-   * mode and the caller can only answer by declining — so it must never be skipped, and the
-   * document-order walk (which reaches every leaf) has to run. A string leaf without a value extremum
-   * has nothing sound to order or stop on.
-   */
-  private static long @Nullable [] leafBestFirstKeys(final ProjectionColumnStore store,
-      final ProjectionColumnStore.LeafColumnAccess access,
-      final int[] sortColumns, final int[] leafRows, final boolean descendingFirst,
-      final ColumnSegmentFetcher fetcher) {
-    final int leafCount = leafRows.length;
-    final int[] extrema = store.columnKind(sortColumns[0]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-        ? store.stringValueExtrema(sortColumns[0], access)
-        : null;
-    final long[] best = new long[leafCount];
-    for (int leaf = 0; leaf < leafCount; leaf++) {
-      final int rows = leafRows[leaf];
-      if (rows <= 0) {
-        continue; // rowless leaves are skipped by the walk itself; any order key sorts them first
-      }
-      if (!orderColumnsAllPresent(access, sortColumns, leaf, rows)) {
-        return null;
-      }
-      if (extrema != null) {
-        final int id = extrema[2 * leaf + (descendingFirst
-            ? 1
-            : 0)];
-        if (id < 0) {
-          return null;
-        }
-        best[leaf] = (long) leaf << 32 | id;
-      } else {
-        final ColumnSlice slice = access.slice(sortColumns[0], leaf);
-        best[leaf] = descendingFirst
-            ? slice.max()
-            : slice.min();
-      }
-    }
-    return best;
-  }
-
-  /**
-   * Whether every leaf offers the SAME best first key — the shape in which best-first visitation is
-   * provably useless. Every kept row then comes from a leaf whose best key is that shared value, so
-   * the worst kept row is never better than it, so the stop condition (STRICTLY worse) is never met.
-   * Direction-independent: equality does not depend on which end of the range is "best".
-   */
-  private static boolean allLeafExtremaTie(final long[] leafBest, final int[] visit, final int visitCount,
-      final byte[] keyKind, final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns,
-      final GlobalValueDictionary.ReadView[] globalSortViews) {
-    if (visitCount < 2) {
-      return true; // one leaf orders itself; skip the sort entirely
-    }
-    final long first = leafBest[visit[0]];
-    for (int v = 1; v < visitCount; v++) {
-      if (compareKeyAt(first, leafBest[visit[v]], 0, keyKind, access, sortColumns, globalSortViews) != 0) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /** Every order column of {@code leaf} carries a value in every one of its {@code leafRows} rows. */
-  private static boolean orderColumnsAllPresent(final ProjectionColumnStore.LeafColumnAccess access,
-      final int[] sortColumns, final int leaf, final int leafRows) {
-    final int presWords = (leafRows + 63) >>> 6;
-    for (final int sortCol : sortColumns) {
-      final long[] presence = access.slice(sortCol, leaf).presenceWords();
-      if (presence == null || presence.length < presWords) {
-        return false;
-      }
-      for (int w = 0; w < presWords; w++) {
-        final int width = Math.min(64, leafRows - (w << 6));
-        final long full = width >= 64
-            ? -1L
-            : (1L << width) - 1L;
-        if ((presence[w] & full) != full) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Whether every row of {@code leaf} is STRICTLY worse than the worst kept row on the first order
-   * key, with the leaf's order columns provably all-present. Zone truth: a slice's min/max fold only
-   * present values, and the all-present check makes them row-complete.
-   */
-  private static boolean leafZonePrunable(final ProjectionColumnStore.LeafColumnAccess access,
-      final int[] sortColumns, final int leaf, final int leafRows, final boolean descendingFirst,
-      final long[] heapTuple) {
-    final int presWords = (leafRows + 63) >>> 6;
-    for (final int sortCol : sortColumns) {
-      final long[] presence = access.slice(sortCol, leaf).presenceWords();
-      for (int w = 0; w < presWords; w++) {
-        final int width = Math.min(64, leafRows - (w << 6));
-        final long full = width >= 64
-            ? -1L
-            : (1L << width) - 1L;
-        if ((presence[w] & full) != full) {
-          return false; // a missing order key could hide behind the prune — evaluate the leaf
-        }
-      }
-    }
-    final ColumnSlice first = access.slice(sortColumns[0], leaf);
-    final long worstFirstKey = heapTuple[0]; // root row's first key sits at tuple offset 0
-    return descendingFirst
-        ? first.max() < worstFirstKey
-        : first.min() > worstFirstKey;
-  }
-
-  /**
-   * One key-position comparison: raw longs for a numeric key; for a string key both values are packed
-   * {@code (leaf, dictId)} refs whose ENTRY BYTES resolve through {@code sortCols} and compare under
-   * the interpreter's collation (unsigned UTF-8, decoded compareTo on any 4-byte lead — the same gate
-   * every dict kernel uses). Which of the two string arms applies is decided ONCE per column
-   * ({@link ProjectionColumnStore#stringDictHasSupplementary}) and carried in {@code keyKind}:
-   * re-deriving it here rescanned both operands' bytes on every one of the millions of comparisons a
-   * top-k selection makes.
-   */
-  private static int compareKeyAt(final long a, final long b, final int k, final byte[] keyKind,
-      final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns, final GlobalValueDictionary.ReadView[] globalSortViews) {
-    final byte kind = keyKind[k];
-    if (kind == KEY_NUMERIC) {
-      return Long.compare(a, b);
-    }
-    if (kind == KEY_STRING_GLOBAL) {
-      return globalSortViews[k].compareIds(Math.toIntExact(a), Math.toIntExact(b));
-    }
-    if (a == b) {
-      return 0; // same leaf, same dict id — same value, no byte walk needed
-    }
-    final ColumnSlice sa = access.slice(sortColumns[k], (int) (a >>> 32));
-    final ColumnSlice sb = access.slice(sortColumns[k], (int) (b >>> 32));
-    final byte[] ea = sa.dictBytes();
-    final byte[] eb = sb.dictBytes();
-    final int aOff = sa.dictOffset((int) a);
-    final int aLen = sa.dictLength((int) a);
-    final int bOff = sb.dictOffset((int) b);
-    final int bLen = sb.dictLength((int) b);
-    if (kind == KEY_STRING_COLLATED) {
-      // The authority is PER PAIR, not per column: byte order and UTF-16 order differ only when an
-      // operand carries a supplementary character, and the byte kernels decode exactly then. A
-      // column-wide switch to decoding would reorder clean pairs that merely SHARE a column with a
-      // supplementary entry — a different answer from the byte twin. So the memo only ever buys the
-      // scan's omission on a provably clean column; here it is earned back in full.
-      return ProjectionIndexByteScan.compareStrSlices(ea, aOff, aLen, eb, bOff, bLen);
-    }
-    return Arrays.compareUnsigned(ea, aOff, aOff + aLen, eb, bOff, bOff + bLen);
-  }
-
-  /** Compare a candidate row against heap slot {@code slot} under the sort's total order. */
-  private static int compareCandidate(final long[] candidate, final long candidateRank, final long[] heapTuple,
-      final long[] heapRank, final int slot, final int keyCount, final boolean[] descending,
-      final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns, final byte[] keyKind,
-      final GlobalValueDictionary.ReadView[] globalSortViews) {
-    final int base = slot * keyCount;
-    for (int k = 0; k < keyCount; k++) {
-      final int cmp = compareKeyAt(candidate[k], heapTuple[base + k], k, keyKind, access, sortColumns, globalSortViews);
-      if (cmp != 0) {
-        return descending[k]
-            ? -cmp
-            : cmp;
-      }
-    }
-    return Long.compare(candidateRank, heapRank[slot]);
-  }
-
-  /** Compare two heap slots under the sort's total order (per-key direction, rank tiebreak). */
-  private static int compareHeapRows(final long[] heapTuple, final long[] heapRank, final int a, final int b,
-      final int keyCount, final boolean[] descending, final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns, final byte[] keyKind,
-      final GlobalValueDictionary.ReadView[] globalSortViews) {
-    final int ba = a * keyCount;
-    final int bb = b * keyCount;
-    for (int k = 0; k < keyCount; k++) {
-      final int cmp = compareKeyAt(heapTuple[ba + k], heapTuple[bb + k], k, keyKind, access, sortColumns, globalSortViews);
-      if (cmp != 0) {
-        return descending[k]
-            ? -cmp
-            : cmp;
-      }
-    }
-    return Long.compare(heapRank[a], heapRank[b]);
-  }
-
-  /** Max-heap sift-down (root = WORST kept row) over the parallel heap arrays. */
-  private static void siftDownWorst(final long[] heapTuple, final long[] heapKey, final long[] heapRank,
-      final int start, final int size, final int keyCount, final boolean[] descending, final ProjectionColumnStore.LeafColumnAccess access, final int[] sortColumns,
-      final byte[] keyKind, final GlobalValueDictionary.ReadView[] globalSortViews) {
-    int i = start;
-    final int half = size >>> 1;
-    while (i < half) {
-      int child = (i << 1) + 1;
-      final int right = child + 1;
-      if (right < size
-          && compareHeapRows(heapTuple, heapRank, right, child, keyCount, descending, access, sortColumns, keyKind,
-              globalSortViews) > 0) {
-        child = right;
-      }
-      if (compareHeapRows(heapTuple, heapRank, child, i, keyCount, descending, access, sortColumns, keyKind,
-          globalSortViews) <= 0) {
-        return;
-      }
-      swapHeapRows(heapTuple, heapKey, heapRank, i, child, keyCount);
-      i = child;
-    }
-  }
-
-  private static void swapHeapRows(final long[] heapTuple, final long[] heapKey, final long[] heapRank, final int a,
-      final int b, final int keyCount) {
-    final int ba = a * keyCount;
-    final int bb = b * keyCount;
-    for (int k = 0; k < keyCount; k++) {
-      final long tmp = heapTuple[ba + k];
-      heapTuple[ba + k] = heapTuple[bb + k];
-      heapTuple[bb + k] = tmp;
-    }
-    long tmp = heapKey[a];
-    heapKey[a] = heapKey[b];
-    heapKey[b] = tmp;
-    tmp = heapRank[a];
-    heapRank[a] = heapRank[b];
-    heapRank[b] = tmp;
   }
 
   /**

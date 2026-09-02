@@ -152,6 +152,46 @@ public final class ProjectionIndexColumnSegmentCodec {
   /** Fixed per-segment header size: magic + version + segKind. */
   public static final int SEGMENT_HEADER_BYTES = 6;
 
+  /**
+   * Byte offset of a BODY segment's presence marker for a leaf WITH rows: the segment header, the
+   * column flags byte, then the {@code min}/{@code max} zone mirrors. Kept beside the header size
+   * because it is the same kind of fact — a layout position the decoders consume implicitly through
+   * {@link #decodeBodySlice} and that {@link #bodyAllPresent} reads directly.
+   */
+  static final int BODY_PRESENCE_MARKER_OFFSET = SEGMENT_HEADER_BYTES + Byte.BYTES + 2 * Long.BYTES;
+
+  /**
+   * Whether a VERIFIED BODY segment of a leaf with rows encodes every row present — the encoder's
+   * marker {@code 0} ({@code 1} = all missing, {@code 2} = explicit words). Reads ONE byte instead of
+   * decoding the payload, which is what lets a column's all-present bitset be built from a pass over
+   * its BODY chain without ever holding the decoded column.
+   *
+   * @throws IllegalStateException when the segment is too short to carry a marker — a rowless leaf's
+   *         BODY (flags only) must never be asked; the caller consults the row count first
+   */
+  static boolean bodyAllPresent(final byte[] bodyColumnSegment) {
+    if (bodyColumnSegment.length <= BODY_PRESENCE_MARKER_OFFSET) {
+      throw new IllegalStateException("BODY segment of " + bodyColumnSegment.length
+          + " bytes carries no presence marker (rowless leaf, or a truncated segment)");
+    }
+    final int marker = bodyColumnSegment[BODY_PRESENCE_MARKER_OFFSET] & 0xFF;
+    if (marker > 2) {
+      throw new IllegalStateException("Bad presence marker " + marker);
+    }
+    return marker == 0;
+  }
+
+  /** Whether decoded presence words mark every one of {@code rowCount} rows present. */
+  static boolean allPresent(final long[] presenceWords, final int rowCount) {
+    final int words = (rowCount + 63) >>> 6;
+    for (int w = 0; w < words; w++) {
+      if (presenceWords[w] != ProjectionIndexRowGroupCodec.expectedFullWord(w, words, rowCount)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /** XXH3-64 for descriptor content hashes (zero-allocation, shared instance). */
   private static final LongHashFunction XX3 = LongHashFunction.xx3();
 

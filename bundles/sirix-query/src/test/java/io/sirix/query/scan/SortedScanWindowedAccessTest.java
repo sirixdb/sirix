@@ -28,16 +28,17 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The sorted top-k scan over a leaf-at-a-time (windowed) column access, against the interpreter.
+ * The sorted top-k scan over a non-retaining (per-leaf-set) column access, against the interpreter.
  *
  * <p>
  * A whole-column slice fill of a fat string column at 100M rows is several GB of per-leaf
- * dictionaries and can never be resident, so the kernel now takes a {@code LeafColumnAccess}: the
- * store hands out resident slices when every needed column fits the fill budget and decodes leaves
- * per window otherwise. The two must answer identically — including string sort keys resolved
- * across leaves for the heap comparisons, zone-map pruned leaves, and the record keys of the winners.
- * The second arm pins the fill budget to one byte so the windowed access is what serves, and asserts
- * that it did.
+ * dictionaries and can never be resident, so the kernel never fills a column for itself: it serves
+ * whatever the store already holds resident and decodes exactly the leaves it visits otherwise. The
+ * two must answer identically — including string sort keys resolved across leaves for the heap
+ * comparisons, zone-map pruned leaves, and the record keys of the winners. The first arm pins the
+ * fill budget to one byte so nothing can be resident and asserts the non-retaining access engaged;
+ * the second pre-fills every column and the record keys through the catalog's store and asserts the
+ * scan then took the resident route (the witness must NOT move).
  * </p>
  */
 final class SortedScanWindowedAccessTest {
@@ -129,9 +130,30 @@ final class SortedScanWindowedAccessTest {
           "not served by the sorted scan under the one-byte budget: " + QUERIES.get(i));
     }
     final long windowedAfter = ProjectionColumnStore.windowedLeafAccessCount();
-    // Arm 2: the default budget — resident slices, the same answers.
+    // Arm 2: the default budget, every column and the record keys RESIDENT — the same answers from
+    // the retained slices. The scan observes residency but never creates it, so the fills are made
+    // here through the catalog's shared store, exactly as an earlier query would have left them.
     ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
     previousBudget = -1L;
+    try (var db = Databases.openJsonDatabase(dbDir.resolve(DB)); var session = db.beginResourceSession(RES)) {
+      final int revision = session.getMostRecentRevisionNumber();
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
+          new String[] {"t", "url", "v"});
+      assertNotNull(handle, "the projection must be loadable");
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      assertNotNull(store, "the catalog must build a column store");
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+          ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      for (final String name : new String[] {"t", "url", "v"}) {
+        final int col = handle.columnOf(name);
+        assertTrue(col >= 0, "column " + name + " must be projected");
+        assertNotNull(store.column(col, fetcher), "column " + name + " must fill");
+        assertTrue(store.columnFilled(col), "column " + name + " must be resident after its fill");
+      }
+      assertNotNull(store.recordKeys(fetcher), "the record keys must fill");
+      assertTrue(store.recordKeysFilled(), "the record keys must be resident after their fill");
+    }
     for (int i = 0; i < QUERIES.size(); i++) {
       final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
       assertEquals(generic[i], run(QUERIES.get(i), true), "resident sorted scan diverges for: " + QUERIES.get(i));
@@ -139,7 +161,7 @@ final class SortedScanWindowedAccessTest {
           + QUERIES.get(i));
     }
     assertEquals(windowedAfter, ProjectionColumnStore.windowedLeafAccessCount(),
-        "the resident arm must not take the windowed access");
+        "the resident arm must serve from the retained slices, not decode leaves for itself");
     assertTrue(ProjectionColumnStore.windowedLeafAccessCount() > windowedBefore,
         "the windowed access never engaged: the budget seam did not take, the agreement above is vacuous");
   }

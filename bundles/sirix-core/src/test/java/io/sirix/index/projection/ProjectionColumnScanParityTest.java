@@ -8,6 +8,7 @@ import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -890,6 +891,172 @@ final class ProjectionColumnScanParityTest {
     ProjectionColumnScan.topKRecordKeys(fx.store(), none, scatteredKey, new boolean[] {false}, 5, fx.fetcher());
     assertEquals(0L, ProjectionColumnScan.topKPlanTiedCount() - keptBefore,
         "a scattered key must KEEP the best-first plan — otherwise the tie test is over-firing");
+  }
+
+  /**
+   * A fetcher that answers {@link ColumnSegmentFetcher#rangedFetchIsConcurrent()} — the catalog
+   * fetcher's shape — so the top-k walk fans its chunks out over slabs instead of taking them on the
+   * calling thread.
+   */
+  private static ColumnSegmentFetcher concurrentFetcher(final ColumnSegmentFetcher plain) {
+    return new ColumnSegmentFetcher() {
+      @Override
+      public byte @Nullable [] @Nullable [] fetchAll(final long[] offsets) {
+        return plain.fetchAll(offsets);
+      }
+
+      @Override
+      public boolean rangedFetchIsConcurrent() {
+        return true;
+      }
+    };
+  }
+
+  @Test
+  void topKParallelSlabsAgreeWithTheSerialWalkAndTheOracle() {
+    // The catalog's fetcher tolerates concurrent ranged fetches, so the walk splits every chunk into
+    // slabs with a heap each — skipping on the frozen global heap AND on the slab's own — and merges
+    // them after the chunk; a plain fetcher takes the same chunks on the calling thread. Both must be
+    // the oracle and each other: a lost slab heap, a merge admitting by the wrong comparison, or a
+    // slab-local skip that is not strict shows up as a wrong prefix. 40 scattered all-present leaves
+    // give chunks of 1, 2, 4, 8, 16 and 9 leaves, so up to eight slabs share one chunk.
+    for (final long seed : new long[] {5, 61}) {
+      final Fixture fx = buildFixture(seed, 40, false, true);
+      assertFalse(leafMinimaFollowDocumentOrder(fx), "seed " + seed + " must scatter the leaf minima");
+      final ColumnSegmentFetcher concurrent = concurrentFetcher(fx.fetcher());
+      final ColumnPredicate[][] shapes =
+          {new ColumnPredicate[0], new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GT, 0L)},
+              new ColumnPredicate[] {ColumnPredicate.booleanEq(2, true)},};
+      final int[] longKey = {0};
+      for (final ColumnPredicate[] preds : shapes) {
+        final LongArrayList bv = new LongArrayList();
+        final LongArrayList bk = new LongArrayList();
+        final LongArrayList bm = new LongArrayList();
+        ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), preds, longKey, bv, bk, bm);
+        assertTrue(bm.isEmpty(), "an all-present fixture has no missing order cells");
+        for (final boolean desc : new boolean[] {false, true}) {
+          for (final int k : new int[] {1, 3, 17, 300, 100_000}) {
+            final long skippedBefore = ProjectionColumnScan.topKLeavesSkippedCount();
+            final long[] parallel = ProjectionColumnScan.topKRecordKeys(fx.store(), preds, longKey,
+                new boolean[] {desc}, k, concurrent);
+            final long skippedParallel = ProjectionColumnScan.topKLeavesSkippedCount() - skippedBefore;
+            final long[] serial =
+                ProjectionColumnScan.topKRecordKeys(fx.store(), preds, longKey, new boolean[] {desc}, k, fx.fetcher());
+            final String label = "seed=" + seed + " preds=" + preds.length + " desc=" + desc + " k=" + k;
+            assertArrayEquals(topKOracle(bv, bk, desc, k), parallel, "parallel slabs vs oracle " + label);
+            assertArrayEquals(serial, parallel, "serial walk vs parallel slabs " + label);
+            if (k <= 3 && preds.length == 0) {
+              assertTrue(skippedParallel > 0L,
+                  "k=" + k + " over 40 scattered leaves must skip leaves on the parallel walk " + label);
+            }
+          }
+        }
+      }
+      // A string first key and a (string, long) key pair through the same slabs, against a
+      // slice-level oracle that shares no ordering code with the kernel.
+      for (final boolean desc : new boolean[] {false, true}) {
+        for (final int k : new int[] {1, 7, 250}) {
+          final String label = "seed=" + seed + " desc=" + desc + " k=" + k;
+          assertArrayEquals(stringTopKOracle(fx, 3, Long.MIN_VALUE, desc, k),
+              ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3},
+                  new boolean[] {desc}, k, concurrent),
+              "string key, parallel slabs vs oracle " + label);
+          final long[] pair = ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3, 0},
+              new boolean[] {desc, !desc}, k, concurrent);
+          assertArrayEquals(stringLongTopKOracle(fx, desc, !desc, k), pair, "(string, long) keys vs oracle " + label);
+          assertArrayEquals(ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], new int[] {3, 0},
+              new boolean[] {desc, !desc}, k, fx.fetcher()), pair, "(string, long) keys, serial vs parallel " + label);
+        }
+      }
+    }
+  }
+
+  @Test
+  void topKDeclinesExactlyWhenAMatchingRowMissesAnOrderKey() {
+    // Sparse presence, no predicate: some matching row misses its order key on nearly every leaf, and
+    // the interpreter's empty-least/greatest placement is not this scan's to make — it declines.
+    // The same store under a predicate on the order column has no such row (every op is
+    // missing ⇒ false), so it must answer, and answer the oracle.
+    final Fixture fx = buildFixture(19, 12, true, false);
+    final ColumnSegmentFetcher concurrent = concurrentFetcher(fx.fetcher());
+    final int[] longKey = {0};
+    final LongArrayList bv = new LongArrayList();
+    final LongArrayList bk = new LongArrayList();
+    final LongArrayList bm = new LongArrayList();
+    ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), new ColumnPredicate[0], longKey, bv, bk, bm);
+    assertFalse(bm.isEmpty(), "the sparse fixture must hold rows without an order key");
+    for (final ColumnSegmentFetcher fetcher : new ColumnSegmentFetcher[] {fx.fetcher(), concurrent}) {
+      assertEquals(null,
+          ProjectionColumnScan.topKRecordKeys(fx.store(), new ColumnPredicate[0], longKey, new boolean[] {false}, 5,
+              fetcher),
+          "a matching row without an order key must decline");
+    }
+    final ColumnPredicate[] onKey = {ColumnPredicate.numeric(0, Op.GE, -1_000L)};
+    bv.clear();
+    bk.clear();
+    bm.clear();
+    ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), onKey, longKey, bv, bk, bm);
+    assertTrue(bm.isEmpty(), "a predicate on the order column admits no row without it");
+    for (final boolean desc : new boolean[] {false, true}) {
+      for (final int k : new int[] {1, 9, 4_000}) {
+        for (final ColumnSegmentFetcher fetcher : new ColumnSegmentFetcher[] {fx.fetcher(), concurrent}) {
+          assertArrayEquals(topKOracle(bv, bk, desc, k),
+              ProjectionColumnScan.topKRecordKeys(fx.store(), onKey, longKey, new boolean[] {desc}, k, fetcher),
+              "predicate-guaranteed presence desc=" + desc + " k=" + k);
+        }
+      }
+    }
+  }
+
+  /**
+   * Slice-level oracle for the key pair (string column 3, long column 0): every row in document
+   * order, stably sorted by entry bytes then the long, each with its own direction.
+   */
+  private static long[] stringLongTopKOracle(final Fixture fx, final boolean descString, final boolean descLong,
+      final int k) {
+    final ProjectionColumnStore.ColumnSlice[] stringSlices = fx.store().column(3, fx.fetcher());
+    final ProjectionColumnStore.ColumnSlice[] longSlices = fx.store().column(0, fx.fetcher());
+    final long[][] recordKeys = fx.store().recordKeys(fx.fetcher());
+    final List<byte[]> values = new ArrayList<>();
+    final LongArrayList longs = new LongArrayList();
+    final LongArrayList keys = new LongArrayList();
+    for (int leaf = 0; leaf < fx.store().rowGroupCount(); leaf++) {
+      final int rows = fx.store().rowCount(leaf);
+      final ProjectionColumnStore.ColumnSlice slice = stringSlices[leaf];
+      for (int r = 0; r < rows; r++) {
+        final int dictId = slice.stringDictIds()[r];
+        values.add(Arrays.copyOfRange(slice.dictBytes(), slice.dictOffset(dictId),
+            slice.dictOffset(dictId) + slice.dictLength(dictId)));
+        longs.add(longSlices[leaf].numericValues()[r]);
+        keys.add(recordKeys[leaf][r]);
+      }
+    }
+    final int n = keys.size();
+    final Integer[] order = new Integer[n];
+    for (int i = 0; i < n; i++) {
+      order[i] = i;
+    }
+    Arrays.sort(order, (a, b) -> {
+      int cmp = ProjectionColumnScan.compareDictEntries(values.get(a), values.get(b));
+      if (cmp != 0) {
+        return descString
+            ? -cmp
+            : cmp;
+      }
+      cmp = Long.compare(longs.getLong(a), longs.getLong(b));
+      if (cmp != 0) {
+        return descLong
+            ? -cmp
+            : cmp;
+      }
+      return Integer.compare(a, b);
+    });
+    final int take = Math.min(k, n);
+    final long[] out = new long[take];
+    for (int i = 0; i < take; i++) {
+      out[i] = keys.getLong(order[i]);
+    }
+    return out;
   }
 
   /** Whether the leaves' minimum long key already ascends with leaf index (a banded corpus). */
