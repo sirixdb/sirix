@@ -1899,3 +1899,83 @@ only 1/8 (1/2) of the rows inserted. Full-suite projection with REL1's q32: hot 
 hot tail is q18 27 + q32 18.5 + q16 10 + q17 10 = 65.5 s of 115 — all four are pass scans, so the row cost of
 the windowed-slice scan (decode path, LZ77 heap-vs-native, per-window allocation) is the lever that moves
 them together; the 2× budget share moves q16/q17 alone (1 pass ≈ 5.5 s).
+
+## 2026-09-02 ~17:00–18:30: levers A1–A3 — zone pruning for predicate TREES, morsel skips, per-window offsets (169d7bfa6, 5a7b4b916)
+
+q36–q42 (`WHERE CounterID = 62 AND EventDate BETWEEN … AND TraficSourceID IN (-1, 6) …`) ran 100–130 ms hot
+against 2–10 ms bests: one `IN`/`OR` made the WHERE a `PredicateTree`, and the tree route had NO zone-map or
+bloom pruning — q40 fetched 1.635 GB (every column, all 97,654 leaves) for the ~723 leaves that hold
+CounterID = 62. **A1:** the keep mask is an RPN program over per-leaf evidence masks (`AND → &`, `OR → |`, NOT
+→ all-kept), a pruned leaf carries the PRUNED sentinel in every tree column and `evaluateMaskTree` returns 0
+without touching the stack. **A2:** a 64-leaf morsel whose keep words are all zero is skipped in the four spill
+loops and the four range loops — at 97,654 leaves a 10 µs per-pruned-leaf floor was still a 1 s tax. **A3:**
+each worker's `WindowedLeafAccess` built the WHOLE-column offset chain on first touch (97,654 binary searches
+per column per worker); offsets are now collected per window. q40 0.295 → 0.140, q41 0.487 → 0.156, q36 0.140
+→ 0.101. Witnesses `PredicateTreeKeepMaskTest`, `GroupWindowedSlicesTest.orTreesPruneLeavesThroughTheKeepMaskOnBothRoutes`
+(one fixture per arm), `treeLeavesPrunedCount()`; mutants OR→AND, allPruned-always-true, tree-keep-ignored,
+executor full-fill all killed.
+
+## 2026-09-02 ~18:30: the validated baseline — leg A3FULL5 (43 queries, 5 tries, no diag) and the leaderboard metric
+
+`$S/agents/p2s1/rank.py` reproduces the site's scoring (`selectRun`: hot = min(try 2, try 3); baseline = per
+(query, run) minimum over the board; ratio (0.01 + t)/(0.01 + best); geometric mean over 43; a missing result
+costs 2 × max(300 s, own worst)). Boards: **c6a.4xlarge-only** (the fair one for a 20-core workstation) and the
+page's DEFAULT view (all large machines, tuned = no, cpu). A3FULL5 hot geomean **10.01 → rank 53/141** on the
+c6a board (steady = min(try 4, 5) 9.25); combined (0.75 hot + 0.25 cold) 9.59 → rank 29; default view 18.9 →
+rank 197/441. Rank 15 on the c6a hot board is 4.11 (−38.3 ln units from 99.0), rank 10 is 3.35. The worst
+ln-contributors: q17 6.18, q25 6.03, q26 5.73, q24 4.48, q32 3.90, q23 3.23, q22 3.20, q16 3.18, q4 2.82,
+q31 2.82, q30 2.72, q21 2.67, q14 2.66, q18 2.59 — the `ORDER BY … LIMIT` family (q23–q26 ≈ 19.5 units) and
+the group-by heavy hitters (q16/q17/q18/q32 ≈ 15.8) dominate; the suite SUM is irrelevant to the metric.
+
+**The JDK 25 AOT cache (JEP 514/515) is closed to us:** with `--add-modules jdk.incubator.vector` the create
+phase logs `archivedBootLayer not available, disabling full module graph`, AOT-linked classes = false and
+`MethodTrainingData = 0` — `ModuleBootstrap` never archives the boot layer when an incubator module is
+resolved (`java.base/jdk/internal/module/ModuleBootstrap.java:477`). Verified one flag at a time with a Hello
+bisect (`$S/aotprobe`). The warm-up gap (q36–q42 hot tries run the composite kernel C1-compiled with
+`evaluateMask` interpreted; tier 4 lands around try 4) must be closed in-house.
+
+## 2026-09-02 ~21:15: LEVER B — the bounded top-k never fills a column (59f11af98); c6a hot geomean 10.01 → 7.80, rank 53 → 42
+
+`ProjectionColumnScan.topKRecordKeys` resolved every sort and predicate column with `store.column(...)` —
+all 97,654 leaves of SearchPhrase (STRING_DICT, ~85 % empty) or URL decoded to pick ten rows — and fell back
+to a single-threaded leaf-at-a-time walk when the fill budget refused. Now: (1) residency is observed, never
+created — resident columns are served, everything else is decoded for exactly the leaves visited through
+`ProjectionColumnStore.leafSetAccess` (one batched fetch per column per slab), nothing retained; (2) the plan
+comes from descriptor/memo truth with zero leaf decodes — `zoneIndex` for a numeric first key,
+`stringValueExtrema` for STRING_DICT (now MIN1/MIN2/MAX1/MAX2 as BYTES in one shared array: 13.9 MB for
+97,654 leaves, built once in 1.1 s over 20 ranges), no bound for STRING_GLOBAL; (3) `WHERE c <> lit ORDER BY c`
+(q25) moves a leaf whose extremum IS the literal to its SECOND distinct extremum and drops leaves without
+one — without it every leaf ties on the empty string and nothing is skippable; (4) a bound is usable only when
+every matching row must carry every order key (`allPresentLeaves` from the BODY segment's presence-marker
+byte — `bodyAllPresent`, 127 ms cold for 97,654 leaves — or a predicate naming the column); other leaves are
+visited FIRST, unconditionally, so a keyless matching row still declines; (5) known leaves best-first in
+doubling chunks (1…4096) split into parallel slabs, one `TopKHeap` per slab, skip on the frozen global heap
+AND the slab's own full heap (strict comparisons only), merge per chunk, stop at the first skippable leaf.
+
+**B1FULL3 (43 queries, 3 tries, no diag): 43/43 byte-identical.** q23 0.846 → 0.092 s hot (3,826 leaves
+evaluated, 93,828 skipped — URL LIKE is rare, EventTime bounds), q24 0.876 → 0.024 (71 evaluated), q25
+4.143 → 0.047 (15 evaluated after the extrema memo), q26 3.056 → 0.033; cold q23 1.08 → 0.50, q24 0.93 →
+0.05, q25 4.33 → 1.24 (the one-time memo), q26 3.07 → 0.03. Every other query within noise; q8/q9 read +30 %
+CPU against A3FULL5 because a 5-try leg over-warms the JIT for later queries (hot = min(2, 3) of the 3-try
+leg is the official protocol; keep comparing 3-try legs). **Metric: c6a hot 7.80 → rank 42/141 (rank 15 needs
+−27.6 ln units more; rank 10 −36.4); c6a combined 7.98 → rank 21/136 (rank 15 at 7.42); default view 15.7 →
+rank 157/441.** Remaining worst contributors (c6a hot): q17 6.21, q32 3.93, q22 3.28, q16 3.17, q31 2.98, q4
+2.81, q30 2.78, q40 2.77, q36 2.72, q14 2.66, q41 2.65, q18 2.57, q21 2.55, q29 2.32 — two families: the
+group-by heavy hitters (≈ 22 units) and the q36–q42 warm-up family at 0.17–0.29 s against 2–10 ms bests
+(≈ 17 units).
+
+Witnesses: `TopKPlanWitnessTest` (11) — exact skip counts by construction (6/4/2), the tie counter silent
+under `<>`, decline on a leaf that may hide a keyless matching row, prefix-run and unsigned-byte ordering,
+slab-local skips, "never fills a column" (`columnFilled`/`recordKeysFilled` false, `retainedFillBytes() == 0`),
+memo sources agree on a fanned-out pass; `ProjectionColumnScanParityTest` (20) — parallel slabs vs the serial
+walk vs the oracle, (string, long) key pairs, decline exactly when a matching row misses a key;
+`SortedScanWindowedAccessTest` (3) — the resident arm pre-fills through the catalog store and the witness
+must NOT move. 15 mutants killed (MIN1 under NE, no all-present gate, non-strict skips ×2, lost slab heap ×2,
+merge with the wrong comparison, no run refinement, signed prefix, unbiased numeric desc, no heapify,
+reversed rank, first key only, slab skip on the global heap). Trap: a mutant of a PUBLIC class must live in
+its own directory as `<ClassName>.java` or javac refuses it and the harness reports SURVIVED on an
+unmutated copy.
+
+Deferred: a descriptor flag `COLUMN_FLAG_ALL_PRESENT = 0x08` written at build time would make
+`allPresentLeaves` a descriptor read instead of a BODY-chain pass (fresh builds only); memoising the
+per-(column, direction) best-first order would cut q25's ~50 ms plan.
