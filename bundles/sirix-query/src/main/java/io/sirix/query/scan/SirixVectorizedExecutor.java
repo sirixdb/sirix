@@ -13005,6 +13005,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       line.append(" pool=").append(pool.hits()).append('/').append(pool.misses()).append(" pooled=").append(pool.pooled())
           .append(" dropped=").append(pool.dropped());
     }
+    // JVM-lifetime count of slice arrays handed out from a recycling access (windowed composite passes).
+    line.append(" sliceReuse=").append(ProjectionColumnStore.recycledSliceArraysCount());
     System.err.println(line);
   }
 
@@ -13353,8 +13355,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * <li>decode the first non-empty leaves until enough distinct all-keys-present groups are seen;</li>
    * <li>price every candidate value with ONE evidence walk per key column — a multi-literal
    * fingerprint pass for STRING_DICT ({@link ProjectionColumnStore#applyBloomPruneMany}), zone
-   * stabbing for NUMERIC_LONG ({@link ProjectionColumnScan#zoneStabSorted}) — and every candidate
-   * group by the AND of its values' masks;</li>
+   * stabbing for NUMERIC_LONG and for STRING_GLOBAL, whose long lane holds dictionary ids and whose
+   * zones bound them ({@link ProjectionColumnScan#zoneStabSorted}) — and every candidate group by
+   * the AND of its values' masks;</li>
    * <li>take the k groups with the fewest leaves that may hold them (first seen breaks ties) and
    * insist that their union covers at most 1/{@value #ANY_K_UNION_DIVISOR} of the store —
    * otherwise the rewrite would not beat the full pass and the planner returns {@code null}.</li>
@@ -13379,6 +13382,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final int words = (leafCount + 63) >>> 6;
     final int[] cols = new int[keyCount];
     final boolean[] stringKey = new boolean[keyCount];
+    // A STRING_GLOBAL key is sampled and priced as a NUMERIC key over its ids (same slice lane, same
+    // zone stabbing — id containment needs no value order); only the emitted predicate differs: the
+    // chosen id is resolved back to its string so the recursive aggregate plans an ordinary equality,
+    // which the planner translates to the very same id.
+    final boolean[] globalKey = new boolean[keyCount];
     for (int g = 0; g < keyCount; g++) {
       final int col = handle.columnOf(groupFields[g]);
       final byte kind = col < 0
@@ -13386,6 +13394,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           : store.columnKind(col);
       if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         stringKey[g] = true;
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        if (handle.valueDictionaryHeaderKey(col) <= 0L) {
+          if (PROJ_DIAG) {
+            System.err.println("[anyK] declined: key " + groupFields[g] + " col=" + col
+                + " is global-string without a readable dictionary header");
+          }
+          return null;
+        }
+        globalKey[g] = true;
       } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         // Only kinds with leaf evidence (a fingerprint or a zone) can be priced.
         if (PROJ_DIAG) {
@@ -13603,13 +13620,30 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     final List<PredicateNode> groups = new ArrayList<>(k);
+    final StorageEngineReader dictReader = workerTrx().getStorageEngineReader();
     for (int i = 0; i < k; i++) {
       final long[] cand = candidates.get(order[i]);
       final List<PredicateNode> parts = new ArrayList<>(keyCount);
       for (int g = 0; g < keyCount; g++) {
-        parts.add(stringKey[g]
-            ? new PredicateNode.StrEq(groupFields[g], new String(stringValues[g].get((int) cand[g]), StandardCharsets.UTF_8))
-            : new PredicateNode.NumCmp(groupFields[g], "eq", cand[g]));
+        if (stringKey[g]) {
+          parts.add(new PredicateNode.StrEq(groupFields[g],
+              new String(stringValues[g].get((int) cand[g]), StandardCharsets.UTF_8)));
+        } else if (globalKey[g]) {
+          // The id came out of a stored cell, so the dictionary MUST know it; a null here is a
+          // corrupt dictionary, and naming a wrong group would be a wrong answer — decline instead.
+          final String value = GlobalValueDictionary.value(handle.valueDictionaryHeaderKey(cols[g]), (int) cand[g],
+              dictReader);
+          if (value == null) {
+            if (PROJ_DIAG) {
+              System.err.println("[anyK] declined: global dictionary of " + groupFields[g] + " has no value for id "
+                  + cand[g]);
+            }
+            return null;
+          }
+          parts.add(new PredicateNode.StrEq(groupFields[g], value));
+        } else {
+          parts.add(new PredicateNode.NumCmp(groupFields[g], "eq", cand[g]));
+        }
       }
       groups.add(parts.size() == 1
           ? parts.get(0)

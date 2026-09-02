@@ -84,6 +84,18 @@ public final class ProjectionColumnScan {
    */
   private static final LongAdder TREE_LEAVES_PRUNED = new LongAdder();
 
+  /**
+   * Leaves {@link #pruneLeaves} dropped on store evidence (zone or fingerprint) for a conjunctive
+   * predicate, before any leaf was fetched. Test observability: a kind that "has zones" proves
+   * nothing until a predicate over it is seen to drop leaves here.
+   */
+  private static final LongAdder LEAVES_PRUNED = new LongAdder();
+
+  /** Test/ops observability for {@link #LEAVES_PRUNED}. */
+  public static long leavesPrunedCount() {
+    return LEAVES_PRUNED.sum();
+  }
+
   /** Test/ops observability for {@link #TREE_LEAVES_PRUNED}. */
   public static long treeLeavesPrunedCount() {
     return TREE_LEAVES_PRUNED.sum();
@@ -1815,10 +1827,12 @@ public final class ProjectionColumnScan {
   }
 
   /**
-   * Zone stabbing for MANY values of one ordered-long column in ONE pass over the memoized
+   * Zone stabbing for MANY values of one long-lane column ({@link #zonePrunableKind}: ordered-long,
+   * or global-string whose values are dictionary ids) in ONE pass over the memoized
    * {@link ProjectionColumnStore.ZoneIndex}: SET bit {@code leaf} in {@code keeps[j]} when the leaf
    * MAY hold {@code sortedValues[j]} — its descriptor range covers the value, or the range is
-   * unknown (no evidence is never a proof of absence). A leaf whose every cell is missing sets
+   * unknown (no evidence is never a proof of absence). Containment needs no value order, so a
+   * global column's ids stab exactly whatever order they were minted in. A leaf whose every cell is missing sets
    * nothing. Values must be strictly ascending; masks are OR-ed into (callers pass zeroed masks for
    * a pure answer). Per leaf the work is two binary searches over the values plus the covered span,
    * so k values cost about one {@link #pruneLeaves} walk rather than k.
@@ -1830,8 +1844,8 @@ public final class ProjectionColumnScan {
     if (store == null || sortedValues == null || keeps == null || sortedValues.length != keeps.length) {
       throw new IllegalArgumentException("store, values and masks must pair up");
     }
-    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(col))) {
-      throw new IllegalArgumentException("column " + col + " is not an ordered-long column");
+    if (!zonePrunableKind(store.columnKind(col))) {
+      throw new IllegalArgumentException("column " + col + " has no long-lane zone (not ordered-long or global-string)");
     }
     final int n = store.leafCount();
     final int words = (n + 63) >>> 6;
@@ -1925,6 +1939,23 @@ public final class ProjectionColumnScan {
   }
 
   /**
+   * Kinds whose descriptor min/max bound the LONG lane a numeric predicate compares against: the
+   * ordered-long kinds, and {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}, whose
+   * cells are dictionary ids. A predicate on a global column reaches the scan ALREADY TRANSLATED —
+   * {@code stringLitBytes == null}, {@code longLit} = the literal's id (or the ID_ABSENT sentinels
+   * {@code > Long.MAX_VALUE} / {@code >= Long.MIN_VALUE}) — so {@link #zoneSkip} tests an id against
+   * an id range: EQ is containment and NE a collapsed zone, both sound whatever order the ids were
+   * minted in, and the sentinels prune every leaf or none. This is the same test
+   * {@link #evalLeafInto} applies to a global slice AFTER fetching it; here it runs on the memoized
+   * descriptor zones BEFORE any leaf is read. Without it a global string column had no leaf pruning
+   * at all — every equality over it scanned the whole store (found when SearchPhrase became global).
+   */
+  static boolean zonePrunableKind(final byte kind) {
+    return ProjectionIndexRowGroupPage.isOrderedLongKind(kind)
+        || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+  }
+
+  /**
    * Clear from {@code keep} every still-kept leaf that predicate {@code p} PROVES contributes no row:
    * descriptor {@code min > max} (no present value), a numeric zone the predicate excludes, or a
    * string-equality fingerprint miss. Returns how many leaves this predicate dropped.
@@ -1933,7 +1964,7 @@ public final class ProjectionColumnScan {
       final ColumnSegmentFetcher fetcher) {
     final int n = store.leafCount();
     final byte kind = store.columnKind(p.column);
-    if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind) && p.stringLitBytes == null) {
+    if (zonePrunableKind(kind) && p.stringLitBytes == null) {
       // The memoized zone mirrors: built once per column from the descriptors, then every predicate
       // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
       // descriptor binary search per leaf.
@@ -1959,6 +1990,7 @@ public final class ProjectionColumnScan {
         System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " zone: dropped=" + dropped
             + " noEvidence=" + noEvidence);
       }
+      LEAVES_PRUNED.add(dropped);
       return dropped;
     }
     if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
@@ -1972,6 +2004,7 @@ public final class ProjectionColumnScan {
       if (DIAG) {
         System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=EQ bloom: dropped=" + dropped);
       }
+      LEAVES_PRUNED.add(dropped);
       return dropped;
     }
     if (DIAG) {
