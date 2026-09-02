@@ -3078,22 +3078,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Tree serving gate: every leaf sliceable under the conjunctive rules; SET leaves stay whole-leaf
-   * (v1). Tree fills are FULL — keep-mask pruning is conjunction-only.
+   * (v1). Priced as FULL fills although the fill is masked by the tree's keep mask
+   * ({@link #resolveTreeCols}) — the conservative side of the budget.
    */
   private static boolean treeSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree) {
     return treeSliceableKind(store, tree) && predsFillable(store, tree.leaves);
   }
 
-  /** FULL fills of every tree leaf's column, index-aligned with {@code tree.leaves}. */
-  private ProjectionColumnStore.ColumnSlice[][] resolveTreeCols(final ProjectionColumnStore store,
+  /**
+   * Every tree leaf's column, index-aligned with {@code tree.leaves}, masked by the tree's OWN keep
+   * mask (each leaf predicate's zone / fingerprint evidence, combined by the program — AND
+   * intersects, OR unites): a dropped leaf is the pruned sentinel in every tree column and the
+   * kernels skip it whole. A tree carries the WHOLE predicate (the flat {@code preds} are empty
+   * beside it), so its mask needs no conjunctive half. Before this, tree fills were FULL: q40's
+   * {@code CounterID = 62 AND … AND TraficSourceID IN (-1, 6)} fetched all 97,654 leaves of every
+   * column at 100M because ONE {@code IN} made the whole WHERE a tree.
+   */
+  private static ProjectionColumnStore.ColumnSlice[][] resolveTreeCols(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
-    final ProjectionColumnStore.ColumnSlice[][] cols = new ProjectionColumnStore.ColumnSlice[tree.leaves.length][];
-    for (int i = 0; i < tree.leaves.length; i++) {
-      cols[i] = store.column(tree.leaves[i].column, fetcher);
-    }
-    return cols;
+    final long[] keep = ProjectionColumnScan.predicateKeepMask(store, NO_PREDICATES, tree, fetcher);
+    return ProjectionColumnScan.resolveTreeColumnsShared(store, tree, fetcher, keep);
   }
+
+  /** The empty conjunctive half beside a tree (a scan carries flat predicates OR a tree, never both). */
+  private static final ProjectionIndexScan.ColumnPredicate[] NO_PREDICATES = new ProjectionIndexScan.ColumnPredicate[0];
 
   /**
    * Whether aggregate block {@code a} is the COUNT(DISTINCT) operand in the ONE position that needs
@@ -14372,7 +14381,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             GROUP_WINDOWED_SLICES.increment(); // this arm feeds its kernels windowed slices
           }
           final long[] windowedKeepC = windowedSlices && compositeSlicedArm
-              ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, columnFetcher())
+              ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, tree, columnFetcher())
               : null;
           final int slotWidth = 2 + 4 * aggColsFlat.length;
           // ORD_KEY on THIS arm: the key lane is a source reference, so the order value comes from
@@ -14453,6 +14462,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                           if (spill.aborted()) {
                             spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                             return; // over the per-pass group budget: the arm restarts with more passes
+                          }
+                          if (wsl != null && ProjectionColumnScan.allPruned(windowedKeepC, sub, subEnd)) {
+                            // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
+                            // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                            spill.noteLeavesScanned(subEnd - sub);
+                            sub = spill.claimLeaves(rowGroupCount, subChunk);
+                            continue;
                           }
                           if (compositeSlicedArm) {
                             final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
@@ -14907,7 +14923,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           GROUP_WINDOWED_SLICES.increment(); // this arm feeds its kernels windowed slices
         }
         final long[] windowedKeepS = windowedSlices && stringSlicedArm
-            ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, columnFetcher())
+            ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, tree, columnFetcher())
             : null;
         final int slotWidth = 2 + 4 * aggColsFlat.length;
         final long groupBudget = plannedGroupBudget();
@@ -15000,6 +15016,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                       if (spill.aborted()) {
                         spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                         return; // over the per-pass group budget: the arm restarts with more passes
+                      }
+                      if (wsl != null && ProjectionColumnScan.allPruned(windowedKeepS, sub, subEnd)) {
+                        // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
+                        // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                        spill.noteLeavesScanned(subEnd - sub);
+                        sub = spill.claimLeaves(rowGroupCount, subChunk);
+                        continue;
                       }
                       if (stringSlicedArm) {
                         final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
@@ -15322,6 +15345,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               final String[][] subBest = new String[deferredColsArr.length][slotsTotal];
               for (int sub = from; sub < to; sub += subChunk2) {
                 final int subEnd = Math.min(sub + subChunk2, to);
+                if (ProjectionColumnScan.allPruned(windowedKeepS, sub, subEnd)) {
+                  continue; // every leaf dropped by the keep mask: nothing to fetch or fold
+                }
                 ProjectionColumnGroupScan.stringAggForWinnerGroupsSliced(groupStore, preds,
                     wsl2.predicateColumns(preds, sub, subEnd), tree, tree != null
                         ? wsl2.treeColumns(tree, sub, subEnd)
@@ -15505,6 +15531,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final int subChunk = GroupTableSpill.subChunkLeaves();
             for (int sub = from; sub < to; sub += subChunk) {
               final int subEnd = Math.min(sub + subChunk, to);
+              if (ProjectionColumnScan.allPruned(legKeepS, sub, subEnd)) {
+                continue; // every leaf dropped by the keep mask: nothing to fetch or fold
+              }
               ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds,
                   wsl.predicateColumns(preds, sub, subEnd), null, null, wsl.column(groupCol, sub, subEnd),
                   wsl.columns(aggColsFlat, sub, subEnd), null, sub, subEnd, localT, missing, -1, null, null, null, false,
@@ -15824,6 +15853,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final int subChunk = GroupTableSpill.subChunkLeaves();
           for (int sub = from; sub < to; sub += subChunk) {
             final int subEnd = Math.min(sub + subChunk, to);
+            if (ProjectionColumnScan.allPruned(constKeep, sub, subEnd)) {
+              continue; // every leaf dropped by the keep mask: nothing to fetch or fold
+            }
             ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds, wsl.predicateColumns(preds, sub, subEnd),
                 wsl.columns(aggCols, sub, subEnd), sub, subEnd, local);
             wsl.release(sub, subEnd);
@@ -15981,7 +16013,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       GROUP_WINDOWED_SLICES.increment(); // this arm feeds its kernels windowed slices
     }
     final long[] windowedKeepP = windowedSlices && slicedStore != null
-        ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, columnFetcher())
+        ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, tree, columnFetcher())
         : null;
     final int slotWidth = 2 + 4 * aggCols.length;
     final long groupBudget = plannedGroupBudget();
@@ -16026,6 +16058,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               if (spill.aborted()) {
                 spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                 return; // over the per-pass group budget: the arm restarts with more passes
+              }
+              if (wsl != null && ProjectionColumnScan.allPruned(windowedKeepP, sub, subEnd)) {
+                // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
+                // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                spill.noteLeavesScanned(subEnd - sub);
+                sub = spill.claimLeaves(rowGroupCount, subChunk);
+                continue;
               }
               if (slicedStore != null) {
                 final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
@@ -16318,7 +16357,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         GROUP_WINDOWED_SLICES.increment(); // this arm feeds its kernels windowed slices
       }
       final long[] windowedKeep = windowedSlices && slicedStore != null
-          ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, columnFetcher())
+          ? ProjectionColumnScan.predicateKeepMask(slicedStore, preds, predTree, columnFetcher())
           : null;
       final int slotWidth = 2 + 4 * aggCols.length;
       final long groupBudget = plannedGroupBudget();
@@ -16369,6 +16408,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   if (spill.aborted()) {
                     spill.noteAbandonedLocal(local.size()); // never flushed: the pass estimate counts it
                     return; // over the per-pass group budget: the arm restarts with more passes
+                  }
+                  if (wsl != null && ProjectionColumnScan.allPruned(windowedKeep, sub, subEnd)) {
+                    // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
+                    // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                    spill.noteLeavesScanned(subEnd - sub);
+                    sub = spill.claimLeaves(rowGroupCount, subChunk);
+                    continue;
                   }
                   if (slicedStore != null) {
                     final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
@@ -16596,6 +16642,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final int subChunk = GroupTableSpill.subChunkLeaves();
           for (int sub = from; sub < to; sub += subChunk) {
             final int subEnd = Math.min(sub + subChunk, to);
+            if (ProjectionColumnScan.allPruned(legKeep, sub, subEnd)) {
+              continue; // every leaf dropped by the keep mask: nothing to fetch or fold
+            }
             ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds,
                 wsl.predicateColumns(preds, sub, subEnd), null, null, wsl.column(groupCol, sub, subEnd),
                 wsl.columns(aggCols, sub, subEnd), null, sub, subEnd, localT, missing, -1, null, null, null, false, null);

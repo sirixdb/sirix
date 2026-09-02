@@ -288,10 +288,17 @@ public final class ProjectionIndexScan {
 
     public final ColumnPredicate[] leaves;
     public final byte[] program;
+    /** Whether any instruction negates — decided once, read per leaf by the tree evaluator. */
+    private final boolean hasNot;
 
     private PredicateTree(final ColumnPredicate[] leaves, final byte[] program) {
       this.leaves = leaves;
       this.program = program;
+      boolean negates = false;
+      for (final byte insn : program) {
+        negates |= insn == OP_NOT;
+      }
+      this.hasNot = negates;
     }
 
     /**
@@ -331,6 +338,15 @@ public final class ProjectionIndexScan {
         throw new IllegalArgumentException("program ends at stack depth " + depth + " (want 1)");
       }
       return new PredicateTree(leaves.clone(), program.clone());
+    }
+
+    /**
+     * Whether the program negates anywhere. A whole-leaf prune (every operand all-zero) is exact
+     * under AND/OR but NOT would flip it to all-true, so negating trees keep the exact per-leaf
+     * evaluation.
+     */
+    public boolean hasNot() {
+      return hasNot;
     }
 
     /** Whether any combinator is an OR — pure-AND trees should use the flat conjunctive form. */

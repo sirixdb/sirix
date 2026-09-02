@@ -71,6 +71,18 @@ public final class ProjectionColumnScan {
     return TOPK_PLAN_TIED.sum();
   }
 
+  /**
+   * Leaves a predicate TREE's keep mask dropped (zone / fingerprint evidence combined by the tree's
+   * program). Observability: a tree route that silently stops pruning answers identically and only
+   * this count tells it from one that never pruned.
+   */
+  private static final LongAdder TREE_LEAVES_PRUNED = new LongAdder();
+
+  /** Test/ops observability for {@link #TREE_LEAVES_PRUNED}. */
+  public static long treeLeavesPrunedCount() {
+    return TREE_LEAVES_PRUNED.sum();
+  }
+
   /** Sort-key kind: a raw long, compared directly. */
   private static final byte KEY_NUMERIC = 0;
 
@@ -145,8 +157,114 @@ public final class ProjectionColumnScan {
    */
   public static long @Nullable [] predicateKeepMask(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    return predicateKeepMask(store, predicates, null, fetcher);
+  }
+
+  /**
+   * The keep mask for BOTH predicate shapes a scan can carry: the conjunctive {@code predicates}
+   * narrow the mask predicate by predicate, and a {@code tree} contributes the leaf set its program
+   * can still reach — every tree leaf's evidence is gathered on its own (a fresh all-kept mask, the
+   * same zone / fingerprint rules), then combined by the program: AND intersects, OR unites, NOT keeps
+   * every leaf (the operand's evidence bounds where the operand matches and says nothing about its
+   * negation). A tree leaf whose evidence drops nothing therefore contributes an all-kept operand, so
+   * an OR over one evidence-less leaf keeps everything — degrading to the unpruned fill, never past
+   * it. A {@code (CounterID = c AND (src = a OR src = b))} tree over a CounterID-sorted table prunes
+   * to CounterID's leaves exactly as the flat conjunction would. {@code null} = nothing pruned.
+   */
+  public static long @Nullable [] predicateKeepMask(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ProjectionIndexScan.@Nullable PredicateTree tree,
+      final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
-    return computeKeepMask(store, predicates, fetcher);
+    long[] keep = computeKeepMask(store, predicates, fetcher);
+    if (tree != null) {
+      checkPredicates(store, tree.leaves);
+      final long[] treeKeep = computeTreeKeepMask(store, tree, fetcher);
+      if (treeKeep != null) {
+        TREE_LEAVES_PRUNED.add(store.leafCount() - cardinality(treeKeep));
+        if (keep == null) {
+          keep = treeKeep;
+        } else {
+          for (int i = 0; i < keep.length; i++) {
+            keep[i] &= treeKeep[i];
+          }
+        }
+      }
+    }
+    if (DIAG) {
+      printKeepMask(store, keep);
+    }
+    return keep;
+  }
+
+  /**
+   * Masked views of every tree leaf's column, index-aligned with {@code tree.leaves}: a leaf the mask
+   * drops is the pruned sentinel in EVERY tree column, which {@link #evaluateMaskTree} answers as "no
+   * rows" without touching a slice. {@code keep == null} = the plain (cached) fills.
+   */
+  public static ColumnSlice[][] resolveTreeColumnsShared(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep) {
+    checkPredicates(store, tree.leaves);
+    final ColumnSlice[][] cols = new ColumnSlice[tree.leaves.length][];
+    for (int i = 0; i < tree.leaves.length; i++) {
+      // A masked fill is predicate-specific and never cached, so a column two leaves share (a
+      // BETWEEN's pair, an IN's alternatives) is resolved once and its immutable array shared.
+      final int column = tree.leaves[i].column;
+      ColumnSlice[] shared = null;
+      for (int j = 0; j < i; j++) {
+        if (tree.leaves[j].column == column) {
+          shared = cols[j];
+          break;
+        }
+      }
+      cols[i] = shared != null
+          ? shared
+          : store.columnMaskedView(column, fetcher, keep);
+    }
+    return cols;
+  }
+
+  /** Whether every leaf in {@code [fromLeaf, toLeaf)} is dropped by {@code keep} — a morsel a pass can skip whole. */
+  public static boolean allPruned(final long @Nullable [] keep, final int fromLeaf, final int toLeaf) {
+    if (keep == null || fromLeaf >= toLeaf) {
+      return false;
+    }
+    int i = fromLeaf;
+    if ((i & 63) != 0) {
+      final int wordEnd = Math.min(toLeaf, (i | 63) + 1);
+      final long lowBits = -1L << (i & 63);
+      final long highBits = (wordEnd & 63) == 0
+          ? -1L
+          : (1L << (wordEnd & 63)) - 1;
+      if ((keep[i >>> 6] & lowBits & highBits) != 0L) {
+        return false;
+      }
+      i = wordEnd;
+    }
+    for (; i + 64 <= toLeaf; i += 64) {
+      if (keep[i >>> 6] != 0L) {
+        return false;
+      }
+    }
+    if (i < toLeaf) {
+      final long tail = (1L << (toLeaf - i)) - 1;
+      if ((keep[i >>> 6] & tail) != 0L) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** The {@code [prune]} line: how many leaves survive the evidence, for both fill routes. */
+  private static void printKeepMask(final ProjectionColumnStore store, final long @Nullable [] keep) {
+    int kept = 0;
+    if (keep != null) {
+      for (final long w : keep) {
+        kept += Long.bitCount(w);
+      }
+    }
+    System.err.println("[prune] leaves=" + store.leafCount() + " kept=" + (keep == null
+        ? "ALL (no evidence dropped)"
+        : kept));
   }
 
   /** Ranged variant over PRE-RESOLVED columns ({@link #resolvePredicateColumnsShared}). */
@@ -1411,15 +1529,7 @@ public final class ProjectionColumnScan {
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
     final long[] keep = computeKeepMask(store, predicates, fetcher);
     if (DIAG) {
-      int kept = 0;
-      if (keep != null) {
-        for (final long w : keep) {
-          kept += Long.bitCount(w);
-        }
-      }
-      System.err.println("[prune] leaves=" + store.leafCount() + " kept=" + (keep == null
-          ? "ALL (no evidence dropped)"
-          : kept));
+      printKeepMask(store, keep);
     }
     final ColumnSlice[][] cols = new ColumnSlice[predicates.length][];
     for (int i = 0; i < predicates.length; i++) {
@@ -1448,45 +1558,129 @@ public final class ProjectionColumnScan {
     if (n == 0) {
       return null;
     }
+    final long[] keep = allKept(n);
+    boolean dropped = false;
+    for (final ColumnPredicate p : predicates) {
+      dropped |= pruneLeaves(store, p, keep, fetcher) > 0;
+    }
+    return dropped
+        ? keep
+        : null;
+  }
+
+  /**
+   * The tree's keep mask: its program run over per-leaf evidence masks. Each leaf predicate is priced
+   * on a FRESH all-kept mask (an OR operand must not inherit its sibling's drops), AND intersects, OR
+   * unites, NOT replaces its operand by all-kept. {@code null} = the program can still reach every leaf.
+   */
+  private static long @Nullable [] computeTreeKeepMask(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree, final ColumnSegmentFetcher fetcher) {
+    final int n = store.leafCount();
+    if (n == 0) {
+      return null;
+    }
+    final long[][] stack = new long[tree.leaves.length][];
+    int top = 0;
+    for (final byte insn : tree.program) {
+      if (insn >= 0) {
+        final long[] m = allKept(n);
+        pruneLeaves(store, tree.leaves[insn], m, fetcher);
+        stack[top++] = m;
+      } else if (insn == ProjectionIndexScan.PredicateTree.OP_AND) {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < a.length; i++) {
+          a[i] &= b[i];
+        }
+      } else if (insn == ProjectionIndexScan.PredicateTree.OP_OR) {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < a.length; i++) {
+          a[i] |= b[i];
+        }
+      } else {
+        stack[top - 1] = allKept(n); // NOT: no evidence about where the negation cannot match
+      }
+    }
+    final long[] result = stack[0];
+    final long[] full = allKept(n);
+    return Arrays.equals(result, full)
+        ? null
+        : result;
+  }
+
+  private static int cardinality(final long[] words) {
+    int bits = 0;
+    for (final long w : words) {
+      bits += Long.bitCount(w);
+    }
+    return bits;
+  }
+
+  /** The all-kept mask over {@code n} leaves (tail bits clear). */
+  private static long[] allKept(final int n) {
     final long[] keep = new long[(n + 63) >>> 6];
     Arrays.fill(keep, -1L);
     if ((n & 63) != 0) {
       keep[keep.length - 1] = (1L << (n & 63)) - 1;
     }
-    boolean dropped = false;
-    for (final ColumnPredicate p : predicates) {
-      final byte kind = store.columnKind(p.column);
-      if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind) && p.stringLitBytes == null) {
-        final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(p.column);
-        for (int i = 0; i < n; i++) {
-          if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
-            continue;
-          }
-          final byte[] d = store.leafDescriptor(i);
-          final int e = RowGroupDescriptor.entryIndexOf(d, bodyId);
-          if (e < 0) {
-            continue; // no descriptor evidence — keep
-          }
-          final long min = RowGroupDescriptor.entryMin(d, e);
-          final long max = RowGroupDescriptor.entryMax(d, e);
-          if (min > max || zoneSkip(p, min, max)) {
-            keep[i >>> 6] &= ~(1L << (i & 63));
-            dropped = true;
-          }
+    return keep;
+  }
+
+  /**
+   * Clear from {@code keep} every still-kept leaf that predicate {@code p} PROVES contributes no row:
+   * descriptor {@code min > max} (no present value), a numeric zone the predicate excludes, or a
+   * string-equality fingerprint miss. Returns how many leaves this predicate dropped.
+   */
+  private static int pruneLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
+      final ColumnSegmentFetcher fetcher) {
+    final int n = store.leafCount();
+    final byte kind = store.columnKind(p.column);
+    if (ProjectionIndexRowGroupPage.isOrderedLongKind(kind) && p.stringLitBytes == null) {
+      final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(p.column);
+      int dropped = 0;
+      int noEvidence = 0;
+      for (int i = 0; i < n; i++) {
+        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+          continue;
         }
-      } else if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
-          && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-        // Op.EQ ONLY, and load-bearing: bloom fingerprints hash WHOLE values, so pruning a leaf
-        // on a CONTAINS or ordering literal is a false negative — a leaf whose every URL
-        // contains "google" fingerprints none of them as the string "google". Rows would be
-        // silently dropped on the one path the byte kernel does not take.
-        final long literalHash = ProjectionIndexColumnSegmentCodec.bloomHash(p.stringLitBytes);
-        dropped |= store.applyBloomPrune(p.column, literalHash, keep, fetcher) > 0;
+        final byte[] d = store.leafDescriptor(i);
+        final int e = RowGroupDescriptor.entryIndexOf(d, bodyId);
+        if (e < 0) {
+          noEvidence++;
+          continue; // no descriptor evidence — keep
+        }
+        final long min = RowGroupDescriptor.entryMin(d, e);
+        final long max = RowGroupDescriptor.entryMax(d, e);
+        if (min > max || zoneSkip(p, min, max)) {
+          keep[i >>> 6] &= ~(1L << (i & 63));
+          dropped++;
+        }
       }
+      if (DIAG) {
+        System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " zone: dropped=" + dropped
+            + " noEvidence=" + noEvidence);
+      }
+      return dropped;
     }
-    return dropped
-        ? keep
-        : null;
+    if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
+        && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      // Op.EQ ONLY, and load-bearing: bloom fingerprints hash WHOLE values, so pruning a leaf
+      // on a CONTAINS or ordering literal is a false negative — a leaf whose every URL
+      // contains "google" fingerprints none of them as the string "google". Rows would be
+      // silently dropped on the one path the byte kernel does not take.
+      final long literalHash = ProjectionIndexColumnSegmentCodec.bloomHash(p.stringLitBytes);
+      final int dropped = store.applyBloomPrune(p.column, literalHash, keep, fetcher);
+      if (DIAG) {
+        System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=EQ bloom: dropped=" + dropped);
+      }
+      return dropped;
+    }
+    if (DIAG) {
+      System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " literal="
+          + (p.stringLitBytes != null) + ": no prune rule");
+    }
+    return 0;
   }
 
   /**
@@ -2254,6 +2448,14 @@ public final class ProjectionColumnScan {
     if (rowCount <= 0) {
       return 0;
     }
+    // A leaf the keep mask dropped is the pruned sentinel in EVERY tree column (the mask is a
+    // whole-leaf decision — see ProjectionColumnScan.predicateKeepMask(store, preds, tree, fetcher)),
+    // and every all-zero operand combines to all-zero under AND and OR: answer "no rows" here so the
+    // kernel never touches the leaf's (equally pruned) key and aggregate slices. NOT would flip an
+    // operand to all-true, so a program that negates keeps the slow, exact evaluation.
+    if (!tree.hasNot() && allTreeColumnsPruned(treeCols, leaf)) {
+      return 0;
+    }
     final int stride = (rowCount + 63) >>> 6;
     fillAllTrue(mask, rowCount, stride);
     final long[][] stack = TREE_STACK.get();
@@ -2307,6 +2509,17 @@ public final class ProjectionColumnScan {
       throw new IllegalStateException("column " + p.column + " stores values in the long lane, but the " + p.op
           + " predicate still carries a string literal — it was never resolved to a dictionary id");
     }
+  }
+
+  /** Whether every tree column's slice on {@code leaf} is absent or rowless (the pruned sentinel). */
+  private static boolean allTreeColumnsPruned(final ColumnSlice[][] treeCols, final int leaf) {
+    for (final ColumnSlice[] col : treeCols) {
+      final ColumnSlice slice = col[leaf];
+      if (slice != null && slice.rowCount() > 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

@@ -118,7 +118,12 @@ public final class WindowedSliceArrays {
     return out;
   }
 
-  /** One array per tree leaf (index-aligned with {@code tree.leaves}), unmasked like the resident tree fill. */
+  /**
+   * One array per tree leaf (index-aligned with {@code tree.leaves}), keep-masked like every other
+   * column here: the access's mask is the TREE'S mask when the scan carries a tree
+   * ({@code ProjectionColumnScan.predicateKeepMask(store, preds, tree, fetcher)}), so a dropped leaf is
+   * the pruned sentinel in every tree column and the tree evaluator answers it as "no rows".
+   */
   public ColumnSlice[][] treeColumns(final PredicateTree tree, final int from, final int to) {
     final ColumnSlice[][] out = new ColumnSlice[tree.leaves.length][];
     for (int i = 0; i < tree.leaves.length; i++) {

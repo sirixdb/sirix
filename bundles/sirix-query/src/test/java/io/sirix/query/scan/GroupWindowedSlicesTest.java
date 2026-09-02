@@ -8,6 +8,7 @@ import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.HeapHeadroom;
+import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -63,9 +64,20 @@ final class GroupWindowedSlicesTest {
       // numeric key with a grouped COUNT(DISTINCT)
       "subsequence(for $h in " + DOC + " let $k := $h.k40 group by $k let $u := count(distinct-values($h.u)) "
           + "order by $u descending return {\"k40\": $k, \"u\": $u}, 1, 12)",
-      // numeric key under an OR predicate tree (unmasked tree leaves)
+      // numeric key under an OR predicate tree without leaf evidence (k7 and k40 span every leaf)
       "subsequence(for $h in " + DOC + " where $h.k7 eq 1 or $h.k40 eq 3 let $k := $h.k40 group by $k "
           + "let $c := count($h) order by $c descending return {\"k40\": $k, \"c\": $c}, 1, 12)",
+      // OR trees WITH leaf evidence (amount is the document order, so both branches name leaf ranges):
+      // the tree's keep mask must drop the middle leaves on every arm — numeric, string and composite keys
+      "subsequence(for $h in " + DOC + " where ($h.amount ge 7000 and $h.k7 eq 1) or $h.amount lt 500 "
+          + "let $k := $h.k40 group by $k let $c := count($h) order by $c descending "
+          + "return {\"k40\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
+      "subsequence(for $h in " + DOC + " where ($h.amount ge 7000 and $h.k7 eq 1) or $h.amount lt 500 "
+          + "let $k := $h.s group by $k let $c := count($h) order by $c descending "
+          + "return {\"s\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
+      "subsequence(for $h in " + DOC + " where ($h.amount ge 7000 and $h.k7 eq 1) or $h.amount lt 500 "
+          + "let $a := $h.k7, $b := $h.k40 group by $a, $b let $c := count($h) order by $c descending "
+          + "return {\"k7\": $a, \"k40\": $b, \"c\": $c}, 1, 12)",
       // string key, top-k (winner emission reads each winner's leaf dictionary through a one-leaf access)
       "subsequence(for $h in " + DOC + " let $k := $h.s group by $k let $c := count($h) "
           + "order by $c descending return {\"s\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
@@ -220,6 +232,53 @@ final class GroupWindowedSlicesTest {
         GroupTableSpill.setSubChunkLeavesForTesting(previousSubChunk);
       }
     }
+  }
+
+  /** The OR-tree WHERE whose both branches name leaf ranges of the document order, per tree-capable arm. */
+  static Stream<String> treeArms() {
+    final String where = " where ($h.amount ge 7000 and $h.k7 eq 1) or $h.amount lt 500 ";
+    return Stream.of(
+        // numeric key
+        "subsequence(for $h in " + DOC + where + "let $k := $h.k40 group by $k let $c := count($h) "
+            + "order by $c descending return {\"k40\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
+        // string key
+        "subsequence(for $h in " + DOC + where + "let $k := $h.s group by $k let $c := count($h) "
+            + "order by $c descending return {\"s\": $k, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
+        // composite key
+        "subsequence(for $h in " + DOC + where + "let $a := $h.k7, $b := $h.k40 group by $a, $b let $c := count($h) "
+            + "order by $c descending return {\"k7\": $a, \"k40\": $b, \"c\": $c}, 1, 12)",
+        // packed substring key
+        "subsequence(for $h in " + DOC + where + "let $m := substring($h.t, 1, 16) group by $m let $c := count($h) "
+            + "order by $c descending return {\"m\": $m, \"c\": $c}, 1, 12)");
+  }
+
+  @ParameterizedTest(name = "[{index}] {0}")
+  @MethodSource("treeArms")
+  void orTreesPruneLeavesThroughTheKeepMaskOnBothRoutes(final String query) throws Exception {
+    // The keep mask used to be conjunction-only: ONE `or` made the whole WHERE a tree and the tree's
+    // columns were filled FULL (q40 at 100M fetched all 97,654 leaves of every column for 723 rows'
+    // worth of CounterID). Both branches here name leaf ranges of the document order, so the tree's
+    // mask must drop the middle leaves — windowed AND resident — and the answer must not move. One
+    // fixture per arm: the handle promotes whole-leaf payloads after two sliced route arrivals, and
+    // the whole-leaf kernels compute no keep mask.
+    final String generic = run(query, false);
+    final long prunedBefore = ProjectionColumnScan.treeLeavesPrunedCount();
+    final long windowedBefore = SirixVectorizedExecutor.groupWindowedSlicesCount();
+    previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+    final String windowed = run(query, true);
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
+    previousBudget = -1L;
+    assertEquals(windowedBefore + 1, SirixVectorizedExecutor.groupWindowedSlicesCount(), "windowed route engaged");
+    final long prunedWindowed = ProjectionColumnScan.treeLeavesPrunedCount() - prunedBefore;
+    assertTrue(prunedWindowed > 0, "the windowed tree route pruned no leaf");
+    final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+    final String resident = run(query, true);
+    assertTrue(SirixVectorizedExecutor.groupAggSlicedServedCount() > slicedBefore,
+        "the second arrival must still serve sliced (resident), or the resident assertion is vacuous");
+    assertTrue(ProjectionColumnScan.treeLeavesPrunedCount() - prunedBefore > prunedWindowed,
+        "the resident tree fill pruned no leaf");
+    assertEquals(generic, windowed, "windowed tree pruning changed the answer");
+    assertEquals(generic, resident, "resident tree pruning changed the answer");
   }
 
   @Test
