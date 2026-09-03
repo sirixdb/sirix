@@ -199,7 +199,7 @@ final class TemporalTextCodecTest {
   @DisplayName("the codec is INJECTIVE: distinct accepted texts never share an encoding")
   void distinctTextsEncodeDistinctly() {
     final Random rnd = new Random(20260903L);
-    final HashMap<Long, String> seen = new java.util.HashMap<>();
+    final HashMap<Long, String> seen = new HashMap<>();
     for (int i = 0; i < 60_000; i++) {
       final LocalDateTime t = LocalDateTime.of(1970, 1, 1, 0, 0, 0).plusSeconds(rnd.nextInt(2_000_000_000));
       final String s = t.toString().replace('T', ' ');

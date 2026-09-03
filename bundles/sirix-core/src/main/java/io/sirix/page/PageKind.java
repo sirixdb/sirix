@@ -67,6 +67,7 @@ import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.pax.ResolvedGlobalStrings;
 import io.sirix.page.pax.StringRegion;
+import io.sirix.page.pax.TemporalTextCodec;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.RegionCompressionType;
@@ -4887,7 +4888,7 @@ public enum PageKind {
             + ", but a temporal tag holds no FSST-encoded entry");
       }
       final int length = StringRegion.temporalValueLength(stringHeader, tagId);
-      final byte[] rendered = new byte[length];
+      final byte[] rendered = TEMPORAL_RENDER_SCRATCH.get();
       StringRegion.temporalValueAt(stringPayload, stringHeader, tagId, dictId, rendered, 0);
       slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, (byte) 0);
       final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage, valueAbsOff + 1, length);
@@ -7332,6 +7333,15 @@ public enum PageKind {
    */
   private static final ThreadLocal<StringRegion.Header> STRING_HEADER_SCRATCH =
       ThreadLocal.withInitial(StringRegion.Header::new);
+
+  /**
+   * Per-thread render buffer for the temporal lane's value-elision inject pass, sized to the widest
+   * form the codec renders. A temporal value's width is a per-tag CONSTANT of 10 or 19 bytes, and
+   * expansion touches one elided slot at a time on the read hot path, so the buffer is filled and
+   * copied out before the next slot needs it and nothing per slot is allocated.
+   */
+  private static final ThreadLocal<byte[]> TEMPORAL_RENDER_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[TemporalTextCodec.DATETIME_LENGTH]);
 
   /** Per-thread {@code boolean[]} scratch for {@link #buildRegionTable} boolean collection. */
   private static final ThreadLocal<boolean[]> BOOLEAN_VALUE_SCRATCH =

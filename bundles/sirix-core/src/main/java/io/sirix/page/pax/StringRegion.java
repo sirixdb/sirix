@@ -1112,8 +1112,39 @@ public final class StringRegion {
   }
 
   /**
+   * Whether tag {@code tag}'s dictionary entries are PAGE BYTES — that is, whether
+   * {@link #decodeStringOffset} can answer for it at all.
+   *
+   * <p>
+   * The trie lane stores global ids and the temporal lane stores packed numbers. Neither has an
+   * offset into the payload to hand back, so {@code decodeStringOffset} refuses both rather than
+   * returning a plausible one. That refusal is the LAST line of defence, not the first: a caller
+   * that walks a tag's dictionary reading bytes has to ask before it walks, and take whichever
+   * slower route it already has for a tag it cannot read this way.
+   * </p>
+   *
+   * <p>
+   * Callers ask through this predicate rather than testing the lane flags themselves, so that a lane
+   * added later closes every such loop by changing one place instead of by being remembered at each
+   * of them.
+   * </p>
+   *
+   * @param h a parsed header
+   * @param tag index into the header's tag arrays
+   * @return {@code true} when the tag's entries are readable as bytes on this page
+   */
+  public static boolean tagStoresInlineBytes(final Header h, final int tag) {
+    return !h.tagGlobal[tag] && !h.tagTemporal[tag];
+  }
+
+  /**
    * Decode the string bytes for the given dict-id within a tag. Returns offset and length in the
    * payload's per-tag local dictionary, avoiding a copy on the group-by hot path.
+   *
+   * <p>
+   * Refuses a tag whose entries are not bytes; callers on a dictionary-walking fast path test
+   * {@link #tagStoresInlineBytes} first and decline to their slower route instead.
+   * </p>
    */
   public static int decodeStringOffset(final MemorySegment payload, final Header h, final int tag, final int dictId) {
     if (h.tagGlobal[tag]) {

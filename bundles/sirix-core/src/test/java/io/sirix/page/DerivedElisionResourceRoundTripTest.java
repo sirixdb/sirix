@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.xml.serialize.XmlSerializer;
@@ -133,6 +134,38 @@ final class DerivedElisionResourceRoundTripTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
       wtx.commit();
     });
+  }
+
+  @Test
+  @DisplayName("a timestamp column on the TEMPORAL lane, whose elided slots are RENDERED, not copied")
+  void temporalLaneColumnWithElidedSlots() {
+    // A temporal tag stores no value bytes at all, so an elided slot under one cannot be filled by
+    // copying from the page -- the value is rendered back from the packed number. That render is the
+    // only route those slots have, and it runs once per elided slot on the read path.
+    final StringBuilder json = new StringBuilder("[");
+    for (int i = 0; i < 1_400; i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      json.append("{\"id\":").append(i)
+          .append(",\"ts\":\"2013-07-15 12:00:").append(i % 60 < 10
+              ? "0"
+              : "").append(i % 60)
+          .append("\",\"day\":\"2013-07-").append(i % 28 + 1 < 10
+              ? "0"
+              : "").append(i % 28 + 1)
+          .append("\",\"note\":\"row-").append(i).append("\"}");
+    }
+    json.append(']');
+    StringRegion.setTemporalLaneEnabled(true);
+    try {
+      assertSameRevision(wtx -> {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+        wtx.commit();
+      });
+    } finally {
+      StringRegion.clearTemporalLaneOverride();
+    }
   }
 
   @Test

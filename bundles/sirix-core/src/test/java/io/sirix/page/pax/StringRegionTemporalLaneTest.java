@@ -300,6 +300,31 @@ final class StringRegionTemporalLaneTest {
   }
 
   @Test
+  @DisplayName("tagStoresInlineBytes answers for EXACTLY the tags decodeStringOffset can read")
+  void inlineBytesPredicateAgreesWithTheDecoderItGuards() {
+    final byte[] region = encodePage(true, true);
+    final MemorySegment payload = MemorySegment.ofArray(region);
+    final StringRegion.Header header = parse(region);
+    int inline = 0;
+    int refused = 0;
+    for (int t = 0; t < header.parentDictSize; t++) {
+      final int tag = t;
+      if (StringRegion.tagStoresInlineBytes(header, tag)) {
+        // Must be readable as bytes: a predicate that said yes to a lane tag would send a
+        // dictionary-walking caller straight into the refusal it exists to keep them out of.
+        StringRegion.decodeStringOffset(payload, header, tag, 0);
+        inline++;
+      } else {
+        assertThrows(IllegalStateException.class, () -> StringRegion.decodeStringOffset(payload, header, tag, 0),
+            "tag " + header.parentDict[tag] + " reports no inline bytes, so the decoder must refuse it");
+        refused++;
+      }
+    }
+    assertTrue(inline > 0, "the page must carry a byte-storing tag, or the agreement is vacuous");
+    assertTrue(refused > 0, "the page must carry a lane tag, or the agreement is vacuous");
+  }
+
+  @Test
   @DisplayName("FUZZ: random timestamp pages round trip, including all-equal and far-apart spans")
   void randomPagesRoundTrip() {
     final Random rnd = new Random(20260903L);

@@ -695,6 +695,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     long stringRegionMissesNoHeader; // header was null (region absent — page hadn't built one)
     long stringRegionMissesNoTag; // header present but no tag for this fieldKey
     long stringRegionMissesDictBig; // local dict > 256 entries — exceeds scratch
+    long stringRegionMissesNotInlineBytes; // tag holds global ids / packed timestamps, not bytes
 
     /** Merge {@code other} into this accumulator. Called during per-thread fan-in. */
     void mergeFrom(final ScanDiagnostics other) {
@@ -716,6 +717,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       this.stringRegionMissesNoHeader += other.stringRegionMissesNoHeader;
       this.stringRegionMissesNoTag += other.stringRegionMissesNoTag;
       this.stringRegionMissesDictBig += other.stringRegionMissesDictBig;
+      this.stringRegionMissesNotInlineBytes += other.stringRegionMissesNotInlineBytes;
     }
 
     void print(final String label) {
@@ -736,10 +738,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 + "direct-returned-neg=%,d, rtx-fallback=%,d%n",
             label, groupByDirectSuccess, groupByCrossPage, groupByDirectNeg, groupByRtxFallback);
       }
-      if (stringRegionHits + stringRegionMissesNoHeader + stringRegionMissesNoTag + stringRegionMissesDictBig > 0) {
+      if (stringRegionHits + stringRegionMissesNoHeader + stringRegionMissesNoTag + stringRegionMissesDictBig
+          + stringRegionMissesNotInlineBytes > 0) {
         System.err.printf(
-            "[scan-diag %s] StringRegion: hits=%,d, miss-no-header=%,d, " + "miss-no-tag=%,d, miss-dict-too-big=%,d%n",
-            label, stringRegionHits, stringRegionMissesNoHeader, stringRegionMissesNoTag, stringRegionMissesDictBig);
+            "[scan-diag %s] StringRegion: hits=%,d, miss-no-header=%,d, "
+                + "miss-no-tag=%,d, miss-dict-too-big=%,d, miss-not-inline-bytes=%,d%n",
+            label, stringRegionHits, stringRegionMissesNoHeader, stringRegionMissesNoTag, stringRegionMissesDictBig,
+            stringRegionMissesNotInlineBytes);
       }
     }
   }
@@ -12556,7 +12561,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             // contributing to this tag. If it matches the slot count,
             // every anchor OBJECT_KEY on this page was captured by the
             // region, so every distinct dept value is in the dict.
-            if (sh.tagCount[tag] == anchorSlots.length) {
+            if (StringRegion.tagStoresInlineBytes(sh, tag) && sh.tagCount[tag] == anchorSlots.length) {
               // Dict entries may be FSST-encoded (sign of the entry length). Distinct-hashes
               // must be computed over DECODED bytes — they are unioned across pages whose
               // symbol tables differ, and with the slow path's decoded reads, so hashing the
@@ -21614,6 +21619,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (dictSize > localDictCounts.length) {
               if (DIAGNOSTICS_ENABLED)
                 diag.stringRegionMissesDictBig++;
+            } else if (!StringRegion.tagStoresInlineBytes(sh, tag)) {
+              // The tag's dictionary holds global ids or packed timestamps, not bytes this loop can
+              // read. Decline to the slot walk, which resolves either through the record path.
+              if (DIAGNOSTICS_ENABLED)
+                diag.stringRegionMissesNotInlineBytes++;
             } else {
               // Correctness guard: the StringRegion fast path groups VALUES
               // by their parent OBJECT_KEY's nameKey. When a record spans a
