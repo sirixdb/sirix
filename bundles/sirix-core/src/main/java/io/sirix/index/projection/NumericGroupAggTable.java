@@ -207,9 +207,7 @@ public final class NumericGroupAggTable {
     this.idOffsetFromAcc = slotWidth + (withAux
         ? 1
         : 0);
-    this.stride = 1 + slotWidth + (withAux
-        ? 1
-        : 0) + idWidth;
+    this.stride = strideFor(aggColumns, withAux, idWidth);
     if (stride > MAX_STORAGE_CHUNK_LANES) {
       throw new IllegalArgumentException(
           "aggregate stripe of " + stride + " lanes exceeds the non-humongous chunk ceiling");
@@ -225,6 +223,36 @@ public final class NumericGroupAggTable {
     this.mask = cap - 1;
     this.growAt = cap - (cap >>> 2);
     this.zeroSlot = newAcc(slotWidth);
+  }
+
+  /**
+   * Lanes one group occupies in a table of this shape — {@code 1} key lane, the accumulator block
+   * ({@code 2 + 4 * aggColumns}), the optional aux lane and {@code idWidth} identity lanes.
+   *
+   * <p>
+   * Public and static because the SIZING of a grouped pass is decided before any table exists: the
+   * per-pass group budget divides a heap share by the bytes a group actually costs, and a planner
+   * that guessed a width instead of asking would plan passes for a stripe the query does not have.
+   * A {@code count(*)} group-by occupies three lanes; two aggregate columns over a composite key
+   * occupy thirteen.
+   * </p>
+   *
+   * @param aggColumns aggregate columns per group
+   * @param withAux whether a per-entry source-reference lane is carried
+   * @param idWidth identity lanes per group ({@code 0} keeps the key lane as the whole identity)
+   * @return lanes per group stripe
+   * @throws IllegalArgumentException if any argument is negative
+   */
+  public static int strideFor(final int aggColumns, final boolean withAux, final int idWidth) {
+    if (aggColumns < 0) {
+      throw new IllegalArgumentException("aggColumns must be >= 0: " + aggColumns);
+    }
+    if (idWidth < 0) {
+      throw new IllegalArgumentException("idWidth must be >= 0: " + idWidth);
+    }
+    return 1 + (2 + 4 * aggColumns) + (withAux
+        ? 1
+        : 0) + idWidth;
   }
 
   /**

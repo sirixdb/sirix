@@ -472,6 +472,53 @@ public final class GroupTableSpill {
   public static final String GROUP_BUDGET_PROPERTY = "sirix.projection.groupTable.groupBudget";
   /** Approximate heap bytes per resident group across stripe, aux, identity lanes and probe slack. */
   private static final long BYTES_PER_GROUP = 128L;
+
+  /**
+   * Arms the STRIDE-AWARE per-group cost. Off restores the flat {@value #BYTES_PER_GROUP} bytes every
+   * shape used to be charged; it gates BEHAVIOUR (how many passes a plan takes), never a decoder, and
+   * a pass count can only ever cost time.
+   */
+  public static final String STRIDE_BUDGET_PROPERTY = "sirix.projection.groupTable.strideBudget";
+
+  /**
+   * Capacity slack over the live group count: {@link NumericGroupAggTable} grows at 3/4 load and
+   * rounds its bucket count UP to a power of two, so a table holding {@code n} groups has between
+   * 4/3 and 8/3 buckets per group. Two is the midpoint of that range and the figure the budget
+   * charges — the ceiling would forfeit a third of the heap share on every shape, and the floor
+   * would plan a pass that cannot hold what it planned for.
+   */
+  private static final long CAPACITY_SLACK = 2L;
+
+  /**
+   * Bytes one resident group costs a pass at {@code strideLanes} lanes per stripe — the stripe at
+   * {@link #CAPACITY_SLACK}, but never MORE than the flat {@value #BYTES_PER_GROUP} this budget
+   * charged before strides were consulted.
+   *
+   * <p>
+   * The clamp is the whole safety argument, and it is deliberately one-sided. A WIDE stripe (q32's
+   * two aggregate columns over a composite key occupy thirteen lanes, 208 B at the slack) costs more
+   * than the flat figure, and charging it honestly would hand that query MORE passes than the eight
+   * it runs today — a measured, working plan made worse by a sizing correction. A NARROW stripe is
+   * the case worth fixing: {@code GROUP BY x ORDER BY count(*)} occupies three lanes, 48 B, and has
+   * been charged 128 B and split into up to 2.67x the passes its memory required, each surplus pass a
+   * full rescan. So the stride may only ever LOWER the charge: no shape can take more passes than it
+   * takes today, and shapes that were over-charged take fewer. Wide stripes keep the flat figure and
+   * the abort machinery that has always covered them.
+   * </p>
+   *
+   * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
+   * @return bytes charged per resident group
+   * @throws IllegalArgumentException if {@code strideLanes} is not positive
+   */
+  public static long bytesPerGroup(final int strideLanes) {
+    if (strideLanes <= 0) {
+      throw new IllegalArgumentException("strideLanes must be positive: " + strideLanes);
+    }
+    if (!Boolean.parseBoolean(System.getProperty(STRIDE_BUDGET_PROPERTY, "true"))) {
+      return BYTES_PER_GROUP;
+    }
+    return Math.min(BYTES_PER_GROUP, (long) strideLanes * Long.BYTES * CAPACITY_SLACK);
+  }
   private static volatile long groupBudgetForTesting = -1L;
 
   /**
@@ -483,6 +530,19 @@ public final class GroupTableSpill {
    * headroom here: they are the tables of the next pass, taken instead of allocated.
    */
   public static long groupBudget() {
+    return groupBudget(WIDEST_CHARGED_STRIDE);
+  }
+
+  /**
+   * The resident-group ceiling per pass for a shape whose stripe is {@code strideLanes} lanes wide —
+   * {@link #groupBudget()} against {@link #bytesPerGroup(int)} rather than the flat figure. A pass
+   * planned this way holds the groups its heap share can actually carry, instead of the groups a
+   * 128-byte stripe could carry.
+   *
+   * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
+   * @return resident groups admitted per pass
+   */
+  public static long groupBudget(final int strideLanes) {
     final long testing = groupBudgetForTesting;
     if (testing >= 0L) {
       return testing;
@@ -493,7 +553,8 @@ public final class GroupTableSpill {
     }
     // The shared chunk pools' contents are live to every collector record and are exactly the memory
     // the next pass's tables take without allocating: headroom for this budget, for no other.
-    return groupBudgetFor(Runtime.getRuntime().maxMemory(), HeapHeadroom.headroomBytes() + LongChunkPool.retainedBytes());
+    return groupBudgetFor(Runtime.getRuntime().maxMemory(),
+        HeapHeadroom.headroomBytes() + LongChunkPool.retainedBytes(), strideLanes);
   }
 
   /**
@@ -503,9 +564,27 @@ public final class GroupTableSpill {
    * same figure, and a second copy of the arithmetic is how they would drift apart.
    */
   public static long groupBudgetFor(final long maxMemory, final long headroom) {
-    final long planned = HeapHeadroom.plannedShareBytes(maxMemory, headroom) / BYTES_PER_GROUP;
+    return groupBudgetFor(maxMemory, headroom, WIDEST_CHARGED_STRIDE);
+  }
+
+  /**
+   * The derived budget for {@code maxMemory}, {@code headroom} and a stripe of {@code strideLanes}
+   * lanes (pure, for tests) — the shared {@link HeapHeadroom#plannedShareBytes(long, long)} at
+   * {@link #bytesPerGroup(int)} per group, floored and capped exactly as the flat form is.
+   *
+   * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
+   */
+  public static long groupBudgetFor(final long maxMemory, final long headroom, final int strideLanes) {
+    final long planned = HeapHeadroom.plannedShareBytes(maxMemory, headroom) / bytesPerGroup(strideLanes);
     return Math.max(1L << 20, Math.min(1L << 26, planned));
   }
+
+  /**
+   * The stripe at which {@link #bytesPerGroup} reaches the flat {@value #BYTES_PER_GROUP} figure, so
+   * that the stride-free overloads keep the numbers they have always returned whatever the property
+   * says.
+   */
+  private static final int WIDEST_CHARGED_STRIDE = (int) (BYTES_PER_GROUP / (Long.BYTES * CAPACITY_SLACK));
 
   /**
    * The budget a CLEAN heap of this size yields — {@link #groupBudgetFor} at a headroom of the whole
@@ -516,6 +595,18 @@ public final class GroupTableSpill {
    * and ran thirty-two passes where eight held).
    */
   public static long groupBudgetCeiling() {
+    return groupBudgetCeiling(WIDEST_CHARGED_STRIDE);
+  }
+
+  /**
+   * The clean-heap ceiling for a stripe of {@code strideLanes} lanes. A refresh compares the budget it
+   * planned against this, so the two must be charged the SAME bytes per group: a narrow shape whose
+   * budget was widened by its stride would otherwise be measured against a ceiling computed for a
+   * 128-byte stripe and look as though a collection could not help it.
+   *
+   * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
+   */
+  public static long groupBudgetCeiling(final int strideLanes) {
     final long testing = groupBudgetForTesting;
     if (testing >= 0L) {
       return testing;
@@ -525,7 +616,7 @@ public final class GroupTableSpill {
       return configured;
     }
     final long maxMemory = Runtime.getRuntime().maxMemory();
-    return groupBudgetFor(maxMemory, maxMemory);
+    return groupBudgetFor(maxMemory, maxMemory, strideLanes);
   }
 
   /**
