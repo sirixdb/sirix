@@ -111,6 +111,25 @@ rank pass's (nothing probes value→id after freeze, rather than the reverse ind
 `ExternalDistinctValues` and the streaming `PrePassDictionaryBuilder` overload (`de755c82b`) remain the
 right tools for the PROJECTION side, where rank order IS read (id-order zone pruning, lever E).
 
+## The hazard the implementation must solve first: async flush versus segment identity
+
+Ids are minted at page ENCODE (above), and pages are encoded by the async flush pool
+(`sirix.asyncFlush.parallelism`). So a page belonging to segment N can be encoded AFTER the builder has
+moved on to segment N+1. A resolver that simply answers "the current segment's dictionary" would then
+mint that page's ids in N+1 and record N+1's anchor on a page whose neighbours point at N — plausible
+and wrong, which is the failure mode `GlobalStringDictionaries`' entry-count validity check exists to
+catch but cannot: both dictionaries are live and both are large enough.
+
+The resolver must therefore key on the PAGE, not on builder state: a page's segment is derivable from
+its record page key (`recordPageKey / INP_REFERENCE_COUNT` for the 1024-leaf boundary), so the write-side
+resolver can select the right segment's dictionary per page rather than per moment. A segment's
+dictionary consequently cannot be closed when the builder passes the boundary — only when every page of
+that segment has been encoded, which is a flush-completion condition, not a row-count one.
+
+This is the same shape as the aliasing defect that cost this campaign a night (`4a1f28d8b`: a thread-local
+scratch shared between a serializer and a decoder re-entered from inside it). Anything the encoder reads
+that is "the current X" is suspect when the encoder runs on a pool.
+
 ## Shape of the implementation
 
 1. **Mint** ids in arrival order against the segment's resident `GlobalValueDictionaryProbeFront`,
