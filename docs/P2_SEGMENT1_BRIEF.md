@@ -2407,3 +2407,51 @@ game; rank 5 on the c6a hot board is ≈ 2.6 (needs ≈ −11 ln).
 
 **/goal status at the stop:** queries — **TOP 10 reached on c6a hot (rank 10, two legs)**, combined
 rank 2, cold rank 3. Storage — 63.14 GB, unchanged (target ~50 GB still open; `docs/ROADMAP_TO_30GB.md`).
+
+## 2026-09-03 05:30: trie lane prerequisite 1 CLOSED (6909f0ccf) — the remaining defect is ONE slot
+
+After top 10 the /goal's storage half (63.14 GB vs ~50) was the open item; the only lever with a
+bounded 1M reproduction was the parked trie lane's prerequisite 1 ("every read path that can touch
+a converted page must be lazy"). It was a policy predicate, as the parked note scoped:
+`lazyEligible = pointLookup && trxIntentLog == null` at `NodeStorageEngineReader.loadRecordPage`
+became `trxIntentLog == null && (pointLookup || (DOCUMENT && documentPagesUseTheTrieLane()))`,
+where the new predicate is "any projection column persisted a rank-ordered dictionary anchor"
+(cached with the resolver, re-entrancy guarded: the probe reads projection and path-summary pages
+through the same method). The W rig rebuilt in 8 s; `gate1mT.sh` is `gate1m.sh` on the LIVE rig
+(the old script ran the frozen core10 snapshot).
+
+| arm (1M, W rig) | load | size | round-trip |
+|---|---|---|---|
+| prebuilt (chunked, lane OFF) | 25.2 s | 696.7 MB | `SubtreeDumpMain` 20k OK; census 1,024,000/1,024,000 readable |
+| converted (chunked, lane ON) | 25.4 s, absent=0 afterClose=0 | 604.7 MB (−92 MB) | eager refusal GONE; census **1,023,999/1,024,000** readable — the one failure is key 1024 |
+| convnoelide (lane ON, elision lookup off) | 24.6 s | 1,107.8 MB | census 1 failure — key **3072** |
+
+**What the one failure is.** `SlotBytesProbe` on page 1: converted slot 0 is **22 bytes**, the
+control's is **33**, and the converted bytes are an exact PREFIX of the control's (the number
+payload `32 00 …` is what is missing → `AssertionError: Type not known` in `deserializeNumber`).
+Slots 1–3 are byte-identical across the arms. Order of first access does not matter
+(`OrderProbe`: reading 1025/1724/1023 first changes nothing). Across 2,000 pages 1,359 have a
+NUMBER at slot 0 and exactly one is truncated. In the no-elision arm the truncated slot moves to
+page 3, and pages 0–6 there carry **no global tag at all** — so the truncation is a side effect of
+the lane's ENCODER running (`probes=717925`), not of a page being converted, and it is NOT the
+elision × lane collision. The earlier "11-byte truncation" that was retracted as a two-variable
+artefact is real after all, on a single-variable arm: 33 − 22 = 11.
+
+**Not the mixed-population theory.** The parked note attributed `Type not known` to lazy pages
+beside eager neighbours; with every route lazy it still fires, on one deterministic slot. Both
+old symptoms had ONE cause each: the refusal was the policy predicate (fixed), the assertion is
+this write-side truncation (open).
+
+**100M cost check.** N3FULL1/N4FULL1 with the predicate in the query JVM (lane off, so only the
+probe runs): hot sum 32.2 → 32.3/32.4 s, c6a hot 3.456/3.408 (rank 11; N1/N2 were 3.327/3.247,
+rank 10 — the difference is q2 0.038 → 0.063 s-level noise), combined rank 3, 43/43 identical.
+Cold sum 71.1 → 77.3/74.4: N3 followed three 1M loads (page cache), N4 is +3 s with no load in
+between — a small cold cost is possible (one HOT blob read + metadata parse per reader) and not
+separated from noise. `TrieLaneReadSeamTest` 18/18.
+
+**Next (the lane campaign, in order):** (1) find the slot-0 truncation in the encoder — it is
+per-page, one page per load, position moves with layout; compare the staged slot length against
+the region/body write for the FIRST slot of a page written while the lane is engaged; the 1M
+reproduction is `gate1mT.sh converted` + `BadSlotCensus <db>/clickbench 0 1024000` (10 s);
+(2) then prerequisite 2, the framing decomposition (`price-the-frame-a-lever-requires`);
+(3) only then re-gate the lane's storage claim at 100M. Storage at 100M: 63.14 GB, unchanged.
