@@ -60,6 +60,24 @@ within itself**, and `GlobalValueDictionaryRadix.append` already takes `buildFor
 case, because *"which id holds this value is a binary search over the reverse index, which is already
 sorted by value"*. So the forward radix — the whole cost — disappears.
 
+## Two design risks, checked against the code
+
+**1. A frozen segment dictionary needs NO persisted forward index — which removes the whole 1,650 B/entry
+cost, not merely shrinks it.** `GlobalStringDictionaries` splits the two directions: `idOf` (value→id) is
+called from `StringRegion.resolveGlobalIds`, i.e. while ENCODING a page, and there are two
+implementations for the two sides (`TrieLaneWriteDictionaries`, `TrieLaneDictionaries`). Value→id is
+therefore only ever needed while a segment is still OPEN, where the writer's resident
+`GlobalValueDictionaryProbeFront` answers it. After freeze, readers need only id→value — the reverse
+index. So a segment dictionary can mint ids in arrival order and persist no forward structure at all,
+and rank order becomes a nice-to-have (it is not read by queries, which use the projection's dictionary)
+rather than a correctness requirement.
+
+**2. The per-page anchor already exists.** `GlobalStringDictionaries` is bound per page and per tag —
+`bindForPage` with the anchor the page recorded, plus `dictionaryKey(tag)` and
+`dictionaryEntryCount(tag)`, with a temporal-validity check that refuses a dictionary whose live entry
+count is below the recorded one. Different pages naming DIFFERENT dictionaries is what this interface
+already expresses, so pointing each segment's pages at their own dictionary needs no page-format change.
+
 ## Shape of the implementation
 
 1. **Collect** a segment's distinct strings while its leaves fill. `ExternalDistinctValues`
@@ -67,7 +85,8 @@ sorted by value"*. So the forward radix — the whole cost — disappears.
    `ValueDictionaryEntryNode.compareUtf16Range`. At 39 MB per segment it will never spill, but the
    bound is there for corpora that are not temporally local.
 2. **Freeze** at segment close: `PrePassDictionaryBuilder.build(wtx, column, Iterator<byte[]>)` — the
-   streaming overload added in the same commit — with `buildForwardIndex=false`.
+   streaming overload added in the same commit — with `buildForwardIndex=false` (sound for either id
+   order, per risk 1: nothing probes value→id after freeze).
 3. **Anchor**: each record page names its segment's dictionary instead of the resource-wide one.
    `KeyValueLeafPage.globalStringDictionaries` is the existing injection point, and
    `PageKind.serializeKeyValueLeafPage` already carries the per-page tag the lane uses.
