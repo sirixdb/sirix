@@ -25,7 +25,7 @@ shred.** The projection keeps its dictionary and its own build path; the two are
 Nothing about the query lane changes: queries read projection columns. The only query path that touches a
 document page is winner materialization, which resolves through whatever dictionary its page names.
 
-## Why a segment is the right scope — measured, not assumed
+## Why a segment is the right scope — the 1M curve (superseded at scale by the 100M curve below)
 
 Distinct-value bytes per scope, 1M ClickBench rows in row order:
 
@@ -36,7 +36,8 @@ Distinct-value bytes per scope, 1M ClickBench rows in row order:
 | Referer | 46.2 MB | 34.2 | 32.3 | **30.2** | 28.5 |
 
 Fraction of the global dictionary's saving captured: 1 k rows 55–68 %, 10 k rows 67–79 %,
-**100 k rows 85–90 %**.
+100 k rows 85–90 % — **all of these are 1M figures and all of them are optimistic; see the measured 100M
+curve below, where 100 k rows captures 78.7 %.**
 
 The duplication is *temporally local* — ClickBench rows arrive roughly ordered by counter and time, so a
 URL's ~5.5 occurrences cluster. Our per-leaf scope catches 1.6 of them because a leaf is only **9.7 rows**
@@ -44,7 +45,8 @@ URL's ~5.5 occurrences cluster. Our per-leaf scope catches 1.6 of them because a
 ~122 k-row row group, Umbra/Data Blocks' a ~64 k-tuple block, ClickHouse's a part. **We are four orders of
 magnitude below every shipping system, which is the real reason a global dictionary looked necessary.**
 
-A 100 k-row segment holds ≈ 31,000 distinct URLs ≈ **3.8 MB** — sorted in memory when the segment freezes.
+A 100 k-row segment holds ≈ 31,000 distinct URLs ≈ 3.8 MB at 1M; at 100M the chosen 1 M-row segment holds
+≈ 231,000 ≈ **39 MB** — either way sorted in memory when the segment freezes.
 
 ## Why the existing incremental machinery becomes affordable at this scope
 
@@ -53,7 +55,7 @@ says why: it *"persists a forward radix … 0.81 radix nodes per entry, each car
 array"* and *"each bounded append writes a fresh set of forward radix nodes at new keys and copy-on-write
 retains every one of them"* — measured 64.7 B/entry at D = 275 K, 173 at 2.62 M, 1,650 at 18 M.
 
-At D ≈ 31 k per segment we are far below the knee. Better: a segment sorted at freeze is **rank-ordered
+At D ≈ 31 k–231 k per segment we are far below the knee (the measured points are 64.7 B/entry at 275 K). Better: a segment sorted at freeze is **rank-ordered
 within itself**, and `GlobalValueDictionaryRadix.append` already takes `buildForwardIndex=false` for that
 case, because *"which id holds this value is a binary search over the reverse index, which is already
 sorted by value"*. So the forward radix — the whole cost — disappears.
@@ -62,7 +64,7 @@ sorted by value"*. So the forward radix — the whole cost — disappears.
 
 1. **Collect** a segment's distinct strings while its leaves fill. `ExternalDistinctValues`
    (`de755c82b`) is the collector: arena, sort, spill, k-way merge, ordered by
-   `ValueDictionaryEntryNode.compareUtf16Range`. At 3.8 MB per segment it will never spill, but the
+   `ValueDictionaryEntryNode.compareUtf16Range`. At 39 MB per segment it will never spill, but the
    bound is there for corpora that are not temporally local.
 2. **Freeze** at segment close: `PrePassDictionaryBuilder.build(wtx, column, Iterator<byte[]>)` — the
    streaming overload added in the same commit — with `buildForwardIndex=false`.
@@ -74,7 +76,8 @@ sorted by value"*. So the forward radix — the whole cost — disappears.
 
 ## What it gives up, and what it removes
 
-Gives up the 10–15 % of dedup only a corpus-wide dictionary reaches. Removes: the pre-pass, the second
+Gives up the dedup only a corpus-wide dictionary reaches — **11.2 % at 1 M-row segments, 21.3 % at
+100 k** (measured at 100M below). Removes: the pre-pass, the second
 read of the source, the closed corpus, the absent-value build failure, the benchmark-shaped extractor,
 and the coupling between document storage and the projection.
 
