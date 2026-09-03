@@ -4864,6 +4864,46 @@ public enum PageKind {
     }
 
     /**
+     * Inject a TEMPORAL tag's value into an elided slot: render the packed number back to text.
+     *
+     * <p>
+     * Unlike a global tag, this needs no reader, no dictionary and no resolution — the number IS the
+     * value, and rendering it is arithmetic. That is why a temporal page is still expandable EAGERLY
+     * and is not forced onto the lazy path the trie lane requires.
+     * </p>
+     *
+     * <p>
+     * A temporal entry is never FSST-encoded ({@code resolveTemporal} refuses such a tag), so the
+     * stored flag must be raw. A page claiming otherwise is refused rather than written, for the
+     * reason the raw/FSST check below it exists: the wrong flag reads back as a different value.
+     * </p>
+     */
+    private static void injectTemporalString(final MemorySegment slottedPage, final MemorySegment stringPayload,
+        final StringRegion.Header stringHeader, final int tagId, final int dictId, final int slot,
+        final long valueAbsOff, final int valueWidth, final byte storedFlag) {
+      if (storedFlag != 0) {
+        throw new SirixIOException("value-elision: temporal STRING slot " + slot + " under tag "
+            + stringHeader.parentDict[tagId] + " carries flag byte " + storedFlag
+            + ", but a temporal tag holds no FSST-encoded entry");
+      }
+      final int length = StringRegion.temporalValueLength(stringHeader, tagId);
+      final byte[] rendered = new byte[length];
+      StringRegion.temporalValueAt(stringPayload, stringHeader, tagId, dictId, rendered, 0);
+      slottedPage.set(ValueLayout.JAVA_BYTE, valueAbsOff, (byte) 0);
+      final int lenWidth = DeltaVarIntCodec.writeSignedToSegment(slottedPage, valueAbsOff + 1, length);
+      MemorySegment.copy(rendered, 0, slottedPage, ValueLayout.JAVA_BYTE, valueAbsOff + 1 + lenWidth, length);
+      final int actualWidth = 1 + lenWidth + length;
+      if (actualWidth != valueWidth) {
+        // The same round trip the global path makes against its dictionary: the page recorded how
+        // wide the value it elided was, and the render just said how wide it is. A disagreement means
+        // the slot and the lane describe different values.
+        throw new SirixIOException("value-elision: temporal STRING width mismatch at slot " + slot + ": expected="
+            + valueWidth + " actual=" + actualWidth + " for tag " + stringHeader.parentDict[tagId]
+            + " entry " + dictId);
+      }
+    }
+
+    /**
      * Refuse a page whose string region carries a global tag when it is being expanded EAGERLY.
      *
      * <p>
@@ -5068,6 +5108,11 @@ public enum PageKind {
           if (stringHeader.tagGlobal[tagId]) {
             injectGlobalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
                 valueWidth, valueElidedTypes[e], resolved);
+            continue;
+          }
+          if (stringHeader.tagTemporal[tagId]) {
+            injectTemporalString(slottedPage, stringPayload, stringHeader, tagId, dictId, slot, valueAbsOff,
+                valueWidth, valueElidedTypes[e]);
             continue;
           }
           final int strOff = StringRegion.decodeStringOffset(stringPayload, stringHeader, tagId, dictId);

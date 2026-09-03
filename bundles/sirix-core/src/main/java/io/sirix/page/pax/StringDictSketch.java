@@ -129,7 +129,7 @@ public final class StringDictSketch {
     }
     int totalEntries = 0;
     for (int tag = 0; tag < header.parentDictSize; tag++) {
-      if (header.tagGlobal[tag]) {
+      if (header.tagGlobal[tag] || header.tagTemporal[tag]) {
         // NO SKETCH AT ALL for a page with a converted tag, and the reason is the one this class is
         // most dangerous about. A global tag stores dictionary IDS and no value bytes, so the walk
         // below would read its packed ids AS lengths and hash whatever payload ranges they happen to

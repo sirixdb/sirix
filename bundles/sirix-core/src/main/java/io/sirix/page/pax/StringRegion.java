@@ -17,6 +17,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Per-page PAX region for {@code OBJECT_STRING_VALUE} slots, dictionary- and bit-pack-encoded in
@@ -168,6 +169,40 @@ public final class StringRegion {
    * </p>
    */
   private static final int GLOBAL_WIDTH_CODE = 3;
+
+  /**
+   * Arms the TEMPORAL lane: a tag whose whole dictionary is fixed timestamp text is stored as packed
+   * numbers instead of text. OFF by default, so a load that does not ask for it writes exactly the
+   * bytes it wrote before; it gates BEHAVIOUR on the WRITE side only, and the decoder always
+   * understands what is on the page.
+   */
+  public static final String TEMPORAL_LANE_PROPERTY = "sirix.page.temporalLane";
+
+  private static final boolean TEMPORAL_LANE_DEFAULT = Boolean.getBoolean(TEMPORAL_LANE_PROPERTY);
+
+  private static volatile Boolean TEMPORAL_LANE_OVERRIDE = null;
+
+  /** Test hook: force-enable/disable the temporal lane without restarting the JVM. */
+  public static void setTemporalLaneEnabled(final boolean enabled) {
+    TEMPORAL_LANE_OVERRIDE = enabled;
+  }
+
+  /** Test hook: clear the override and fall back to the system property. */
+  public static void clearTemporalLaneOverride() {
+    TEMPORAL_LANE_OVERRIDE = null;
+  }
+
+  /**
+   * Whether the temporal lane is armed for WRITING. Reads NEVER consult it: a page that was written
+   * with the lane stays readable when the switch goes off, which is what makes the switch safe to
+   * flip on a database that already exists.
+   */
+  public static boolean temporalLaneEnabled() {
+    final Boolean override = TEMPORAL_LANE_OVERRIDE;
+    return override != null
+        ? override
+        : TEMPORAL_LANE_DEFAULT;
+  }
 
   /**
    * Bits per global id, DERIVED from the dictionary's entry count rather than stored.
@@ -356,6 +391,28 @@ public final class StringRegion {
     public boolean[] tagGlobal;
 
     /**
+     * For each tag: its dictionary is stored as PACKED TIMESTAMPS rather than text (the temporal
+     * lane). Mutually exclusive with {@link #tagGlobal} — a tag is one lane or the other.
+     *
+     * <p>
+     * Like a global tag, a temporal tag carries NO value bytes; unlike it, resolving one needs no
+     * dictionary at all, because the stored number IS the value. Consumers must therefore treat it the
+     * way they treat a global tag — never read bytes from the page for it — and obtain its values from
+     * {@link StringRegion#temporalValueAt} or from the resolved table.
+     * </p>
+     */
+    public boolean[] tagTemporal;
+
+    /** For each temporal tag: the {@link TemporalTextCodec} form its values render under. */
+    public int[] tagTemporalForm;
+
+    /** For each temporal tag: the frame-of-reference base its packed deltas are relative to. */
+    public long[] tagTemporalMin;
+
+    /** For each temporal tag: the bit width of one packed delta ({@code 0} when all values agree). */
+    public int[] tagTemporalBits;
+
+    /**
      * For each global tag: the node key of the dictionary its ids were encoded against.
      *
      * <p>
@@ -459,6 +516,19 @@ public final class StringRegion {
         tagGlobalLengthWidth = new byte[Math.max(4, parentDictSize)];
       if (tagGlobalLengthOffset == null || tagGlobalLengthOffset.length < parentDictSize)
         tagGlobalLengthOffset = new int[Math.max(4, parentDictSize)];
+      // The four-byte dictionary layout has no temporal lane -- it has nowhere to put the form, the
+      // frame base or the width -- so the flags are allocated and CLEARED here rather than left null.
+      // A reused Header crosses layouts, and a stale true would send a reader to render a tag that
+      // holds bytes.
+      if (tagTemporal == null || tagTemporal.length < parentDictSize)
+        tagTemporal = new boolean[Math.max(4, parentDictSize)];
+      if (tagTemporalForm == null || tagTemporalForm.length < parentDictSize)
+        tagTemporalForm = new int[Math.max(4, parentDictSize)];
+      if (tagTemporalMin == null || tagTemporalMin.length < parentDictSize)
+        tagTemporalMin = new long[Math.max(4, parentDictSize)];
+      if (tagTemporalBits == null || tagTemporalBits.length < parentDictSize)
+        tagTemporalBits = new int[Math.max(4, parentDictSize)];
+      Arrays.fill(tagTemporal, 0, parentDictSize, false);
       for (int i = 0; i < parentDictSize; i++) {
         parentDict[i] = getInt(payload, pos);
         pos += 4;
@@ -584,7 +654,7 @@ public final class StringRegion {
 
         final long meta = VarInt.readUnsigned(payload, pos);
         pos += VarInt.sizeOfUnsigned(meta);
-        final boolean plain = (meta & 1L) != 0L;
+        boolean plain = (meta & 1L) != 0L;
         final int widthCode = (int) ((meta >>> 1) & 3L);
         // Width code 3 is the TRIE LANE: the two-bit field has three widths {1,2,4} and a spare
         // code, so a global tag needs no new field and no format version. Its entries are int[n]
@@ -594,16 +664,43 @@ public final class StringRegion {
         if (!global && widthCode >= LENGTH_WIDTHS.length) {
           throw new IllegalArgumentException("string region tag " + t + " declares length width code " + widthCode);
         }
-        if (global && plain) {
-          // The plain lane means "the value's RANK is its id", which is a statement about bytes this
-          // tag does not carry. Refusing is the point: a page that claims both is malformed, and
-          // reading it either way would invent an answer.
-          throw new IllegalArgumentException("string region tag " + t + " claims both the plain lane and global ids");
+        // Width code 3 WITH the plain bit is the TEMPORAL lane. The pair was unreachable before it
+        // -- "plain" claims a value's rank is its id, which is a statement about bytes a global tag
+        // does not carry -- so no honest encoder ever wrote it, and taking it costs no new field.
+        final boolean temporal = global && plain;
+        tagTemporal[t] = temporal;
+        if (temporal) {
+          final long formField = VarInt.readUnsigned(payload, pos);
+          pos += VarInt.sizeOfUnsigned(formField);
+          final int form = (int) (formField & 3L);
+          if (form != TemporalTextCodec.FORM_DATE && form != TemporalTextCodec.FORM_DATETIME) {
+            throw new IllegalArgumentException("string region tag " + t + " declares temporal form " + form);
+          }
+          tagTemporalForm[t] = form;
+          // The plain flag rides here because the meta word's bit 0 is what marks the tag temporal.
+          plain = (formField & 4L) != 0L;
+          final long min = VarInt.readSigned(payload, pos);
+          pos += VarInt.sizeOfSigned(min);
+          tagTemporalMin[t] = min;
+          final long bits = VarInt.readUnsigned(payload, pos);
+          pos += VarInt.sizeOfUnsigned(bits);
+          if (bits < 0L || bits > 64L) {
+            throw new IllegalArgumentException("string region tag " + t + " declares temporal width " + bits);
+          }
+          tagTemporalBits[t] = (int) bits;
+        } else {
+          tagTemporalForm[t] = 0;
+          tagTemporalMin[t] = 0L;
+          tagTemporalBits[t] = 0;
         }
         tagPlainLane[t] = plain;
         anyPlain |= plain;
-        tagGlobal[t] = global;
-        tagLengthWidth[t] = (byte) (global ? 4 : LENGTH_WIDTHS[widthCode]);
+        tagGlobal[t] = global && !temporal;
+        tagLengthWidth[t] = (byte) (temporal
+            ? 0
+            : global
+                ? 4
+                : LENGTH_WIDTHS[widthCode]);
         final long dictSize = plain
             ? values
             : meta >>> 3;
@@ -611,7 +708,7 @@ public final class StringRegion {
           throw new IllegalArgumentException("string region tag " + t + " declares dictionary size " + dictSize);
         }
         tagStringDictSize[t] = (int) dictSize;
-        if (global) {
+        if (global && !temporal) {
           // The anchor rides immediately after the meta word, varint-encoded: a dictionary's header
           // key and its entry count are both small numbers, so naming the dictionary costs about
           // four bytes per global tag against the hundreds it removes.
@@ -669,6 +766,15 @@ public final class StringRegion {
         final int n = tagStringDictSize[t];
         final int width = tagLengthWidth[t];
         final long bytesStart = pos + (long) n * width;
+        if (tagTemporal[t]) {
+          // Packed deltas and nothing else. Sized from the DECLARED width, never by walking the body
+          // as lengths -- the comment below records what that mistake once cost a global tag.
+          final long packed = ((long) n * tagTemporalBits[t] + 7L) >>> 3;
+          tagGlobalLengthOffset[t] = (int) pos;
+          tagStringBytesOffset[t] = (int) (pos + packed);
+          pos += packed;
+          continue;
+        }
         if (tagGlobal[t]) {
           // A PACKED id table, then a fixed-width LENGTH lane, and no value bytes at all. The ids
           // must never be walked as if they were lengths -- doing so reads them AS lengths and
@@ -714,6 +820,18 @@ public final class StringRegion {
       }
       if (tagGlobal == null || tagGlobal.length < size) {
         tagGlobal = new boolean[capacity];
+      }
+      if (tagTemporal == null || tagTemporal.length < size) {
+        tagTemporal = new boolean[capacity];
+      }
+      if (tagTemporalForm == null || tagTemporalForm.length < size) {
+        tagTemporalForm = new int[capacity];
+      }
+      if (tagTemporalMin == null || tagTemporalMin.length < size) {
+        tagTemporalMin = new long[capacity];
+      }
+      if (tagTemporalBits == null || tagTemporalBits.length < size) {
+        tagTemporalBits = new int[capacity];
       }
       if (tagDictionaryKey == null || tagDictionaryKey.length < size) {
         tagDictionaryKey = new long[capacity];
@@ -998,6 +1116,12 @@ public final class StringRegion {
       // format cannot afford and cannot detect afterwards.
       throw new IllegalStateException("string region tag " + tag + " stores global ids; resolve via the dictionary");
     }
+    if (h.tagTemporal[tag]) {
+      // Packed numbers, not bytes -- the same refusal for the same reason. There is no offset to
+      // return: the value is rendered by TemporalTextCodec, never read from the page.
+      throw new IllegalStateException("string region tag " + tag
+          + " stores packed timestamps; render via StringRegion.temporalValueAt");
+    }
     final int dictStart = h.tagStringDictOffset[tag];
     final int width = h.tagLengthWidth[tag];
     // lengths[0..n), then bytes — walk lengths to sum offsets.
@@ -1009,6 +1133,12 @@ public final class StringRegion {
   }
 
   public static int decodeStringLength(final MemorySegment payload, final Header h, final int tag, final int dictId) {
+    if (h.tagTemporal[tag]) {
+      // The length is a CONSTANT of the form, which is why a temporal tag stores no length lane at
+      // all -- and the derived value-elision plan, which reconstructs an elided slot's width from
+      // exactly this, is served for free.
+      return TemporalTextCodec.lengthOf(h.tagTemporalForm[tag]);
+    }
     if (h.tagGlobal[tag]) {
       // A LENGTH a global tag can answer, unlike an offset. This is the whole reason the lane exists:
       // the derived value-elision plan reconstructs an elided slot's width from the region's stored
@@ -1035,10 +1165,11 @@ public final class StringRegion {
    */
   public static boolean isEntryCompressed(final MemorySegment payload, final Header h, final int tag,
       final int dictId) {
-    if (h.tagGlobal[tag]) {
+    if (h.tagGlobal[tag] || h.tagTemporal[tag]) {
       // Never, and by construction rather than by observation: the encoder refuses to convert a tag
       // with any FSST-encoded entry, because a stored form is not a value and cannot be looked up in
-      // a dictionary. Reading the sign bit of an ID here would answer at random.
+      // a dictionary -- and resolveTemporal refuses one for the same reason. Reading the sign bit of
+      // an ID or of a packed delta here would answer at random.
       return false;
     }
     final int width = h.tagLengthWidth[tag];
@@ -1084,6 +1215,29 @@ public final class StringRegion {
       // fail, it would match plausible-looking garbage, and this format has already paid once for a
       // decoder that guessed instead of declining.
       return DICT_ID_UNDECIDABLE;
+    }
+    if (h.tagTemporal[tag]) {
+      // A temporal tag answers EXACTLY, and does not decline: equality of timestamps is equality of
+      // the numbers they encode to, so the literal is encoded once under the tag's form and compared
+      // against the packed lane. A literal the codec refuses cannot equal any entry -- every entry
+      // encoded, or the tag would not be on this lane -- so ABSENT is not a guess but a proof.
+      final int form = h.tagTemporalForm[tag];
+      if (literal.length != TemporalTextCodec.lengthOf(form)) {
+        return DICT_ID_ABSENT;
+      }
+      final long wanted = TemporalTextCodec.encode(literal, 0, literal.length, form);
+      if (wanted == TemporalTextCodec.REFUSED) {
+        return DICT_ID_ABSENT;
+      }
+      final int bits = h.tagTemporalBits[tag];
+      final long base = h.tagTemporalMin[tag];
+      final int entries = h.tagStringDictSize[tag];
+      for (int i = 0; i < entries; i++) {
+        if (base + bitUnpackLong(payload, h.tagStringDictOffset[tag], (long) i * bits, bits) == wanted) {
+          return i;
+        }
+      }
+      return DICT_ID_ABSENT;
     }
     final int dictStart = h.tagStringDictOffset[tag];
     final int n = h.tagStringDictSize[tag];
@@ -1421,6 +1575,16 @@ public final class StringRegion {
 
     /** Reusable buffer for one entry's bytes while it is probed; never escapes the encoder. */
     private byte[] globalProbeScratch = new byte[256];
+    /** Per-tag: the tag's whole dictionary encodes as a fixed timestamp text (the temporal lane). */
+    private boolean[] temporalTag = new boolean[4];
+    /** Parallel to {@link #temporalTag}: {@link TemporalTextCodec}'s form for the tag. */
+    private int[] temporalForm = new int[4];
+    /** Parallel to {@link #temporalTag}: the encoded values, in dictionary-entry order. */
+    private long[][] temporalValues = new long[4][];
+    /** Parallel to {@link #temporalTag}: the frame-of-reference base (the tag's smallest value). */
+    private long[] temporalMin = new long[4];
+    /** Parallel to {@link #temporalTag}: bit width of {@code value - min}. */
+    private int[] temporalBits = new int[4];
     /**
      * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset; only
      * the logical length returns to zero. Entries in the alternative name/path encoder may temporarily
@@ -1957,6 +2121,32 @@ public final class StringRegion {
         // than probing the dictionary a second time. A plain tag is excluded because its lane is its
         // rank, which only means anything about bytes it would no longer store.
         globalTag[r] = !tagIsPlain && resolveGlobalIds(t, r, sz);
+        // The temporal lane is considered only for a tag the trie lane did not take, and it is
+        // considered for a PLAIN tag too: a timestamp column's values are usually all distinct, which
+        // is exactly the plain case, and packing them is worth far more than dropping their ids.
+        temporalTag[r] = !globalTag[r] && resolveTemporal(t, r, sz);
+        if (temporalTag[r]) {
+          widths[r] = 0;
+          final int tagValueTemporal = tagOrder.getInt(t);
+          headerSize += VarInt.sizeOfSigned((long) tagValueTemporal - previousTag);
+          previousTag = tagValueTemporal;
+          headerSize += VarInt.sizeOfUnsigned(values);
+          headerSize += VarInt.sizeOfUnsigned(temporalTagMeta(sz));
+          headerSize += VarInt.sizeOfUnsigned(temporalFormField(temporalForm[r], tagIsPlain));
+          headerSize += VarInt.sizeOfSigned(temporalMin[r]);
+          headerSize += VarInt.sizeOfUnsigned(temporalBits[r]);
+          dictBytesSize += ((long) sz * temporalBits[r] + 7L) >>> 3;
+          // A temporal tag keeps its id lane exactly like any other dictionary tag: the lane maps a
+          // ROW to an entry, and nothing about how the entry is stored changes that. A plain temporal
+          // tag keeps the plain lane's absence of ids for the same unchanged reason.
+          if (!tagIsPlain) {
+            laneValues += values;
+            if (sz > maxLaneDict) {
+              maxLaneDict = sz;
+            }
+          }
+          continue;
+        }
         if (globalTag[r]) {
           widths[r] = 4;
           dictBytesSize += ((long) sz * globalIdBits(globalEntryCount[r]) + 7L) >>> 3;
@@ -2038,9 +2228,16 @@ public final class StringRegion {
         pos = VarInt.writeSigned(output, pos, (long) tagValue - previousTag);
         previousTag = tagValue;
         pos = VarInt.writeUnsigned(output, pos, tagDictIds[t].size());
-        pos = VarInt.writeUnsigned(output, pos, globalTag[r]
-            ? globalTagMeta(tagDictSize[t])
-            : tagMeta(plain[r], widths[r], tagDictSize[t]));
+        pos = VarInt.writeUnsigned(output, pos, temporalTag[r]
+            ? temporalTagMeta(tagDictSize[t])
+            : globalTag[r]
+                ? globalTagMeta(tagDictSize[t])
+                : tagMeta(plain[r], widths[r], tagDictSize[t]));
+        if (temporalTag[r]) {
+          pos = VarInt.writeUnsigned(output, pos, temporalFormField(temporalForm[r], plain[r]));
+          pos = VarInt.writeSigned(output, pos, temporalMin[r]);
+          pos = VarInt.writeUnsigned(output, pos, temporalBits[r]);
+        }
         if (globalTag[r]) {
           // The page names the dictionary it was encoded against and how large it was, so that
           // resolution is a function of the page rather than of whatever is current.
@@ -2063,6 +2260,32 @@ public final class StringRegion {
         final int sz = tagDictSize[t];
         final int width = widths[r];
         final int tagLengthBase = pos;
+        if (temporalTag[r]) {
+          // Packed (value - min) and NOTHING else: no length table, because the length is a constant
+          // of the form, and no value bytes, because the number IS the value. That absence is the
+          // lever. bitPackAppend ORs into the destination, so the reused buffer must start zeroed.
+          final int bits = temporalBits[r];
+          final int packedBytes = (int) (((long) sz * bits + 7L) >>> 3);
+          Arrays.fill(output, pos, pos + packedBytes, (byte) 0);
+          if (bits > 0) {
+            final long[] vals = temporalValues[r];
+            final long base = temporalMin[r];
+            for (int i = 0; i < sz; i++) {
+              bitPackAppendLong(output, pos, (long) i * bits, vals[i] - base, bits);
+            }
+          }
+          pos += packedBytes;
+          if (PageSectionDiag.STRING_TAG_DIAG) {
+            final int valuesForDiag = tagDictIds[t].size();
+            PageSectionDiag.recordStringRegionTag(tagKind, tagOrder.getInt(t), valuesForDiag, sz,
+                packedBytes, 0, plain[r]
+                    ? 0L
+                    : (long) valuesForDiag * bitWidth, plain[r]
+                        ? 0L
+                        : (long) valuesForDiag * forWidth(sz));
+          }
+          continue;
+        }
         if (globalTag[r]) {
           // Ids only, PACKED at the width the dictionary's size implies. No length table and no
           // bytes: that absence is the lever, and the packing is 20 % of what the lever leaves.
@@ -2163,6 +2386,38 @@ public final class StringRegion {
     }
 
     /**
+     * Meta word for a TEMPORAL tag: width code {@link #GLOBAL_WIDTH_CODE} AND the plain bit.
+     *
+     * <p>
+     * That combination was unreachable and the parser refused it as malformed, exactly as width code
+     * 3 itself was unreachable before the trie lane took it. Taking it costs no new field and no
+     * format version: "plain" means a value's RANK is its id, which is a claim about bytes a global
+     * tag does not carry, so no honest encoder could ever have written the pair.
+     * </p>
+     */
+    private static long temporalTagMeta(final int dictSize) {
+      return ((long) dictSize << 3) | ((long) GLOBAL_WIDTH_CODE << 1) | 1L;
+    }
+
+    /**
+     * The temporal tag's form field: the {@link TemporalTextCodec} form in the low two bits and the
+     * PLAIN-lane flag above it.
+     *
+     * <p>
+     * The plain flag has to live here because the meta word's bit 0 -- where every other tag carries
+     * it -- is what MARKS this tag temporal. A temporal tag still needs the flag: its values are
+     * usually all distinct, which is exactly the plain case, and a plain tag stores no id lane at all.
+     * Losing the distinction would cost an id lane per tag per leaf, or invent one the writer never
+     * wrote.
+     * </p>
+     */
+    private static long temporalFormField(final int form, final boolean plain) {
+      return (long) form | (plain
+          ? 4L
+          : 0L);
+    }
+
+    /**
      * Resolve a tag's whole dictionary to global ids, or report that it cannot be.
      *
      * <p>
@@ -2172,6 +2427,73 @@ public final class StringRegion {
      * is which.
      * </p>
      */
+    /**
+     * Whether this tag's WHOLE dictionary is fixed timestamp text, and if so its encoded values.
+     *
+     * <p>
+     * ALL OR NOTHING, for {@link #resolveGlobalIds}'s own reason: a tag half packed and half bytes
+     * has nothing on the wire to say which half an entry is in. One entry that is FSST-encoded (whose
+     * stored bytes are not its value) or that {@link TemporalTextCodec} refuses, and the tag keeps its
+     * bytes exactly as before.
+     * </p>
+     *
+     * <p>
+     * The FORM is decided by the FIRST entry and then required of the rest, rather than per entry: a
+     * column is dates or datetimes, and a tag holding both would need a per-value form bit that costs
+     * more than the mixture can ever save.
+     * </p>
+     */
+    private boolean resolveTemporal(final int t, final int r, final int sz) {
+      if (!temporalLaneEnabled() || sz == 0) {
+        return false;
+      }
+      final int form = TemporalTextCodec.formOf(tagLengths[t][0]);
+      if (form == TemporalTextCodec.FORM_REFUSED) {
+        return false;
+      }
+      long[] values = temporalValues[r];
+      if (values == null || values.length < sz) {
+        values = new long[Math.max(sz, 16)];
+        temporalValues[r] = values;
+      }
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      for (int i = 0; i < sz; i++) {
+        if (tagCompressed[t][i]) {
+          return false;
+        }
+        final int len = tagLengths[t][i];
+        if (len != TemporalTextCodec.lengthOf(form)) {
+          return false;
+        }
+        if (globalProbeScratch.length < len) {
+          globalProbeScratch = new byte[Math.max(len, globalProbeScratch.length << 1)];
+        }
+        tagStores[t][i].copyTo(tagOffsets[t][i], globalProbeScratch, 0, len);
+        final long value = TemporalTextCodec.encode(globalProbeScratch, 0, len, form);
+        if (value == TemporalTextCodec.REFUSED) {
+          return false;
+        }
+        values[i] = value;
+        if (value < min) {
+          min = value;
+        }
+        if (value > max) {
+          max = value;
+        }
+      }
+      temporalForm[r] = form;
+      temporalMin[r] = min;
+      // Frame of reference: the span, not the magnitude, sets the width. A leaf's timestamps sit
+      // within seconds of each other, so this is usually a handful of bits against the 64 a raw
+      // value would take -- and it is the whole reason the lane beats a fixed-width epoch column.
+      final long span = max - min;
+      temporalBits[r] = span == 0L
+          ? 0
+          : 64 - Long.numberOfLeadingZeros(span);
+      return true;
+    }
+
     private boolean resolveGlobalIds(final int t, final int r, final int sz) {
       final GlobalStringDictionaries resolver = dictionaries;
       if (resolver == null || sz == 0) {
@@ -2244,8 +2566,14 @@ public final class StringRegion {
         globalLengthWidth = Arrays.copyOf(globalLengthWidth, globalTag.length);
         globalEntryCount = Arrays.copyOf(globalEntryCount, globalTag.length);
         globalDictionaryKey = Arrays.copyOf(globalDictionaryKey, globalTag.length);
+        temporalTag = Arrays.copyOf(temporalTag, globalTag.length);
+        temporalForm = Arrays.copyOf(temporalForm, globalTag.length);
+        temporalValues = Arrays.copyOf(temporalValues, globalTag.length);
+        temporalMin = Arrays.copyOf(temporalMin, globalTag.length);
+        temporalBits = Arrays.copyOf(temporalBits, globalTag.length);
       }
       Arrays.fill(globalTag, 0, tags, false);
+      Arrays.fill(temporalTag, 0, tags, false);
     }
 
     /**
@@ -2512,6 +2840,113 @@ public final class StringRegion {
       v |= ((long) (data.get(ValueLayout.JAVA_BYTE, off + i) & 0xFF)) << (i << 3);
     }
     return v;
+  }
+
+  /**
+   * The 64-bit sibling of {@link #bitPackAppend}, for the temporal lane's frame-of-reference deltas.
+   *
+   * <p>
+   * A separate method rather than a widened one: the id lane packs at most 32 bits and is the hottest
+   * write in the region, so it keeps its {@code int} arithmetic. A width of {@code 0} writes nothing,
+   * which is what a tag whose values are all equal needs.
+   * </p>
+   *
+   * @param out destination, which must be ZEROED over the range (this ORs)
+   * @param base byte offset of the lane
+   * @param bitPos bit offset within the lane
+   * @param value the value to write, which must fit in {@code bitWidth} bits
+   * @param bitWidth 0..64
+   */
+  /**
+   * The value of entry {@code entry} of a TEMPORAL tag, rendered into {@code dst} at {@code off}.
+   *
+   * <p>
+   * A temporal tag stores numbers, so this is the whole of its read path: no dictionary, no page
+   * bytes, one unpack and one render. The caller sizes {@code dst} from
+   * {@link TemporalTextCodec#lengthOf} of {@link Header#tagTemporalForm}.
+   * </p>
+   *
+   * @param payload the region payload
+   * @param header a header already parsed from {@code payload}
+   * @param tagIndex the tag, which must be temporal
+   * @param entry the dictionary entry
+   * @param dst destination for the rendered text
+   * @param off offset within {@code dst}
+   * @return bytes written
+   * @throws IllegalArgumentException if the tag is not temporal
+   */
+  public static int temporalValueAt(final MemorySegment payload, final Header header, final int tagIndex,
+      final int entry, final byte[] dst, final int off) {
+    if (!header.tagTemporal[tagIndex]) {
+      throw new IllegalArgumentException("string region tag " + tagIndex + " is not a temporal tag");
+    }
+    Objects.checkIndex(entry, header.tagStringDictSize[tagIndex]);
+    final int bits = header.tagTemporalBits[tagIndex];
+    final long delta = bitUnpackLong(payload, header.tagStringDictOffset[tagIndex], (long) entry * bits, bits);
+    return TemporalTextCodec.decode(header.tagTemporalMin[tagIndex] + delta, header.tagTemporalForm[tagIndex], dst,
+        off);
+  }
+
+  /** Byte length every value of a temporal tag renders to. */
+  public static int temporalValueLength(final Header header, final int tagIndex) {
+    if (!header.tagTemporal[tagIndex]) {
+      throw new IllegalArgumentException("string region tag " + tagIndex + " is not a temporal tag");
+    }
+    return TemporalTextCodec.lengthOf(header.tagTemporalForm[tagIndex]);
+  }
+
+  private static void bitPackAppendLong(final byte[] out, final int base, final long bitPos, final long value,
+      final int bitWidth) {
+    if (bitWidth == 0) {
+      return;
+    }
+    final long mask = bitWidth == 64
+        ? -1L
+        : ((1L << bitWidth) - 1L);
+    long v = value & mask;
+    int byteOff = base + (int) (bitPos >>> 3);
+    int shift = (int) (bitPos & 7L);
+    int remaining = bitWidth;
+    while (remaining > 0) {
+      final int bitsThisByte = Math.min(8 - shift, remaining);
+      out[byteOff] |= (byte) ((v & ((1L << bitsThisByte) - 1L)) << shift);
+      v >>>= bitsThisByte;
+      remaining -= bitsThisByte;
+      byteOff++;
+      shift = 0;
+    }
+  }
+
+  /**
+   * Read back one value {@link #bitPackAppendLong} wrote, from a payload segment.
+   *
+   * @param payload the region payload
+   * @param base byte offset of the lane within {@code payload}
+   * @param bitPos bit offset within the lane
+   * @param bitWidth 0..64; {@code 0} always reads {@code 0}
+   * @return the unsigned value
+   */
+  private static long bitUnpackLong(final MemorySegment payload, final long base, final long bitPos,
+      final int bitWidth) {
+    if (bitWidth == 0) {
+      return 0L;
+    }
+    long value = 0L;
+    int gathered = 0;
+    long byteOff = base + (bitPos >>> 3);
+    int shift = (int) (bitPos & 7L);
+    int remaining = bitWidth;
+    while (remaining > 0) {
+      final int bitsThisByte = Math.min(8 - shift, remaining);
+      final int b = payload.get(ValueLayout.JAVA_BYTE, byteOff) & 0xFF;
+      final long chunk = (b >>> shift) & ((1L << bitsThisByte) - 1L);
+      value |= chunk << gathered;
+      gathered += bitsThisByte;
+      remaining -= bitsThisByte;
+      byteOff++;
+      shift = 0;
+    }
+    return value;
   }
 
   private static void bitPackAppend(final byte[] out, final int base, final int bitPos, final int value,
