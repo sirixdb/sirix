@@ -470,6 +470,60 @@ public final class GlobalValueDictionary {
         default -> throw new IllegalArgumentException("not a per-value string op: " + op);
       }
       final long[] verdict = new long[entryCount + 64 >>> 6];
+      fillStringOpVerdict(op, literalUtf8, 0, verdictBucketCount(), verdict, 0);
+      return verdict;
+    }
+
+    /**
+     * Buckets the reverse dictionary holds — the unit {@link #fillStringOpVerdict} is split on.
+     *
+     * @return bucket count, {@code 0} when the dictionary is empty
+     */
+    public int verdictBucketCount() {
+      return entryCount == 0
+          ? 0
+          : (entryCount - 1 >>> 8) + 1;
+    }
+
+    /**
+     * Fill the verdict bits for buckets {@code [bucketLo, bucketHi)} into {@code out}, whose word
+     * {@code 0} is the global verdict word {@code wordBase}.
+     *
+     * <h2>Why a caller-owned slice and not the shared array</h2>
+     *
+     * Ids are 1-based and bucketed by {@code (id - 1) >>> 8}, so bucket {@code b} owns ids
+     * {@code 256b+1 .. 256b+256} — which occupy verdict words {@code 4b .. 4b+4}, FIVE words, whose
+     * last is also bucket {@code b+1}'s first. Adjacent buckets therefore SHARE a boundary word, and
+     * two lanes OR-ing into it concurrently would lose one another's bits: a silently dropped row at
+     * one id in 256, on a path whose whole job is to decide which rows match. Each lane fills its own
+     * slice and the caller merges; the merge is a linear OR over 4*(bucketHi-bucketLo)+1 words.
+     *
+     * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
+     * @param literalUtf8 the literal, UTF-8 encoded
+     * @param bucketLo first bucket, inclusive
+     * @param bucketHi last bucket, exclusive
+     * @param out destination, at least {@code 4 * (bucketHi - bucketLo) + 1} words
+     * @param wordBase the global verdict word {@code out[0]} stands for, normally {@code 4*bucketLo}
+     * @throws IllegalArgumentException if the range is not within the dictionary
+     */
+    public void fillStringOpVerdict(final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int bucketLo,
+        final int bucketHi, final long[] out, final int wordBase) {
+      Objects.requireNonNull(op, "op must not be null");
+      Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      Objects.requireNonNull(out, "out must not be null");
+      switch (op) {
+        case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+        }
+        default -> throw new IllegalArgumentException("not a per-value string op: " + op);
+      }
+      final int buckets = verdictBucketCount();
+      if (bucketLo < 0 || bucketHi > buckets || bucketLo > bucketHi) {
+        throw new IllegalArgumentException(
+            "bucket range [" + bucketLo + ", " + bucketHi + ") outside the dictionary's " + buckets);
+      }
+      if (bucketLo == bucketHi) {
+        return;
+      }
       final boolean litHasSupplementary =
           ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
       // BLOCK-AT-A-TIME, not id-at-a-time. A per-id walk routes all entryCount values through
@@ -478,8 +532,7 @@ public final class GlobalValueDictionary {
       // reach bytes the block it came from is already holding. Measured on a 275,494-entry URL
       // dictionary that machinery alone was 16.5 ms of a 25.1 ms sweep. Walking the reverse trie
       // once and reading each block's packed bytes in place removes it without changing a verdict.
-      final int bucketCount = (entryCount - 1 >>> 8) + 1;
-      for (int bucket = 0; bucket < bucketCount; bucket++) {
+      for (int bucket = bucketLo; bucket < bucketHi; bucket++) {
         final ValueDictionaryValueBucketNode bucketNode =
             GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
         if (bucketNode == null) {
@@ -505,7 +558,7 @@ public final class GlobalValueDictionary {
             if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8,
                 litHasSupplementary)) {
               final int id = blockFirstId + index;
-              verdict[id >>> 6] |= 1L << (id & 63);
+              out[(id >>> 6) - wordBase] |= 1L << (id & 63);
             }
             start = end;
           }
@@ -522,11 +575,10 @@ public final class GlobalValueDictionary {
           }
           if (spillMatches(entry, op, literalUtf8)) {
             final int id = bucketNode.spillId(spill);
-            verdict[id >>> 6] |= 1L << (id & 63);
+            out[(id >>> 6) - wordBase] |= 1L << (id & 63);
           }
         }
       }
-      return verdict;
     }
 
     /**

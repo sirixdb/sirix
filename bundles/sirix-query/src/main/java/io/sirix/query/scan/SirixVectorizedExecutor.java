@@ -8588,7 +8588,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         view.revision(), headerKey, view.entryCount(), op.name(), HexFormat.of().formatHex(literalUtf8));
     long[] verdict = reader.getBufferManager().getGlobalVerdictCache().get(cacheKey);
     if (verdict == null) {
-      verdict = view.stringOpVerdict(op, literalUtf8);
+      verdict = parallelStringOpVerdict(view, headerKey, op, literalUtf8);
       // Clone on the way IN as well as out, so the cached array has no external reference at all.
       // get() already copies for readers 2..N; without this the caller that POPULATED the entry
       // still holds the very array the cache keeps, which is the aliasing the copy exists to
@@ -8597,6 +8597,82 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     return ProjectionIndexScan.ColumnPredicate.globalStringVerdict(column, op, literalUtf8, verdict,
         view.entryCount());
+  }
+
+  /** Dictionary buckets below which the sweep stays on the planning thread. */
+  private static final int VERDICT_BUCKETS_PER_LANE = 1 << 9;
+
+  /**
+   * The verdict sweep, over disjoint BUCKET ranges in parallel.
+   *
+   * <p>
+   * The sweep is a pure function of {@code (dictionary, revision, op, literal)} and costs one visit to
+   * every distinct value, so it is the whole cost of a substring query the first time it is asked: at
+   * 100M the URL dictionary is ~18M entries and the sweep measured as essentially all of q20's 5.76 s
+   * COLD time, against 45 ms hot once the buffer manager holds the verdict. It was single-threaded,
+   * which is why the cold path of those queries ran at 2.5 of 20 cores where their hot path runs at 12.
+   * </p>
+   *
+   * <p>
+   * Each lane fills its OWN slice and the merge is sequential, because bucket {@code b} owns ids
+   * {@code 256b+1 .. 256b+256} and therefore verdict words {@code 4b .. 4b+4} — the last of which is
+   * bucket {@code b+1}'s first. Lanes OR-ing into one shared array would lose bits at one id in 256.
+   * A lane gets its own {@link GlobalValueDictionary.ReadView} for the same reason the string-length
+   * table's lanes do: a view's slice caches are single-threaded.
+   * </p>
+   */
+  private long[] parallelStringOpVerdict(final GlobalValueDictionary.ReadView view, final long headerKey,
+      final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
+    final int buckets = view.verdictBucketCount();
+    final int entryCount = view.entryCount();
+    final long[] verdict = new long[entryCount + 64 >>> 6];
+    final int lanes = Math.max(1, Math.min(Math.max(1, threads), buckets / VERDICT_BUCKETS_PER_LANE));
+    final long t0 = PROJ_DIAG
+        ? System.nanoTime()
+        : 0L;
+    if (lanes == 1) {
+      view.fillStringOpVerdict(op, literalUtf8, 0, buckets, verdict, 0);
+    } else {
+      final long[][] slices = new long[lanes][];
+      final int[] bases = new int[lanes];
+      parallel(lanes, idx -> {
+        final int lo = (int) ((long) buckets * idx / lanes);
+        final int hi = (int) ((long) buckets * (idx + 1) / lanes);
+        if (lo >= hi) {
+          return;
+        }
+        final GlobalValueDictionary.ReadView laneView =
+            GlobalValueDictionary.readView(headerKey, workerTrx().getStorageEngineReader());
+        if (laneView == null) {
+          throw new IllegalStateException("global value dictionary became unreadable mid-verdict");
+        }
+        if (laneView.entryCount() != entryCount) {
+          throw new IllegalStateException(
+              "global value dictionary changed size mid-verdict: " + entryCount + " -> " + laneView.entryCount());
+        }
+        final int wordBase = lo << 2;
+        final long[] slice = new long[((hi - lo) << 2) + 1];
+        laneView.fillStringOpVerdict(op, literalUtf8, lo, hi, slice, wordBase);
+        bases[idx] = wordBase;
+        slices[idx] = slice;
+      });
+      for (int lane = 0; lane < lanes; lane++) {
+        final long[] slice = slices[lane];
+        if (slice == null) {
+          continue;
+        }
+        final int base = bases[lane];
+        final int limit = Math.min(slice.length, verdict.length - base);
+        for (int w = 0; w < limit; w++) {
+          verdict[base + w] |= slice[w];
+        }
+      }
+    }
+    if (PROJ_DIAG) {
+      System.err.println("[verdict] op=" + op + " entries=" + entryCount + " buckets=" + buckets + " lanes=" + lanes
+          + " ms=" + (System.nanoTime() - t0) / 1_000_000L);
+    }
+    return verdict;
   }
 
   private ProjectionIndexScan.ColumnPredicate globalStringPredicate(final ProjectionIndexRegistry.Handle handle,
