@@ -351,6 +351,26 @@ final class ResidencyReleaseTest {
     assertFalse(f.store().columnFilled(1));
     assertEquals(a, f.store().retainedFillBytes());
     assertEquals(evictionsBefore + 2, ProjectionColumnStore.residencyEvictionCount());
+
+    // The dry pass: a fit that would still not fit once everything evictable is gone evicts NOTHING.
+    // Column 0 (a, resident) is pinned by an open reader, column 1 (b) is resident and unpinned, and
+    // the KEYS lane (k > b) is priced against a budget that admits it alone and held a + b, but not
+    // a + k: evicting column 1 would not make room, so it must stay.
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE >> 1);
+    final long k = f.store().projectedRecordKeysFillBytes();
+    assertTrue(b < k && k <= a + b, "the keys must be the fill that cannot fit: k=" + k + " b=" + b + " a=" + a);
+    assertNotNull(f.store().column(1, f.fetcher()));
+    assertEquals(a + b, f.store().retainedFillBytes(), "both columns retained");
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(a + b);
+    try (ProjectionResidencyScope reader = ProjectionResidencyScope.open()) {
+      assertTrue(f.store().columnFilled(0), "the reader pins column 0");
+      assertThrows(FillBudgetExceededException.class, () -> f.store().recordKeys(f.fetcher()),
+          "k > b: the keys cannot fit even with column 1 evicted");
+      assertTrue(f.store().columnFilled(1), "…so column 1 was not evicted for nothing");
+      assertEquals(a + b, f.store().retainedFillBytes());
+      assertEquals(evictionsBefore + 2, ProjectionColumnStore.residencyEvictionCount(), "no eviction");
+      assertNotNull(reader);
+    }
   }
 
   /** Sum every present value of {@code col} through the access — the answer must not depend on the route. */
