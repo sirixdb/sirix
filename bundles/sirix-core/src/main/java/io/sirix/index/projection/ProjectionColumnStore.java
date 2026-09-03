@@ -1548,7 +1548,7 @@ public final class ProjectionColumnStore {
    */
   public boolean columnFillWithinBudget(final int col) {
     return col >= 0 && col < columnKinds.length
-        && retainedFillBytes.get() + incrementalFillBytes(col, projectedColumnFillBytes(col)) <= residencyBudgetBytes();
+        && fitsMakingRoom(incrementalFillBytes(col, projectedColumnFillBytes(col)), new int[] {col}, false);
   }
 
   /**
@@ -1977,6 +1977,146 @@ public final class ProjectionColumnStore {
   /** Lanes released process-wide (one per column-with-its-lanes, or the KEYS lane). */
   private static final LongAdder RESIDENCY_RELEASES = new LongAdder();
 
+  /**
+   * Kill switch: {@code false} makes a fit door refuse whenever the retained total plus the fill
+   * exceeds the budget, retaining whatever was filled first for the store's lifetime.
+   */
+  public static final String RESIDENCY_EVICT_PROPERTY = "sirix.projection.residency.evict";
+
+  /**
+   * Whether a fit door may EVICT unpinned fills to admit the one being priced
+   * ({@link #fitsMakingRoom}). Without it residency is first-come-first-served: once earlier queries'
+   * columns filled the budget (a leg at 100M sat at 5.07 GB of a 5.37 GB budget from its 19th query
+   * on) every later column was refused for the store's lifetime and re-decoded on every read, while
+   * the columns holding the budget were never read again.
+   */
+  private static volatile boolean residencyEvict =
+      Boolean.parseBoolean(System.getProperty(RESIDENCY_EVICT_PROPERTY, "true"));
+
+  /**
+   * Test seam for the eviction kill switch.
+   *
+   * @param value {@code false} for first-come-first-served retention (no fit door evicts)
+   * @return the previous value, for restoring in a finally block
+   */
+  public static boolean setResidencyEvictForTesting(final boolean value) {
+    final boolean previous = residencyEvict;
+    residencyEvict = value;
+    return previous;
+  }
+
+  /** The empty keep set of a KEYS-lane fill. */
+  private static final int[] NO_COLUMNS = new int[0];
+
+  /** Lanes evicted by a fit door process-wide, to make room for the fill it admitted. */
+  private static final LongAdder RESIDENCY_EVICTIONS = new LongAdder();
+
+  /** Bytes evicted by fit doors process-wide. */
+  private static final LongAdder RESIDENCY_EVICTED_BYTES = new LongAdder();
+
+  /** Test observability: lanes a fit door evicted to admit a fill, process-wide. */
+  public static long residencyEvictionCount() {
+    return RESIDENCY_EVICTIONS.sum();
+  }
+
+  /** Test observability: bytes fit doors evicted, process-wide. */
+  public static long residencyEvictedBytes() {
+    return RESIDENCY_EVICTED_BYTES.sum();
+  }
+
+  /**
+   * Whether {@code needed} more retained bytes fit the budget beside what this store retains, EVICTING
+   * unpinned fills to make room when they do not. The one rule every fit door prices against
+   * ({@link #columnFillWithinBudget}, {@link #columnIdentityFillable}, {@link #columnsFitWithinBudget},
+   * {@link #leafAccess}): a fill that fits the budget on its own is admitted, and the fills it displaces
+   * are those no open query pins and the caller is not about to read — largest first, like the
+   * scope-exit release, so the fewest columns are dropped.
+   *
+   * <p>
+   * Retention is an optimisation (every route also reads through the windowed lanes), so evicting can
+   * cost a re-fetch, never an answer. Nothing is evicted unless the evictable total actually makes
+   * the fill fit: a dry pass sums what could go before a single lane is dropped, so a fill that could
+   * never fit leaves the store exactly as it found it.
+   * </p>
+   *
+   * @param needed the bytes the fill would charge (already-resident lanes excluded)
+   * @param keep columns the caller is about to read — never evicted, even when unpinned
+   * @param keepKeys whether the caller is about to read the resident KEYS lane
+   * @return {@code true} when the fill fits, after any eviction it needed
+   */
+  private boolean fitsMakingRoom(final long needed, final int[] keep, final boolean keepKeys) {
+    final long budget = residencyBudgetBytes();
+    if (retainedFillBytes.get() + needed <= budget) {
+      return true;
+    }
+    if (!residencyEvict || needed > budget) {
+      return false;
+    }
+    long freed = 0L;
+    int evictions = 0;
+    synchronized (this) {
+      long retained = retainedFillBytes.get();
+      if (retained + needed <= budget) {
+        return true;
+      }
+      final boolean[] kept = new boolean[columnKinds.length];
+      for (final int col : keep) {
+        if (col >= 0 && col < kept.length) {
+          kept[col] = true;
+        }
+      }
+      final int keysSlot = keysPinSlot();
+      final boolean keysEvictable = !keepKeys && residencyPins.get(keysSlot) == 0;
+      long evictable = keysEvictable ? chargedKeysBytes : 0L;
+      for (int col = 0; col < columnKinds.length; col++) {
+        if (!kept[col] && residencyPins.get(col) == 0) {
+          evictable += chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+        }
+      }
+      if (retained - evictable + needed > budget) {
+        return false; // could not fit even with everything evictable gone: touch nothing
+      }
+      while (retained + needed > budget) {
+        int bestColumn = -1;
+        long bestBytes = 0L;
+        for (int col = 0; col < columnKinds.length; col++) {
+          if (kept[col] || residencyPins.get(col) != 0) {
+            continue;
+          }
+          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+          if (bytes > bestBytes) {
+            bestBytes = bytes;
+            bestColumn = col;
+          }
+        }
+        final boolean keys = keysEvictable && chargedKeysBytes > bestBytes;
+        if (keys) {
+          bestBytes = chargedKeysBytes;
+          recordKeySlices = null;
+          chargedKeysBytes = 0L;
+        } else if (bestColumn < 0 || bestBytes <= 0L) {
+          break; // the dry pass admitted this fit, so this is unreachable; fail closed if it is not
+        } else {
+          releaseColumnLanes(bestColumn);
+        }
+        retained = retainedFillBytes.addAndGet(-bestBytes);
+        freed += bestBytes;
+        evictions++;
+      }
+      if (retained + needed > budget) {
+        return false;
+      }
+    }
+    RESIDENCY_EVICTIONS.add(evictions);
+    RESIDENCY_EVICTED_BYTES.add(freed);
+    if (Boolean.getBoolean("sirix.projDiag")) {
+      System.err.println("[proj] residency evict: " + evictions + " lane(s), " + (freed >> 20)
+          + " MB returned to admit a " + (needed >> 20) + " MB fill; retained " + (retainedFillBytes.get() >> 20)
+          + " MB of a " + (budget >> 20) + " MB budget");
+    }
+    return true;
+  }
+
   /** Test observability: bytes released at query-scope exits process-wide. */
   public static long residencyReleasedBytes() {
     return RESIDENCY_RELEASED_BYTES.sum();
@@ -2179,7 +2319,8 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Refuse a fill whose bytes would not fit beside what this store already retains.
+   * Refuse a fill whose bytes would not fit beside what this store already retains, after
+   * {@link #fitsMakingRoom} has evicted what it may to admit it.
    *
    * @param col the column
    * @param projected the fill's projected bytes
@@ -2187,19 +2328,20 @@ public final class ProjectionColumnStore {
    * @throws FillBudgetExceededException when the cumulative cap would be exceeded
    */
   private void checkFillBudget(final int col, final long projected, final String mode) {
+    if (fitsMakingRoom(projected, col < 0 ? NO_COLUMNS : new int[] {col}, col < 0)) {
+      return;
+    }
     final long retained = retainedFillBytes.get();
     final long budget = residencyBudgetBytes();
-    if (retained + projected > budget) {
-      throw new FillBudgetExceededException((col < 0
-          ? "The store's "
-          : "Column " + col + " ") + mode + " adds " + projected + " B beside " + retained
-          + " B already retained, over the " + budget + " B residency budget (min of "
-          + columnFillBudgetBytes + " B sirix.projection.eagerMaterializeBytes and the "
-          + (residencyHeadroom
-              ? headroomShareBytes + " B heap headroom share"
-              : "static budget: " + RESIDENCY_HEADROOM_PROPERTY + "=false")
-          + ") — declining the fill; the caller falls back to the whole-leaf windowed route");
-    }
+    throw new FillBudgetExceededException((col < 0
+        ? "The store's "
+        : "Column " + col + " ") + mode + " adds " + projected + " B beside " + retained
+        + " B already retained, over the " + budget + " B residency budget (min of "
+        + columnFillBudgetBytes + " B sirix.projection.eagerMaterializeBytes and the "
+        + (residencyHeadroom
+            ? headroomShareBytes + " B heap headroom share"
+            : "static budget: " + RESIDENCY_HEADROOM_PROPERTY + "=false")
+        + ") — declining the fill; the caller falls back to the whole-leaf windowed route");
   }
 
   /** Whether {@code col}'s DISTINCT-IDENTITY slices are already filled and cached. */
@@ -2328,7 +2470,7 @@ public final class ProjectionColumnStore {
             .append("MB");
       }
     }
-    final boolean fits = retainedFillBytes.get() + needed <= residencyBudgetBytes();
+    final boolean fits = fitsMakingRoom(needed, columns, false);
     if (diag != null && !fits) {
       System.err.println("[store] combined fit REFUSED: needed=" + (needed >> 20) + "MB retained="
           + (retainedFillBytes.get() >> 20) + "MB budget=" + (residencyBudgetBytes() >> 20) + "MB" + diag);
@@ -2345,8 +2487,8 @@ public final class ProjectionColumnStore {
    * @return {@code true} when the identity fill can actually serve this column
    */
   public boolean columnIdentityFillable(final int col) {
-    return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col) || retainedFillBytes.get()
-        + incrementalFillBytes(col, projectedColumnIdentityFillBytes(col)) <= residencyBudgetBytes());
+    return columnSliceable(col) && (columnFilled(col) || columnIdentityFilled(col)
+        || fitsMakingRoom(incrementalFillBytes(col, projectedColumnIdentityFillBytes(col)), new int[] {col}, false));
   }
 
   /**
@@ -3503,7 +3645,7 @@ public final class ProjectionColumnStore {
     if (resident && needKeys && recordKeySlices == null) {
       needed += projectedRecordKeysFillBytes();
     }
-    if (resident && retainedFillBytes.get() + needed > residencyBudgetBytes()) {
+    if (resident && !fitsMakingRoom(needed, columns, needKeys)) {
       resident = false;
     }
     if (resident) {

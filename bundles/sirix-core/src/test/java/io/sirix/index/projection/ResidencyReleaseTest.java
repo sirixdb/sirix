@@ -50,18 +50,21 @@ final class ResidencyReleaseTest {
   private long previousHeadroom;
   private long previousBudget;
   private boolean previousResidency;
+  private boolean previousEvict;
 
   @BeforeEach
   void setUp() {
     previousHeadroom = HeapHeadroom.setHeadroomForTesting(-1L);
     previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE >> 1);
     previousResidency = ProjectionColumnStore.setResidencyHeadroomForTesting(true);
+    previousEvict = ProjectionColumnStore.setResidencyEvictForTesting(true);
   }
 
   @AfterEach
   void tearDown() {
     // The share is a process-wide sample: leaving a starved one behind would send every later test in
     // this JVM down the windowed route.
+    ProjectionColumnStore.setResidencyEvictForTesting(previousEvict);
     ProjectionColumnStore.setResidencyHeadroomForTesting(previousResidency);
     ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
     HeapHeadroom.setHeadroomForTesting(previousHeadroom);
@@ -175,10 +178,13 @@ final class ResidencyReleaseTest {
       assertNotNull(query2);
     }
 
-    // MUTATION — "never release": with the kill switch the fat column stays and the second fill is
-    // refused, which is exactly the state 100M/8 GB was in before R1.
+    // MUTATION — "never release": with BOTH kill switches (no headroom release, no fit-door eviction)
+    // the fat column stays and the second fill is refused, which is exactly the state 100M/8 GB was
+    // in before R1. Eviction alone would admit the second fill by dropping the first (see
+    // aFitDoorEvictsUnpinnedFillsToAdmitTheCurrentOne), so it has to be off for this half.
     final Fixture killed = build(6, 200);
     ProjectionColumnStore.setResidencyHeadroomForTesting(false);
+    ProjectionColumnStore.setResidencyEvictForTesting(false);
     ProjectionColumnStore.setColumnFillBudgetBytesForTesting(a);
     try (ProjectionResidencyScope query1 = ProjectionResidencyScope.open()) {
       assertNotNull(killed.store().column(0, killed.fetcher()));
@@ -281,6 +287,70 @@ final class ResidencyReleaseTest {
     }
     assertEquals(a + b, highWater);
     assertTrue(f.store().columnFilled(0) && f.store().columnFilled(1), "both fills kept for the store's lifetime");
+  }
+
+  @Test
+  @DisplayName("a fit door evicts the unpinned columns earlier queries left behind to admit the current fill")
+  void aFitDoorEvictsUnpinnedFillsToAdmitTheCurrentOne() {
+    // The static budget, no headroom gate: exactly the production default of the query JVM.
+    ProjectionColumnStore.setResidencyHeadroomForTesting(false);
+    final Fixture f = build(6, 200);
+    final long a = f.store().projectedColumnFillBytes(0);
+    final long b = f.store().projectedColumnFillBytes(1);
+    assertTrue(a > b && b > 0L, "column 0 must be the fat one and column 1 a real fill");
+    // Room for the fat column alone: after it, the thin one no longer fits BESIDE it.
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(a + b - 1);
+
+    try (ProjectionResidencyScope earlier = ProjectionResidencyScope.open()) {
+      assertNotNull(f.store().column(0, f.fetcher()));
+      assertNotNull(earlier);
+    }
+    assertEquals(a, f.store().retainedFillBytes(), "the earlier query's column stays retained (within budget)");
+    assertEquals(0, f.store().residencyPins(0), "…and nothing pins it once that query is gone");
+
+    final long evictionsBefore = ProjectionColumnStore.residencyEvictionCount();
+    final long evictedBefore = ProjectionColumnStore.residencyEvictedBytes();
+    // A later query prices column 1: it fits the budget on its own, so the door makes room for it.
+    assertTrue(f.store().columnFillable(1), "a fill that fits the budget alone must be admitted");
+    assertFalse(f.store().columnFilled(0), "…by evicting the unpinned column that held the budget");
+    assertEquals(0L, f.store().retainedFillBytes(), "the ledger returned exactly what column 0 charged");
+    assertEquals(evictionsBefore + 1, ProjectionColumnStore.residencyEvictionCount());
+    assertEquals(evictedBefore + a, ProjectionColumnStore.residencyEvictedBytes());
+    try (ProjectionResidencyScope later = ProjectionResidencyScope.open()) {
+      assertNotNull(f.store().column(1, f.fetcher()));
+      assertNotNull(later);
+    }
+    assertEquals(b, f.store().retainedFillBytes(), "the admitted fill is retained");
+
+    // MUTATION of the switch: with eviction off the same fit is refused and nothing moves.
+    ProjectionColumnStore.setResidencyEvictForTesting(false);
+    assertFalse(f.store().columnFillable(0), "first-come-first-served: column 1 crowds column 0 out");
+    assertTrue(f.store().columnFilled(1));
+    assertEquals(b, f.store().retainedFillBytes());
+    ProjectionColumnStore.setResidencyEvictForTesting(true);
+
+    // A fill that could never fit leaves the store exactly as it found it: nothing evicted for nothing.
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(a - 1);
+    assertFalse(f.store().columnFillable(0), "column 0 exceeds the budget on its own");
+    assertTrue(f.store().columnFilled(1), "…so the resident column 1 must not have been evicted");
+    assertEquals(b, f.store().retainedFillBytes());
+    assertEquals(evictionsBefore + 1, ProjectionColumnStore.residencyEvictionCount(), "no eviction");
+
+    // A column the CURRENT query already reads is pinned and never evicted, even when it would make room.
+    ProjectionColumnStore.setColumnFillBudgetBytesForTesting(a + b - 1);
+    try (ProjectionResidencyScope reader = ProjectionResidencyScope.open()) {
+      assertTrue(f.store().columnFilled(1), "observing the resident column pins it for this query");
+      assertEquals(1, f.store().residencyPins(1));
+      assertFalse(f.store().columnFillable(0), "column 0 cannot be admitted over a pinned column 1");
+      assertTrue(f.store().columnFilled(1), "the pinned column survived the refused fit");
+      assertEquals(b, f.store().retainedFillBytes());
+      assertNotNull(reader);
+    }
+    // Once that query is gone the same fit evicts column 1 and admits column 0 through the fill door itself.
+    assertNotNull(f.store().column(0, f.fetcher()), "the fill door makes room too, not only the planner gates");
+    assertFalse(f.store().columnFilled(1));
+    assertEquals(a, f.store().retainedFillBytes());
+    assertEquals(evictionsBefore + 2, ProjectionColumnStore.residencyEvictionCount());
   }
 
   /** Sum every present value of {@code col} through the access — the answer must not depend on the route. */
