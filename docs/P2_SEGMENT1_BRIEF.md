@@ -2469,3 +2469,16 @@ a serialization-scoped page key when `trx == null` in `reader()` (or move the op
 `bindConfigured` time, before any page is serialized) and re-run `gate1mT.sh converted` +
 `BadSlotCensus 0 1024000`. Prediction: the printed page is the truncated one (1 in `converted`,
 3 in `convnoelide`); with an eager open the census reads 1,024,000/1,024,000.
+
+### 05:36 — the experiment ran; per-thread hypothesis FALSIFIED, the signature sharpened
+
+`sirix.asyncFlush.parallelism=1` → still exactly ONE bad slot (page 1); `=8` → still exactly ONE
+(page 5, slot 0, now an OBJECT_NAMED_STRING: `IllegalStateException: Corrupted fused string
+payload flag 12 for node 5120`). So it is not "once per probing thread" but **once per LOAD**, and
+the page it lands on moves with layout (1 / 3 / 5). Sharper: the damaged slot 0 is **always 22
+bytes long** whatever its true length (33, 33, 36 in the control) and always an exact prefix — a
+fixed length, not "minus 11". Candidates: a slot-0 length/offset taken from a stale or shared
+field on one page per load (a lazily initialised static scratch or a once-per-load event on the
+write side; the lazy reader open is per thread and is therefore NOT it). Reproduction: 
+`gate1mT.sh convpar8` (27 s) + `BadSlotCensus 0 1024000` (10 s) + `SlotBytesProbe <db> 5 2`.
+Arms `convpar1`/`convpar8` added to `gate1mT.sh`. Stopped at 06:00 Berlin per instruction.
