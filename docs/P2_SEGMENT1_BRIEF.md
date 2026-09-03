@@ -2239,3 +2239,33 @@ leaves are evaluated on one thread. A rank-ordered dictionary compares ids as in
 the path, which is why no 100M leg ever showed it. Fix 4/4 green, mutant (keep sharing) killed 3/3.
 
 Full leg I1FULL1 launched 03:07.
+
+## 2026-09-03 03:20: I1FULL1 flat; LEVER J; the q36–q42 swing was the Graal JIT (33f4197f7)
+
+**I1FULL1** (lever I + race fix): c6a hot 5.596 rank 19, combined 6.347 rank 10, cold 6.672 rank 11 —
+flat against H1FULL1 (q25 0.256 → 0.024, q3 0.129 → 0.026, but q12/q14/q36/q39/q40/q41 swung the other
+way); 43/43 answers byte-identical.
+
+**Lever J (q39 emission).** The windowed composite emission opened a one-leaf `WindowedSliceArrays` per
+winner: a LIMIT 10 OFFSET 1000 answer issued 1,935 `[io] segBatch offsets=1 wanted=1` synchronous
+fetches after the pass. The winners' leaves are known up front, so the emission now sorts + dedupes
+them and decodes the key and condition columns through ONE `ProjectionColumnStore.leafSetAccess` (5
+batch lines instead of 1,853). Honest size: the A/B under C2 with diag on puts the post-pass phase at 49
+→ 27 ms; the plan had attributed 0.4 s to it because the `pass done` diag line is printed ABOVE the
+`# qN try` summary it belongs to and a try-3 pass got paired with a try-2 wall. `GroupWindowedSlicesTest`
+gained q39's shape (a conditional string key part); the "skip the condition columns" mutant survived
+without it and fails 2/40 with it; the "wrong leaf" mutant fails 9/38.
+
+**The real q36–q42 lever: the JIT.** Same q39 try, byte-identical I/O (73 batches, 6,200,867 bytes),
+`pass ms=460` in a slow try vs `ms=40` in a fast one, cpu 6–7 s vs 1.3 s. async-profiler (itimer) over a
+q39-only leg: `libjvmcicompiler.so` 26.4 % of samples — GraalVM's JVMCI compiler takes seconds per
+mega-kernel, so the hot tries of a short query ran C1 code. `-XX:-UseJVMCICompiler` on the same rig
+and DB: q39 0.487 → 0.065 s, q36 0.107 → 0.057, q37 0.067 → 0.014, q40 0.056 → 0.041, q42 0.186 →
+0.113. Full leg **C2FULL1**: c6a hot **4.461 → rank 16/140** (Σln 64.30; rank 15 = 4.11 needs −3.57;
+rank 10 = 3.35 needs −12.34), combined **4.565 → rank 5/136**, cold **4.531 → rank 3**; SUM cold 94.7 →
+77.4 s; 43/43 identical. The only HOT-REGRESS pair is q28 (java.util.regex, 3.03 → 4.01 s). The
+`clickBench` Gradle task and both leg scripts now pin `-XX:+UnlockExperimentalVMOptions
+-XX:-UseJVMCICompiler`.
+
+Worst ln (c6a hot, C2FULL1): q32 3.65 (13.3 s, 8 passes), q22 2.89, q17 2.72, q29 2.68, q11 2.51, q31
+2.49, q2 2.45, q30 2.44, q35 2.29, q16 2.01, q21 1.96, q10 1.93, q18 1.92, q13 1.86.
