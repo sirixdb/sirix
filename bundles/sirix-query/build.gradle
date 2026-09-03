@@ -428,7 +428,12 @@ tasks.register('clickBench', JavaExec) {
         '-XX:+UnlockExperimentalVMOptions',
         '-XX:-UseJVMCICompiler',
         '-Xms4g',
-        '-Xmx12g'
+        '-Xmx12g',
+        // Column residency budget: the default is min(cacheBytes/2, heap/4) = 3 GB on this heap, and
+        // the 100M string columns a grouped query keeps (Title/URL/SearchPhrase/UserID ≈ 4.6 GB) were
+        // refused every try, so the hot tries re-decoded them from the segment bytes. 5 GB keeps them
+        // resident: c6a hot rank 16 → 14 (q10 0.22 → 0.07 s, q8 0.87 → 0.60), 43/43 answers identical.
+        '-Dsirix.projection.eagerMaterializeBytes=5368709120'
     ]
     def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
     jvmArgs = extraJvmArgs.isEmpty()
