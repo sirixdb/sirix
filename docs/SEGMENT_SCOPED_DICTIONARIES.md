@@ -186,9 +186,17 @@ in a later transaction needs `(segment, column) -> header key`. The lane's own a
 `(segment, column)`: at 100M with 1024-leaf segments that is 10,000 x 4 longs plus their sealed counts,
 ≈ 640 KB — affordable, but a metadata format addition (permitted: no version machinery).
 
+**The format constraint that shapes step 1, found before starting it:** `ProjectionIndexMetadata.parse`
+ends with a hard `if (pos[0] != payload.length) throw` — the blob rejects ANY trailing bytes. A segment
+section therefore cannot be appended and skipped by older readers; they throw. Permitted by the standing
+"no version machinery" ruling, but it dictates the shape: parse must treat the new section as OPTIONAL
+WHEN ABSENT so today's databases stay readable, while writing it makes blobs unreadable by older code.
+The existing dictionary section is the template — a `short` count, then per entry `(column short,
+header key long)`, sparse and self-describing.
+
 **Remaining, in order:**
-1. Extend `ProjectionIndexMetadata` with the segment anchor/count table; write it at load end, read it
-   in the reader's segment-mode sibling of `collectTrieLaneAnchors`.
+1. Extend `ProjectionIndexMetadata` with the segment anchor/count table (per the constraint above);
+   write it at load end, read it in the reader's segment-mode sibling of `collectTrieLaneAnchors`.
 2. `bindSegmentLane` in `ProjectionBulkLoad`, gated (default off): construct the three objects, install
    the factory (`adopted` + `viewFor`) and the encoded listener, and at load end `drain()` ->
    `SegmentDictionaryFlusher.write` -> `anchors.seal`. Seal at DRAIN first — sealing from the encoded
