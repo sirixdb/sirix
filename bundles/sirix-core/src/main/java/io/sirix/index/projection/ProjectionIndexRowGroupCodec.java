@@ -1546,6 +1546,115 @@ final class ProjectionIndexRowGroupCodec {
     return end;
   }
 
+  /**
+   * Fused unpack-and-sum: the wrapped {@code long} total of {@code count} {@code width}-bit RAW
+   * packed values (the FOR base NOT added) starting at byte-aligned {@code pos}. The fold kernel's
+   * dense-block path — a block whose every row survives the mask and the presence bits, which is
+   * every block of an unpredicated aggregate over a NOT NULL column — never materializes the
+   * values: {@code Σ(base + p_i) = count·base + Σp_i}, and the caller's zone-map pre-flight has
+   * already proven the true total fits a long, so wrap-around in either term is harmless (two's
+   * complement addition is associative).
+   *
+   * <p>
+   * Widths up to 32 stream through a 64-bit rolling buffer refilled one little-endian {@code int} at
+   * a time — {@code avail < width ≤ 32} leaves at least 32 free high bits, so a refill never
+   * overflows the buffer; per value that is a mask, a shift, a subtract and one add, with a refill
+   * every {@code 32/width} values instead of one 8-byte window load per value. Wider widths take the
+   * windowed loads of {@link #unpackInto(byte[], int, int, int, long, long[], int)}: they are the
+   * 64-bit id columns, whose sums the pre-flight declines far more often than it admits.
+   */
+  static long sumPacked(final byte[] src, final int pos, final int count, final int width) {
+    if (width == 0 || count <= 0) {
+      return 0L;
+    }
+    long sum = 0L;
+    if (width == 64) {
+      for (int i = 0; i < count; i++) {
+        sum += getLongLE(src, pos + (i << 3));
+      }
+      return sum;
+    }
+    final long mask = (1L << width) - 1L;
+    int i = 0;
+    if (width <= 32) {
+      long acc = 0L;
+      int avail = 0;
+      int p = pos;
+      // An int refill must stay inside src; the last few values drain byte-wise below.
+      final int safeInt = src.length - 4;
+      while (i < count) {
+        if (avail < width) {
+          if (p > safeInt) {
+            break;
+          }
+          acc |= (getIntLE(src, p) & 0xFFFFFFFFL) << avail;
+          p += 4;
+          avail += 32;
+        }
+        sum += acc & mask;
+        acc >>>= width;
+        avail -= width;
+        i++;
+      }
+      // Byte-wise tail from the exact bit offset (the buffer's pending bits are re-read).
+      long bitPos = (long) i * width;
+      int bytePos = pos + (int) (bitPos >>> 3);
+      acc = 0L;
+      avail = 0;
+      final int skew = (int) (bitPos & 7);
+      if (skew != 0 && i < count) {
+        acc = (src[bytePos++] & 0xFFL) >>> skew;
+        avail = 8 - skew;
+      }
+      while (i < count) {
+        while (avail < width) {
+          acc |= (long) (src[bytePos++] & 0xFF) << avail;
+          avail += 8;
+        }
+        sum += acc & mask;
+        acc >>>= width;
+        avail -= width;
+        i++;
+      }
+      return sum;
+    }
+    if (width <= 57) {
+      long bitPos = 0L;
+      final int safeBytes = src.length - 8;
+      while (i < count) {
+        final int bytePos = pos + (int) (bitPos >>> 3);
+        if (bytePos > safeBytes) {
+          break;
+        }
+        sum += (getLongLE(src, bytePos) >>> (bitPos & 7)) & mask;
+        bitPos += width;
+        i++;
+      }
+    }
+    if (i < count) {
+      long bitPos = (long) i * width;
+      int bytePos = pos + (int) (bitPos >>> 3);
+      long acc = 0L;
+      int avail = 0;
+      final int skew = (int) (bitPos & 7);
+      if (skew != 0) {
+        acc = (src[bytePos++] & 0xFFL) >>> skew;
+        avail = 8 - skew;
+      }
+      while (i < count) {
+        while (avail < width) {
+          acc |= (long) (src[bytePos++] & 0xFF) << avail;
+          avail += 8;
+        }
+        sum += acc & mask;
+        acc >>>= width;
+        avail -= width;
+        i++;
+      }
+    }
+    return sum;
+  }
+
   /** {@link #unpackInto(Cursor, int, int, long, long[], int)} for int outputs (dict ids). */
   static void unpackIntsInto(final Cursor in, final int count, final int width, final int[] out) {
     if (width == 0) {

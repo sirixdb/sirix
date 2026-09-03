@@ -67,6 +67,23 @@ final class ProjectionColumnScanParityTest {
    */
   private static Fixture buildFixture(final long seed, final int leaves, final boolean withEmptyLeaf,
       final boolean allPresent, final boolean bandedLongs) {
+    return buildFixture(seed, leaves, withEmptyLeaf, allPresent, bandedLongs, 10, 1_000L, false);
+  }
+
+  /**
+   * {@code missingOneIn} is the hole rate ({@code 10} = the ~10% default). A SPARSE rate such as
+   * 300 (0.3%) leaves most 64-row words fully set beside a few holed ones — the block is not dense,
+   * so the per-word arms run with FULL words next to partial ones, the one shape neither the
+   * default nor {@code allPresent} produces. {@code longSpread} widens the long column's range from
+   * the default ±1,000 (where every extremum is a duplicate) to ±{@code longSpread}: a wide spread
+   * makes each extremum unique, and {@code pinExtremaAtWordEnds} plants a per-leaf unique minimum at
+   * row 127 and maximum at row 191 — the LAST bit of a (usually full) word — and a hole at row 200,
+   * so the block is never dense and an arm that folds 63 of a full word's 64 values changes the
+   * global answer deterministically (the leaf with the most extreme pin is a non-dense one).
+   */
+  private static Fixture buildFixture(final long seed, final int leaves, final boolean withEmptyLeaf,
+      final boolean allPresent, final boolean bandedLongs, final int missingOneIn, final long longSpread,
+      final boolean pinExtremaAtWordEnds) {
     final Random rnd = new Random(seed);
     final Map<Long, byte[]> segmentsByOffset = new HashMap<>();
     final List<RowGroupDirectory> directories = new ArrayList<>(leaves);
@@ -90,7 +107,12 @@ final class ProjectionColumnScanParityTest {
         strings[3] = "s" + rnd.nextInt(6);
         longs[0] = bandedLongs
             ? leaf * 10_000L + r
-            : rnd.nextLong(-1_000, 1_000);
+            : rnd.nextLong(-longSpread, longSpread);
+        if (pinExtremaAtWordEnds && r == 127) {
+          longs[0] = -longSpread - 1 - leaf;
+        } else if (pinExtremaAtWordEnds && r == 191) {
+          longs[0] = longSpread + 1 + leaf;
+        }
         final double d = switch (rnd.nextInt(6)) {
           case 0 -> -0.0;
           case 1 -> 0.0;
@@ -101,8 +123,8 @@ final class ProjectionColumnScanParityTest {
         longs[1] = ProjectionDoubleEncoding.encode(d);
         bools[2] = rnd.nextBoolean();
         for (int c = 0; c < KINDS.length; c++) {
-          present[c] = allPresent || rnd.nextInt(10) != 0; // ~10% missing unless dense mode
-          unrep[c] = !allPresent && present[c] && rnd.nextInt(40) == 0; // rare poison
+          present[c] = (allPresent || rnd.nextInt(missingOneIn) != 0) && !(pinExtremaAtWordEnds && r == 200);
+          unrep[c] = !allPresent && present[c] && rnd.nextInt(missingOneIn * 4) == 0; // rare poison
           nonIntegral[c] = false;
           nonDoubleSource[c] = false; // pure doubles
         }
@@ -338,6 +360,70 @@ final class ProjectionColumnScanParityTest {
             ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, 0, mid, fx.fetcher())
                 + ProjectionColumnSegmentFoldScan.conjunctiveCount(fx.store(), preds, mid, rowGroupCount, fx.fetcher()),
             "dense ranged count parity seed=" + seed);
+      }
+    }
+  }
+
+  /**
+   * Every {@code aggMask} arm of the fold — SUM-only (the dense block sums straight from the packed
+   * bits without unpacking), one extremum, and the full fold — against the byte kernel, over
+   * randomized (holes, empty leaves) and all-present stores, full and ranged. The executor folds a
+   * plain {@code SUM}/{@code AVG} through the SUM-only arm, so the arm the parity fold never takes
+   * ({@code AGG_ALL}) is not the arm that answers the query.
+   */
+  @Test
+  void everyAggregateMaskArmAgreesWithTheByteKernel() {
+    final int[] masks = {
+        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM,
+        ProjectionColumnSegmentFoldScan.AGG_SUM,
+        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN,
+        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX,
+        ProjectionColumnSegmentFoldScan.AGG_SUM | ProjectionColumnSegmentFoldScan.AGG_MIN,
+        ProjectionColumnSegmentFoldScan.AGG_ALL};
+    // {seed, leaves, mode}: mode 0 = ~10% holes, 1 = all present (dense blocks), 2 = 0.3% holes
+    // (full words beside partial ones inside a non-dense block).
+    final long[][] fixtures = {{1, 7, 0}, {42, 7, 0}, {3, 7, 0}, {4, 6, 1}, {21, 6, 1}, {1234, 6, 1}, {5, 8, 2},
+        {77, 8, 2}, {2026, 8, 2}};
+    for (final long[] f : fixtures) {
+      final long seed = f[0];
+      final boolean allPresent = f[2] == 1;
+      final Fixture fx = switch ((int) f[2]) {
+        case 1 -> buildFixture(seed, (int) f[1], false, true);
+        case 2 -> buildFixture(seed, (int) f[1], seed % 2 == 0, false, false, 300, 1_000_000_000L, true);
+        default -> buildFixture(seed, (int) f[1], seed % 2 == 0);
+      };
+      final int rowGroupCount = fx.store().rowGroupCount();
+      for (final ColumnPredicate[] preds : predicateShapes()) {
+        if (!ProjectionColumnSegmentFoldScan.eligible(fx.store(), preds, 0, fx.fetcher())) {
+          continue;
+        }
+        final long[] expected = newAgg();
+        ProjectionIndexByteScan.conjunctiveAggregateNumeric(fx.rawLeaves(), preds, 0, expected);
+        for (final int mask : masks) {
+          final long[] actual = newAgg();
+          ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, actual, fx.fetcher(), mask);
+          final int mid = rowGroupCount / 2;
+          final long[] lo = newAgg();
+          final long[] hi = newAgg();
+          ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, lo, 0, mid, fx.fetcher(),
+              mask);
+          ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, hi, mid, rowGroupCount,
+              fx.fetcher(), mask);
+          for (int slot = 0; slot < 4; slot++) {
+            if ((mask & (1 << slot)) == 0) {
+              continue;
+            }
+            final String at = " slot=" + slot + " mask=" + mask + " seed=" + seed + " allPresent=" + allPresent
+                + " preds=" + preds.length;
+            assertEquals(expected[slot], actual[slot], "aggMask arm" + at);
+            final long merged = switch (slot) {
+              case 2 -> Math.min(lo[slot], hi[slot]);
+              case 3 -> Math.max(lo[slot], hi[slot]);
+              default -> lo[slot] + hi[slot];
+            };
+            assertEquals(expected[slot], merged, "aggMask ranged arm" + at);
+          }
+        }
       }
     }
   }

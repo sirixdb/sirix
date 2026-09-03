@@ -2840,6 +2840,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final long[][] perThread = new long[eff][];
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      final long[] chunkNanos = PROJ_DIAG
+          ? new long[eff]
+          : null;
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
@@ -2848,7 +2851,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
         ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to, fetcher, aggMask);
         perThread[idx] = acc;
-      });
+      }, chunkNanos);
+      if (chunkNanos != null) {
+        long minNs = Long.MAX_VALUE;
+        long maxNs = 0L;
+        long sumNs = 0L;
+        for (final long ns : chunkNanos) {
+          minNs = Math.min(minNs, ns);
+          maxNs = Math.max(maxNs, ns);
+          sumNs += ns;
+        }
+        System.err.println("[proj-agg] fold col=" + col + " chunks=" + eff + " leaves/chunk=" + chunkSize + " chunkMs min="
+            + minNs / 1_000_000.0 + " max=" + maxNs / 1_000_000.0 + " sum=" + sumNs / 1_000_000.0);
+      }
       return mergeLongAgg(perThread);
     }
     prefillColumns(store, preds, col, fetcher);
