@@ -240,6 +240,14 @@ inconsistent persistent units` — `ProjectionIndexChangeListener:1842`, raised 
 returns false. **This is a PRE-EXISTING limitation of the shipped trie lane that segment dictionaries
 inherit, not one they introduce.**
 
+**Located precisely** (temporary instrumentation of every `return false` in `applyIncremental`, then
+reverted): the failing call is **`applyColumnOnlyUpdate(...)`** at `ProjectionIndexChangeListener:2382` —
+the path that rewrites a CHANGED COLUMN VALUE in place for a dirty record. So incremental maintenance
+does not fall over on reading the document at all; it fails when it tries to write the new value into
+the projection's column. That is the closed-corpus problem surfacing on the PROJECTION side, and the
+next debugging step is one more instrumentation cycle inside `applyColumnOnlyUpdate` to say which of its
+own refusals fires.
+
 Two things must be true before either lane can claim incremental support, and both are design work:
 1. **The maintenance path must be able to READ a converted page.** `lazyEligible` requires
    `trxIntentLog == null`, so a WRITE transaction never takes the lazy route, and a converted page
