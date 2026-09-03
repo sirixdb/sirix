@@ -14892,7 +14892,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? new long[eff][]
               : null;
           // Partitions per the numeric arm — see groupMergePartitions.
-          final int partitions = groupMergePartitions(cdBlock >= 0, selLimit);
+          final int partitions = groupMergePartitions(selLimit);
           final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
           final int partitionsF = partitions;
           final int[][][] partIdx = new int[eff][][];
@@ -15246,6 +15246,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             continue; // nothing in this pass's partitions
           }
           final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
+          // Once for the merge, not once per partition: each partition then reads its own pairs.
+          final long[][] cdBuckets = cdAcc != null
+              ? bucketDistinctSizes(cdAcc, partitionsF, shift)
+              : null;
           parallel(partitions, part -> {
             if (!spill.ownsPartition(part)) {
               return;
@@ -15267,7 +15271,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 compositeDistinctCollision[0] = 1;
                 return;
               }
-              mergeDistinctSizesIntoPartition(cdAcc, part, shift, into, cdBase);
+              mergeDistinctSizesIntoPartition(cdBuckets[part], into, cdBase);
             }
             final int candidates = into.sizeIncludingZero();
             plan.notePartition(part, candidates);
@@ -15625,7 +15629,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             ? globalDistinctBitmaps(groupStore, aggColsFlat[cdBlock])
             : null;
         // Partitions per the numeric arm — see groupMergePartitions.
-        final int partitions = groupMergePartitions(cdBlock >= 0, selLimit);
+        final int partitions = groupMergePartitions(selLimit);
         final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
         final int partitionsF = partitions;
         final int[][][] partIdx = new int[eff][][];
@@ -15858,21 +15862,25 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           continue; // nothing in this pass's partitions
         }
         final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
+        // Once for the merge, not once per partition: each partition then reads its own pairs.
+        final long[][] cdBuckets = cdBitmaps != null
+            ? bucketDistinctBitmapSizes(cdBitmaps, partitionsF, shift)
+            : cdAcc != null
+                ? bucketDistinctSizes(cdAcc, partitionsF, shift)
+                : null;
         parallel(partitions, part -> {
           if (!spill.ownsPartition(part)) {
             return;
           }
-                    if (groupPartitionEmpty(spill, tables, partIdx, part)) {
+          if (groupPartitionEmpty(spill, tables, partIdx, part)) {
             plan.notePartition(part, 0);
             return; // nothing landed here: the merge split is sized for the largest shapes
           }
           final NumericGroupAggTable into = spill.takeOrCreate(part, () -> new NumericGroupAggTable(
               aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask));
           NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
-          if (cdBitmaps != null) {
-            mergeDistinctBitmapSizesIntoPartition(cdBitmaps, part, shift, into, cdBase);
-          } else if (cdAcc != null) {
-            mergeDistinctSizesIntoPartition(cdAcc, part, shift, into, cdBase);
+          if (cdBuckets != null) {
+            mergeDistinctSizesIntoPartition(cdBuckets[part], into, cdBase);
           }
           final int candidates = into.sizeIncludingZero();
           plan.notePartition(part, candidates);
@@ -16840,7 +16848,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     // Partitions per the numeric arm — see groupMergePartitions. This arm carries no grouped
     // COUNT(DISTINCT) lane: it emits the distinct names from the accumulator it was handed.
-    final int partitions = groupMergePartitions(false, limit);
+    final int partitions = groupMergePartitions(limit);
     final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
     final int partitionsF = partitions;
     final int[][][] partIdx = new int[eff][][];
@@ -17140,7 +17148,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // The hash-range passes split the key space along these partitions, so the count is a
       // property of the SHAPE, not of the worker count (a small corpus with few workers must still
       // be able to pass): see groupMergePartitions.
-      final int partitions = groupMergePartitions(cdBlockIdx >= 0, limit);
+      final int partitions = groupMergePartitions(limit);
       final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
       final int partitionsF = partitions;
       final int[][][] partIdx = new int[eff][][];
@@ -17369,11 +17377,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         continue; // nothing in this pass's partitions
       }
       final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
+      // Once for the merge, not once per partition: each partition then reads its own pairs.
+      final long[][] cdBuckets = cdAcc != null
+          ? bucketDistinctSizes(cdAcc, partitionsF, shift)
+          : null;
       parallel(partitions, part -> {
         if (!spill.ownsPartition(part)) {
           return;
         }
-                if (groupPartitionEmpty(spill, tables, partIdx, part)) {
+        if (groupPartitionEmpty(spill, tables, partIdx, part)) {
           plan.notePartition(part, 0);
           return; // nothing landed here: the merge split is sized for the largest shapes
         }
@@ -17383,7 +17395,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (cdAcc != null) {
           // Partition-wise union of the per-thread distinct sets, then the EXACT size lands in
           // the block's sum lane — selection and emission read a plain slot from here on.
-          mergeDistinctSizesIntoPartition(cdAcc, part, shift, into, cdBase);
+          mergeDistinctSizesIntoPartition(cdBuckets[part], into, cdBase);
         }
         final int candidates = into.sizeIncludingZero();
         plan.notePartition(part, candidates);
@@ -19276,23 +19288,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * small enough to probe out of cache.
    *
    * <p>
-   * A grouped {@code COUNT(DISTINCT)} keeps the old count: its per-group sizes are landed by a walk
-   * of the whole distinct map ONCE PER PARTITION ({@link #mergeDistinctSizesIntoPartition}), which is
-   * quadratic in this number.
+   * The other bound is the SELECTION LIMIT: the winner merge receives
+   * {@code partitions × min(limit, candidates)} rows, and a partition holding fewer candidates than
+   * the limit prunes nothing.
    */
-  static int groupMergePartitions(final boolean groupedCountDistinct, final long selectionLimit) {
-    if (groupedCountDistinct) {
-      return GROUP_MERGE_PARTITIONS_COUNT_DISTINCT;
-    }
+  static int groupMergePartitions(final long selectionLimit) {
     final int configured = Integer.getInteger(GROUP_MERGE_PARTITIONS_PROPERTY, GROUP_MERGE_PARTITIONS_DEFAULT);
     // The winner merge receives partitions × min(limit, candidates) rows: a partition holding FEWER
     // candidates than the limit prunes nothing, so a split wider than the limit can carry trades the
     // merge's cache locality for a linear growth of the selection. Bound the product.
     final long byLimit = selectionLimit >= 1L
-        ? Math.max(GROUP_MERGE_PARTITIONS_COUNT_DISTINCT, GROUP_WINNER_MERGE_BUDGET / selectionLimit)
+        ? Math.max(GROUP_MERGE_PARTITIONS_MIN, GROUP_WINNER_MERGE_BUDGET / selectionLimit)
         : configured;
     final int bounded =
-        (int) Math.max(GROUP_MERGE_PARTITIONS_COUNT_DISTINCT, Math.min(1 << 16, Math.min(configured, byLimit)));
+        (int) Math.max(GROUP_MERGE_PARTITIONS_MIN, Math.min(1 << 16, Math.min(configured, byLimit)));
     return Integer.highestOneBit(bounded) == bounded
         ? bounded
         : Integer.highestOneBit(bounded) << 1;
@@ -19305,9 +19314,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static final int GROUP_MERGE_PARTITIONS_DEFAULT = 1024;
 
   /**
-   * Merge partitions with a grouped {@code COUNT(DISTINCT)}: the floor, and the count that arm keeps.
+   * The narrowest split: a hash-range pass is cut from these, so too few caps the pass count a
+   * high-cardinality shape can reach.
    */
-  private static final int GROUP_MERGE_PARTITIONS_COUNT_DISTINCT = 32;
+  private static final int GROUP_MERGE_PARTITIONS_MIN = 32;
 
   /**
    * Rows the per-partition top-k selectors may hand the final selection before the split is
@@ -19341,14 +19351,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return true;
   }
 
-  private static void mergeDistinctSizesIntoPartition(final GroupDistinctAccumulator distinct, final int part,
-      final int shift, final NumericGroupAggTable into, final int cdBase) {
-    for (final Long2LongMap.Entry e : distinct.groupSizes().long2LongEntrySet()) {
-      final long key = e.getLongKey();
-      if (NumericGroupAggTable.partitionOf(key, shift) != part) {
-        continue;
-      }
-      final int size = (int) e.getLongValue();
+  private static void mergeDistinctSizesIntoPartition(final long[] bucket, final NumericGroupAggTable into,
+      final int cdBase) {
+    for (int i = 0; i < bucket.length; i += 2) {
+      final long key = bucket[i];
+      final long size = bucket[i + 1];
       if (key == 0L) {
         if (into.hasZeroKey()) {
           into.zeroSlot()[cdBase + 1] = size;
@@ -19365,6 +19372,75 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         block[into.offsetAtAccBase(handle) + cdBase + 1] = size;
       }
     }
+  }
+
+  /** A merge partition with no grouped-distinct pair (see {@link #bucketDistinctSizes}). */
+  private static final long[] NO_DISTINCT_PAIRS = new long[0];
+
+  /**
+   * The grouped {@code COUNT(DISTINCT)} sizes as {@code (probe key, size)} pairs bucketed by merge
+   * partition, built ONCE for the whole merge.
+   *
+   * <p>
+   * Each partition used to filter the WHOLE map itself, which is {@code partitions × groups} work
+   * and is why the count-distinct arms were pinned to a narrow split while everything else merged
+   * over a thousand partitions. Bucketing is two passes over the map and lets those arms take the
+   * same split — q13's merge was half its wall at 100M.
+   */
+  private static long[][] bucketDistinctSizes(final GroupDistinctAccumulator distinct, final int partitions,
+      final int shift) {
+    final Long2LongOpenHashMap sizes = distinct.groupSizes();
+    final int[] lanes = new int[partitions];
+    for (final Long2LongMap.Entry entry : sizes.long2LongEntrySet()) {
+      lanes[NumericGroupAggTable.partitionOf(entry.getLongKey(), shift)] += 2;
+    }
+    final long[][] out = newDistinctBuckets(lanes);
+    for (final Long2LongMap.Entry entry : sizes.long2LongEntrySet()) {
+      final int part = NumericGroupAggTable.partitionOf(entry.getLongKey(), shift);
+      final long[] bucket = out[part];
+      bucket[lanes[part]++] = entry.getLongKey();
+      bucket[lanes[part]++] = entry.getLongValue();
+    }
+    return out;
+  }
+
+  /**
+   * {@link #bucketDistinctSizes} over the bitmap route's per-group unions — a popcount per group
+   * rather than a set merge, because the bitmaps already span every worker. The missing-key group
+   * ({@link Long#MIN_VALUE}) is emitted through {@code missingMergedFlat}, not through a partition.
+   */
+  private static long[][] bucketDistinctBitmapSizes(final GroupDistinctBitmaps bitmaps, final int partitions,
+      final int shift) {
+    final int[] lanes = new int[partitions];
+    for (final Long boxed : bitmaps.groups()) {
+      if (boxed != Long.MIN_VALUE) {
+        lanes[NumericGroupAggTable.partitionOf(boxed, shift)] += 2;
+      }
+    }
+    final long[][] out = newDistinctBuckets(lanes);
+    for (final Long boxed : bitmaps.groups()) {
+      final long key = boxed;
+      if (key == Long.MIN_VALUE) {
+        continue;
+      }
+      final int part = NumericGroupAggTable.partitionOf(key, shift);
+      final long[] bucket = out[part];
+      bucket[lanes[part]++] = key;
+      bucket[lanes[part]++] = bitmaps.cardinality(key);
+    }
+    return out;
+  }
+
+  /** Buckets of the counted lane widths, resetting {@code lanes} to write offsets. */
+  private static long[][] newDistinctBuckets(final int[] lanes) {
+    final long[][] out = new long[lanes.length][];
+    for (int p = 0; p < lanes.length; p++) {
+      out[p] = lanes[p] == 0
+          ? NO_DISTINCT_PAIRS
+          : new long[lanes[p]];
+      lanes[p] = 0;
+    }
+    return out;
   }
 
   /**
@@ -19397,39 +19473,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Ceiling on one query's grouped-distinct bitmaps; past it the route declines, never sketches. */
   private static final long GROUP_DISTINCT_BITMAP_MAX_BYTES = Long.getLong(
       "sirix.projection.groupDistinct.maxBitmapBytes", Math.min(1L << 30, Runtime.getRuntime().maxMemory() / 8));
-
-  /**
-   * Bitmap twin of {@link #mergeDistinctSizesIntoPartition}: the per-group bitmaps are already the
-   * union across every worker, so this is a popcount per group rather than a set merge.
-   */
-  private static void mergeDistinctBitmapSizesIntoPartition(final GroupDistinctBitmaps bitmaps, final int part,
-      final int shift, final NumericGroupAggTable into, final int cdBase) {
-    for (final Long boxed : bitmaps.groups()) {
-      final long key = boxed;
-      if (key == Long.MIN_VALUE) {
-        continue; // the missing-key group is emitted through missingMergedFlat, not a partition
-      }
-      if (NumericGroupAggTable.partitionOf(key, shift) != part) {
-        continue;
-      }
-      final long size = bitmaps.cardinality(key);
-      if (key == 0L) {
-        if (into.hasZeroKey()) {
-          into.zeroSlot()[cdBase + 1] = size;
-        }
-      } else {
-        // Identity mode: the group already exists (the kernel created it), and its identity lanes
-        // are not reconstructible from this map's key, so LOOK IT UP rather than acquire — an
-        // acquire would insert a second, identity-blank group under the same probe hash. The
-        // caller has already established that the probe key is unambiguous.
-        final int handle = into.idWidth() == 0
-            ? into.acquire(key, Long.MAX_VALUE)
-            : into.handleOfProbeKey(key);
-        final long[] block = into.storageAtAccBase(handle);
-        block[into.offsetAtAccBase(handle) + cdBase + 1] = size;
-      }
-    }
-  }
 
   /**
    * An order-by over served group records resolved to ACCUMULATOR slots, so the kernel can order (and
