@@ -130,12 +130,46 @@ This is the same shape as the aliasing defect that cost this campaign a night (`
 scratch shared between a serializer and a decoder re-entered from inside it). Anything the encoder reads
 that is "the current X" is suspect when the encoder runs on a pool.
 
+## CORRECTION 2: an arrival-ordered dictionary still needs a forward index — the FORMAT requires it
+
+The claim above that a segment dictionary needs no persisted forward index is wrong as the format
+stands, and the reason is not the read path but a header invariant. `ValueDictionaryHeaderNode:128`:
+
+```java
+if (forwardRootKey == 0 && entryCount != 0 && orderedPrefixCount != entryCount) {
+  throw new IllegalArgumentException("invalid value dictionary header");
+}
+```
+
+"No forward root" is legal exactly when the dictionary is FULLY ordered. An arrival-ordered segment
+dictionary has `orderedPrefixCount == 0`, so it must carry a forward radix whatever anyone intends to
+read. The reasoning that nothing probes value→id after a freeze still holds — it just does not buy the
+saving, because the check is structural rather than usage-based.
+
+**Priced, and affordable only because of segment scope.** At ~231 k entries per segment the forward
+radix is ~65 B/entry (the measured D = 275 K point, before the superlinear regime) ≈ 15 MB per segment,
+≈ 1.5 GB across a 100M load. So the lever is **≈ −8 GB net**, not −9.49.
+
+**Two ways forward. The default taken here is the first, because it changes no format and can be
+measured today:**
+
+1. **Pay it.** No format change, works now, ≈ −8 GB. Start here so the first end-to-end measurement is
+   not confounded by a format change.
+2. **Relax the invariant** — permit `forwardRootKey == 0` with `orderedPrefixCount == 0` for a
+   dictionary declared decode-only. Sound (nothing probes value→id on the document side) and permitted
+   by the standing "no version machinery, formats may change" ruling, worth ≈ 1.5 GB — but it weakens a
+   check that today catches a genuinely unreadable dictionary, so it needs its own witness and should
+   follow the measurement, not precede it.
+
 ## Shape of the implementation
 
 1. **Mint** ids in arrival order against the segment's resident `GlobalValueDictionaryProbeFront`,
    appending each new value to the segment's dictionary — the existing streaming path, scoped.
-2. **Close** the segment at the boundary: flush its final generation with `buildForwardIndex=false` and
-   record its anchor. Nothing probes value→id afterwards (risk 1), so no forward structure is written.
+2. **Close** the segment at the boundary: flush its final generation and record its anchor in
+   `SegmentDictionaryAnchors`. A forward index IS written (correction 2); the mid-load shape to copy is
+   `ProjectionIndexBuilder.flushStreamingDictionaryGeneration`, which already appends a generation bound
+   to the LOAD's writer without committing — the primitive `PrePassDictionaryBuilder` cannot provide,
+   because it commits per generation.
 3. **Anchor**: each record page names its segment's dictionary instead of the resource-wide one.
    `KeyValueLeafPage.globalStringDictionaries` is the existing injection point, and
    `PageKind.serializeKeyValueLeafPage` already carries the per-page tag the lane uses.
