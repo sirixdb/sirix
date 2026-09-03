@@ -17,6 +17,8 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.xml.serialize.XmlSerializer;
@@ -166,22 +168,31 @@ final class DerivedElisionResourceRoundTripTest {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
         wtx.commit();
       });
-      // resolveTemporal is ALL-OR-NOTHING: one entry it cannot encode and the whole tag keeps its
-      // bytes, injectTemporalString is never called, and the round trip above would agree for a
-      // reason that has nothing to do with the render. The surviving resource is the derived-section
-      // one assertSameRevision wrote last, so the witness is taken from what actually shipped.
-      assertTrue(pagesWithATemporalTag() > 0,
-          "no page took the temporal lane, so no elided slot was RENDERED and this case proves nothing");
     } finally {
       StringRegion.clearTemporalLaneOverride();
     }
+    // Taken with the write override CLEARED and against the PERSISTED region only. resolveTemporal
+    // is ALL-OR-NOTHING: one entry it cannot encode and the whole tag keeps its bytes,
+    // injectTemporalString is never called, and the round trip above would agree for a reason that
+    // has nothing to do with the render.
+    assertTrue(pagesWithAPersistedTemporalTag() > 0,
+        "no page took the temporal lane, so no elided slot was RENDERED and this case proves nothing");
   }
 
   /**
-   * Leaf pages of the surviving resource carrying a tag that ACTUALLY took the temporal lane, read
-   * from the written pages rather than inferred from the switch having been set.
+   * Leaf pages of the surviving resource whose PERSISTED string region carries a tag that took the
+   * temporal lane.
+   *
+   * <p>
+   * Deliberately {@link KeyValueLeafPage#getStringRegionPayload()} and not
+   * {@code getStringRegionHeader()}: the latter falls back to re-encoding the region from the
+   * slotted page when none was persisted, and that encoder consults {@code temporalLaneEnabled()}
+   * at READ time — so with the write switch armed it would manufacture the very tag this witness
+   * is supposed to find on disk. Reading the payload keeps the witness answerable only by bytes
+   * that were actually written.
+   * </p>
    */
-  private static int pagesWithATemporalTag() {
+  private static int pagesWithAPersistedTemporalTag() {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
         final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx()) {
@@ -194,10 +205,11 @@ final class DerivedElisionResourceRoundTripTest {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) {
           continue;
         }
-        final StringRegion.Header header = kv.getStringRegionHeader();
-        if (header == null) {
+        final MemorySegment payload = kv.getStringRegionPayload();
+        if (payload == null || payload.byteSize() == 0) {
           continue;
         }
+        final StringRegion.Header header = new StringRegion.Header().parseInto(payload);
         for (int tag = 0; tag < header.parentDictSize; tag++) {
           if (header.tagTemporal[tag]) {
             converted++;

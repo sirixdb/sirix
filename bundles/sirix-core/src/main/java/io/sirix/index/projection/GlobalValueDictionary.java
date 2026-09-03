@@ -870,7 +870,7 @@ public final class GlobalValueDictionary {
           == Long.MIN_VALUE) {
         throw new IllegalArgumentException("dictionary value is not an admissible ISO-minute substring");
       }
-      return new String(backing, offset + start - 1, length, java.nio.charset.StandardCharsets.US_ASCII);
+      return new String(backing, offset + start - 1, length, StandardCharsets.US_ASCII);
     }
 
     /**
@@ -1442,7 +1442,7 @@ public final class GlobalValueDictionary {
     while (cut < next.length && (next[cut] & 0xC0) == 0x80) {
       cut++;
     }
-    final byte[] candidate = java.util.Arrays.copyOf(next, cut);
+    final byte[] candidate = Arrays.copyOf(next, cut);
     return ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, candidate, 0, candidate.length) < 0
         ? candidate
         : next.clone();

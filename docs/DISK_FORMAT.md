@@ -162,9 +162,16 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 ## 2. Pages
 
 Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
-(`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is reserved
-extension space for **every** page kind — all bits zero in V0, and a reader rejects nonzero
-flags as "written by a newer version" instead of misparsing. Kind ids: 1 KVLP, 2 NAME,
+(`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is extension space
+**per page kind, not a shared namespace**: a kind that defines no flag bit writes zero and rejects
+anything else, and a kind that defines one reads through
+`readVersionAndFlagsAllowing(source, allowedMask)`, which rejects any bit outside that kind's own
+mask as "written by a newer version" instead of misparsing. Two kinds define bit `0x01` today, and
+it means a different thing in each: `HOT_LEAF` (`FLAG_OVERFLOW_PAGE_REFS` — the side map below) and
+`OVERFLOW` (`FLAG_OVERFLOW_PAYLOAD_COMPRESSED` — the compressed body below, **the default since the
+payload-compression flip**). **Compatibility is one-directional:** a build that predates a flag bit
+reads a resource written without it, but a resource written WITH it cannot be read by that build —
+the reader refuses the unknown bit loudly rather than misparsing. Kind ids: 1 KVLP, 2 NAME,
 3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
 12 HOT_LEAF, 13 HOT_INDIRECT, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
 (7 and 14 retired/reserved; readers reject both ids).
@@ -423,8 +430,22 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
     (ownerSlotKey << 16 | subId) → page file offset (bare u64)
     subId is always 0 here — a referenced blob or segment slot owns exactly one page, since
     the slot IS the segment. |ownerSlotKey| < 2^47 is enforced by the composite encoder.
-  OverflowPage (PageKind 9): { int len; bytes } — offset identity, no fragments,
-    whole-page last-writer-wins; integrity = descriptor/marker byteLen + xxh3 (its only checksum).
+  OverflowPage (PageKind 9): offset identity, no fragments, whole-page last-writer-wins;
+    integrity = descriptor/marker byteLen + xxh3 (its only checksum). TWO bodies, selected by
+    envelope flag 0x01 (FLAG_OVERFLOW_PAYLOAD_COMPRESSED):
+      flag clear: { i32 dataLength; bytes[dataLength] }
+      flag set:   { i32 dataLength; i32 storedLength; u8 codec; bytes[storedLength] }
+                  codec 0 = ZeroRunByte, 2 = ByteRun, 3 = SirixLZ77 (1 is not used here).
+                  dataLength is the DECODED size; the decoder refuses a frame that produces
+                  anything else rather than returning a short payload.
+    The COMPRESSED body is the DEFAULT. A payload of OVERFLOW_COMPRESSION_MIN_BYTES = 64 bytes or
+    more is offered to a codec bake-off on write, and takes the flag only when the winner beats the
+    raw payload by more than the 5 bytes of extra framing (storedLength + codec byte); payloads
+    under 64 bytes, and payloads no codec shrinks by that margin, keep the flag-clear body. Since
+    overflow pages carry oversized records, projection column segments and value-dictionary blocks,
+    the flag-set form is the common case on a real resource.
+    `-Dsirix.page.overflow.compress=false` skips the bake-off and reproduces the flag-clear bytes
+    exactly, which is also what every resource written before the flag existed carries.
     (Reused for referenced segments AND referenced blobs; the bespoke ProjectionSegmentPage was retired.)
 
 Segment ids: 0 = KEYS, 4c+1 = BODY(c), 4c+2 = DICT(c), 4c+3 = SET_COUNTS(c),

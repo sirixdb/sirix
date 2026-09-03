@@ -18,6 +18,7 @@ import io.sirix.query.json.BasicJsonDBStore;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -133,10 +134,18 @@ final class TemporalLaneStringFastPathTest {
   }
 
   /**
-   * Leaf pages carrying a tag that ACTUALLY took the temporal lane, read from the written pages rather
-   * than inferred from the switch having been set.
+   * Leaf pages whose PERSISTED string region carries a tag that took the temporal lane.
    *
-   * @return the number of leaf pages with at least one temporal tag
+   * <p>
+   * Deliberately {@link KeyValueLeafPage#getStringRegionPayload()} and not
+   * {@code getStringRegionHeader()}: the latter falls back to re-encoding the region from the
+   * slotted page when none was persisted, and that encoder consults {@code temporalLaneEnabled()}
+   * at READ time. This witness would then report a tag it manufactured in memory any time the write
+   * switch happened to be armed — so it reads the payload instead, and can only be answered by
+   * bytes that were actually written.
+   * </p>
+   *
+   * @return the number of leaf pages with at least one persisted temporal tag
    */
   private int pagesWithATemporalTag() throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
@@ -151,10 +160,11 @@ final class TemporalLaneStringFastPathTest {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) {
           continue;
         }
-        final StringRegion.Header header = kv.getStringRegionHeader();
-        if (header == null) {
+        final MemorySegment payload = kv.getStringRegionPayload();
+        if (payload == null || payload.byteSize() == 0) {
           continue;
         }
+        final StringRegion.Header header = new StringRegion.Header().parseInto(payload);
         for (int tag = 0; tag < header.parentDictSize; tag++) {
           if (header.tagTemporal[tag]) {
             converted++;
