@@ -78,6 +78,18 @@ rather than a correctness requirement.
 count is below the recorded one. Different pages naming DIFFERENT dictionaries is what this interface
 already expresses, so pointing each segment's pages at their own dictionary needs no page-format change.
 
+## Where a segment boundary comes from
+
+The page trie already supplies one: `Constants.INP_REFERENCE_COUNT = 1024`, so an indirect page groups
+1024 leaves. At ~9.7 ClickBench rows per leaf that is ≈ 9,900 rows — which the 100M curve prices at
+**63.6 % capture (−6.80 GB)**. One level up (1024² leaves ≈ 10.2M rows) sits at or above the 1 M-row
+point's **88.8 % (−9.49 GB)**, with ~1.5M distinct URLs ≈ 250 MB of values per segment — still sortable,
+and the size at which `ExternalDistinctValues`' spill path stops being insurance and starts being used.
+
+So the boundary is a choice between the trie's own two levels, and the curve says the upper one is worth
+≈ 2.7 GB more. A segment need not align to the trie at all (an explicit leaf count would do), but aligning
+means the anchor can be derived rather than stored.
+
 ## Shape of the implementation
 
 1. **Collect** a segment's distinct strings while its leaves fill. `ExternalDistinctValues`
