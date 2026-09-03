@@ -106,6 +106,9 @@ public final class ProjectionIndexBuilder {
    */
   private @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
+  /** Segment-scoped encode dictionaries, or {@code null} when that lane is off. */
+  private @Nullable SegmentScopedDictionaries segmentScopedDictionaries;
+
   /**
    * Resolved pathNodeKeys of the projection root (e.g. {@code $doc[]}). Multi-PCR roots — the same
    * path shape under sibling subtrees — are supported: every node whose pathNodeKey is in this set is
@@ -1449,6 +1452,16 @@ public final class ProjectionIndexBuilder {
    *
    * @param dictionaries the resolver, or {@code null} to leave every record page storing bytes
    */
+  /**
+   * Install the segment lane's dictionaries so tag publication reaches them too. A path class only
+   * exists once its first occurrence has been shredded, so both lanes learn their columns as the load
+   * discovers them rather than up front.
+   */
+  public void setSegmentScopedDictionaries(final @Nullable SegmentScopedDictionaries dictionaries) {
+    this.segmentScopedDictionaries = dictionaries;
+    publishTrieLaneTags();
+  }
+
   public void setTrieLaneWriteDictionaries(final @Nullable TrieLaneWriteDictionaries dictionaries) {
     this.trieLaneWriteDictionaries = dictionaries;
     publishTrieLaneTags();
@@ -1473,7 +1486,8 @@ public final class ProjectionIndexBuilder {
    */
   private void publishTrieLaneTags() {
     final TrieLaneWriteDictionaries dictionaries = trieLaneWriteDictionaries;
-    if (dictionaries == null) {
+    final SegmentScopedDictionaries segments = segmentScopedDictionaries;
+    if (dictionaries == null && segments == null) {
       return;
     }
     final long[] pathClasses = extractor.fieldPcrKeysRef();
@@ -1487,7 +1501,12 @@ public final class ProjectionIndexBuilder {
         tags.put((int) pathClass, columns[i]);
       }
     }
-    dictionaries.publishTags(tags);
+    if (dictionaries != null) {
+      dictionaries.publishTags(tags);
+    }
+    if (segments != null) {
+      segments.publishTags(tags);
+    }
   }
 
   /**
