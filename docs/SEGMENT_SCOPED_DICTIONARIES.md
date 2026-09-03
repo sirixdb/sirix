@@ -204,6 +204,56 @@ header key long)`, sparse and self-describing.
 3. A `gate1mT.sh` arm with the switch on: a 1M number in ~40 s, no rebuild, nothing destructive. The
    curve predicts it lands between the per-leaf baseline (612.8 MB) and the trie lane's 537.3 MB.
 
+## VERSIONING TYPES and INCREMENTAL BUILDS — measured, and one answer is NO
+
+Asked to confirm the lane works under every versioning type and supports incremental building. Measured
+at 1M rather than argued.
+
+**Versioning types: YES for load + read.** `gate1mT.sh seg16kbig` under each of the four, then
+`BadSlotCensus 0 1024000`:
+
+| versioning | database | OBJECT_NAMED_STRING |
+|---|---|---|
+| FULL | 1,174,866,907 | 309,129 bad=0 |
+| DIFFERENTIAL | 1,166,478,315 | 309,129 bad=0 |
+| INCREMENTAL | 1,166,478,313 | 309,129 bad=0 |
+| SLIDING_SNAPSHOT | 1,174,866,931 | 309,129 bad=0 |
+
+Caveat that keeps this honest: a single-revision load writes WHOLE pages, so the versioned COMBINE — which
+only runs once a page has fragments — is not exercised by these four runs. What they prove is that the
+lane does not break the write or read path under any versioning type, not that the combine is safe.
+
+**Incremental building: NO — and not for the trie lane either.** `UpdateThenReadProbe` (a second
+revision over the loaded database, then a full read):
+
+| database | pre-pass | lane | second revision |
+|---|---|---|---|
+| `base` | no | no | **works** (20 changed, 0 unreadable, 0 stale) |
+| `segbase` | no | no | **works** |
+| `prebuiltnochunk` | **yes** | no | **works** |
+| `converted16k` | yes | **trie lane** | FAILS |
+| `seg16kbig` | no | **segment lane** | FAILS |
+
+The pre-pass is exonerated; the LANE is the discriminator. Any database whose document pages store
+dictionary ids refuses incremental maintenance with `Projection index 0 incremental maintenance found
+inconsistent persistent units` — `ProjectionIndexChangeListener:1842`, raised when `applyIncremental`
+returns false. **This is a PRE-EXISTING limitation of the shipped trie lane that segment dictionaries
+inherit, not one they introduce.**
+
+Two things must be true before either lane can claim incremental support, and both are design work:
+1. **The maintenance path must be able to READ a converted page.** `lazyEligible` requires
+   `trxIntentLog == null`, so a WRITE transaction never takes the lazy route, and a converted page
+   expanded eagerly is refused by design.
+2. **It must be able to MINT into a sealed segment.** `SegmentSealController.adopted` throws there, on
+   purpose: the dictionary is written and a value minted afterwards could never resolve. A new revision
+   therefore needs its own segment (a natural fit — a revision's new pages are new pages) rather than a
+   reopened one.
+
+**Small slots/records: already satisfied.** The lane's unit is the record page, whatever its size — a
+leaf is ~9.7 ClickBench rows here — and the segment boundary is configurable
+(`sirix.projection.segmentDict.leaves`, a power of two). Nothing in the design needs large pages; the
+measured trade is only that smaller segments capture less dedup while paying one dictionary each.
+
 ## Shape of the implementation
 
 1. **Mint** ids in arrival order against the segment's resident `GlobalValueDictionaryProbeFront`,
