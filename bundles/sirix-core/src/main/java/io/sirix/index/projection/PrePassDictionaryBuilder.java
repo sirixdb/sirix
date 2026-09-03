@@ -4,16 +4,31 @@ import io.sirix.access.DatabaseType;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.node.ValueDictionaryEntryNode;
 
+import java.util.Iterator;
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
+
 /**
- * MEASUREMENT HARNESS: builds a rank-ordered dictionary from an ascending value list.
+ * Commits one resource-wide rank-ordered value dictionary from an ASCENDING distinct-value stream.
  *
  * <p>
- * This is the fresh-build route's pre-pass, minus the corpus scan — the caller supplies the distinct
- * values. It exists in the harness rather than in product code because the extraction half is
- * corpus-shaped, and because the promotion gate that would elect this route has not been re-derived.
+ * This is the dictionary half of the load-time pre-pass: the corpus half — reading the input once
+ * and producing that ascending stream under a memory budget — is {@link ExternalDistinctValues}, and
+ * the two together are what let a loader build these dictionaries for itself instead of being handed
+ * a value file. The stream form is the load-bearing one: a fat column's distinct set is gigabytes at
+ * scale ({@link ExternalDistinctValues}), so the {@link List} overload is for tests and small
+ * columns only.
  * </p>
+ *
+ * <p>
+ * Values must ascend STRICTLY under {@link ValueDictionaryEntryNode#compareUtf16Range} — the
+ * dictionary's own ordering invariant. The check is per adjacent pair and runs in both overloads, so
+ * a producer that emits a duplicate or an inversion fails here rather than writing a dictionary whose
+ * rank order silently disagrees with the comparator every reader uses.
+ * </p>
+ *
+ * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class PrePassDictionaryBuilder {
   private PrePassDictionaryBuilder() {
@@ -25,21 +40,35 @@ public final class PrePassDictionaryBuilder {
    * @return the dictionary's header key
    */
   public static long build(final JsonNodeTrx wtx, final int column, final List<byte[]> values) {
-    for (int i = 1; i < values.size(); i++) {
-      final byte[] previous = values.get(i - 1);
-      final byte[] current = values.get(i);
-      if (ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, current, 0, current.length) >= 0) {
-        throw new IllegalArgumentException("values must ascend strictly; they do not at " + i);
-      }
-    }
+    return build(wtx, column, requireNonNull(values, "values must not be null").iterator());
+  }
+
+  /**
+   * Streaming form: the values are consumed once, in order, and never held together.
+   *
+   * @param values distinct values, ASCENDING in the engine's collation
+   * @return the dictionary's header key
+   */
+  public static long build(final JsonNodeTrx wtx, final int column, final Iterator<byte[]> values) {
+    requireNonNull(wtx, "wtx must not be null");
+    requireNonNull(values, "values must not be null");
     final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(wtx.getStorageEngineWriter());
     final RankPassDictionaryAppender appender =
         new RankPassDictionaryAppender(column, databaseType, wtx.getStorageEngineWriter(), generation -> {
           wtx.commit();
           return wtx.getStorageEngineWriter();
         });
-    for (final byte[] value : values) {
+    byte[] previous = null;
+    long index = 0;
+    while (values.hasNext()) {
+      final byte[] value = requireNonNull(values.next(), "a distinct value must not be null");
+      if (previous != null
+          && ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, value, 0, value.length) >= 0) {
+        throw new IllegalArgumentException("values must ascend strictly; they do not at " + index);
+      }
       appender.accept(value, 0, value.length);
+      previous = value;
+      index++;
     }
     appender.finish();
     final var writer = wtx.getStorageEngineWriter();
