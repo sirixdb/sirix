@@ -2334,3 +2334,32 @@ the largest single term.
 
 **Position vs the /goal at the 06:00 stop:** top 15 met on c6a combined (rank 4) and cold (rank 2);
 hot rank 16, 0.94 ln units (one q22-sized lever) short. Storage unchanged at 63.14 GB.
+
+## 2026-09-03 04:45: TOP 15 REACHED — the residency budget refused the columns q22 keeps (15f3e87e2)
+
+The q22 diag named the cost before any code was written: `[store] combined fit REFUSED: needed=4611MB
+budget=3072MB`. The column residency budget defaults to `min(cacheBytes/2, heap/4)` = 3 GB on the 12 GB
+query heap, so the four string columns q22 groups over (Title/URL/SearchPhrase/UserID, 4.6 GB decoded)
+were refused every try and re-decoded as windows. One property — `-Dsirix.projection.
+eagerMaterializeBytes=5368709120` — and q22 alone went 0.553 → **0.101 s** (answer SAME; cold 8.2 →
+9.65 s with 30 GCs, which the combined metric weights at 25 %).
+
+Two full legs with the 5 GB budget, pinned in the `clickBench` Gradle task and both leg scripts beside
+`-Xmx12g` and the C2 switch:
+
+| leg | c6a hot | c6a combined | c6a cold | answers |
+|---|---|---|---|---|
+| M1FULL1 (3 GB) | 4.196 rank 16 | 4.253 rank 4 | 4.160 rank 2 | 43/43 |
+| M4FULL1 (5 GB, flag) | **3.902 rank 14** | 4.045 rank 2 | 3.951 rank 2 | 43/43 |
+| M5FULL1 (5 GB, pinned) | **3.894 rank 14** | 3.958 rank 2 | 3.790 **rank 1** | 43/43 |
+
+No regressing pairs in compare-legs. The gain came from where residency now sticks — q10 0.221 →
+0.066, q8 0.871 → 0.601, q15 1.05 → 0.75, q2 0.056 → 0.045, q30 cold 2.63 → 1.77 — while **q22 itself
+still reads 0.52 s in the leg**: by the time it runs, columns retained by earlier queries occupy the
+budget (`retainedFillBytes + needed <= budget`) and a fit cannot evict them for the current query. That
+eviction (LRU by query scope) is the next lever, worth ≈ −1.7 ln on its own (q22 0.52 → 0.10); after it
+the group-by pass family (q32 8 passes 13.6 s, q31/q30/q35/q13/q16/q18) holds the road to rank 10
+(Σln 58.5 → 52.0 needed).
+
+**/goal status at the stop:** queries — TOP 15 reached on c6a hot (rank 14, two legs), combined rank 2,
+cold rank 1. Storage — 63.14 GB, unchanged (target ~50 GB still open; `docs/ROADMAP_TO_30GB.md`).
