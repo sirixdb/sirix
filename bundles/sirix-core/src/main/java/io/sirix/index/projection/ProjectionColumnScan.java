@@ -2815,10 +2815,23 @@ public final class ProjectionColumnScan {
       }
     }
     final long[] result = stack[0];
+    long any = 0L;
     for (int i = 0; i < stride; i++) {
       mask[i] &= result[i];
+      any |= mask[i];
     }
-    return rowCount;
+    // An all-zero mask IS "no rows" — return it as such so the kernels take their `rowCount <= 0`
+    // skip instead of walking the leaf's key and aggregate slices. That matters for a program with
+    // a NOT on a leaf the keep mask dropped: the shortcut above must not fire (NOT flips a pruned
+    // operand to all-true), the exact evaluation reaches here with every operand the pruned sentinel
+    // and a provably empty result (the keep program prices a NOT subtree as all-kept, so the exact
+    // mask is bounded above by the keep decision), while the leaf's group and aggregate slices ARE
+    // the zero-length sentinel — a kernel reading a presence word of one before testing the mask
+    // word would index an empty array (100M q22 after the global SearchPhrase column became
+    // NE-prunable).
+    return any != 0L
+        ? rowCount
+        : 0;
   }
 
   /**
