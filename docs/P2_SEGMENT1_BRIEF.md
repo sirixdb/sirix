@@ -2482,3 +2482,13 @@ field on one page per load (a lazily initialised static scratch or a once-per-lo
 write side; the lazy reader open is per thread and is therefore NOT it). Reproduction: 
 `gate1mT.sh convpar8` (27 s) + `BadSlotCensus 0 1024000` (10 s) + `SlotBytesProbe <db> 5 2`.
 Arms `convpar1`/`convpar8` added to `gate1mT.sh`. Stopped at 06:00 Berlin per instruction.
+
+### 05:36 — one more single-variable arm: the defect needs BOUND dictionaries
+
+`laneonly` (flag on, NO prepass → `TrieLaneWriteDictionaries` never binds, no encode line):
+census **0 / 1,024,000 bad**. With `prebuilt` (prepass, flag off) also clean, the truncation
+needs the write dictionaries bound and probing. So the once-per-load event is inside the bound
+lane's life: candidates are `bindConfigured`/`publishTrieLaneTags` (`ProjectionIndexBuilder`
+1444/1454/1545 — one of them fires once, mid-load, when the path classes first become known) and
+the first probe's dictionary decode. Next step, ~1 h: log `recordPageKey` of the page under
+serialization on the thread at each of those events and match it to the damaged page (1/3/5).
