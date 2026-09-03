@@ -110,6 +110,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.LongConsumer;
 import java.util.function.LongFunction;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
@@ -196,6 +197,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Per-page resolver factory; when set it supersedes {@link #documentStringDictionaries}. */
   private volatile @Nullable LongFunction<GlobalStringDictionaries> documentStringDictionaryFactory;
+
+  /** Told each encoded document leaf's key, so a segment-scoped dictionary knows when it may seal. */
+  private volatile @Nullable LongConsumer documentPageEncodedListener;
 
   /**
    * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
@@ -2755,6 +2759,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                     frameCache = false;
                   }
                   writeUncommittedPage(config, shadowRef, serializationCopy, bgBuffer);
+                  noteDocumentPageEncoded(serializationCopy);
                   if (HFT_TELEMETRY_ENABLED) {
                     // Count only KVL pages whose synchronous writer call consumed the encoded cache.
                     // This is the exact denominator for the two mutually-exclusive cache outcomes;
@@ -5288,6 +5293,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public void installDocumentStringDictionaryFactory(
       final @Nullable LongFunction<GlobalStringDictionaries> factory) {
     this.documentStringDictionaryFactory = factory;
+  }
+
+  @Override
+  public void installDocumentPageEncodedListener(final @Nullable LongConsumer listener) {
+    this.documentPageEncodedListener = listener;
+  }
+
+  /**
+   * Tell the listener a document leaf has been encoded. Called from the sequential pass that follows a
+   * flush window's join, which is the first moment the page's values are certainly minted — and only
+   * for a page that carried a resolver, because a page the lane never served belongs to no segment.
+   */
+  private void noteDocumentPageEncoded(final KeyValueLeafPage page) {
+    final LongConsumer listener = documentPageEncodedListener;
+    if (listener == null || page.getIndexType() != IndexType.DOCUMENT || page.globalStringDictionaries() == null) {
+      return;
+    }
+    listener.accept(page.getPageKey());
   }
 
   /**

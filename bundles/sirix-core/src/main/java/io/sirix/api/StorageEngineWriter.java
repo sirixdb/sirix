@@ -16,6 +16,7 @@ import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
+import java.util.function.LongConsumer;
 import java.util.function.LongFunction;
 
 import java.time.Instant;
@@ -215,6 +216,30 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   default void installDocumentStringDictionaryFactory(@Nullable LongFunction<GlobalStringDictionaries> factory) {
     // No-op: a writer without the trie lane simply keeps its bytes.
+  }
+
+  /**
+   * Install a listener told each document leaf's record-page key once that page has been ENCODED.
+   *
+   * <p>
+   * A segment-scoped dictionary may only be written when every page of its segment has minted its
+   * values, and that moment is not the writer passing the segment's last row — pages are encoded on
+   * the async flush pool, so one can still be queued while the writer fills a later segment. This is
+   * the only signal that says a page's values are certainly in: it fires after the flush window
+   * carrying the page has been joined.
+   * </p>
+   *
+   * <p>
+   * Fires ONLY for pages that were given a resolver, so a page the lane never served cannot be
+   * counted against a segment. A missed notification is safe — the segment simply seals at commit
+   * instead of during the load — but a spurious one is not, which is why the filter is here rather
+   * than in the listener.
+   * </p>
+   *
+   * @param listener record-page keys of encoded document leaves, or {@code null} to stop listening
+   */
+  default void installDocumentPageEncodedListener(@Nullable LongConsumer listener) {
+    // No-op: a writer without the trie lane has nothing to seal.
   }
 
   /**
