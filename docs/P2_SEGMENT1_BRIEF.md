@@ -2269,3 +2269,68 @@ rank 10 = 3.35 needs −12.34), combined **4.565 → rank 5/136**, cold **4.531 
 
 Worst ln (c6a hot, C2FULL1): q32 3.65 (13.3 s, 8 passes), q22 2.89, q17 2.72, q29 2.68, q11 2.51, q31
 2.49, q2 2.45, q30 2.44, q35 2.29, q16 2.01, q21 1.96, q10 1.93, q18 1.92, q13 1.86.
+
+## 2026-09-03 03:40–04:30: LEVERS K, L, M — the fold kernels (8dbac85bc, c55cdbaf6, 9ec236662)
+
+**Lever K (q29, 8dbac85bc).** `aggregateAllNumericFlat` (the `group by <constant>` kernel) walked the
+match mask bit by bit and pushed every row through the 21-argument generic `foldSliced` with a
+`Math.addExact` per value — 16 ns/row on a RESIDENT column. Now each lane folds over the matched-and-
+present words (four independent sum accumulators on a full word, a bit walk on a partial one), and
+exactness is decided ONCE per leaf from the fold's own extrema (count × max|v| < 2^62 ⇒ nothing wrapped;
+only a leaf that could have wrapped is re-summed with addExact, so the arm still DECLINES rather than
+wraps). q29 0.209 → 0.036 s hot alone. `GroupWindowedSlicesTest` gained a signed column with extrema off
+the word boundary and a sparse never-zero column; three mutants that survived the old data now fail.
+
+**Lever L (q2/q3/q29, c55cdbaf6).** The projection segment fold's masked `LongVector.add(v, m)` was a
+VIRTUAL CALL C2 never intrinsified: async-profiler alloc events in 1-s windows over hot tries showed
+100 % of the allocation under `foldMaskedBlockSum → LongVector.add → lanewiseTemplate` (the Vector API's
+Java fallback), 1–3 young GCs per try for a kernel that allocates nothing — and its presence in the same
+compile unit dragged the DENSE add down (that arm executed ONCE per query; removing it halved q2).
+`ProjectionColumnSegmentFoldScan` dropped the Vector API for the folds: a dense block sums straight from
+the packed bits (`ProjectionIndexRowGroupCodec.sumPacked`: Σ(base + p_i) = count·base + Σp_i, widths ≤ 32
+through a rolling 64-bit buffer refilled one LE int at a time), dense words use four scalar accumulators,
+partial words walk `ntz`. The compare kernels keep the Vector API. q2 0.106 → 0.040 s, gc 0.
+Witnesses: `ProjectionIndexRowGroupCodecSumPackedTest` (every writer width 1..56 and 64 × every tail
+shape; the byte-accumulator decoder is wrong for 57–63, which `clampPackWidth` never emits) and
+`ProjectionColumnScanParityTest.everyAggregateMaskArmAgreesWithTheByteKernel` (6 masks × 3 fixture
+modes × full/ranged) — the SUM-only arm the executor actually uses had NO witness before; 8 mutants
+killed, one of which survived three rounds until the fixture pinned per-leaf UNIQUE extrema at a word
+end with a forced hole so no leaf could recover the answer through its dense-block arm.
+**L1FULL1**: c6a hot **4.211 → rank 16** (Σln 61.82; rank 15 needs −1.08), combined 4.231 rank 4, cold
+4.059 rank 2, 43/43 identical.
+
+**Lever M (q29 in-leg, 9ec236662).** In the leg q29 read 0.139 s hot but 0.036 s alone with identical
+I/O: the const-group route filled 8 B/row resident slices (800 MB at 100M) and folded them through
+lever K's kernel — which NO other query warms, so three tries after q28's deopt storm never reached
+steady-state C2 code. The route now folds every NUMERIC_LONG lane straight from the packed segment
+bytes through the `sliceAggregateParallel`/`sliceCountParallel` kernel q2/q3 already share, with a
+PER-LANE aggregate mask derived from the requested function (sum/avg → COUNT|SUM so dense blocks never
+unpack; the first draft asked AGG_ALL and was 3× slower per chunk than q2; min/max ask their extremum
+only — an unrequested extremum stays at its fold identity, where `MAX_VALUE + k` is exactly the overflow
+the exact add refuses). `constGroupResult` derives sum(x+k) = sum + k·count. Kill switch
+`-Dsirix.projection.constGroup.segmentFold=false`, counter `constGroupSegmentFoldServedCount()`.
+Witness `AutoWiredExecutorTest.constantGroupShiftedAggregatesFoldFromSegmentBytes` (shifted
+sum/min/max/avg/count, two masks on one column, with and without `where`, generic vs auto-wired, counter
++1); mutants killed 4/4 (min lane asks SUM, max lane asks MIN, min shifted by k−1, predicated count
+ignores the predicate). "28,29,2" run: q29 0.068/0.033/0.036 s.
+
+**M1FULL1** (04:24, 161 s): c6a hot **4.196 → rank 16/140** (Σln 61.67; **rank 15 = 4.11 needs −0.94**;
+rank 10 = 3.35 needs −9.71); combined **4.253 → rank 4/135**; cold **4.160 → rank 2**; default view
+combined 8.38 rank 68; 43/43 byte-identical vs results-H1FULL1. q29 0.139 → 0.032 hot (−1.1 ln on its
+own line); the other 42 wobbled +0.9 the other way (q22 0.54 → 0.60, q13 2.08 → 2.25, q2 0.04 → 0.06 —
+±10 ms noise, weighted heavily by the +0.01 smoothing on sub-100 ms queries). Worst ln (hot): q32 3.65
+(13.4 s, 8 passes), q22 2.98, q31 2.51, q30 2.48, q35 2.29, q11 2.27, q21 2.04, q16 2.03, q13 1.96,
+q18 1.94, q2 1.89, q10 1.89, q17 1.69, q8 1.65.
+
+**Next lever, measured but not built — q22 hot (0.6 s, 2.98 ln).** Diag: `[store] combined fit REFUSED:
+needed=4611MB budget=3072MB` → every hot try re-decodes Title/URL/SearchPhrase/UserID windows for
+96,389 leaves (pass 547 ms, workers 508–514 ms balanced, `STR_CONTAINS … no prune rule`). The windowed
+sub-chunk loop (`SirixVectorizedExecutor` ≈ 15125) fetches the KEY and AGGREGATE windows before the
+kernel evaluates a single predicate row. A predicate-first window (evaluate Title/URL on their windows,
+decode SearchPhrase/UserID only for windows with survivors — or only their surviving rows) is the lever;
+prediction q22 hot 0.6 → ≤ 0.25 s IF the per-leaf survivor rate is low — measure that rate first. The
+8.2 s cold is a different phase (18,261 `segBatch` lines at util 3.5/20). q32's 8 passes (13.4 s) remain
+the largest single term.
+
+**Position vs the /goal at the 06:00 stop:** top 15 met on c6a combined (rank 4) and cold (rank 2);
+hot rank 16, 0.94 ln units (one q22-sized lever) short. Storage unchanged at 63.14 GB.
