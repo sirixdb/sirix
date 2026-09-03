@@ -105,6 +105,12 @@ final class GroupWindowedSlicesTest {
       // group by a CONSTANT (the const-group fold: no key column at all), with a predicate
       "for $h in " + DOC + " where $h.amount ge 2000 let $g := 1 group by $g "
           + "return {\"c\": count($h), \"s\": sum($h.amount), \"mx\": max($h.u), \"mn\": min($h.k40)}",
+      // the same fold UNPREDICATED (q29's shape: every word of every leaf is a full word) over a
+      // signed column, and over the SPARSE column `sp` whose absent rows must count for count(*)
+      // but never for the lane's own sum/extrema
+      "for $h in " + DOC + " let $g := 1 group by $g "
+          + "return {\"c\": count($h), \"s\": sum($h.amount), \"z\": sum($h.signed), \"zn\": min($h.signed), "
+          + "\"zx\": max($h.signed), \"sp\": sum($h.sp), \"spn\": min($h.sp), \"spx\": max($h.sp)}",
       // the legacy emission legs (ORDER BY without a LIMIT: no order plan) — numeric and string keys
       "for $h in " + DOC + " where $h.amount ge 1500 let $k := $h.k40 group by $k order by $k "
           + "return {\"k40\": $k, \"c\": count($h), \"s\": sum($h.amount)}",
@@ -161,7 +167,19 @@ final class GroupWindowedSlicesTest {
         // overwrote instead of folding across sub-chunks would answer with the wrong leaf's value
         .append(",\"s\":\"s").append(i % 50).append("\",\"w\":\"w").append(String.format("%05d", (i * 7919) % 8000))
         .append("\",\"u\":")
-        .append(i % 97).append(",\"amount\":").append(i).append(",\"t\":\"2024-")
+        // signed: the extrema sit at rows 3 and 5 (mod 64) only, so a full-word fold that samples
+        // one lane per four values misses both; sp: present on every third row, never 0, so a fold
+        // that ignores presence folds the absent rows' phantom 0 into the minimum
+        .append(i % 97).append(",\"amount\":").append(i).append(",\"signed\":")
+        .append(i % 64 == 3
+            ? -1000
+            : i % 64 == 5
+                ? 1000
+                : (i % 11) - 5)
+        .append(i % 3 == 0
+            ? ",\"sp\":" + (i * 3 + 7)
+            : "")
+        .append(",\"t\":\"2024-")
         .append(String.format("%02d", 1 + day / 28)).append('-').append(String.format("%02d", 1 + day % 28))
         .append('T').append(String.format("%02d", hh)).append(':').append(String.format("%02d", mm)).append(":00\"}");
     }
@@ -173,8 +191,9 @@ final class GroupWindowedSlicesTest {
       new Query(chain, """
           let $doc := jn:doc('%s','%s')
           let $stats := jn:create-projection-index($doc, '/[]',
-            ('/[]/id', '/[]/k7', '/[]/k40', '/[]/s', '/[]/w', '/[]/u', '/[]/amount', '/[]/t'),
-            ('long', 'long', 'long', 'string', 'string', 'long', 'long', 'string'))
+            ('/[]/id', '/[]/k7', '/[]/k40', '/[]/s', '/[]/w', '/[]/u', '/[]/amount', '/[]/signed', '/[]/sp',
+             '/[]/t'),
+            ('long', 'long', 'long', 'string', 'string', 'long', 'long', 'long', 'long', 'string'))
           return sdb:commit($doc)
           """.formatted(DB, RES)).evaluate(ctx);
     }

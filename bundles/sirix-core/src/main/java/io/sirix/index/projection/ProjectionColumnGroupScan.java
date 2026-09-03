@@ -4,6 +4,7 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -1748,6 +1749,17 @@ public final class ProjectionColumnGroupScan {
    * matching row into ONE accumulator block ({@code newGroupAggAcc} layout, ordinal lane unused) —
    * the single-group kernel behind {@code group by <constant>}. No group column is read at all; the
    * caller merges per-worker accumulators.
+   *
+   * <p>
+   * Lane-at-a-time, not row-at-a-time: the generic per-row {@code foldSliced} (a bit walk plus an
+   * {@code addExact} per value) cost 16 ns/row on a resident column — 100M q29 spent 0.2 s hot on
+   * ONE column. Each aggregate lane is folded over the matched-and-present words with a
+   * straight-line loop on full words and a bit walk on partial ones, into leaf-local
+   * {@code [count, sum, min, max]}; exactness is decided ONCE per leaf from the fold's own extrema
+   * (every partial sum is bounded by {@code count × max|v|}), and only a leaf that could have wrapped
+   * is re-summed with {@code addExact} — the interpreter promotes an overflowing sum, so the arm must
+   * decline rather than wrap, exactly as before.
+   * </p>
    */
   public static void aggregateAllNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
@@ -1757,30 +1769,122 @@ public final class ProjectionColumnGroupScan {
     }
     final long[] mask = MASK.get();
     final int aggCount = aggCols.length;
-    final long[][] aggValues = new long[aggCount][];
-    final long[][] aggPresence = new long[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
       }
+      final int stride = (rowCount + 63) >>> 6;
+      long matched = 0L;
+      for (int w = 0; w < stride; w++) {
+        matched += Long.bitCount(mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount));
+      }
+      if (matched == 0L) {
+        continue;
+      }
+      acc[0] += matched;
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
-        aggValues[a] = agg.numericValues();
-        aggPresence[a] = agg.presenceWords();
-      }
-      final int stride = (rowCount + 63) >>> 6;
-      for (int w = 0; w < stride; w++) {
-        long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
-        final int rowBase = w << 6;
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          foldSliced(acc, 0, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowBase + bit, -1, null, null,
-              null, null, null, null, null, -1L, null);
+        final long[] values = agg.numericValues();
+        if (values == null) {
+          throw new IllegalStateException("const-group aggregate over a column without a numeric lane on leaf " + leaf);
         }
+        foldNumericLaneFlat(acc, 2 + 4 * a, values, agg.presenceWords(), mask, stride, rowCount);
       }
     }
+  }
+
+  /** Values whose magnitude is below this never wrap a 64-row straight-line block, whatever the mask. */
+  private static final long EXACT_SUM_MAGNITUDE = 1L << 62;
+
+  /**
+   * One aggregate lane of one leaf into {@code acc[aggBase..aggBase+3]} = {@code [count, sum, min,
+   * max]}: rows are those set in {@code mask} (already clipped to the leaf's rows) AND present in the
+   * lane. Plain adds throughout; the leaf's contribution is proven exact from its own extrema before
+   * it is committed, otherwise re-summed with {@code addExact}.
+   */
+  private static void foldNumericLaneFlat(final long[] acc, final int aggBase, final long[] values,
+      final long @Nullable [] presence, final long[] mask, final int stride, final int rowCount) {
+    long cnt = 0L;
+    long sum = 0L;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (int w = 0; w < stride; w++) {
+      long bits = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+      if (presence != null) {
+        bits &= presence[w];
+      }
+      if (bits == 0L) {
+        continue;
+      }
+      final int rowBase = w << 6;
+      if (bits == -1L) {
+        // Full word: 64 consecutive values, four independent sum lanes so the adds pipeline.
+        long s0 = 0L;
+        long s1 = 0L;
+        long s2 = 0L;
+        long s3 = 0L;
+        for (int i = rowBase; i < rowBase + 64; i += 4) {
+          final long v0 = values[i];
+          final long v1 = values[i + 1];
+          final long v2 = values[i + 2];
+          final long v3 = values[i + 3];
+          s0 += v0;
+          s1 += v1;
+          s2 += v2;
+          s3 += v3;
+          min = Math.min(min, Math.min(Math.min(v0, v1), Math.min(v2, v3)));
+          max = Math.max(max, Math.max(Math.max(v0, v1), Math.max(v2, v3)));
+        }
+        sum += s0 + s1 + s2 + s3;
+        cnt += 64L;
+        continue;
+      }
+      while (bits != 0L) {
+        final int bit = Long.numberOfTrailingZeros(bits);
+        bits &= bits - 1L;
+        final long v = values[rowBase + bit];
+        sum += v;
+        min = Math.min(min, v);
+        max = Math.max(max, v);
+        cnt++;
+      }
+    }
+    if (cnt == 0L) {
+      return;
+    }
+    // Every partial sum is bounded by cnt × max|v|: below 2^62 the plain adds cannot have wrapped.
+    final long bound = EXACT_SUM_MAGNITUDE / cnt;
+    if (min <= -bound || max >= bound) {
+      sum = exactSumOfLane(values, presence, mask, stride, rowCount);
+    }
+    acc[aggBase] += cnt;
+    acc[aggBase + 1] = Math.addExact(acc[aggBase + 1], sum);
+    if (min < acc[aggBase + 2]) {
+      acc[aggBase + 2] = min;
+    }
+    if (max > acc[aggBase + 3]) {
+      acc[aggBase + 3] = max;
+    }
+  }
+
+  /** The rare exact re-sum of a leaf whose extrema could not prove the plain fold wrap-free. */
+  private static long exactSumOfLane(final long[] values, final long @Nullable [] presence, final long[] mask,
+      final int stride, final int rowCount) {
+    long sum = 0L;
+    for (int w = 0; w < stride; w++) {
+      long bits = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+      if (presence != null) {
+        bits &= presence[w];
+      }
+      final int rowBase = w << 6;
+      while (bits != 0L) {
+        final int bit = Long.numberOfTrailingZeros(bits);
+        bits &= bits - 1L;
+        sum = Math.addExact(sum, values[rowBase + bit]);
+      }
+    }
+    return sum;
   }
 
 }
