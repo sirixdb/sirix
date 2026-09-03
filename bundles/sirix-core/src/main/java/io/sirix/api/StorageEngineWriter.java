@@ -16,6 +16,8 @@ import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
+import java.util.function.LongFunction;
+
 import java.time.Instant;
 
 /**
@@ -189,6 +191,29 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param dictionaries the resolver, or {@code null} to encode every tag as bytes
    */
   default void installDocumentStringDictionaries(@Nullable GlobalStringDictionaries dictionaries) {
+    // No-op: a writer without the trie lane simply keeps its bytes.
+  }
+
+  /**
+   * Install a PER-PAGE resolver factory, consulted with each document leaf's record-page key.
+   *
+   * <p>
+   * {@link #installDocumentStringDictionaries} hands ONE resolver to every page, which is right for a
+   * resource-wide dictionary and wrong for a segment-scoped one: there the dictionary a page belongs
+   * to is a property of the page, and a resolver answering "the segment being filled" would mint a
+   * late-flushed page's ids into the wrong one — a coherent wrong answer no downstream check can
+   * catch (see {@code SegmentScopedDictionaries}). The factory is therefore consulted where the page
+   * is created, on the writer side, in key order, and the view it returns travels with the page.
+   * </p>
+   *
+   * <p>
+   * When set it takes precedence over the single resolver; {@code null} restores it. A writer that
+   * does not implement the lane ignores both.
+   * </p>
+   *
+   * @param factory record-page key to that page's resolver, or {@code null} to use the single one
+   */
+  default void installDocumentStringDictionaryFactory(@Nullable LongFunction<GlobalStringDictionaries> factory) {
     // No-op: a writer without the trie lane simply keeps its bytes.
   }
 

@@ -110,6 +110,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.LongFunction;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
@@ -192,6 +193,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * </p>
    */
   private volatile @Nullable GlobalStringDictionaries documentStringDictionaries;
+
+  /** Per-page resolver factory; when set it supersedes {@link #documentStringDictionaries}. */
+  private volatile @Nullable LongFunction<GlobalStringDictionaries> documentStringDictionaryFactory;
 
   /**
    * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
@@ -4901,7 +4905,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (indexType == IndexType.DOCUMENT) {
           // Only DOCUMENT pages carry the projected columns' values, and only the MODIFIED half is
           // ever written to — the complete twin starts empty and is replaced by the combine.
-          ((KeyValueLeafPage) pageContainer.getModified()).setGlobalStringDictionaries(documentStringDictionaries);
+          ((KeyValueLeafPage) pageContainer.getModified()).setGlobalStringDictionaries(
+              documentStringResolverFor(recordPageKey));
         }
         appendLogRecord(reference, pageContainer);
         return pageContainer;
@@ -5280,13 +5285,36 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public void installDocumentStringDictionaryFactory(
+      final @Nullable LongFunction<GlobalStringDictionaries> factory) {
+    this.documentStringDictionaryFactory = factory;
+  }
+
+  /**
+   * The resolver a document leaf must carry: the per-page factory's answer when one is installed,
+   * else the single resource-wide resolver.
+   *
+   * <p>
+   * Called where the page is CREATED, never from the flush lane. That is the whole point: a
+   * segment-scoped resolver has to be chosen while the writer still knows which page this is, because
+   * by encode time the writer has moved on and the page's own segment is no longer "the current" one.
+   * </p>
+   */
+  private @Nullable GlobalStringDictionaries documentStringResolverFor(final long recordPageKey) {
+    final LongFunction<GlobalStringDictionaries> factory = documentStringDictionaryFactory;
+    return factory == null
+        ? documentStringDictionaries
+        : factory.apply(recordPageKey);
+  }
+
+  @Override
   public void adoptDocumentLeafPage(final KeyValueLeafPage page) {
     storageEngineReader.assertNotClosed();
     // Before the page reaches the flush lane, which is where its string region is built and where
     // nothing can be handed to it any more. An adopted page is marked immutable-for-flush at the end
     // of this method, so this is the last moment it can be told anything at all.
-    page.setGlobalStringDictionaries(documentStringDictionaries);
     final long recordPageKey = page.getPageKey();
+    page.setGlobalStringDictionaries(documentStringResolverFor(recordPageKey));
     final ResourceConfiguration resourceConfiguration = getResourceSession().getResourceConfig();
     // The builder's cold direct-write fallbacks are still heap snapshots in records[]. Serialize them
     // NOW, on the adopting thread and BEFORE the trie is touched (a serialization failure then leaves
