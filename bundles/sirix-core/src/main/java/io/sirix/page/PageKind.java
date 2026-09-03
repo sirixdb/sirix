@@ -8232,30 +8232,43 @@ public enum PageKind {
    * </p>
    *
    * <p>
-   * <b>Opt-IN, and measured that way.</b> Compressing them costs 4.69 GB of that class at 100M
-   * (ratio 0.731) and makes COLD queries faster — the 43-query sum went 555.7 s to 447.4 s, because a
-   * scan reads fewer bytes — but it makes a REPEATED scan slower, and that is what decided the
-   * default. The OS page cache holds the payload compressed, so every pass decodes again, where an
-   * uncompressed page was free on the second read: q16 went 20.68 s to 38.15 s hot and q17 20.49 s to
-   * 38.12 s, their hot time collapsing onto their cold time, while their cold times were unchanged or
-   * better. Two queries 85 % slower is a slowdown whatever the totals say, and the totals were a wash
-   * (hot 483.5 s against 480.1 s).
+   * <b>ON by default since 2026-09-03, and the default is the measured one.</b> A database is large by
+   * assumption, and at a size where the working set does not fit in memory this is a pure win on BOTH
+   * axes. Two whole-database 100M builds differing only in this flag, each then measured with a
+   * three-try 43-query leg back to back:
+   * </p>
+   *
+   * <pre>
+   *                        off                 on
+   *   on disk        52,488,784,824      49,703,766,971   (-2.79 GB)
+   *   OverflowPage   10,862,700,646       8,078,960,087   (ratio 0.744)
+   *   C6A hot        3.329 (rank 10)      3.159 (rank 6)
+   *   answers                             43/43 byte-identical
+   * </pre>
+   *
+   * <p>
+   * Paired per query the compressed database is {@code -2.244} ln FASTER, 23 queries faster to 11
+   * slower. That is the condition this javadoc used to name as what would earn the default back — "a
+   * decoder fast enough that a per-pass decode disappears into the I/O it saves" — reached not by a
+   * faster decoder but by a larger database: the scan is I/O-bound, so the bytes not read outweigh the
+   * decode.
    * </p>
    *
    * <p>
-   * A cache of decoded payloads is the obvious answer and it is the wrong one at this scale: the
-   * class is 12.76 GB compressed at 100M and the query envelope is an 8 GB heap, so what would have
-   * to be cached cannot be. What could earn the default back is either a decoder fast enough that a
-   * per-pass decode disappears into the I/O it saves, or compressing only the payload classes that
-   * are not scan-hot — the value-dictionary blocks and overlong records rather than the projection's
-   * column segments — which needs the writer to know which it is holding, and buys correspondingly
-   * less. Where it already pays with no caveat is a cold or I/O-bound workload: the 43-query cold sum
-   * fell 555.7 s to 447.4 s. Turn it on with {@code -Dsirix.page.overflow.compress=true}; a resource
-   * written with it cannot be read by a build that predates the flag bit.
+   * <b>The earlier rejection was real, and it was a SMALL-SCALE measurement.</b> It stands unchanged
+   * as a fact about small databases: at 1M the same flag costs +22.4 % hot (+3.341 ln, 28 of 43
+   * queries slower), because a cache-resident working set makes every decode pure added CPU buying no
+   * I/O back. The historical 100M figures quoted before (q16 20.68 → 38.15 s hot) predate the
+   * swizzle fix that removed ~3.9 GB of pinned dictionary OverflowPages from the record-page cache.
+   * <b>So a compression lever's query cost can INVERT with scale — the small-scale result does not
+   * merely mis-estimate the magnitude, it has the wrong sign.</b> Set
+   * {@code -Dsirix.page.overflow.compress=false} for a workload whose data is genuinely
+   * memory-resident. A resource written with the flag cannot be read by a build that predates the
+   * flag bit.
    * </p>
    */
   private static final boolean OVERFLOW_PAYLOAD_COMPRESSION_ENABLED =
-      Boolean.parseBoolean(System.getProperty("sirix.page.overflow.compress", "false"));
+      Boolean.parseBoolean(System.getProperty("sirix.page.overflow.compress", "true"));
 
   /**
    * Below this the three encode passes cost more than the bytes they could save, and the 5-byte

@@ -318,6 +318,12 @@ public final class GoldenFormatTest {
           // 59: packed reverse value sub-block — bounded consecutive dictionary values in one record
           // (the multi-sub-block bounded packed reverse dictionary of the 2026-08 campaign).
           + "VALUE_DICTIONARY_VALUE_BLOCK=59,"
+          // 60: the block index that names which value sub-blocks a dictionary segment holds, added
+          // with the rank pass (1b92b6614). Same case as 36 and 37-40 and deliberately so: one id
+          // taken from the free range above 59, NO existing id moved, and the kind only ever appears
+          // inside a projection index built by a version that knows it -- so a database written
+          // before it existed cannot contain one and still reads unchanged.
+          + "VALUE_DICTIONARY_BLOCK_INDEX=60,"
           + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
           + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
