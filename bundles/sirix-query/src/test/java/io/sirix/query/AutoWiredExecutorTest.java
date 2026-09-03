@@ -508,6 +508,65 @@ public final class AutoWiredExecutorTest {
   }
 
   /**
+   * The const-group SEGMENT-FOLD arm: shifted sums, min, max, avg and count over one long column fold
+   * straight from the packed segment bytes, with and without a predicate, and every function derives
+   * from its lane's requested slots only (an unrequested extremum stays at its fold identity — the
+   * MAX_VALUE + k overflow the exact add would otherwise refuse). Pinned against the generic
+   * pipeline; the served counter proves the arm — not the resident-slice fold — answered.
+   */
+  @Test
+  public void constantGroupShiftedAggregatesFoldFromSegmentBytes() throws IOException {
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                        .storeDeweyIds(true)
+                                                        .build()) {
+      final StringBuilder json = new StringBuilder(4096).append('[');
+      for (int i = 0; i < 300; i++) {
+        if (i > 0) {
+          json.append(',');
+        }
+        json.append("{\"age\":").append((i * 7919L) % 101 - 50).append('}');
+      }
+      store.create(DB_A, RES_A, json.append(']').toString());
+    }
+    query("""
+        let $doc := jn:doc('json-path1','a.jn')
+        let $stats := jn:create-projection-index($doc, '/[]', ('/[]/age'), ('long'))
+        return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String[] shapes = {
+        """
+        for $r in jn:doc('json-path1','a.jn')[]
+        let $g := 1, $a := $r.age, $b := $r.age + 7, $c := $r.age - 3, $d := $r.age + 1000
+        group by $g
+        return {"s": sum($a), "s7": sum($b), "mn": min($c), "mx": max($d), "avg": avg($b), "n": count($r),
+                "mn0": min($a), "mx7": max($b)}
+        """,
+        """
+        for $r in jn:doc('json-path1','a.jn')[]
+        where $r.age gt -20
+        let $g := 1, $a := $r.age, $b := $r.age + 7, $c := $r.age - 3
+        group by $g
+        return {"s": sum($a), "s7": sum($b), "mn": min($c), "n": count($r), "mx": max($c)}
+        """};
+    try (final BasicJsonDBStore store = newStore();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
+      for (final String shape : shapes) {
+        final long foldBefore = SirixVectorizedExecutor.constGroupSegmentFoldServedCount();
+        final long constantBefore = SirixVectorizedExecutor.constGroupAggServedCount();
+        assertEquals(evaluate(generic, ctx, shape), evaluate(autoWired, ctx, shape), shape);
+        assertEquals(1L, SirixVectorizedExecutor.constGroupAggServedCount() - constantBefore, "const-group arm");
+        assertEquals(1L, SirixVectorizedExecutor.constGroupSegmentFoldServedCount() - foldBefore,
+            "segment-fold arm: " + shape);
+      }
+    }
+  }
+
+  /**
    * A resource of {@link #SCAN_RECORDS} records built through the core API without a path summary, so
    * the page-skip registry is the only skip index in play. Returns its registry key.
    */

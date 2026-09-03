@@ -16355,6 +16355,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
 
   /**
+   * Const-group folds served straight from the packed segment bytes (lever L's fold kernel) —
+   * subset of {@link #CONST_GROUP_AGG_SERVED}.
+   */
+  private static final LongAdder CONST_GROUP_SEGMENT_FOLD_SERVED = new LongAdder();
+
+  /** Kill switch: {@code -Dsirix.projection.constGroup.segmentFold=false} keeps the resident-slice fold. */
+  private static final boolean CONST_GROUP_SEGMENT_FOLD =
+      !"false".equals(System.getProperty("sirix.projection.constGroup.segmentFold"));
+
+  /**
    * The const-group twin of {@link #declineGroupAgg}: a decline that falls to the generic pipeline
    * must move a counter, or a route that stopped serving reads exactly like one that was never asked.
    * Shares {@code GROUP_AGG_DECLINED} because both arms answer the same question.
@@ -16373,6 +16383,141 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Test observability for {@link #CONST_GROUP_AGG_SERVED}. */
   public static long constGroupAggServedCount() {
     return CONST_GROUP_AGG_SERVED.sum();
+  }
+
+  /** Test observability for {@link #CONST_GROUP_SEGMENT_FOLD_SERVED}. */
+  public static long constGroupSegmentFoldServedCount() {
+    return CONST_GROUP_SEGMENT_FOLD_SERVED.sum();
+  }
+
+  /**
+   * Kind gate of the packed-bytes const-group arm: every aggregate lane is a NUMERIC_LONG column
+   * (the shifted-sum algebra is defined on plain longs, not on global-dictionary ids). Whether the
+   * fold-during-decode kernel admits a lane (no ALP/reserved-width escapes) is decided per column
+   * inside {@link #sliceAggregateParallel}, which otherwise takes the slice kernel.
+   */
+  private static boolean constGroupSegmentFoldable(final ProjectionColumnStore store, final int[] aggCols) {
+    for (final int col : aggCols) {
+      if (store.columnKind(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The const-group accumulator ({@link ProjectionIndexByteScan#newGroupAggAcc} layout: matched
+   * rows, then {@code [count, sum, min, max]} per lane) folded lane by lane through
+   * {@link #sliceAggregateParallel} — the fold-during-decode kernel when it admits the column, the
+   * slice kernel otherwise — and the matched-row count through {@link #sliceCountParallel}. An
+   * overflowing lane sum surfaces as the {@link ArithmeticException} the caller declines on.
+   */
+  /**
+   * Per-lane {@link ProjectionColumnSegmentFoldScan} aggregate masks from the requested functions:
+   * a lane only ever asked for {@code sum}/{@code avg} folds count and sum alone (the dense block
+   * then sums straight from the packed bits, never unpacking), {@code min}/{@code max} add their
+   * extremum, {@code count} the count. Unrequested slots keep their fold identities.
+   */
+  private static int[] constGroupLaneMasks(final String[] funcs, final String[] aggFields,
+      final List<String> distinctFields) {
+    final int[] masks = new int[distinctFields.size()];
+    for (int i = 0; i < funcs.length; i++) {
+      final String field = i < aggFields.length
+          ? aggFields[i]
+          : null;
+      final int lane = field == null
+          ? -1
+          : distinctFields.indexOf(field);
+      if (lane < 0) {
+        continue; // count(*) reads no lane
+      }
+      masks[lane] |= switch (baseFunc(funcs[i])) {
+        case "count" -> ProjectionColumnSegmentFoldScan.AGG_COUNT;
+        case "sum", "avg" -> ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM;
+        case "min" -> ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN;
+        case "max" -> ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX;
+        default -> throw new IllegalStateException("unhandled const-group aggregate function: " + funcs[i]);
+      };
+    }
+    return masks;
+  }
+
+  private long[] constGroupSegmentFold(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int[] aggCols, final int[] laneMasks,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final long[] acc = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+    if (preds.length == 0) {
+      long rows = 0L;
+      final int rowGroupCount = store.rowGroupCount();
+      for (int leaf = 0; leaf < rowGroupCount; leaf++) {
+        rows += store.rowCount(leaf);
+      }
+      acc[0] = rows;
+    } else {
+      acc[0] = sliceCountParallel(store, preds, fetcher);
+    }
+    for (int a = 0; a < aggCols.length; a++) {
+      if (laneMasks[a] == 0) {
+        continue; // a lane no function reads keeps its identities
+      }
+      final long[] lane = sliceAggregateParallel(store, preds, aggCols[a], fetcher, laneMasks[a]);
+      final int base = 2 + 4 * a;
+      acc[base] = lane[0];
+      acc[base + 1] = lane[1];
+      acc[base + 2] = lane[2];
+      acc[base + 3] = lane[3];
+    }
+    return acc;
+  }
+
+  /**
+   * The const-group record from a merged accumulator: every requested aggregate is derived from its
+   * lane's {@code [count, sum, min, max]} and the constant offset the rewrite extracted
+   * ({@code SUM(x + k) = SUM(x) + k * COUNT(x)}), exact or declined.
+   */
+  private Sequence constGroupResult(final long[] acc, final String[] funcs, final String[] aggFields,
+      final List<String> distinctFields, final long[] offsets, final String[] outNames) {
+    if (acc[0] == 0) {
+      CONST_GROUP_AGG_SERVED.increment();
+      return new ItemSequence();
+    }
+    final QNm[] names = new QNm[funcs.length];
+    final Sequence[] vals = new Sequence[funcs.length];
+    for (int i = 0; i < funcs.length; i++) {
+      names[i] = new QNm(outNames[i]);
+      final String cfunc = baseFunc(funcs[i]);
+      final boolean cdbl = !cfunc.equals(funcs[i]);
+      if ("count".equals(cfunc)) {
+        vals[i] = cdbl
+            ? castToDouble(new Int64(acc[0]))
+            : new Int64(acc[0]);
+        continue;
+      }
+      final int a = distinctFields.indexOf(aggFields[i]);
+      final int base = 2 + 4 * a;
+      final long cnt = acc[base];
+      final long k = offsets[i];
+      // Exact or DECLINE: the shift algebra must not wrap where the interpreter promotes.
+      // Only the lane slots this function reads are shifted: an unrequested extremum still holds
+      // its fold identity, and MAX_VALUE + k is exactly the overflow the exact add refuses.
+      final long sum = "sum".equals(cfunc) || "avg".equals(cfunc)
+          ? Math.addExact(acc[base + 1], Math.multiplyExact(k, cnt))
+          : acc[base + 1];
+      final long min = cnt > 0 && "min".equals(cfunc)
+          ? Math.addExact(acc[base + 2], k)
+          : acc[base + 2];
+      final long max = cnt > 0 && "max".equals(cfunc)
+          ? Math.addExact(acc[base + 3], k)
+          : acc[base + 3];
+      final Sequence stat = longStatsToSequence(cfunc, cnt, sum, min, max);
+      vals[i] = stat instanceof ItemSequence
+          ? null
+          : cdbl
+              ? castToDouble(stat)
+              : stat;
+    }
+    CONST_GROUP_AGG_SERVED.increment();
+    return new ItemSequence(new ArrayObject(names, vals));
   }
 
   /**
@@ -16495,6 +16640,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           && constStore.columnsFitWithinBudget(residentColumns(preds, null, NO_COLUMNS, aggCols, null, NO_COLUMNS), -1);
       final boolean constWindowed = constKinds && !constFits;
       final boolean constSliced = constFits || constWindowed;
+      // SEGMENT FOLD first: every aggregate lane is a NUMERIC_LONG column the fold-during-decode
+      // kernel admits, so each lane folds straight from its packed segment bytes (the kernel the
+      // plain projection aggregates run — ~1.4 B/row instead of an 8 B/row resident slice per
+      // column, nothing filled, nothing to keep resident, and C2-warm by the time a const-group
+      // query arrives in a suite). Residency refusal never reaches here (the fold fills nothing),
+      // so the budget re-entry below cannot loop back into this arm.
+      if (constSliced && !budgetRefused && CONST_GROUP_SEGMENT_FOLD
+          && constGroupSegmentFoldable(constStore, aggCols)) {
+        final long[] foldAcc = constGroupSegmentFold(constStore, preds, aggCols,
+            constGroupLaneMasks(funcs, aggFields, distinctFields), columnFetcher());
+        if (PROJ_DIAG) {
+          System.err.println("[proj] const-groupAgg segment fold: cols=" + Arrays.toString(aggCols) + " rows=" + foldAcc[0]);
+        }
+        CONST_GROUP_SEGMENT_FOLD_SERVED.increment();
+        return constGroupResult(foldAcc, funcs, aggFields, distinctFields, offsets, outNames);
+      }
       if (constWindowed) {
         GROUP_WINDOWED_SLICES.increment(); // the const fold feeds its kernel windowed slices
         if (PROJ_DIAG) {
@@ -16585,43 +16746,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           mergeGroupAgg(acc, perThread[t], aggCols.length, -1L);
         }
       }
-      if (acc[0] == 0) {
-        CONST_GROUP_AGG_SERVED.increment();
-        return new ItemSequence();
-      }
-      final QNm[] names = new QNm[funcs.length];
-      final Sequence[] vals = new Sequence[funcs.length];
-      for (int i = 0; i < funcs.length; i++) {
-        names[i] = new QNm(outNames[i]);
-        final String cfunc = baseFunc(funcs[i]);
-        final boolean cdbl = !cfunc.equals(funcs[i]);
-        if ("count".equals(cfunc)) {
-          vals[i] = cdbl
-              ? castToDouble(new Int64(acc[0]))
-              : new Int64(acc[0]);
-          continue;
-        }
-        final int a = distinctFields.indexOf(aggFields[i]);
-        final int base = 2 + 4 * a;
-        final long cnt = acc[base];
-        final long k = offsets[i];
-        // Exact or DECLINE: the shift algebra must not wrap where the interpreter promotes.
-        final long sum = Math.addExact(acc[base + 1], Math.multiplyExact(k, cnt));
-        final long min = cnt > 0
-            ? Math.addExact(acc[base + 2], k)
-            : acc[base + 2];
-        final long max = cnt > 0
-            ? Math.addExact(acc[base + 3], k)
-            : acc[base + 3];
-        final Sequence stat = longStatsToSequence(cfunc, cnt, sum, min, max);
-        vals[i] = stat instanceof ItemSequence
-            ? null
-            : cdbl
-                ? castToDouble(stat)
-                : stat;
-      }
-      CONST_GROUP_AGG_SERVED.increment();
-      return new ItemSequence(new ArrayObject(names, vals));
+      return constGroupResult(acc, funcs, aggFields, distinctFields, offsets, outNames);
     } catch (final ArithmeticException overflow) {
       // Expected decline: an overflowing sum or shift routes to the interpreter's
       // decimal-promoting arithmetic via the generic pipeline.
