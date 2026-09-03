@@ -2197,3 +2197,45 @@ skipped, union reads one bitset, fan-out gated off, zone guard swallowed) — th
 parallel counter beside the served counter, or the serial fold passes it.
 
 Full leg H1FULL1 (levers E–H on the rebuilt DB) launched 02:18.
+
+## 2026-09-03 02:35: H1FULL1 — c6a hot rank 19, combined rank 9
+
+H1FULL1 (rebuilt 4-global-column DB, 63.14 GB, levers E–H, 3 tries): c6a.4xlarge hot geomean **5.509 →
+rank 19/140** (Σln 73.37; rank 15 = 4.11 needs −12.64 more, rank 10 = 3.35 needs −21.41); combined
+**5.832 → rank 9/136**; cold 5.983 → rank 6. `compare-legs D1FULL2 H1FULL1`: SUM cold 101.8 → 88.5 s, hot
+50.5 → 39.7 s; HOT-REGRESS pairs only q10 (0.138 → 0.503) and q28 (2.62 → 3.15). Per-try lines told the
+rest: q25 hot 0.056 → 0.256 s with `cpu=0.2 → 2.3 s`, `route=sorted-scan` unchanged — the route kept its
+name and lost its bound (below). q40 0.039 → 0.314 with cpu 0.3 → 3.4 did NOT reproduce alone (DIAG40:
+0.086 s hot, SEQ40 after q35–q39: 0.047 s) — the q36–q42 family swings 3–6× between legs on cpu alone,
+which is JIT state (the JDK 25 AOT cache is closed while the Vector API incubates), not data.
+
+## 2026-09-03 03:00: LEVER I — a global sort key went unbounded in the top-k plan (6cc7bc64b)
+
+`ProjectionColumnScan.planTopK` bounded a leaf from the string extrema (STRING_DICT) or the zone (ordered
+long) and skipped STRING_GLOBAL: after SearchPhrase became global, q25 (`<> '' ORDER BY SearchPhrase LIMIT
+10`) planned `unknown=97654`, the stop rule never fired, and every leaf was evaluated. A rank-ordered
+dictionary's id order IS the collation order, so a global first key is now bounded from the zone exactly
+like an ordered long (`boundable = kind != GLOBAL || view.fullyOrdered()`); the `<> literal` refinement
+needs the SECOND extremum, hence `ProjectionColumnStore.longValueExtrema` — a per-leaf MIN1/MIN2/MAX1/MAX2
+memo over the numeric lane (presence-aware, resident slices first, decode windows for the rest), built
+lazily by the plan only for a leaf whose zone bound equals the excluded literal.
+
+I1Q25 (3 tries): q25 1.278 (memo, once) / **0.039 / 0.044 s** (was 0.256 hot, cpu 2.3 → 0.1 s); q23
+0.092, q24 0.054, q26 0.036 unchanged; all four answers byte-identical to H1FULL1. Witness
+`SortedGlobalKeyExcludingItsMinimumQueryTest` (rank pass over a 200-leaf global column, asserts the served
+and applied counters and ≥ 100 skipped leaves, ascending and descending); mutants I1 (never boundable), I2
+(exclusion ignored), I3 (second extremum wrong) killed.
+
+**A pre-existing race found under it.** `GlobalEventTimeVectorServingTest` failed ~1 in 2 runs — at HEAD as
+well (proved with HEAD's file as a mutant): `IndexOutOfBoundsException … byteSize: 33; new offset = 33` in
+`NodeKind.deserialize` ← `ReadView.sliceSlot` ← `compareIds` ← `TopKHeap.offer` ← `TopKRun.evaluateSlab`.
+The top-k slabs run on common-pool threads but every slab heap compared ids through the CALLER's
+`GlobalValueDictionary.ReadView` — single-threaded by contract (slice caches + its trx reader; every other
+arm opens one per worker through `workerTrx()`). On a non-rank-ordered dictionary `compareIds` resolves
+slices, so the caches were mutated concurrently. Fix: `topKRecordKeys` takes a `Supplier<ReadView[]>` the
+executor backs with `workerTrx()`; `evaluateSlab` opens views on ITS thread and `TopKHeap.bindViews` rebinds
+the slab heap (kept tuples hold ids — the views are only the comparison instrument); without an opener the
+leaves are evaluated on one thread. A rank-ordered dictionary compares ids as integers and never enters
+the path, which is why no 100M leg ever showed it. Fix 4/4 green, mutant (keep sharing) killed 3/3.
+
+Full leg I1FULL1 launched 03:07.
