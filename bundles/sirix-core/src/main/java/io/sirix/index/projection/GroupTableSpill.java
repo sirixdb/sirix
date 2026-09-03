@@ -154,6 +154,35 @@ public final class GroupTableSpill {
   public static final String PRESIZE_SHARED_PROPERTY = "sirix.projection.groupTable.presizeShared";
   /** The sizing hint every worker table gets: it flushes long before it would outgrow this twice. */
   public static final int WORKER_TABLE_HINT = 1 << 16;
+
+  /**
+   * Configured worker-table sizing hint, in groups. The DEFAULT is
+   * {@link #WORKER_TABLE_HINT}, which predates the stripe spill: back then a flush meant probing every
+   * group into a shared table far larger than any cache, so flushing rarely was worth a big local
+   * table. Now a flush is a sequential stripe copy with a compaction behind it, and the trade has
+   * inverted — a table small enough to PROBE out of cache is worth flushing more often for.
+   *
+   * <p>
+   * The probe is where the suite's CPU is: {@code NumericGroupAggTable.acquireExact} alone is 17 % of
+   * a 43-query leg, and at 65,536 groups a stripe-15 table is ~7.9 MB, well past L2.
+   * </p>
+   *
+   * <p>
+   * <b>MEASURED AND REFUTED (2026-09-03), which is why the default is unchanged.</b> At 100M, hot
+   * seconds for q32+q18+q13: <b>65,536 → 12.557 s</b>, 16,384 → 14.238, 8,192 → 14.275, 4,096 →
+   * 14.453. Monotonically worse. Cache residency is real but it is not what dominates: a smaller table
+   * flushes more often, and every flush drags a COMPACTION that probes the partition table anyway — so
+   * shrinking the local table moves the misses rather than removing them, and adds the stripe copies
+   * on top. The knob stays because it is how that was learned, not because a smaller value is wanted.
+   * </p>
+   */
+  public static final String WORKER_HINT_PROPERTY = "sirix.projection.groupTable.workerHint";
+
+  /** The worker sizing hint in effect. */
+  public static int workerTableHint() {
+    final int configured = Integer.getInteger(WORKER_HINT_PROPERTY, WORKER_TABLE_HINT);
+    return Math.max(16, configured);
+  }
   /** Skew allowance on a shared table's expected share, in percent (a partition's count is ± its root). */
   private static final int SHARED_HINT_SKEW_PCT = 5;
   /**
@@ -719,7 +748,7 @@ public final class GroupTableSpill {
         ? STRIPE_FLUSH_GROUPS
         : flushGroups();
     // One probe table fixes the layout every table of this spill shares; it never holds a group.
-    final int stride = factory.apply(WORKER_TABLE_HINT).stride();
+    final int stride = factory.apply(workerTableHint()).stride();
     this.stripeStride = stride;
     if (stripeSpill) {
       this.stripeBuffers = new StripeBuffer[partitions];
@@ -751,7 +780,7 @@ public final class GroupTableSpill {
 
   /** A fresh worker table from the factory, restricted to this pass's partitions. */
   public NumericGroupAggTable freshLocal() {
-    final NumericGroupAggTable table = adopt(factory.apply(WORKER_TABLE_HINT));
+    final NumericGroupAggTable table = adopt(factory.apply(workerTableHint()));
     if (passLo != 0 || passHi != partitions) {
       table.setPassRange(shift, passLo, passHi);
     }
@@ -1112,7 +1141,7 @@ public final class GroupTableSpill {
   /** A shared partition table: at the plan's expected count when known, else at the worker hint. */
   private NumericGroupAggTable createShared() {
     if (sharedHint < 0) {
-      return adopt(factory.apply(WORKER_TABLE_HINT));
+      return adopt(factory.apply(workerTableHint()));
     }
     PRESIZED_SHARED.increment();
     return adopt(factory.apply(sharedHint));
@@ -1127,7 +1156,7 @@ public final class GroupTableSpill {
   private NumericGroupAggTable createSharedForStripes(final long stripes) {
     final long perPartition = Math.max(16L, budget / Math.max(1, passHi - passLo));
     final long bounded = Math.min(stripes, Math.min(perPartition, sharedHint < 0
-        ? WORKER_TABLE_HINT
+        ? workerTableHint()
         : sharedHint));
     if (sharedHint >= 0) {
       PRESIZED_SHARED.increment();
