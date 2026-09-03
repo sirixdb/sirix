@@ -2455,3 +2455,17 @@ the region/body write for the FIRST slot of a page written while the lane is eng
 reproduction is `gate1mT.sh converted` + `BadSlotCensus <db>/clickbench 0 1024000` (10 s);
 (2) then prerequisite 2, the framing decomposition (`price-the-frame-a-lever-requires`);
 (3) only then re-gate the lane's storage claim at 100M. Storage at 100M: 63.14 GB, unchanged.
+
+### 05:35 — named next experiment for the slot-0 truncation (prediction stated, not run)
+
+`TrieLaneWriteDictionaries.ThreadProbes.reader()` opens a **read-only trx lazily on the flush
+thread's FIRST probe** — i.e. in the middle of serializing a page, on the same thread, once per
+thread per load. That is the only "once per load" event on the write side, and it matches the
+signature: one page per load, its position moving with flush layout, the page itself needing no
+global tag (the probe runs before the tag decision), and slot 0 — the first record staged —
+losing its tail. Hypothesis: opening the reader (or the first dictionary probe's page decode)
+reuses a thread-local scratch that holds slot 0's staged bytes. Experiment: print the thread and
+a serialization-scoped page key when `trx == null` in `reader()` (or move the open to
+`bindConfigured` time, before any page is serialized) and re-run `gate1mT.sh converted` +
+`BadSlotCensus 0 1024000`. Prediction: the printed page is the truncated one (1 in `converted`,
+3 in `convnoelide`); with an eager open the census reads 1,024,000/1,024,000.
