@@ -78,12 +78,38 @@ Gives up the 10–15 % of dedup only a corpus-wide dictionary reaches. Removes: 
 read of the source, the closed corpus, the absent-value build failure, the benchmark-shaped extractor,
 and the coupling between document storage and the projection.
 
-## Before implementing — the measurement that must be taken first
+## The 100M curve — MEASURED, and the fraction fell
 
-**Re-measure the scope curve on the 100M row-order values.** The 85–90 % is a 1M number; at 100× the rows
-a global dictionary reaches more long-tail duplicates, so the segment fraction should FALL. This campaign
-has twice been wrong by carrying a ratio across scales (see `docs/ROADMAP_TO_30GB.md`, and the P2 gate
-that was off by 1.6×). Do not commit to a GB figure until that curve exists.
+`p2gate.ScopeCurve` over the full 23.7 GB corpus (1202 s), capture of the global dictionary's saving:
+
+| scope | 1 k rows | 10 k | 100 k | 1 M | global |
+|---|---|---|---|---|---|
+| URL | 43.6 % | 60.8 % | 76.7 % | 87.5 % | 100 % |
+| Title | 46.5 % | 64.2 % | 79.5 % | 89.7 % | 100 % |
+| Referer | 52.5 % | 66.9 % | 80.1 % | 88.7 % | 100 % |
+| **all three** | **46.7 %** | **63.6 %** | **78.7 %** | **88.8 %** | 100 % |
+| saving | −4.99 GB | −6.80 GB | −8.41 GB | **−9.49 GB** | −10.69 GB |
+
+At 100 k rows the capture is **78.7 %**, against the 85–90 % the 1M curve promised — quoting the 1M ratio
+would have overstated the lever by ~1 GB. **The sweet spot moved with scale**: a 1 M-ROW segment captures
+88.8 % and holds ~231,000 distinct URLs ≈ 39 MB, still sorted in memory at freeze and still never
+spilling.
+
+**Cross-validation:** the corpus scan says a global dictionary saves 10.69 GB on URL+Title+Referer; the
+measured 100M database delta was 10.84 GB on those three plus SearchPhrase. Two unrelated instruments,
+1.4 % apart.
+
+## What this costs and what it reaches
+
+| | database | pre-pass | closed corpus | query cost |
+|---|---|---|---|---|
+| global dictionary (today) | **52.49 GB** measured | required | yes | +1.29 ln |
+| segment dicts @ 1 M rows | 53.84 GB projected | **none** | **no** | unmeasured |
+| + temporal encoding (−3.82) | **≈ 50.0 GB** | none | no | unmeasured |
+
+**Giving up the pre-pass costs ~1.35 GB.** The generic route reaches the ~50 GB target with the temporal
+encoding; the pre-pass route does not reach it at all (52.49 GB, and its two remaining levers are refused
+or unreachable — see below).
 
 ## Levers this supersedes or rules out
 
