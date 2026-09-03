@@ -2492,3 +2492,26 @@ lane's life: candidates are `bindConfigured`/`publishTrieLaneTags` (`ProjectionI
 1444/1454/1545 — one of them fires once, mid-load, when the path classes first become known) and
 the first probe's dictionary decode. Next step, ~1 h: log `recordPageKey` of the page under
 serialization on the thread at each of those events and match it to the damaged page (1/3/5).
+
+### 2026-09-03 05:45: the slot-0 truncation is FOUND and FIXED — converted 1M arm reads 1,024,000/1,024,000
+
+Correlation from the last diag run: the damaged page (3) was the one serialized on
+`ForkJoinPool-1-worker-7`, the thread that issued the load's FIRST dictionary probe. Mechanism:
+`PageKind` used ONE thread-local, `SLOT_DATALEN_SCRATCH`, both as the serializer's per-slot length
+table (`serializeKeyValueLeafPage`, ~1845) and as the decoder's `inMemDataLengths` target
+(~1115, stamped at ~9169). The trie-lane encoder probes the write dictionaries from inside the
+region encode; the first probe of a load pulls a dictionary page from disk and deserializes it on
+the serializing thread, overwriting the length table of the page under serialization — slot 0 is
+written with the dictionary page's first-entry length (22 B). Later probes hit the page cache, so it
+happens exactly once per load. Explains every observation: once per load, fixed 22 B, exact prefix
+(heap intact, length wrong), staged slot intact, page moves with layout, absent whenever the
+dictionaries are not bound (laneonly/prebuilt clean).
+
+Fix: decode gets its own `SLOT_DATALEN_READ_SCRATCH`. Witness on the live W rig: `gate1mT.sh convpar8`
+(chunked + lane + prepass, flush parallelism 8) then `BadSlotCensus 0 1024000` →
+**bad=0 across all kinds** (OBJECT_NAMED_NUMBER 705,208, OBJECT_NAMED_STRING 309,129, OBJECT 9,661,
+ARRAY 1, JSON_DOCUMENT 1); the same arm had exactly one bad slot on every earlier run. Database
+604,657,907 B vs 696.7 MB control. Both trie-lane prerequisites for the read side are now closed;
+the `sirix.trieLaneDiag`-guarded prints stay (off by default). Remaining before re-gating the −11 GB
+claim at 100M: the framing decomposition (prerequisite 2) and a JUnit witness for the aliasing
+(serialize with a probe that deserializes on the same thread).

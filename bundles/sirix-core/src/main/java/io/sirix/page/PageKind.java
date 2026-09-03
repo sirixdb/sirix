@@ -1112,7 +1112,7 @@ public enum PageKind {
                 + " bytes of META sections, decoded body declares " + metadataLength);
           }
 
-          inMemDataLengths = SLOT_DATALEN_SCRATCH.get();
+          inMemDataLengths = SLOT_DATALEN_READ_SCRATCH.get();
           final SlottedPageDecodeState deriver = decodeState;
           deriver.bindTemplates(compactDir, slotTemplateIds, templatePool, templateOffsets, inMemDataLengths);
           deriver.bindHashElision(hashElisionActive, zeroHashBitmap);
@@ -1784,6 +1784,15 @@ public enum PageKind {
       // addReferences: serializes records to slotted page heap via processEntries,
       // copies preserved slots from completePageRef for DIFFERENTIAL/INCREMENTAL versioning
       keyValueLeafPage.addReferences(resourceConfig);
+
+      if (TRIE_LANE_DIAG && keyValueLeafPage.getIndexType() == IndexType.DOCUMENT
+          && keyValueLeafPage.globalStringDictionaries() != null) {
+        // [DIAG] slot 0 as STAGED, before the body encode: the one-page-per-load 22-byte slot is
+        // either already 22 here (staging) or still its true length (encode/write).
+        final byte[] slot0 = keyValueLeafPage.getSlotAsByteArray(0);
+        System.err.println("[trie-lane-diag] serialize page=" + keyValueLeafPage.getPageKey() + " thread="
+            + Thread.currentThread().getName() + " slot0staged=" + (slot0 == null ? -1 : slot0.length));
+      }
 
       byte envelopeFlags = chunkedBody
           ? ChunkedBodyConfig.FLAG_CHUNKED_BODY
@@ -7056,6 +7065,16 @@ public enum PageKind {
   private static final ThreadLocal<int[]> SLOT_ON_DISK_LEN_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
+  /**
+   * Per-thread in-memory data-length scratch for the DECODE path. This is deliberately not
+   * {@link #SLOT_DATALEN_SCRATCH}: the serializer holds that array across its region encode, and a
+   * trie-lane dictionary probe issued from inside that encode can deserialize a dictionary page on
+   * the same thread. Sharing one array let the decoder stamp the dictionary page's entry lengths
+   * over the page under serialization (slot 0 written as the dictionary's 22-byte first entry).
+   */
+  private static final ThreadLocal<int[]> SLOT_DATALEN_READ_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
 
   /**
    * Per-thread pathNodeKey column-value scratch (one long per populated slot). Filled during the
@@ -8472,6 +8491,9 @@ public enum PageKind {
    * section (header+bitmap, encoded body, region table, overlong, FSST) via {@link PageSectionDiag}.
    * Emits a cumulative breakdown on JVM shutdown. Pure diagnostic; off by default.
    */
+  /** One-off write-side diagnostic for the trie lane's slot-0 truncation hunt. */
+  private static final boolean TRIE_LANE_DIAG = Boolean.getBoolean("sirix.trieLaneDiag");
+
   private static final boolean PAGE_SECTION_DIAG = Boolean.getBoolean("sirix.pageSectionDiag");
 
   /**

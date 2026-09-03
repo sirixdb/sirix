@@ -71,6 +71,9 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries, AutoCloseable {
 
+  /** One-off write-side diagnostic for the slot-0 truncation hunt. */
+  private static final boolean TRIE_LANE_DIAG = Boolean.getBoolean("sirix.trieLaneDiag");
+
   private static final Logger LOGGER = LoggerFactory.getLogger(TrieLaneWriteDictionaries.class);
 
   /** Generous: a stuck flush thread is what this is meant to surface, not a slow one. */
@@ -301,6 +304,12 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
       return memoised;
     }
     probeCount.increment();
+    if (TRIE_LANE_DIAG && probeCount.sum() <= 3) {
+      // [DIAG] the first probes of the load: which thread, which length, and whether the reader
+      // is being opened on this probe -- the slot-0 truncation hunt.
+      System.err.println("[trie-lane-diag] probe#" + probeCount.sum() + " thread=" + Thread.currentThread().getName()
+          + " column=" + column + " len=" + length + " readerOpen=" + (threadProbes.trx != null));
+    }
     final int id = GlobalValueDictionary.probe(headerKey, value, offset, length, threadProbes.reader());
     if (id <= 0) {
       // ABSENT and UNKNOWN both mean "this tag cannot be written as ids on this page" — the caller
