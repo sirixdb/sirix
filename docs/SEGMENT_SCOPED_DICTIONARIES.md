@@ -90,15 +90,33 @@ So the boundary is a choice between the trie's own two levels, and the curve say
 ≈ 2.7 GB more. A segment need not align to the trie at all (an explicit leaf count would do), but aligning
 means the anchor can be derived rather than stored.
 
+## CORRECTION: ids are minted at page ENCODE, so the dictionary is arrival-ordered — and simpler for it
+
+`StringRegion.resolveGlobalIds` is called from `encodeInto`, i.e. when a PAGE IS SERIALIZED. Pages of a
+segment are serialized before the segment closes, so ids must exist at that moment: **freeze-time sorting
+is impossible and ids are minted in ARRIVAL ORDER** as values are first seen.
+
+That is not a compromise, it is a simplification, because of risk 1 above: after freeze only id→value is
+read, and id→value on an arrival-ordered dictionary is a plain indexed lookup — no sort, no binary
+search, no forward index. So the document-side segment dictionary needs **neither rank order nor
+{@code ExternalDistinctValues}**: the writer's resident `GlobalValueDictionaryProbeFront` already IS the
+segment's distinct set, and a value appends to the segment's dictionary on first sight.
+
+**So the change is a SCOPING change to machinery that already exists** — bound the existing streaming
+dictionary to a segment instead of to the whole load — not new machinery. And the 1,650 B/entry that
+condemned the streaming path is the persisted forward radix, which a segment dictionary does not need:
+`GlobalValueDictionaryRadix.append(..., buildForwardIndex=false)` applies for the opposite reason to the
+rank pass's (nothing probes value→id after freeze, rather than the reverse index being sorted).
+
+`ExternalDistinctValues` and the streaming `PrePassDictionaryBuilder` overload (`de755c82b`) remain the
+right tools for the PROJECTION side, where rank order IS read (id-order zone pruning, lever E).
+
 ## Shape of the implementation
 
-1. **Collect** a segment's distinct strings while its leaves fill. `ExternalDistinctValues`
-   (`de755c82b`) is the collector: arena, sort, spill, k-way merge, ordered by
-   `ValueDictionaryEntryNode.compareUtf16Range`. At 39 MB per segment it will never spill, but the
-   bound is there for corpora that are not temporally local.
-2. **Freeze** at segment close: `PrePassDictionaryBuilder.build(wtx, column, Iterator<byte[]>)` — the
-   streaming overload added in the same commit — with `buildForwardIndex=false` (sound for either id
-   order, per risk 1: nothing probes value→id after freeze).
+1. **Mint** ids in arrival order against the segment's resident `GlobalValueDictionaryProbeFront`,
+   appending each new value to the segment's dictionary — the existing streaming path, scoped.
+2. **Close** the segment at the boundary: flush its final generation with `buildForwardIndex=false` and
+   record its anchor. Nothing probes value→id afterwards (risk 1), so no forward structure is written.
 3. **Anchor**: each record page names its segment's dictionary instead of the resource-wide one.
    `KeyValueLeafPage.globalStringDictionaries` is the existing injection point, and
    `PageKind.serializeKeyValueLeafPage` already carries the per-page tag the lane uses.
