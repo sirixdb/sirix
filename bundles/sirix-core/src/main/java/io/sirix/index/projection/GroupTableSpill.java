@@ -215,6 +215,163 @@ public final class GroupTableSpill {
   }
 
   /**
+   * Spill a worker table as RAW STRIPES into per-partition append buffers and build each partition's
+   * table once after the scan, instead of probing every flushed group into a shared partition table
+   * (default on).
+   */
+  public static final String STRIPE_SPILL_PROPERTY = "sirix.projection.groupTable.stripeSpill";
+  /** Flush threshold in groups per worker table under the stripe spill when the property sets none. */
+  public static final int STRIPE_FLUSH_GROUPS = WORKER_TABLE_HINT;
+  /** Stripes a partition buffers before a compaction, whatever the budget says (a batch worth probing). */
+  private static final long MIN_COMPACT_STRIPES = 4_096L;
+  private static volatile int stripeSpillForTesting = -1;
+  private static final LongAdder STRIPES_SPILLED = new LongAdder();
+  private static final LongAdder COMPACTIONS = new LongAdder();
+
+  /** Whether spills copy stripes into partition buffers: the test override when set, else the property. */
+  public static boolean stripeSpillEnabled() {
+    final int testing = stripeSpillForTesting;
+    if (testing >= 0) {
+      return testing != 0;
+    }
+    return Boolean.parseBoolean(System.getProperty(STRIPE_SPILL_PROPERTY, "true"));
+  }
+
+  /**
+   * Test seam for the stripe spill.
+   *
+   * @param value {@code 1} on, {@code 0} off, negative restores the property
+   * @return the previous override, for restoring in a finally block
+   */
+  public static int setStripeSpillForTesting(final int value) {
+    final int previous = stripeSpillForTesting;
+    stripeSpillForTesting = value;
+    return previous;
+  }
+
+  /** Stripes copied into partition buffers process-wide (test observability). */
+  public static long stripesSpilledCount() {
+    return STRIPES_SPILLED.sum();
+  }
+
+  /** Buffer compactions into a shared partition table process-wide (test observability). */
+  public static long compactionCount() {
+    return COMPACTIONS.sum();
+  }
+
+  /**
+   * Append-only run of whole stripes for ONE partition: a stripe never crosses a chunk, and the
+   * chunks GROW from a handful of stripes to the spill's {@link LongChunkPool} length, so a shape
+   * with thousands of partitions and few groups costs stripes rather than chunks while a partition
+   * that fills recycles pooled chunks like the tables. Written under the partition's monitor, read
+   * by the one worker that builds the partition after the scan has joined — so it carries no
+   * synchronisation of its own.
+   *
+   * <p>
+   * Why a buffer and not the shared table it replaces: a flush that probes {@code flushGroups}
+   * groups into a shared table of the pass's share pays a cache miss per group on a table far
+   * larger than any cache (at 100M, q32's 62 MB partition tables: ≈ 400 ns per group, 24 % of the
+   * query's CPU, plus the local table's own misses and its rehashes — and the shared table's
+   * chunks then rehash under the partition's monitor). A stripe copy is one sequential
+   * {@code stride}-lane write; the partition's table is built ONCE from the buffer, hinted at its
+   * exact stripe count so it never rehashes, and a high-cardinality shape (a group per row) pays
+   * one probe per group instead of two plus a merge.
+   */
+  static final class StripeBuffer {
+    /** Stripes the FIRST chunk of a buffer holds; a partition that stays small costs only this. */
+    private static final int FIRST_CHUNK_STRIPES = 8;
+    private final int stride;
+    /** The pool's chunk length: the size every chunk past the growth ramp is allocated at. */
+    private final int fullLanes;
+    private long[][] chunks = new long[4][];
+    private int[] used = new int[4];
+    private int chunkCount;
+    private long stripes;
+
+    StripeBuffer(final int stride, final int fullLanes) {
+      if (stride <= 0 || fullLanes < stride) {
+        throw new IllegalArgumentException("stride " + stride + " over chunk lanes " + fullLanes);
+      }
+      this.stride = stride;
+      this.fullLanes = fullLanes - fullLanes % stride;
+    }
+
+    /**
+     * Lanes the next chunk is allocated at: the previous chunk doubled, from
+     * {@value #FIRST_CHUNK_STRIPES} stripes up to the pool's chunk — so a partition holding a
+     * handful of groups costs a handful of stripes, and one holding millions still reaches the
+     * pooled size within a few chunks. Always a whole number of stripes.
+     */
+    private int nextChunkLanes() {
+      if (chunkCount == 0) {
+        return Math.min(fullLanes, stride * FIRST_CHUNK_STRIPES);
+      }
+      final int doubled = chunks[chunkCount - 1].length << 1;
+      return doubled <= 0 || doubled >= fullLanes
+          ? fullLanes
+          : doubled - doubled % stride;
+    }
+
+    /** Copy the stripe whose accumulator base is {@code accBase} of {@code src} (key lane at base − 1). */
+    void append(final long[] src, final int accBase, final LongChunkPool pool) {
+      final int st = stride;
+      if (chunkCount == 0 || used[chunkCount - 1] + st > chunks[chunkCount - 1].length) {
+        if (chunkCount == chunks.length) {
+          final long[][] grown = new long[chunkCount << 1][];
+          System.arraycopy(chunks, 0, grown, 0, chunkCount);
+          chunks = grown;
+          final int[] grownUsed = new int[chunkCount << 1];
+          System.arraycopy(used, 0, grownUsed, 0, chunkCount);
+          used = grownUsed;
+        }
+        final int lanes = nextChunkLanes();
+        chunks[chunkCount] = pool != null && lanes == pool.chunkLanes()
+            ? pool.take()
+            : new long[lanes];
+        used[chunkCount] = 0;
+        chunkCount++;
+      }
+      final int tail = chunkCount - 1;
+      System.arraycopy(src, accBase - 1, chunks[tail], used[tail], st);
+      used[tail] += st;
+      stripes++;
+    }
+
+    long stripes() {
+      return stripes;
+    }
+
+    int chunkCount() {
+      return chunkCount;
+    }
+
+    long[] chunk(final int index) {
+      return chunks[index];
+    }
+
+    /** Lanes of whole stripes in chunk {@code index}. */
+    int usedLanes(final int index) {
+      return used[index];
+    }
+
+    /**
+     * Hand every chunk back and empty the buffer. Only chunks at the pool's length are kept by it
+     * ({@link LongChunkPool#give} refuses the others); the ramp's small chunks go to the collector.
+     */
+    void release(final LongChunkPool pool) {
+      for (int i = 0; i < chunkCount; i++) {
+        if (pool != null) {
+          pool.give(chunks[i]);
+        }
+        chunks[i] = null;
+        used[i] = 0;
+      }
+      chunkCount = 0;
+      stripes = 0L;
+    }
+  }
+
+  /**
    * The partition the {@code ordinal}-th flush of a spill starts its walk at: the flushes step
    * through the partitions by an odd stride near {@code 0.618 × partitions}, so any {@code
    * partitions} consecutive flushes start at {@code partitions} DISTINCT partitions (an odd stride
@@ -463,6 +620,18 @@ public final class GroupTableSpill {
 
   private final NumericGroupAggTable[] shared;
   private final Object[] locks;
+  /** Per-partition stripe buffers under the stripe spill, or {@code null} under the table spill. */
+  private final StripeBuffer[] stripeBuffers;
+  /** Layout lanes per stripe, fixed by the factory. */
+  private final int stripeStride;
+  /** Stripes one partition buffers before they are compacted into its shared table. */
+  private final long compactAt;
+  /**
+   * Under the stripe spill: the zero group's side slots of every flushed worker table, folded under
+   * partition 0's monitor. A zero key lane would read as an empty bucket in a buffer, so the zero
+   * group travels outside the stripes and lands on the built partition-0 table.
+   */
+  private NumericGroupAggTable zeroGroups;
   private final int partitions;
   private final int shift;
   private final IntFunction<NumericGroupAggTable> factory;
@@ -480,6 +649,8 @@ public final class GroupTableSpill {
   /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
   private final LongChunkPool pool;
   private final LongAdder spilled = new LongAdder();
+  /** Stripes sitting in the partition buffers: resident state the abort must price, not yet deduplicated. */
+  private final LongAdder buffered = new LongAdder();
   private final LongAdder abandoned = new LongAdder();
   private final LongAdder leavesScanned = new LongAdder();
   private volatile boolean aborted;
@@ -541,10 +712,31 @@ public final class GroupTableSpill {
     for (int p = 0; p < partitions; p++) {
       locks[p] = new Object();
     }
-    this.threshold = flushGroups();
+    final boolean stripeSpill = stripeSpillEnabled();
+    // Under the stripe spill a flush is a sequential copy, so the worker table stays at the hint it
+    // was created at (no rehash, a cache-sized probe) unless the property asks for more.
+    this.threshold = stripeSpill && flushGroupsForTesting < 0 && Integer.getInteger(FLUSH_GROUPS_PROPERTY) == null
+        ? STRIPE_FLUSH_GROUPS
+        : flushGroups();
+    // One probe table fixes the layout every table of this spill shares; it never holds a group.
+    final int stride = factory.apply(WORKER_TABLE_HINT).stride();
+    this.stripeStride = stride;
+    if (stripeSpill) {
+      this.stripeBuffers = new StripeBuffer[partitions];
+      final int lanes = NumericGroupAggTable.fullChunkLanes(stride);
+      for (int p = passLo; p < passHi; p++) {
+        stripeBuffers[p] = new StripeBuffer(stride, lanes);
+      }
+      // One partition's share of the pass budget, so the buffers together never hold more than the
+      // pass is allowed to — floored so a thousand-partition split still compacts batches worth
+      // probing rather than a handful of stripes at a time.
+      this.compactAt =
+          Math.max(1L, Math.min(Math.max(MIN_COMPACT_STRIPES, budget / Math.max(1, passHi - passLo)), budget));
+    } else {
+      this.stripeBuffers = null;
+      this.compactAt = Long.MAX_VALUE;
+    }
     if (chunkPoolEnabled()) {
-      // One probe table fixes the layout every table of this spill shares; it never holds a group.
-      final int stride = factory.apply(WORKER_TABLE_HINT).stride();
       final int chunkLanes = NumericGroupAggTable.fullChunkLanes(stride);
       final int capacity = poolCapacityChunks(budget, threshold, stride, chunkLanes);
       // The shared pool outlives this pass: the chunks the previous pass (or the previous query)
@@ -603,9 +795,13 @@ public final class GroupTableSpill {
     return aborted;
   }
 
-  /** Groups spilled into the shared tables so far (flushed batches only). */
+  /**
+   * Resident groups this spill holds outside the workers' live tables: the distinct groups compacted
+   * into the shared partition tables plus the stripes still buffered (an upper bound on their groups,
+   * and exactly the memory they occupy). The abort prices this against the pass budget.
+   */
   public long groupsSpilled() {
-    return spilled.sum();
+    return spilled.sum() + buffered.sum();
   }
 
   /** A worker reports {@code leaves} row groups scanned; drives the pass estimate on abort. */
@@ -681,7 +877,9 @@ public final class GroupTableSpill {
    */
   public long estimatedTotalGroups(final int totalLeaves) {
     final double fraction = Math.max(0.01, (double) leavesScanned.sum() / Math.max(1, totalLeaves));
-    final double seen = spilled.sum() + abandoned.sum();
+    // groupsSpilled(), not the compacted total: a stripe still sitting in a buffer was SEEN by this
+    // pass, and an estimate that forgets it plans the restart from a fraction of the truth.
+    final double seen = groupsSpilled() + abandoned.sum();
     return (long) (seen / fraction * partitions / (passHi - passLo));
   }
 
@@ -714,6 +912,10 @@ public final class GroupTableSpill {
       throw new OutOfMemoryError("simulated: GroupTableSpill flush (test seam)");
     }
     final int[][] index = local.buildPartitionIndex(partitions, shift);
+    if (stripeBuffers != null) {
+      spillStripes(local, index);
+      return;
+    }
     final NumericGroupAggTable[] sources = {local};
     final int[][][] indexes = {index};
     // Each flush walks the partitions from its own start, so the workers that flush together (their
@@ -744,6 +946,169 @@ public final class GroupTableSpill {
     }
   }
 
+  /**
+   * The stripe spill's flush: copy every live stripe of {@code local} into its partition's buffer
+   * under that partition's monitor — a batch of sequential copies per partition instead of a probe
+   * per group into a table far larger than any cache — fold the zero group aside, release the table.
+   *
+   * <p>
+   * A buffer past {@link #compactAt} stripes is COMPACTED into the partition's shared table before
+   * the flush returns. Without that the spill would hold a group once per worker flush, which for a
+   * shape whose groups every worker sees is {@code workers × groups} — the memory the table spill
+   * exists to bound. With it the resident state is the shared tables plus at most
+   * {@code partitions × compactAt} stripes, and the probes that deduplicate run in cache-sized
+   * batches against a partition table small enough to hold.
+   */
+  private void spillStripes(final NumericGroupAggTable local, final int[][] index) {
+    final int start = flushOffset
+        ? flushStart(flushOrdinal.getAndIncrement(), partitions)
+        : 0;
+    for (int i = 0; i < partitions; i++) {
+      final int p = (start + i) & (partitions - 1);
+      final int[] handles = index[p];
+      if (handles.length == 0) {
+        continue;
+      }
+      final StripeBuffer buffer = stripeBuffers[p];
+      if (buffer == null) {
+        throw new IllegalStateException("partition " + p + " is outside the pass [" + passLo + ", " + passHi + ")");
+      }
+      synchronized (locks[p]) {
+        for (final int handle : handles) {
+          buffer.append(local.storageAtAccBase(handle), local.offsetAtAccBase(handle), pool);
+        }
+        buffered.add(handles.length);
+        STRIPES_SPILLED.add(handles.length);
+        if (buffer.stripes() >= compactAt) {
+          compact(p, buffer);
+        }
+      }
+    }
+    if (local.hasZeroKey()) {
+      synchronized (locks[0]) {
+        if (zeroGroups == null) {
+          zeroGroups = adopt(factory.apply(16));
+        }
+        zeroGroups.mergeZeroGroupFrom(local);
+      }
+    }
+    local.release();
+    FLUSHES.increment();
+    if (spilled.sum() + buffered.sum() > budget) {
+      // Never abort on stripes that have not been deduplicated: a shape whose groups every worker
+      // sees buffers the same group once per worker, and a pass that restarted on THAT would split
+      // by a multiple of its real state. Compact first, then judge the distinct total.
+      compactAll();
+      if (spilled.sum() > budget) {
+        aborted = true;
+      }
+    }
+  }
+
+  /** Compact every partition's buffer, each under its own monitor. */
+  private void compactAll() {
+    for (int p = passLo; p < passHi; p++) {
+      final StripeBuffer buffer = stripeBuffers[p];
+      if (buffer == null) {
+        continue;
+      }
+      synchronized (locks[p]) {
+        compact(p, buffer);
+      }
+    }
+  }
+
+  /**
+   * Fold {@code buffer}'s stripes into partition {@code part}'s shared table and empty it. Under the
+   * partition's monitor; the shared table is created on first need, sized for what will land in it.
+   */
+  private void compact(final int part, final StripeBuffer buffer) {
+    final long stripes = buffer.stripes();
+    if (stripes == 0L) {
+      return;
+    }
+    NumericGroupAggTable target = shared[part];
+    if (target == null) {
+      target = createSharedForStripes(stripes);
+      shared[part] = target;
+    }
+    final int before = target.size();
+    for (int c = 0; c < buffer.chunkCount(); c++) {
+      target.mergeStripes(buffer.chunk(c), 0, buffer.usedLanes(c));
+    }
+    buffer.release(pool);
+    buffered.add(-stripes);
+    spilled.add(target.size() - before);
+    COMPACTIONS.increment();
+  }
+
+  /**
+   * The stripe spill's post-scan finish of one partition: compact whatever the scan left buffered
+   * and land the zero group on partition 0's table, so {@link #takeOrCreate} hands over one table
+   * holding every group spilled there. Under the partition's monitor.
+   */
+  private void finishStripes(final int part) {
+    final StripeBuffer buffer = stripeBuffers[part];
+    if (buffer != null) {
+      compact(part, buffer);
+    }
+    if (part != 0 || zeroGroups == null) {
+      return;
+    }
+    NumericGroupAggTable target = shared[0];
+    if (target == null) {
+      target = createSharedForStripes(16L);
+      shared[0] = target;
+    }
+    target.mergeZeroGroupFrom(zeroGroups);
+    zeroGroups.release();
+    zeroGroups = null;
+  }
+
+  /**
+   * Whether this spill holds ANY state for {@code part} — a shared table, buffered stripes, or (for
+   * partition 0) a zero group. A merge split far wider than the group count leaves most partitions
+   * empty, and a caller that creates a table and a selector for each of those pays the whole split
+   * per query: at a thousand partitions that is the fixed cost a small group-by measures.
+   */
+  public boolean holdsPartition(final int part) {
+    if (part < passLo || part >= passHi) {
+      return false;
+    }
+    synchronized (locks[part]) {
+      if (shared[part] != null) {
+        return true;
+      }
+      if (part == 0 && zeroGroups != null) {
+        return true;
+      }
+      final StripeBuffer buffer = stripeBuffers == null
+          ? null
+          : stripeBuffers[part];
+      return buffer != null && buffer.stripes() > 0L;
+    }
+  }
+
+  /** Whether this spill copies stripes into partition buffers (test observability). */
+  public boolean stripeSpill() {
+    return stripeBuffers != null;
+  }
+
+  /** Lanes per stripe of this spill's layout (test observability). */
+  public int stripeStride() {
+    return stripeStride;
+  }
+
+  /** Stripes buffered for {@code part} so far — post-scan, or under test (test observability). */
+  public long stripesBuffered(final int part) {
+    final StripeBuffer buffer = stripeBuffers == null
+        ? null
+        : stripeBuffers[part];
+    return buffer == null
+        ? 0L
+        : buffer.stripes();
+  }
+
   /** A shared partition table: at the plan's expected count when known, else at the worker hint. */
   private NumericGroupAggTable createShared() {
     if (sharedHint < 0) {
@@ -751,6 +1116,23 @@ public final class GroupTableSpill {
     }
     PRESIZED_SHARED.increment();
     return adopt(factory.apply(sharedHint));
+  }
+
+  /**
+   * A shared partition table sized for a compaction of {@code stripes}: never more than the stripes
+   * that will land in it (they bound its groups from above) and never more than one partition's
+   * share of the pass budget — a blind plan's worker hint would otherwise size EVERY partition of a
+   * thousand-partition split for a whole worker table.
+   */
+  private NumericGroupAggTable createSharedForStripes(final long stripes) {
+    final long perPartition = Math.max(16L, budget / Math.max(1, passHi - passLo));
+    final long bounded = Math.min(stripes, Math.min(perPartition, sharedHint < 0
+        ? WORKER_TABLE_HINT
+        : sharedHint));
+    if (sharedHint >= 0) {
+      PRESIZED_SHARED.increment();
+    }
+    return adopt(factory.apply((int) Math.max(16L, Math.min(Integer.MAX_VALUE, bounded))));
   }
 
   /**
@@ -792,6 +1174,20 @@ public final class GroupTableSpill {
           // Its storage is the restart's tables: hand it back instead of dropping it to the collector.
           table.release();
         }
+        if (stripeBuffers != null && stripeBuffers[p] != null) {
+          // The counters the estimate reads survive a release (they are what the pass SAW), so the
+          // buffered stripes move to the spilled total rather than vanishing with their chunks.
+          final long held = stripeBuffers[p].stripes();
+          if (held > 0L) {
+            buffered.add(-held);
+            spilled.add(held);
+          }
+          stripeBuffers[p].release(pool);
+        }
+        if (p == 0 && zeroGroups != null) {
+          zeroGroups.release();
+          zeroGroups = null;
+        }
       }
     }
     if (pool != null && !pool.isShared()) {
@@ -809,6 +1205,9 @@ public final class GroupTableSpill {
   public NumericGroupAggTable takeOrCreate(final int part, final Supplier<NumericGroupAggTable> fresh) {
     final NumericGroupAggTable table;
     synchronized (locks[part]) {
+      if (stripeBuffers != null) {
+        finishStripes(part);
+      }
       table = shared[part];
       shared[part] = null;
     }

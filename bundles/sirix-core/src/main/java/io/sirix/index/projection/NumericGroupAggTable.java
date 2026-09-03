@@ -77,6 +77,9 @@ public final class NumericGroupAggTable {
   /** Spine of a {@link #release released} table: no chunk, so any probe fails loudly. */
   private static final long[][] RELEASED_STORAGE = new long[0][];
 
+  /** The partition index's entry for a partition holding no key (see {@link #buildPartitionIndex}). */
+  private static final int[] NO_HANDLES = new int[0];
+
   /**
    * Stands in for a probe hash of {@code 0} in identity mode, because {@code 0} in the key lane is
    * the empty-bucket sentinel. Substituting is sound ONLY with identity lanes: a real group whose
@@ -868,7 +871,11 @@ public final class NumericGroupAggTable {
     }
     final int[][] out = new int[partitions][];
     for (int p = 0; p < partitions; p++) {
-      out[p] = new int[counts[p]];
+      // Thousands of partitions over a small table leave most of them empty; one shared empty array
+      // keeps a flush from allocating a distinct zero-length object per empty partition.
+      out[p] = counts[p] == 0
+          ? NO_HANDLES
+          : new int[counts[p]];
       counts[p] = 0;
     }
     for (int chunkIndex = 0; chunkIndex < storage.length; chunkIndex++) {
@@ -973,6 +980,61 @@ public final class NumericGroupAggTable {
       }
       mergeZeroGroup(src, into, slotWidth, partition);
     }
+  }
+
+  /**
+   * Fold a run of RAW STRIPES — {@code stride} lanes each, laid out exactly as this table's own
+   * buckets are (key lane, accumulator block, aux, identity) — into this table. This is the build
+   * half of a stripe spill ({@link GroupTableSpill}): a worker table is copied out stripe by stripe
+   * into a per-partition append buffer instead of being probed into a shared table, and the
+   * partition's table is built here, once, from those buffers after the scan. Semantics are those of
+   * {@link #mergePartitionIndexed} — first-arrival aux, minimum first-seen ordinal, exact sums under
+   * the mask, identity lanes deciding membership — with one source array instead of a table.
+   *
+   * @param stripes the buffer chunk; every stripe starts at a multiple of {@link #stride()} from
+   *        {@code fromLane} and its key lane is non-zero
+   * @param fromLane first lane of the first stripe
+   * @param toLane one past the last lane of the last stripe; {@code (toLane - fromLane)} is a
+   *        multiple of the stride
+   */
+  public void mergeStripes(final long[] stripes, final int fromLane, final int toLane) {
+    final int st = stride;
+    if (fromLane < 0 || toLane > stripes.length || (toLane - fromLane) % st != 0) {
+      throw new IllegalArgumentException(
+          "stripe run [" + fromLane + ", " + toLane + ") is not whole stripes of " + st + " lanes");
+    }
+    final int width = slotWidth;
+    final boolean aux = withAux;
+    final long exact = sumExactMask;
+    final int idOff = idOffsetFromAcc;
+    final boolean identity = idWidth != 0;
+    for (int o = fromLane; o < toLane; o += st) {
+      final long key = stripes[o];
+      if (key == 0L) {
+        throw new IllegalStateException("empty key lane in a spilled stripe at lane " + o);
+      }
+      final int srcBase = o + 1;
+      final int dstHandle = identity
+          ? acquireExact(key, stripes[srcBase + 1], stripes, srcBase + idOff)
+          : acquire(key, stripes[srcBase + 1]);
+      // AFTER the acquire: growth swaps the storage out from under any earlier resolution.
+      final long[] dst = storageAtAccBase(dstHandle);
+      final int dstBase = offsetAtAccBase(dstHandle);
+      if (aux && dst[dstBase] == 0L) {
+        dst[dstBase + width] = stripes[srcBase + width];
+      }
+      mergeBlock(dst, dstBase, stripes, srcBase, width, exact);
+    }
+  }
+
+  /**
+   * Fold {@code src}'s zero group (its side slot) into this table's — a no-op when {@code src} has
+   * none. Public so a spill that carries the zero group separately from the stripes (a zero key lane
+   * would read as an empty bucket) can land it on the built partition-0 table.
+   */
+  public void mergeZeroGroupFrom(final NumericGroupAggTable src) {
+    requireMergeable(src, this);
+    mergeZeroGroup(src, this, slotWidth, 0);
   }
 
   /**

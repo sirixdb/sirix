@@ -163,6 +163,9 @@ final class GroupTableSpillPassPlanTest {
   @DisplayName("a flushed worker table is released into the spill's pool and the next fresh table takes from it")
   void flushRecyclesTheWorkerTable() {
     final int previous = GroupTableSpill.setChunkPoolForTesting(1);
+    // The TABLE spill's recycling: a flush merges the worker table into the shared ones and hands
+    // its chunks straight back. The stripe spill's chunk lifecycle is its own witness below.
+    final int stripes = GroupTableSpill.setStripeSpillForTesting(0);
     try {
       // 2^12 entries hinted: every chunk has the pool's full length from the first insertion.
       final GroupTableSpill spill = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
@@ -199,6 +202,7 @@ final class GroupTableSpillPassPlanTest {
       next.acquire(77L, 0L);
       assertTrue(pool.hits() > hitsBefore, "the next worker table's first chunk is a recycled one");
     } finally {
+      GroupTableSpill.setStripeSpillForTesting(stripes);
       GroupTableSpill.setChunkPoolForTesting(previous);
     }
   }
@@ -405,6 +409,10 @@ final class GroupTableSpillPassPlanTest {
   @DisplayName("shared tables are created at the plan's share and take no rehash; a blind or short plan grows them")
   void sharedTablesAreCreatedAtThePlannedShare() {
     final int previous = GroupTableSpill.setPresizeSharedForTesting(1);
+    // The plan's share sizes a table the TABLE spill creates on a flush. The stripe spill sizes its
+    // partition tables for the stripes a compaction lands in them instead (bounded by the same
+    // share), so this pins the table path explicitly.
+    final int stripes = GroupTableSpill.setStripeSpillForTesting(0);
     try {
       final int groups = 96_000;
       // Planned exactly: 3,000 per partition, hinted 3,150 — every shared table holds its share as built.
@@ -479,6 +487,7 @@ final class GroupTableSpillPassPlanTest {
       assertThrows(IllegalArgumentException.class,
           () -> new GroupTableSpill(32, 59, recordingFactory(blindHints), -1L, 0, 32, Long.MAX_VALUE));
     } finally {
+      GroupTableSpill.setStripeSpillForTesting(stripes);
       GroupTableSpill.setPresizeSharedForTesting(previous);
     }
   }
