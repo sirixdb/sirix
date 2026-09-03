@@ -53,7 +53,7 @@ as **91.7 % dictionaries / 4.4 % id lane / 3.9 % framing**, and by column:
 | Title + URL + Referer (converted) | **63.0 %** | ids into the EXISTING dictionaries — the core of stage B |
 | SearchPhrase (planned, behind segment-2 A1) | 0.9 % | joins when its arms exist |
 | **OriginalURL — NOT in any plan** | **8.5 %** | 10× SearchPhrase; URL-shaped; must be priced by the election rule (per-leaf removed − dictionary added) and screened for serving arms — likely zero-latency-risk if no query touches it |
-| **temporal-as-strings** (LocalEventTime, EventTime, ClientEventTime, EventDate) | **18.1 %** | needs NO dictionary — wants a temporal encoding that round-trips the fixed "YYYY-MM-DD[ HH:MM:SS]" format bijectively; a NEW sub-lever (B-t), not in the stated trie-lane design |
+| **temporal-as-strings** (LocalEventTime, EventTime, ClientEventTime, EventDate) | **18.1 %** | needs NO dictionary — wants a temporal encoding that round-trips the fixed "YYYY-MM-DD[ HH:MM:SS]" format bijectively; a NEW sub-lever (B-t), not in the stated trie-lane design. **This share is of RAW text and was mis-read as a savings estimate — see "The temporal sub-lever, MEASURED" below; the lever is worth ~0 GB at 100M, not −3.4/−3.8 GB** |
 | everything else | ~8.5 % | tail |
 
 **Id-lane arithmetic (2):** page-wide width 11.68 MB vs per-tag FOR 4.87 MB = **58.3 % lane saving**; the
@@ -140,11 +140,12 @@ the census-mandated additions. Handoff: end of `P2_SEGMENT1_BRIEF.md` (41ac1967c
 | FOR id-lane re-pack | 0.448 (2.3 %) — confirmed at scale: not worth design effort |
 
 So stage B's honest decomposition: **~−11 GB** for the three converted columns' trie bytes → ids (minus a
-small lane), **+~−1.8 GB** OriginalURL if its screen passes, **+~−3.5 GB** temporal encoding — the earlier
-single "−14/−15" is superseded by this three-part, measured form. **And the mechanism strengthens at scale:
-per-leaf dedup FALLS with corpus size** (URL 1.64 → 1.47 values/entry; temporal → 1.05, within 5 % of one
-entry per value), so the cross-leaf prize is larger than the 1M numbers implied and the election rule's
-"per-leaf removed" term is near-total.
+small lane), **+~−1.8 GB** OriginalURL if its screen passes, ~~**+~−3.5 GB** temporal encoding~~ (**CORRECTED
+to ~0 GB by measurement — see "The temporal sub-lever, MEASURED" below; the −3.5 was a raw share, not a
+written-bytes price**) — the earlier single "−14/−15" is superseded by this three-part, measured form.
+**And the mechanism strengthens at scale: per-leaf dedup FALLS with corpus size** (URL 1.64 → 1.47
+values/entry; temporal → 1.05, within 5 % of one entry per value), so the cross-leaf prize is larger than
+the 1M numbers implied and the election rule's "per-leaf removed" term is near-total.
 
 Also recorded from the same close: **a negative result must state the scope searched** ("no match under X",
 never a bare "it does not exist"), and **an instrument built from the assumption under test cannot falsify
@@ -173,10 +174,46 @@ seconds apart), and the text reconstructed on read.
   the machinery that made the dictionary lanes hard to update applies.
 - **Every versioning type for free**, for the same reason: a fragment's tag is self-describing.
 
-**Sizing:** 3 columns x 100M values at ~19 B of text against a packed epoch is the 3.82 GB the census
-measured; delta-packing within a leaf should beat a flat 8 B/value comfortably. 52.49 - ~3.5 = **~49 GB**,
-which is the target.
+**Sizing (ESTIMATE, 2026-09-03 — overturned by measurement; kept visible, see the next section):**
+3 columns x 100M values at ~19 B of text against a packed epoch is the 3.82 GB the census measured;
+delta-packing within a leaf should beat a flat 8 B/value comfortably. 52.49 - ~3.5 = **~49 GB**, which is
+the target.
 
 **Where to start:** `StringRegion.encodeInto` (the per-tag decision, beside `resolveGlobalIds`) and the
 matching parse. The trie lane's density assertion is the model for the guard: refuse loudly rather than
 write a value that reads back plausibly wrong.
+
+## The temporal sub-lever, MEASURED (2026-09-04) — the estimate above was wrong by 3.3x, and then by all of it
+
+The sub-lever was built, verified and shipped OFF by default. The estimate above priced it at −3.4 to
+−3.8 GB and credited it with reaching ~50 GB. Neither survived measurement, and the target was reached by
+overflow compression instead (52.49 → **49.70 GB**, `53f33cfa7`). The estimate is left standing above
+rather than edited away, because what it got wrong is reusable.
+
+**Why the estimate was 3.3x too high.** The 17.6–18.1 % share is of RAW text. Timestamp text is highly
+compressible, so LZ77 already stores roughly **6–7 bytes** where the raw value is 19; replacing that with
+2–3 packed bytes saves **3.53 bytes per value, not 19**. Pricing a lever against the bytes it *appears* to
+occupy rather than the bytes actually WRITTEN inflated it by exactly that ratio.
+
+**What the lever is actually worth at 1M** (two loads differing only in `-Dsirix.page.temporalLane`):
+
+| | bytes |
+|---|---|
+| whole database, lane OFF | 1,170,594,463 |
+| whole database, lane ON | 1,160,007,865 |
+| delta | **−10,586,598 B (−10.59 MB, −0.90 %)** |
+
+with an IDENTICAL SHA-256 over 3,000,000 nodes (905,654 strings, 113,216 temporally-shaped values, 0
+unreadable). That is **6.1 % of the string region, not 17.6 %**.
+
+**And what it is worth at 100M: ~0.** The 1M figure projects to about −1.06 GB at 100M, but on the SHIPPING
+trie-lane + prepass route the measured outcome is nil — `KeyValueLeafPage` went 39,444,149,969 →
+39,444,812,649 B, i.e. **+0.66 MB on 39.4 GB**. The lane does not fire on that route, and *why* is an open
+question. So the honest roadmap entry is: **the temporal sub-lever is worth ~0 GB on the converted route as
+built**, and it is kept because it is correct, exhaustively tested and cheap — not because it paid.
+
+**The rule this establishes, which re-prices the rest of the table:** price a storage lever against the
+**WRITTEN bytes of what it replaces, never a raw share**, and expect a lever that replaces COMPRESSIBLE
+bytes to recover far less than its share suggests. **OriginalURL (8.5 %) and every remaining string-side
+candidate must be re-priced on that basis before being planned on** — URL text is at least as compressible
+as timestamp text, so its **−1.8 GB is an unpriced raw share with the same defect**, not a measurement.

@@ -13,7 +13,10 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.cache.IndexLogKey;
+import io.sirix.index.IndexType;
 import io.sirix.page.pax.StringRegion;
+import io.sirix.settings.Constants;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.xml.serialize.XmlSerializer;
@@ -163,8 +166,46 @@ final class DerivedElisionResourceRoundTripTest {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
         wtx.commit();
       });
+      // resolveTemporal is ALL-OR-NOTHING: one entry it cannot encode and the whole tag keeps its
+      // bytes, injectTemporalString is never called, and the round trip above would agree for a
+      // reason that has nothing to do with the render. The surviving resource is the derived-section
+      // one assertSameRevision wrote last, so the witness is taken from what actually shipped.
+      assertTrue(pagesWithATemporalTag() > 0,
+          "no page took the temporal lane, so no elided slot was RENDERED and this case proves nothing");
     } finally {
       StringRegion.clearTemporalLaneOverride();
+    }
+  }
+
+  /**
+   * Leaf pages of the surviving resource carrying a tag that ACTUALLY took the temporal lane, read
+   * from the written pages rather than inferred from the switch having been set.
+   */
+  private static int pagesWithATemporalTag() {
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = session.beginNodeReadOnlyTrx()) {
+      final var reader = rtx.getStorageEngineReader();
+      final long pages = (rtx.getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+      final IndexLogKey key = new IndexLogKey(IndexType.DOCUMENT, 0, 0, rtx.getRevisionNumber());
+      int converted = 0;
+      for (long pk = 0; pk < pages; pk++) {
+        final var res = reader.getRecordPage(key.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) {
+          continue;
+        }
+        final StringRegion.Header header = kv.getStringRegionHeader();
+        if (header == null) {
+          continue;
+        }
+        for (int tag = 0; tag < header.parentDictSize; tag++) {
+          if (header.tagTemporal[tag]) {
+            converted++;
+            break;
+          }
+        }
+      }
+      return converted;
     }
   }
 

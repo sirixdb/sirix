@@ -7,7 +7,11 @@ import io.brackit.query.Query;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
+import io.sirix.cache.IndexLogKey;
+import io.sirix.index.IndexType;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.pax.StringRegion;
+import io.sirix.settings.Constants;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -47,6 +51,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The answers are the assertion, not the route. Declining has to produce the same numbers the byte
  * path would have, so every kernel answer is checked against the INTERPRETER's over the same
  * document — that is the whole reason declining is the right escape rather than a narrowing.
+ * </p>
+ *
+ * <h2>Why every test here first proves the lane was TAKEN</h2>
+ *
+ * <p>
+ * {@code StringRegion.resolveTemporal} is ALL-OR-NOTHING: one dictionary entry it cannot encode — an
+ * FSST-compressed one, a value off the canonical shape — and the whole tag keeps its bytes. A corpus
+ * that quietly fails to convert leaves a tag that DOES store inline bytes, the guard is never reached,
+ * and every answer assertion below passes with the guard deleted. So each test establishes
+ * {@link #pagesWithATemporalTag()} first: a witness that is zero exactly when this class would
+ * otherwise be proving nothing.
  * </p>
  */
 final class TemporalLaneStringFastPathTest {
@@ -117,6 +132,47 @@ final class TemporalLaneStringFastPathTest {
     }
   }
 
+  /**
+   * Leaf pages carrying a tag that ACTUALLY took the temporal lane, read from the written pages rather
+   * than inferred from the switch having been set.
+   *
+   * @return the number of leaf pages with at least one temporal tag
+   */
+  private int pagesWithATemporalTag() throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
+        var resourceSession = store.lookup(DB).getDatabase().beginResourceSession(RES);
+        var rtx = resourceSession.beginNodeReadOnlyTrx()) {
+      final var reader = rtx.getStorageEngineReader();
+      final long pages = (rtx.getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+      final IndexLogKey key = new IndexLogKey(IndexType.DOCUMENT, 0, 0, rtx.getRevisionNumber());
+      int converted = 0;
+      for (long pk = 0; pk < pages; pk++) {
+        final var res = reader.getRecordPage(key.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) {
+          continue;
+        }
+        final StringRegion.Header header = kv.getStringRegionHeader();
+        if (header == null) {
+          continue;
+        }
+        for (int tag = 0; tag < header.parentDictSize; tag++) {
+          if (header.tagTemporal[tag]) {
+            converted++;
+            break;
+          }
+        }
+      }
+      return converted;
+    }
+  }
+
+  /** Fails the test outright when nothing converted, so an answer assertion cannot stand in for it. */
+  private void requireTheLaneWasTaken() throws Exception {
+    assertTrue(pagesWithATemporalTag() > 0,
+        "no page took the temporal lane, so the kernels never meet a tag without inline bytes and "
+            + "this test would pass with the guard deleted");
+  }
+
   /** The same question put to the interpreter, which reads the document's own bytes. */
   private String interpreted(final String query) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
@@ -148,8 +204,19 @@ final class TemporalLaneStringFastPathTest {
   }
 
   @Test
+  @DisplayName("WITNESS: the timestamp tag really took the temporal lane, so the rest of this class bites")
+  void theTimestampTagActuallyTookTheTemporalLane() throws Exception {
+    final int converted = pagesWithATemporalTag();
+    assertTrue(converted > 0, "arming the lane converted no tag at all — the corpus does not exercise it");
+    onExecutor(executor -> assertEquals(String.valueOf(DISTINCT),
+        serialize(executor.executeCountDistinct(null, SOURCE_PATH, "ts")).trim(),
+        "a converted tag must still answer, or the lane is not merely unexercised but broken"));
+  }
+
+  @Test
   @DisplayName("count-distinct over a temporal-lane tag answers, and agrees with the interpreter")
   void countDistinctOverATemporalTagAnswers() throws Exception {
+    requireTheLaneWasTaken();
     final String expected = interpreted("count(distinct-values(for $r in " + DOC + " return $r.ts))");
     assertEquals(String.valueOf(DISTINCT), expected.trim(), "the interpreter must see every distinct timestamp");
     onExecutor(executor -> assertEquals(expected, serialize(executor.executeCountDistinct(null, SOURCE_PATH, "ts")),
@@ -159,6 +226,7 @@ final class TemporalLaneStringFastPathTest {
   @Test
   @DisplayName("group-by-count over a temporal-lane tag answers, and agrees with the interpreter")
   void groupByCountOverATemporalTagAnswers() throws Exception {
+    requireTheLaneWasTaken();
     // The kernel names the key after the group FIELD, so the interpreter's must be named the same
     // or the two agree on every number and compare unequal.
     final List<String> expected = normalizeGroups(interpreted("for $r in " + DOC
@@ -172,6 +240,7 @@ final class TemporalLaneStringFastPathTest {
   @Test
   @DisplayName("the timestamps themselves survive the lane, so the counts count the right strings")
   void theTimestampsThemselvesReadBack() throws Exception {
+    requireTheLaneWasTaken();
     final String answer = interpreted("for $r in " + DOC + " where $r.id lt 3 return $r.ts");
     for (int i = 0; i < 3; i++) {
       assertTrue(answer.contains(timestamp(i)), "timestamp " + timestamp(i) + " did not read back, got " + answer);
