@@ -63,6 +63,7 @@ import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.projection.ProjectionResidencyScope;
 import io.sirix.index.projection.SharedDistinctHash128Set;
+import io.sirix.index.projection.SharedDistinctLongSet;
 import io.sirix.index.projection.ProjectionStringIdentityRegistry;
 import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
@@ -7903,7 +7904,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static void failSoft(final LongAdder counter, final String what, final RuntimeException e) {
     counter.increment();
     if (PROJ_DIAG) {
+      // The message alone names the exception, never the arm that threw it — and at 100M rows the
+      // generic pipeline this falls to runs for ten minutes, so the frame is worth its lines.
       System.err.println("[proj] " + what + " failed, using generic pipeline: " + e);
+      e.printStackTrace(System.err);
     }
     if (STRICT_SERVING) {
       throw new IllegalStateException("strict serving: " + what + " failed instead of falling back to the generic pipeline",
@@ -11808,6 +11812,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * Of those, the results a PARALLEL numeric arm produced ({@link #distinctViaBitsetParallel},
+   * {@link #distinctViaSharedSetParallel}) — the witness that a numeric count-distinct left the one
+   * thread it used to run on, which the answer alone can never show.
+   */
+  private static final LongAdder PROJECTION_COUNT_DISTINCT_NUMERIC_PARALLEL_SERVED = new LongAdder();
+
+  /** Total ungrouped count-distinct results the parallel numeric arms served since process start. */
+  public static long projectionCountDistinctNumericParallelServedCount() {
+    return PROJECTION_COUNT_DISTINCT_NUMERIC_PARALLEL_SERVED.sum();
+  }
+
+  /**
    * Count-distinct via the projection index: reuses
    * {@link ProjectionIndexByteScan#conjunctiveCountByGroup} with an empty predicate set, then returns
    * the size of the resulting group map. The aggregator already de-duplicates the group values with a
@@ -11882,9 +11898,170 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final long bitsetSpanBound = distinctKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
         ? GLOBAL_ID_DISTINCT_BITSET_SPAN
         : NUMERIC_DISTINCT_BITSET_SPAN;
-    return span >= 0 && span < bitsetSpanBound
+    final boolean bitset = span >= 0 && span < bitsetSpanBound;
+    // Both arms were ONE thread over every row: 100M user ids through one hash set was 1.4 s hot
+    // on a 20-core box, cpu == wall. A column above the row floor is split over the workers by
+    // slice range — the bitset arm into one bitset per worker, merged by word range; the hash arm
+    // into one shared partitioned set ([[SharedDistinctLongSet]]) whose footprint is the answer's.
+    if (NUMERIC_DISTINCT_PARALLEL && threads > 1 && presentRows >= NUMERIC_DISTINCT_PARALLEL_MIN_ROWS
+        && slices.length > 1) {
+      final long parallelDistinct = bitset
+          ? distinctViaBitsetParallel(slices, min, span, column)
+          : distinctViaSharedSetParallel(slices, presentRows, column);
+      if (parallelDistinct >= 0L) {
+        PROJECTION_COUNT_DISTINCT_NUMERIC_PARALLEL_SERVED.increment();
+        return parallelDistinct;
+      }
+    }
+    return bitset
         ? distinctViaBitset(slices, min, span)
         : distinctViaHashSet(slices);
+  }
+
+  /**
+   * Kill switch for the parallel numeric count-distinct arms:
+   * {@code -Dsirix.projection.countDistinct.numericParallel=false} runs the one-thread arms only.
+   */
+  private static final boolean NUMERIC_DISTINCT_PARALLEL =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.countDistinct.numericParallel", "true"));
+
+  /** Present rows below which a numeric count-distinct stays on one thread: the fan-out costs more than the rows. */
+  private static final long NUMERIC_DISTINCT_PARALLEL_MIN_ROWS = 1L << 15;
+
+  /**
+   * Bytes of per-worker bitsets the parallel bitset arm may hold at once: 64 MB is sixteen workers on
+   * a 32M-id GLOBAL column and every worker on any NUMERIC column, each bitset dying with its query.
+   */
+  private static final long NUMERIC_DISTINCT_PARALLEL_BITSET_BYTES = 64L << 20;
+
+  /** Partition sets of the shared 64-bit set the hash arm's workers fill together (a power of two). */
+  private static final int NUMERIC_DISTINCT_PARTITIONS = 64;
+
+  /** Values each partition set of the hash arm is sized for before its first growth. */
+  private static final int NUMERIC_DISTINCT_INITIAL_KEYS_PER_PARTITION = 1 << 16;
+
+  /**
+   * Distinct count over a narrow value range on every worker: each worker fills its own bitset over
+   * a slice range, then the workers OR the bitsets word range by word range and count the bits.
+   *
+   * @return the distinct count, or {@code -1} when a slice lacked its lanes or held a value outside
+   *         the zone map — the caller falls back to the one-thread arm
+   */
+  private long distinctViaBitsetParallel(final ProjectionColumnStore.ColumnSlice[] slices, final long min,
+      final long span, final int column) {
+    final long startNanos = System.nanoTime();
+    final int words = (int) ((span >> 6) + 1);
+    final long bitsetBytes = (long) words * Long.BYTES;
+    final int eff = (int) Math.max(2L,
+        Math.min(Math.min(threads, slices.length), NUMERIC_DISTINCT_PARALLEL_BITSET_BYTES / Math.max(1L, bitsetBytes)));
+    final int chunk = (slices.length + eff - 1) / eff;
+    final long[][] bitsets = new long[eff][];
+    final boolean[] declined = new boolean[eff];
+    parallel(eff, idx -> {
+      final int from = idx * chunk;
+      final int to = Math.min(from + chunk, slices.length);
+      final long[] seen = new long[words];
+      bitsets[idx] = seen;
+      if (from < to && !ProjectionColumnScan.distinctBitset(slices, from, to, min, seen)) {
+        declined[idx] = true;
+      }
+    });
+    for (final boolean d : declined) {
+      if (d) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] countDistinct numeric bitset decline col=" + column + ": a slice lacks its lanes");
+        }
+        return -1L;
+      }
+    }
+    final long[] counts = new long[eff];
+    final int wordChunk = (words + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * wordChunk;
+      final int to = Math.min(from + wordChunk, words);
+      if (from < to) {
+        counts[idx] = ProjectionColumnScan.distinctBitsetUnionCount(bitsets, from, to);
+      }
+    });
+    long distinct = 0L;
+    for (final long c : counts) {
+      distinct += c;
+    }
+    if (PROJ_DIAG) {
+      System.err.println("[proj] countDistinct numeric served col=" + column + " arm=bitset slices=" + slices.length
+          + " workers=" + eff + " span=" + span + " distinct=" + distinct + " bitsetBytes=" + bitsetBytes * eff
+          + " ms=" + (System.nanoTime() - startNanos) / 1_000_000L);
+    }
+    return distinct;
+  }
+
+  /**
+   * Distinct count over a wide value range on every worker: the slices are split by range over the
+   * workers and every worker puts its present values into ONE shared partitioned set through a
+   * buffered handle; the set's size is the answer. Its arrays are charged to the heap share every
+   * projection-side budget plans against ({@link HeapHeadroom#plannedShareBytes()}); a refusal
+   * declines to the one-thread arm, which answers from a set of its own.
+   *
+   * @return the distinct count, or {@code -1} when the share refuses the set or a slice lacked its
+   *         lanes
+   */
+  private long distinctViaSharedSetParallel(final ProjectionColumnStore.ColumnSlice[] slices, final long presentRows,
+      final int column) {
+    final long share = HeapHeadroom.plannedShareBytes();
+    if (share <= 0L) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] countDistinct numeric hash decline col=" + column + ": no heap share");
+      }
+      return -1L;
+    }
+    final long startNanos = System.nanoTime();
+    final AtomicLong budget = new AtomicLong(share);
+    final int eff = Math.min(threads, slices.length);
+    final int chunk = (slices.length + eff - 1) / eff;
+    final boolean[] declined = new boolean[eff];
+    // Sized from the rows, not a guess at the distinct count: a partition never holds more than its
+    // share of the present rows, and a column with few distinct values grows no partition at all.
+    final int initialKeys = (int) Math.min(NUMERIC_DISTINCT_INITIAL_KEYS_PER_PARTITION,
+        Math.max(16L, presentRows / NUMERIC_DISTINCT_PARTITIONS));
+    final SharedDistinctLongSet shared;
+    try {
+      shared = new SharedDistinctLongSet(NUMERIC_DISTINCT_PARTITIONS, initialKeys, SharedDistinctLongSet.DEFAULT_BUFFER_KEYS,
+          budget);
+      parallel(eff, idx -> {
+        final int from = idx * chunk;
+        final int to = Math.min(from + chunk, slices.length);
+        if (from >= to) {
+          return;
+        }
+        final SharedDistinctLongSet.Worker worker = shared.worker();
+        if (!ProjectionColumnScan.distinctLongs(slices, from, to, worker)) {
+          declined[idx] = true;
+          return;
+        }
+        worker.flush();
+      });
+    } catch (final DistinctHash128Set.ByteBudgetExceededException refused) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] countDistinct numeric hash decline col=" + column + " share=" + share + ": "
+            + refused.getMessage());
+      }
+      return -1L;
+    }
+    for (final boolean d : declined) {
+      if (d) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] countDistinct numeric hash decline col=" + column + ": a slice lacks its lanes");
+        }
+        return -1L;
+      }
+    }
+    final long distinct = shared.size();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] countDistinct numeric served col=" + column + " arm=hash slices=" + slices.length
+          + " workers=" + eff + " rows=" + presentRows + " distinct=" + distinct + " setBytes=" + shared.chargedBytes()
+          + " ms=" + (System.nanoTime() - startNanos) / 1_000_000L);
+    }
+    return distinct;
   }
 
   /**

@@ -2661,6 +2661,122 @@ public final class ProjectionColumnScan {
   }
 
   /**
+   * Every present value of long-lane column slices {@code [fromSlice, toSlice)} goes to the
+   * {@code sink}; the size of the set behind the sink is the exact distinct count. The row loop reads
+   * the presence bitmap word by word and visits only set bits, so a sparse leaf costs its present
+   * rows, not its row count. One worker's share of a parallel count-distinct over a NUMERIC_LONG or
+   * GLOBAL string column — the values are read, never hashed to a sketch, so the count is exact.
+   *
+   * @param slices the column's slices, resident
+   * @param fromSlice the first slice, inclusive
+   * @param toSlice the last slice, exclusive
+   * @param sink where the values go: a set, or a worker's handle on a shared one
+   * @return {@code false} when a non-empty slice lacks its value or presence lane — the caller
+   *         declines; {@code true} when every slice was folded in
+   * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a growth
+   */
+  public static boolean distinctLongs(final ColumnSlice[] slices, final int fromSlice, final int toSlice,
+      final DistinctLongSink sink) {
+    for (int at = fromSlice; at < toSlice; at++) {
+      final ColumnSlice slice = slices[at];
+      if (slice == null || slice.rowCount() == 0) {
+        continue;
+      }
+      final long[] values = slice.numericValues();
+      final long[] presence = slice.presenceWords();
+      if (values == null || presence == null) {
+        return false;
+      }
+      final int rows = slice.rowCount();
+      for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
+        long bits = presence[w];
+        final int base = w << 6;
+        while (bits != 0L) {
+          final int row = base + Long.numberOfTrailingZeros(bits);
+          bits &= bits - 1L;
+          if (row >= rows) {
+            break;
+          }
+          sink.put(values[row]);
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Bitset twin of {@link #distinctLongs}: sets bit {@code value - min} of {@code seen} for every
+   * present value of slices {@code [fromSlice, toSlice)}. The caller sizes {@code seen} from the
+   * column's zone map ({@code (max - min) / 64 + 1} words) and, with one bitset per worker, ORs the
+   * workers' bitsets and counts the bits — the count is exact and the row loop never branches on a
+   * table probe. A value below {@code min} or past the bitset is the zone map lying about the
+   * column, and is reported rather than counted.
+   *
+   * @param slices the column's slices, resident
+   * @param fromSlice the first slice, inclusive
+   * @param toSlice the last slice, exclusive
+   * @param min the column's smallest present value
+   * @param seen the bitset, {@code (span >> 6) + 1} words for a span of {@code max - min}
+   * @return {@code false} when a non-empty slice lacks its value or presence lane or holds a value
+   *         outside {@code [min, min + 64 * seen.length)} — the caller declines; {@code true} when
+   *         every slice was folded in
+   */
+  public static boolean distinctBitset(final ColumnSlice[] slices, final int fromSlice, final int toSlice,
+      final long min, final long[] seen) {
+    final long slots = (long) seen.length << 6;
+    for (int at = fromSlice; at < toSlice; at++) {
+      final ColumnSlice slice = slices[at];
+      if (slice == null || slice.rowCount() == 0) {
+        continue;
+      }
+      final long[] values = slice.numericValues();
+      final long[] presence = slice.presenceWords();
+      if (values == null || presence == null) {
+        return false;
+      }
+      final int rows = slice.rowCount();
+      for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
+        long bits = presence[w];
+        final int base = w << 6;
+        while (bits != 0L) {
+          final int row = base + Long.numberOfTrailingZeros(bits);
+          bits &= bits - 1L;
+          if (row >= rows) {
+            break;
+          }
+          final long slot = values[row] - min;
+          if (slot < 0L || slot >= slots) {
+            return false;
+          }
+          seen[(int) (slot >>> 6)] |= 1L << (slot & 63);
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Bits set in the OR of {@code bitsets} over words {@code [fromWord, toWord)}: one worker's share of
+   * the merge that follows {@link #distinctBitset}, so the merge is as parallel as the fill.
+   *
+   * @param bitsets one bitset per worker, all of one length
+   * @param fromWord the first word, inclusive
+   * @param toWord the last word, exclusive
+   * @return the distinct values whose bits fall in the word range
+   */
+  public static long distinctBitsetUnionCount(final long[][] bitsets, final int fromWord, final int toWord) {
+    long count = 0L;
+    for (int w = fromWord; w < toWord; w++) {
+      long acc = 0L;
+      for (final long[] bitset : bitsets) {
+        acc |= bitset[w];
+      }
+      count += Long.bitCount(acc);
+    }
+    return count;
+  }
+
+  /**
    * Whether a PRESENT row of the slice references dictionary entry {@code emptyId}: {@code 1} when one
    * does (every row present, or an id scan finds one), {@code 0} when none does, {@code -1} when the
    * slice lacks its presence or id lane.
