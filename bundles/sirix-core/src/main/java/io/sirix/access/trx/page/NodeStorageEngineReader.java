@@ -1026,6 +1026,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private StringRegion.@Nullable Header trieLaneHeaderScratch;
 
   /**
+   * Re-entrancy guard for {@link #documentPagesUseTheTrieLane()}: collecting the anchors reads
+   * projection-index and path-summary pages through {@link #loadRecordPage}, and a DOCUMENT read
+   * arriving on this thread while the probe runs must not probe again.
+   */
+  private boolean trieLaneProbeInProgress;
+
+  /**
    * Turn a page's global-tag ids into bytes and leave them on the page.
    *
    * <p>
@@ -1134,6 +1141,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * with two answers.
    * </p>
    */
+  /**
+   * Whether this resource's DOCUMENT pages were written with the trie lane, i.e. whether any
+   * projection column persisted a rank-ordered dictionary anchor. The answer is a property of the
+   * revision on disk, not of a JVM flag: a database converted under {@code sirix.projection.trieLane}
+   * must be read lazily by every later JVM whatever its flags say. Cached with the resolver itself,
+   * so after the first DOCUMENT load this is one field read.
+   */
+  private boolean documentPagesUseTheTrieLane() {
+    final GlobalStringDictionaries cached = trieLaneDictionaries;
+    if (cached != null) {
+      return cached != TrieLaneDictionaries.NONE;
+    }
+    if (trieLaneProbeInProgress) {
+      return false;
+    }
+    trieLaneProbeInProgress = true;
+    try {
+      return trieLaneDictionaries() != TrieLaneDictionaries.NONE;
+    } finally {
+      trieLaneProbeInProgress = false;
+    }
+  }
+
   private GlobalStringDictionaries trieLaneDictionaries() {
     final GlobalStringDictionaries cached = trieLaneDictionaries;
     if (cached != null) {
@@ -1773,7 +1803,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
     validateKeyedTrieRoute(this, indexLogKey.getIndexType(), indexLogKey.getIndexNumber());
-    final boolean lazyEligible = pointLookup && trxIntentLog == null;
+    // Laziness has two clauses of different standing. "trxIntentLog == null" is a CORRECTNESS rule
+    // (a writer's copy-on-write hands the page to a combine that reads every slot; see the javadoc
+    // above). "pointLookup" is a PERFORMANCE heuristic -- a scan reads every slot, so laziness buys
+    // it nothing and costs a gate per record. A resource whose DOCUMENT pages use the trie lane
+    // overrides the heuristic: such a page can only be expanded after the global-string resolution
+    // in getRecordPage(IndexLogKey, boolean), i.e. lazily -- an eager expansion trips
+    // PageKind.refuseGlobalTagsOnEagerPath -- and a scan that gets a lazy page expands it itself
+    // (PageScanIterator calls ensureAllChunks), so the one-chunk gate is paid once per page.
+    final boolean lazyEligible = trxIntentLog == null
+        && (pointLookup || (indexLogKey.getIndexType() == IndexType.DOCUMENT && documentPagesUseTheTrieLane()));
 
     // Symbol tables must be in hand BEFORE the page-cache compute below runs: a document page's
     // fragments are combined inside that compute, combining decodes FSST strings, and fetching a
