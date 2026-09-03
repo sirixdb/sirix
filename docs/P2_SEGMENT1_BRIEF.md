@@ -2363,3 +2363,47 @@ the group-by pass family (q32 8 passes 13.6 s, q31/q30/q35/q13/q16/q18) holds th
 
 **/goal status at the stop:** queries — TOP 15 reached on c6a hot (rank 14, two legs), combined rank 2,
 cold rank 1. Storage — 63.14 GB, unchanged (target ~50 GB still open; `docs/ROADMAP_TO_30GB.md`).
+
+## 2026-09-03 05:05: TOP 10 REACHED — a residency fit door that evicts instead of refusing (8fa4a4acd)
+
+A diag leg over q0–q22 (M6PRE22) measured the "eviction lever" premise before it was built: by q19 the
+store retained **5,066,663,655 B of the 5,368,709,120 B budget** (`sliced count fill declined by budget:
+Column 8 slice fill adds 1095986449 B beside 5066663655 B already retained`), and from q20 on every
+column was refused — silently, because the per-column gates (`columnFillable` → `columnFillWithinBudget`)
+short-circuit the `&&` chain before `columnsFitWithinBudget` prints its `REFUSED` diag. Residency was
+first-come-first-served for the store's lifetime: columns q8–q18 filled were never read again, and q20,
+q21, q22 (and everything after) re-decoded their windows on every try.
+
+**Lever (8fa4a4acd, `ProjectionColumnStore.fitsMakingRoom`):** the one rule every fit door now prices
+against — `columnFillWithinBudget`, `columnIdentityFillable`, `columnsFitWithinBudget`, `leafAccess`, and
+the fill-time `checkFillBudget`. A fill that fits the budget on its own is admitted; what it displaces is
+what no open query pins and the caller is not about to read (the KEYS lane included, unless the access
+needs it), largest first like the scope-exit release. A dry pass sums the evictable total before a
+single lane is dropped, so a fill that could never fit leaves the store untouched. Kill switch
+`-Dsirix.projection.residency.evict=false`; counters `residencyEvictionCount()` /
+`residencyEvictedBytes()`; diag `[proj] residency evict: N lane(s), X MB returned to admit a Y MB fill`.
+Witness `ResidencyReleaseTest.aFitDoorEvictsUnpinnedFillsToAdmitTheCurrentOne` (+ 36c70ea5e): evicts the
+unpinned earlier fill, never a pinned one, nothing for a fill that cannot fit, the fill door itself makes
+room, the kill switch restores FCFS; mutants killed — dry pass removed, pins ignored, ledger not charged.
+The cumulative-pricing test now pins its first fill with an open scope; the R1 mutation half turns both
+switches off to reproduce the pre-R1 state.
+
+| leg | c6a hot | c6a combined | c6a cold | answers | wall |
+|---|---|---|---|---|---|
+| M5FULL1 (5 GB, FCFS) | 3.894 rank 14 | 3.958 rank 2 | 3.790 rank 1 | 43/43 | 161 s |
+| N1FULL1 (evicting) | **3.327 rank 10** | 4.125 rank 3 | 4.614 rank 3 | 43/43 | 141.6 s |
+| N2FULL1 (evicting) | **3.247 rank 10** | 4.072 rank 2 | 4.547 rank 3 | 43/43 | 140.7 s |
+
+(rank 10's threshold on the c6a hot board is 3.35; Σln 51.7 / 50.6.) No HOT-REGRESS pair vs M5FULL1:
+q22 0.512 → 0.117, q20 0.164 → 0.037, q21 0.244 → 0.057, q11 0.433 → 0.105, q18 5.83 → 4.39, q30 1.11 →
+0.74, q33 1.18 → 0.31, q34 1.18 → 0.32, q9 0.98 → 0.75, q27 0.33 → 0.21; hot sum 39.6 → 32.1 s. Cold
+paid the re-fills (sum 70.4 → 72.1 s; q12 0.32 → 0.97, q2 0.28 → 0.55, q22 8.0 → 8.9), which the
+hot-weighted boards absorb (combined rank 2/3).
+
+**Worst hot ln now:** q32 3.47 (11.1 s, 8 hash-range passes), q31 2.51, q35 2.19, q38 2.08 (0.09 s —
+JIT noise), q30 2.07, q16 2.05, q13 1.99, q2 1.87 (0.06 vs a 0.00 best), q17 1.72, q18 1.64 (4.4 s),
+q15 1.57. The group-by pass family (q32/q31/q35/q30/q16/q13/q18 ≈ 16 ln units) is the whole remaining
+game; rank 5 on the c6a hot board is ≈ 2.6 (needs ≈ −11 ln).
+
+**/goal status at the stop:** queries — **TOP 10 reached on c6a hot (rank 10, two legs)**, combined
+rank 2, cold rank 3. Storage — 63.14 GB, unchanged (target ~50 GB still open; `docs/ROADMAP_TO_30GB.md`).
