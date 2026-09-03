@@ -333,6 +333,15 @@ public final class GlobalValueDictionary {
       this.reader = reader;
     }
 
+    /**
+     * Whether id order IS collation order for every entry — the one test an ordering arm may make
+     * before it compares ids as numbers ({@link #compareIds} does so itself; a plan that bounds leaves
+     * by the ids in their descriptors must ask first).
+     */
+    public boolean fullyOrdered() {
+      return fullyOrdered;
+    }
+
     /** Dictionary header key this view was opened for. */
     public long headerNodeKey() {
       return headerNodeKey;

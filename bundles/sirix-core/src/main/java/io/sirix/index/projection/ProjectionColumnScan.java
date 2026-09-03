@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 /**
@@ -766,6 +767,23 @@ public final class ProjectionColumnScan {
   public static long @Nullable [] topKRecordKeys(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int[] sortColumns, final boolean[] descending, final int k, final ColumnSegmentFetcher fetcher,
       final GlobalValueDictionary.ReadView[] globalSortViews) {
+    return topKRecordKeys(store, predicates, sortColumns, descending, k, fetcher, globalSortViews, null);
+  }
+
+  /**
+   * {@link #topKRecordKeys(ProjectionColumnStore, ColumnPredicate[], int[], boolean[], int, ColumnSegmentFetcher,
+   * GlobalValueDictionary.ReadView[])} with a per-thread view opener. A {@link GlobalValueDictionary.ReadView}
+   * is single-threaded (its slice caches and its reader belong to the thread that opened it), and a
+   * non-rank-ordered dictionary resolves slices on every id comparison — so the slabs, which run on
+   * pool threads, may only compare through views {@code slabViews} opened ON their own thread.
+   * {@code slabViews} must return views aligned to {@code sortColumns} for the calling thread; when
+   * it is {@code null} and some global key needs slice resolution the leaves are evaluated on the
+   * calling thread alone. A rank-ordered dictionary compares ids as integers and never needs it.
+   */
+  public static long @Nullable [] topKRecordKeys(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final int[] sortColumns, final boolean[] descending, final int k, final ColumnSegmentFetcher fetcher,
+      final GlobalValueDictionary.ReadView[] globalSortViews,
+      final @Nullable Supplier<GlobalValueDictionary.ReadView[]> slabViews) {
     checkPredicates(store, predicates);
     if (!topKSortColumnsOrderable(store, sortColumns, globalSortViews)) {
       return null; // the generic pipeline knows the values; this heap would only know their ids
@@ -810,7 +828,7 @@ public final class ProjectionColumnScan {
         : 0L;
     // Built BEFORE keyKind: the extrema walk over the first key's dictionaries is what establishes
     // that column's collation verdict, and a separate sweep for it would cost more than it saves.
-    final TopKPlan plan = planTopK(store, predicates, sortColumns, descending, keep, leafRows, fetcher);
+    final TopKPlan plan = planTopK(store, predicates, sortColumns, descending, keep, leafRows, fetcher, globalSortViews);
     final byte[] keyKind = new byte[keyCount];
     for (int kk = 0; kk < keyCount; kk++) {
       keyKind[kk] = switch (store.columnKind(sortColumns[kk])) {
@@ -828,11 +846,20 @@ public final class ProjectionColumnScan {
         : 0L;
     // Slabs decode independently only when the fetcher tolerates concurrent ranged fetches; a plain
     // fetcher gets the same chunks, slabs and counters on the calling thread.
-    final int workers = fetcher.rangedFetchIsConcurrent()
+    // A global key over a dictionary that is not rank-ordered compares ids by resolving their slices
+    // through a view — single-threaded state — so slabs need views of their own thread, or one thread.
+    boolean slabsNeedViews = false;
+    for (int kk = 0; kk < keyCount; kk++) {
+      slabsNeedViews |= keyKind[kk] == TopKHeap.KEY_STRING_GLOBAL && !globalSortViews[kk].fullyOrdered();
+    }
+    final int workers = fetcher.rangedFetchIsConcurrent() && (!slabsNeedViews || slabViews != null)
         ? TOPK_WORKERS
         : 1;
-    final TopKRun run = new TopKRun(store, predicates, sortColumns, keyKind, descending, globalSortViews, k, keep,
-        leafRows, leafRankBase, plan, fetcher, workers);
+    final TopKRun run = new TopKRun(store, predicates, sortColumns, keyKind, descending, globalSortViews,
+        slabsNeedViews && workers > 1
+            ? slabViews
+            : null,
+        k, keep, leafRows, leafRankBase, plan, fetcher, workers);
     final TopKHeap global = run.global;
     final int visitCount = plan.visitCount;
     int v = 0;
@@ -1105,7 +1132,7 @@ public final class ProjectionColumnScan {
    */
   private static TopKPlan planTopK(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int[] sortColumns, final boolean[] descending, final long @Nullable [] keep, final int[] leafRows,
-      final ColumnSegmentFetcher fetcher) {
+      final ColumnSegmentFetcher fetcher, final GlobalValueDictionary.ReadView[] globalSortViews) {
     final int leafCount = leafRows.length;
     final int keyCount = sortColumns.length;
     final int first = sortColumns[0];
@@ -1116,7 +1143,13 @@ public final class ProjectionColumnScan {
     final boolean[] dropped = new boolean[leafCount];
     long[] lbNumeric = null;
     StringValueExtrema extrema = null;
-    if (firstKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+    // A global first key is bounded by its id lane only when id order IS value order (the rank
+    // pass's fully-ordered dictionary): then a leaf's smallest present id is its smallest value and
+    // the heap's numeric first-key test (ids in the tuple) is the value test. Any other global
+    // dictionary leaves every leaf unbounded — visited, never skipped.
+    final boolean boundable = firstKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+        || (globalSortViews.length > 0 && globalSortViews[0] != null && globalSortViews[0].fullyOrdered());
+    if (boundable) {
       if (firstKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
         extrema = store.stringValueExtrema(first, fetcher);
         final int slot1 = desc
@@ -1154,13 +1187,62 @@ public final class ProjectionColumnScan {
           }
         }
       } else {
-        final ZoneIndex zone = store.zoneIndex(first);
         lbNumeric = new long[leafCount];
+        final ZoneIndex zone = store.zoneIndex(first);
+        final boolean excludes = firstKeyExcludesLongLiteral(predicates, first);
+        final int slot1 = desc
+            ? StringValueExtrema.MAX1
+            : StringValueExtrema.MIN1;
+        final int slot2 = desc
+            ? StringValueExtrema.MAX2
+            : StringValueExtrema.MIN2;
+        // The long-lane memo is built lazily, on the first leaf whose zone extremum is an excluded
+        // literal — never for a plain ORDER BY, whose zones answer for free.
+        ProjectionColumnStore.LongValueExtrema longExtrema = null;
         for (int leaf = 0; leaf < leafCount; leaf++) {
-          if (leafRows[leaf] > 0 && zone.known(leaf) && !zone.allMissing(leaf)) {
-            lbNumeric[leaf] = desc
-                ? zone.max(leaf)
-                : zone.min(leaf);
+          if (leafRows[leaf] <= 0 || !zone.known(leaf) || zone.allMissing(leaf)) {
+            continue;
+          }
+          long bound = desc
+              ? zone.max(leaf)
+              : zone.min(leaf);
+          if (excludes) {
+            // A `<>` on the first key: the leaf's best MATCHING value is its second extremum wherever
+            // the first one is an excluded literal (q25's shape over a global id lane — the empty
+            // string's id is every leaf's minimum, so on zones alone every leaf ties and nothing
+            // can be skipped). The exact per-leaf extrema come from the memo: the zone may be
+            // loose, the memo is lane truth, and only a leaf whose zone names the literal pays it.
+            int slot = slot1;
+            for (final ColumnPredicate p : predicates) {
+              if (p.column != first || p.op != ProjectionIndexScan.Op.NE || p.stringLitBytes != null
+                  || slot != slot1 || p.longLit != bound) {
+                continue;
+              }
+              if (longExtrema == null) {
+                longExtrema = store.longValueExtrema(first, fetcher);
+              }
+              if (!longExtrema.has(leaf, slot1)) {
+                dropped[leaf] = true; // the zone promised a value the lane does not hold
+                break;
+              }
+              final long exact = longExtrema.value(leaf, slot1);
+              if (exact != bound) {
+                bound = exact; // a loose zone: the exact extremum is not the literal, and bounds
+                break;
+              }
+              // The extremum itself is excluded: the second distinct value bounds what remains, and
+              // stays sound whatever else is excluded (the remaining values are beyond it).
+              if (longExtrema.has(leaf, slot2)) {
+                slot = slot2;
+                bound = longExtrema.value(leaf, slot2);
+              } else {
+                dropped[leaf] = true; // its only present value is excluded; missing cells never match
+                break;
+              }
+            }
+          }
+          if (!dropped[leaf]) {
+            lbNumeric[leaf] = bound;
             lbSlot[leaf] = 0;
           }
         }
@@ -1209,6 +1291,16 @@ public final class ProjectionColumnScan {
     return new TopKPlan(visit, unknownCount + knownCount, unknownCount, lbSlot, lbNumeric, extrema, desc);
   }
 
+  /** Whether some predicate excludes ONE long-lane literal of {@code column} ({@code column <> lit}). */
+  private static boolean firstKeyExcludesLongLiteral(final ColumnPredicate[] predicates, final int column) {
+    for (final ColumnPredicate p : predicates) {
+      if (p.column == column && p.op == ProjectionIndexScan.Op.NE && p.stringLitBytes == null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static boolean predicateNames(final ColumnPredicate[] predicates, final int column) {
     for (final ColumnPredicate p : predicates) {
       if (p.column == column) {
@@ -1235,6 +1327,8 @@ public final class ProjectionColumnScan {
     private final byte[] keyKind;
     private final boolean[] descending;
     private final GlobalValueDictionary.ReadView[] globalSortViews;
+    /** Opens views on the CALLING thread for a slab's heap; {@code null} when the caller's views serve every slab. */
+    private final @Nullable Supplier<GlobalValueDictionary.ReadView[]> slabViews;
     final AtomicBoolean declined = new AtomicBoolean();
     final LongAdder evaluated = new LongAdder();
     final LongAdder skipped = new LongAdder();
@@ -1242,9 +1336,11 @@ public final class ProjectionColumnScan {
 
     TopKRun(final ProjectionColumnStore store, final ColumnPredicate[] predicates, final int[] sortColumns,
         final byte[] keyKind, final boolean[] descending, final GlobalValueDictionary.ReadView[] globalSortViews,
-        final int k, final long @Nullable [] keep, final int[] leafRows, final long[] leafRankBase, final TopKPlan plan,
-        final ColumnSegmentFetcher fetcher, final int workers) {
+        final @Nullable Supplier<GlobalValueDictionary.ReadView[]> slabViews, final int k, final long @Nullable [] keep,
+        final int[] leafRows, final long[] leafRankBase, final TopKPlan plan, final ColumnSegmentFetcher fetcher,
+        final int workers) {
       this.store = store;
+      this.slabViews = slabViews;
       this.predicates = predicates;
       this.sortColumns = sortColumns;
       this.keyCount = sortColumns.length;
@@ -1282,6 +1378,15 @@ public final class ProjectionColumnScan {
       if (local == null) {
         local = new TopKHeap(k, keyKind, descending, globalSortViews);
         locals[slab] = local;
+      }
+      if (slabViews != null) {
+        // A slab runs on whichever pool thread takes it, chunk by chunk: the heap's kept ids are
+        // stable, the views it compares them through must belong to THIS thread (cache and reader).
+        final GlobalValueDictionary.ReadView[] mine = slabViews.get();
+        if (mine == null || mine.length != keyCount) {
+          throw new IllegalStateException("slab views must be aligned to the " + keyCount + " sort keys");
+        }
+        local.bindViews(mine);
       }
       final int[] set = new int[to - from];
       int n = 0;

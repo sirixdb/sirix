@@ -18255,8 +18255,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
             }
           }
+          // Per-thread views for the slabs: a view's slice caches and reader are single-threaded, and
+          // only a rank-ordered dictionary compares ids without touching them.
           final long[] top = ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound,
-              columnFetcher(), globalSortViews);
+              columnFetcher(), globalSortViews, () -> {
+                final GlobalValueDictionary.ReadView[] mine = new GlobalValueDictionary.ReadView[keyCount];
+                for (int key = 0; key < keyCount; key++) {
+                  if (globalSortViews[key] != null) {
+                    mine[key] = GlobalValueDictionary.readView(globalSortViews[key].headerNodeKey(),
+                        workerTrx().getStorageEngineReader());
+                    if (mine[key] == null) {
+                      throw new IllegalStateException("global sort dictionary became unreadable mid-query");
+                    }
+                  }
+                }
+                return mine;
+              });
           if (top == null) {
             return null; // a matching row misses an order key — only the interpreter places it
           }

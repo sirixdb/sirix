@@ -398,6 +398,12 @@ public final class ProjectionColumnStore {
   private volatile StringValueExtrema @Nullable [] stringExtrema;
 
   /**
+   * Lazily computed per numeric-lane column (the ordered-long kinds and STRING_GLOBAL): the two
+   * smallest and two largest PRESENT long values of every leaf. See {@link #longValueExtrema}.
+   */
+  private volatile LongValueExtrema @Nullable [] longExtrema;
+
+  /**
    * Lazily computed per column: bit {@code leaf} set when the column is ALL-PRESENT on that leaf
    * (rowless leaves vacuously). See {@link #allPresentLeaves}.
    */
@@ -444,6 +450,7 @@ public final class ProjectionColumnStore {
     this.columnBytes = new byte[columnKinds.length][][];
     this.bloomBytes = new byte[columnKinds.length][][];
     this.stringExtrema = new StringValueExtrema[columnKinds.length];
+    this.longExtrema = new LongValueExtrema[columnKinds.length];
     this.allPresentLeaves = new long[columnKinds.length][];
     this.zoneIndices = new ZoneIndex[columnKinds.length];
     this.stringSupplementary = new byte[columnKinds.length];
@@ -702,6 +709,196 @@ public final class ProjectionColumnStore {
     public byte[] bytes() {
       return bytes;
     }
+  }
+
+  /**
+   * Per-leaf extrema of a column's LONG lane — the two smallest and the two largest DISTINCT present
+   * values of every leaf ({@link LongValueExtrema}) — for the ordered-long kinds and for
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}, whose lane holds dictionary ids.
+   * The numeric twin of {@link #stringValueExtrema}: the descriptor zone already gives a leaf's
+   * first extremum for free, but the SECOND one is what a same-column {@code <>} predicate needs to
+   * bound what remains ({@code WHERE c <> lit ORDER BY c} with {@code lit} every leaf's minimum — the
+   * empty string's id, under a rank-ordered global dictionary, is exactly that at 100M rows), and no
+   * descriptor carries it. Exact where the zone may be loose: read from the decoded lane itself.
+   *
+   * <p>
+   * Data-derived and literal-independent, so it is memoized per column and shared by every query.
+   * The walk reads the retained slices when the column is resident and otherwise decodes leaf ranges
+   * through the fetcher and drops them — it never holds the column — fanned out like
+   * {@link #stringValueExtrema}. Rowless and all-missing leaves have no slot set.
+   * </p>
+   *
+   * @throws IllegalStateException if {@code col}'s long lane is not an order
+   */
+  public LongValueExtrema longValueExtrema(final int col, final ColumnSegmentFetcher fetcher) {
+    if (col < 0 || col >= columnKinds.length || !ProjectionColumnScan.zonePrunableKind(columnKinds[col])) {
+      throw new IllegalStateException("Column " + col + " has no ordered long lane");
+    }
+    if (fetcher == null) {
+      throw new IllegalArgumentException("fetcher must not be null");
+    }
+    final LongValueExtrema hit = longExtrema[col];
+    if (hit != null) {
+      return hit;
+    }
+    final long t0 = MEMO_DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int n = directories.size();
+    final ColumnSlice[] resident = columns[col];
+    final int ranges = resident != null || fetcher.rangedFetchIsConcurrent()
+        ? memoPassRanges(n)
+        : 1;
+    // Every range writes only its own leaves' four slots and its own presence words (range bounds
+    // are multiples of 64 leaves, so 4 * leaf slots never share a word across ranges either).
+    final long[] values = new long[4 * n];
+    final long[] present = new long[(4 * n + 63) >>> 6];
+    forEachMemoRange(n, ranges, (from, to, r) -> longExtremaOfRange(col, from, to, resident, fetcher, values, present));
+    final LongValueExtrema built = new LongValueExtrema(n, values, present);
+    final LongValueExtrema published;
+    synchronized (this) {
+      final LongValueExtrema existing = longExtrema[col];
+      if (existing != null) {
+        published = existing;
+      } else {
+        final LongValueExtrema[] next = longExtrema.clone();
+        next[col] = built;
+        longExtrema = next;
+        published = built;
+      }
+    }
+    if (MEMO_DIAG) {
+      System.err.printf("[memo] longExtrema col=%d leaves=%d ranges=%d resident=%b ms=%.2f%n", col, n, ranges,
+          resident != null, (System.nanoTime() - t0) / 1e6);
+    }
+    return published;
+  }
+
+  /**
+   * The memoized long-lane extrema of one column ({@link ProjectionColumnStore#longValueExtrema}): four
+   * slots per leaf in {@link StringValueExtrema}'s slot order — {@link StringValueExtrema#MIN1} the
+   * smallest present value, {@link StringValueExtrema#MIN2} the second-smallest DISTINCT one,
+   * {@link StringValueExtrema#MAX1} the largest, {@link StringValueExtrema#MAX2} the second-largest
+   * distinct one — each flagged present or absent. Immutable once published.
+   */
+  public static final class LongValueExtrema {
+    private final int leafCount;
+    private final long[] values;
+    private final long[] present;
+
+    LongValueExtrema(final int leafCount, final long[] values, final long[] present) {
+      if (values.length != 4 * leafCount || present.length != (4 * leafCount + 63) >>> 6) {
+        throw new IllegalArgumentException("Extrema table shape does not match " + leafCount + " leaves");
+      }
+      this.leafCount = leafCount;
+      this.values = values;
+      this.present = present;
+    }
+
+    public int leafCount() {
+      return leafCount;
+    }
+
+    /** Whether the leaf has a value in {@code slot} (a leaf with one distinct value has no second slot). */
+    public boolean has(final int leaf, final int slot) {
+      final int e = 4 * leaf + slot;
+      return (present[e >>> 6] & 1L << (e & 63)) != 0L;
+    }
+
+    /** The leaf's value in {@code slot}; meaningful only when {@link #has} holds. */
+    public long value(final int leaf, final int slot) {
+      return values[4 * leaf + slot];
+    }
+  }
+
+  private void longExtremaOfRange(final int col, final int from, final int to, final ColumnSlice @Nullable [] resident,
+      final ColumnSegmentFetcher fetcher, final long[] values, final long[] present) {
+    if (resident != null) {
+      for (int leaf = from; leaf < to; leaf++) {
+        longExtremaOfLeaf(resident[leaf], leaf, values, present);
+      }
+      return;
+    }
+    for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
+      final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
+      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
+      for (int i = 0; i < decoded.length; i++) {
+        longExtremaOfLeaf(decoded[i], w + i, values, present);
+      }
+    }
+  }
+
+  /**
+   * One leaf's contribution to {@link #longValueExtrema}: its smallest, second-smallest, largest and
+   * second-largest DISTINCT present long values into slots {@code 4 * leaf + slot}. Writes only its
+   * own slots and presence bits (a range owns whole 64-leaf blocks, hence whole presence words), so
+   * ranges run concurrently without coordination. One pass over the lane, branch-light: the two
+   * candidates per side are kept as running values and a distinct-count of how many are set.
+   */
+  private static void longExtremaOfLeaf(final @Nullable ColumnSlice slice, final int leaf, final long[] values,
+      final long[] present) {
+    if (slice == null || slice.rowCount() <= 0) {
+      return;
+    }
+    final long[] lane = slice.numericValues();
+    if (lane == null) {
+      return; // no long lane: the caller sees the slots absent and treats the leaf as unbounded
+    }
+    final long[] presence = slice.presenceWords();
+    final int rowCount = slice.rowCount();
+    long min1 = Long.MAX_VALUE;
+    long min2 = Long.MAX_VALUE;
+    long max1 = Long.MIN_VALUE;
+    long max2 = Long.MIN_VALUE;
+    int distinctSeen = 0; // 0, 1, or 2+ — enough to tell whether a second slot exists
+    for (int r = 0; r < rowCount; r++) {
+      if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
+        continue;
+      }
+      final long v = lane[r];
+      if (distinctSeen == 0) {
+        min1 = v;
+        max1 = v;
+        distinctSeen = 1;
+        continue;
+      }
+      if (v < min1) {
+        min2 = min1;
+        min1 = v;
+        distinctSeen = 2;
+      } else if (v > min1 && v < min2) {
+        min2 = v;
+        distinctSeen = 2;
+      }
+      if (v > max1) {
+        max2 = max1;
+        max1 = v;
+        distinctSeen = 2;
+      } else if (v < max1 && v > max2) {
+        max2 = v;
+        distinctSeen = 2;
+      }
+    }
+    if (distinctSeen == 0) {
+      return;
+    }
+    final int base = 4 * leaf;
+    values[base + StringValueExtrema.MIN1] = min1;
+    values[base + StringValueExtrema.MAX1] = max1;
+    setSlot(present, base + StringValueExtrema.MIN1);
+    setSlot(present, base + StringValueExtrema.MAX1);
+    if (distinctSeen == 2) {
+      // With two distinct values both second slots are set: the second-smallest and the
+      // second-largest exist (they may be the same value, or the other side's first).
+      values[base + StringValueExtrema.MIN2] = min2;
+      values[base + StringValueExtrema.MAX2] = max2;
+      setSlot(present, base + StringValueExtrema.MIN2);
+      setSlot(present, base + StringValueExtrema.MAX2);
+    }
+  }
+
+  private static void setSlot(final long[] present, final int slot) {
+    present[slot >>> 6] |= 1L << (slot & 63);
   }
 
   /** One contiguous leaf range's share of a {@link #stringValueExtrema} pass. */

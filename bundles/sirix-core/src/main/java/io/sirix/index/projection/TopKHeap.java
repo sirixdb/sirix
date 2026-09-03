@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * The {@code k} best rows of a bounded sorted scan under its total order — per-key direction, then
@@ -37,7 +38,11 @@ final class TopKHeap {
   private final int keyCount;
   private final byte[] keyKind;
   private final boolean[] descending;
-  private final GlobalValueDictionary.ReadView[] globalViews;
+  /**
+   * Views a global key's ids are compared through. Not part of the heap's state — the kept tuples
+   * hold ids — and rebound per evaluating thread by {@link #bindViews}: a view is single-threaded.
+   */
+  private GlobalValueDictionary.ReadView[] globalViews;
   /** Row-major {@code k * keyCount}: the long of a numeric key, the id of a global one; unused for string kinds. */
   private final long[] tuple;
   /** Row-major {@code k * keyCount}: the bytes of a string key; {@code null} rows when no key is a string. */
@@ -69,6 +74,11 @@ final class TopKHeap {
         : null;
     this.recordKey = new long[k];
     this.rank = new long[k];
+  }
+
+  /** Compare global keys through {@code views} from now on: the views of the thread about to offer. */
+  void bindViews(final GlobalValueDictionary.ReadView[] views) {
+    this.globalViews = Objects.requireNonNull(views, "views must not be null");
   }
 
   int size() {
