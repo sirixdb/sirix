@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.page.NamePage;
 
 import java.util.Iterator;
@@ -45,6 +46,12 @@ import static java.util.Objects.requireNonNull;
  */
 public final class SegmentDictionaryFlusher {
 
+  /**
+   * Values per generation. A writer refuses past its safe per-append limit, so a segment holding more
+   * distinct values than this is written as several chained generations.
+   */
+  private static final int GENERATION_ENTRIES = GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND;
+
   private SegmentDictionaryFlusher() {
     throw new AssertionError("no instances");
   }
@@ -58,12 +65,21 @@ public final class SegmentDictionaryFlusher {
    */
   static int internInIdOrder(final GlobalValueDictionaryWriter generation, final int column,
       final Iterator<byte[]> values) {
+    return internInIdOrder(generation, column, values, 0, Integer.MAX_VALUE);
+  }
+
+  /**
+   * As above for ONE generation: at most {@code limit} values, whose global ids continue from
+   * {@code base}. Generation-local id {@code L} is global id {@code base + L}.
+   */
+  static int internInIdOrder(final GlobalValueDictionaryWriter generation, final int column,
+      final Iterator<byte[]> values, final int base, final int limit) {
     int expected = 0;
-    while (values.hasNext()) {
+    while (expected < limit && values.hasNext()) {
       final byte[] value = values.next();
       if (value == null) {
-        throw new IllegalStateException("segment dictionary column " + column + " has a hole at id " + (expected + 1)
-            + "; the segment was read before every page of it had been encoded");
+        throw new IllegalStateException("segment dictionary column " + column + " has a hole at id "
+            + (base + expected + 1) + "; the segment was read before every page of it had been encoded");
       }
       expected++;
       final int assigned = generation.intern(value, 0, value.length);
@@ -72,7 +88,7 @@ public final class SegmentDictionaryFlusher {
         // divergence would make every page of the segment resolve to a plausible WRONG value,
         // silently, which is why it is checked per value rather than at the end.
         throw new IllegalStateException("segment dictionary column " + column + " id divergence: the segment "
-            + "assigned id " + expected + " but the dictionary writer assigned " + assigned
+            + "assigned id " + (base + expected) + " but the dictionary writer assigned " + (base + assigned)
             + " (a duplicate value in the segment's id order, or a different insertion order)");
       }
     }
@@ -91,17 +107,41 @@ public final class SegmentDictionaryFlusher {
       final Iterator<byte[]> values, final long budgetBytes) {
     requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
     requireNonNull(values, "values must not be null");
-    final GlobalValueDictionaryWriter generation = new GlobalValueDictionaryWriter(column, budgetBytes);
-    try {
-      final int expected = internInIdOrder(generation, column, values);
-      if (expected == 0) {
-        return SegmentDictionaryAnchors.NO_HEADER_KEY;
+    long headerKey = 0L;
+    int base = 0;
+    while (values.hasNext()) {
+      final GlobalValueDictionaryWriter generation = new GlobalValueDictionaryWriter(column, budgetBytes);
+      try {
+        // ONE GENERATION at a time. A writer refuses past
+        // GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND entries -- the safe per-append
+        // limit the whole append path is sized for -- so a segment with more distinct values than that
+        // is written as several generations, exactly as the streaming path does. Ids chain across
+        // them: generation k's local id L is global id base + L, which is why the values must arrive
+        // in global id order and why the guard below subtracts the base.
+        final int interned = internInIdOrder(generation, column, values, base, GENERATION_ENTRIES);
+        if (interned == 0) {
+          break;
+        }
+        final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+        final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(storageEngineWriter);
+        if (headerKey == 0L) {
+          headerKey = generation.flush(namePage, databaseType, storageEngineWriter, storageEngineWriter.getLog());
+        } else {
+          final ValueDictionaryHeaderNode baseHeader = GlobalValueDictionary.header(headerKey, storageEngineWriter);
+          if (baseHeader == null || !baseHeader.isDirectoryComplete()) {
+            throw new IllegalStateException("segment dictionary column " + column
+                + " cannot read the generation header " + headerKey + " it just wrote");
+          }
+          generation.flushAppend(baseHeader, namePage, databaseType, storageEngineWriter,
+              storageEngineWriter.getLog());
+        }
+        base += interned;
+      } finally {
+        generation.release();
       }
-      final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
-      final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(storageEngineWriter);
-      return generation.flush(namePage, databaseType, storageEngineWriter, storageEngineWriter.getLog());
-    } finally {
-      generation.release();
     }
+    return headerKey == 0L
+        ? SegmentDictionaryAnchors.NO_HEADER_KEY
+        : headerKey;
   }
 }

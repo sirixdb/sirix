@@ -116,8 +116,8 @@ final class SegmentScopedDictionariesTest {
     final GlobalStringDictionaries first = dictionaries.viewFor(0);
     final GlobalStringDictionaries second = dictionaries.viewFor(1024); // the next segment
 
-    assertEquals(0L, first.dictionaryKey(URL_TAG));
-    assertEquals(1L, second.dictionaryKey(URL_TAG), "the anchor is the SEGMENT id");
+    assertEquals(1L, first.dictionaryKey(URL_TAG), "segment 0 anchors as 1: zero is the no-dictionary sentinel");
+    assertEquals(2L, second.dictionaryKey(URL_TAG), "the anchor is the SEGMENT id plus one");
     assertEquals(1, id(first, URL_TAG, "http://a"));
     assertEquals(1, id(second, URL_TAG, "http://a"),
         "a repeated value in a later segment is minted again — the 11.2 % a global dictionary would save");
@@ -137,7 +137,7 @@ final class SegmentScopedDictionariesTest {
       id(dictionaries.viewFor(page), URL_TAG, "later-" + page);
     }
     // Only NOW is the stranded page encoded.
-    assertEquals(0L, latePage.dictionaryKey(URL_TAG), "its anchor is still segment 0");
+    assertEquals(1L, latePage.dictionaryKey(URL_TAG), "its anchor is still segment 0 (encoded as 1)");
     assertEquals(1, id(latePage, URL_TAG, "http://stranded"), "and it mints into segment 0's dictionary");
     assertEquals(1, dictionaries.entryCount(0, 0), "segment 0 has exactly the stranded page's value");
     assertEquals(List.of("http://stranded"), values(dictionaries, 0, 0));

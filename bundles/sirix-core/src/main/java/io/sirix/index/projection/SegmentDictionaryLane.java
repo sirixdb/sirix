@@ -114,16 +114,16 @@ public final class SegmentDictionaryLane {
 
   /**
    * Seal every segment: write each one's values as a dictionary through the load's own writer and
-   * record where it went. Call once the flush pool has been fenced — {@link SegmentSealController#drain}
-   * refuses while any page is still encoding, because sealing then would drop the values that page is
-   * about to mint.
+   * record where it went. Call once the flush pool has been fenced: the fence is what makes this safe,
+   * and {@link SegmentSealController#drainAfterFence} trusts it rather than the encode counter, which
+   * a page written outside the windowed flush leaves stale.
    *
    * @return the anchors to persist, empty when the lane minted nothing
    */
   public SegmentAnchor[] sealAll(final StorageEngineWriter storageEngineWriter) {
     requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
     final List<SegmentAnchor> sealed = new ArrayList<>();
-    for (final long segment : sealController.drain()) {
+    for (final long segment : sealController.drainAfterFence()) {
       for (int column = 0; column < columns; column++) {
         final int entryCount = dictionaries.entryCount(segment, column);
         if (entryCount == 0) {

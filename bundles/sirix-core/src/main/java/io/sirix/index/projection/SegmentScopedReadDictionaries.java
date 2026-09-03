@@ -81,10 +81,10 @@ public final class SegmentScopedReadDictionaries implements GlobalStringDictiona
 
   @Override
   public boolean accepts(final int tag, final long dictionaryKey, final int recordedEntryCount) {
-    if (!columnByTag.containsKey(tag) || dictionaryKey < 0 || recordedEntryCount < 0) {
+    if (!columnByTag.containsKey(tag) || dictionaryKey <= 0 || recordedEntryCount < 0) {
       return false;
     }
-    return anchors.accepts(dictionaryKey, columnByTag.get(tag), recordedEntryCount);
+    return anchors.accepts(dictionaryKey - 1, columnByTag.get(tag), recordedEntryCount);
   }
 
   @Override
@@ -98,7 +98,7 @@ public final class SegmentScopedReadDictionaries implements GlobalStringDictiona
     if (id <= 0 || id > recordedEntryCount || !accepts(tag, dictionaryKey, recordedEntryCount)) {
       return null;
     }
-    final long headerKey = anchors.headerKeyOf(dictionaryKey, columnByTag.get(tag));
+    final long headerKey = anchors.headerKeyOf(dictionaryKey - 1, columnByTag.get(tag));
     if (headerKey == SegmentDictionaryAnchors.NO_HEADER_KEY) {
       return null;
     }

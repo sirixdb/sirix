@@ -106,9 +106,9 @@ final class SegmentScopedRoundTripTest {
     final Encoded page1 = encode(writer, 900, URL_TAG, "http://b", "http://c");
     final Encoded page2 = encode(writer, 1024, URL_TAG, "http://a", "http://z");
 
-    assertEquals(0L, page0.anchor());
-    assertEquals(0L, page1.anchor(), "page 900 is still segment 0");
-    assertEquals(1L, page2.anchor());
+    assertEquals(1L, page0.anchor(), "segment 0 anchors as 1: zero is the no-dictionary sentinel");
+    assertEquals(1L, page1.anchor(), "page 900 is still segment 0");
+    assertEquals(2L, page2.anchor());
     assertEquals(2, page0.ids()[1] - page0.ids()[0] + 1, "b follows a in segment 0");
     assertEquals(page0.ids()[1], page1.ids()[0], "the repeat of b on another page of segment 0 reuses its id");
     assertEquals(1, page2.ids()[0], "a in segment 1 is minted afresh — that is the trade");
@@ -188,14 +188,15 @@ final class SegmentScopedRoundTripTest {
     final SegmentScopedReadDictionaries reader =
         new SegmentScopedReadDictionaries(null, tags(), anchors, (key, id, ignored) -> store.read(key, id));
 
-    assertNotNull(reader.valueOf(URL_TAG, 0L, page.entryCount(), 2));
-    assertNull(reader.valueOf(URL_TAG, 0L, page.entryCount(), 3), "an id above the page's own count");
-    assertNull(reader.valueOf(URL_TAG, 0L, page.entryCount(), 0), "id 0 is ID_ABSENT, never a value");
-    assertNull(reader.valueOf(URL_TAG, 0L, page.entryCount(), -1));
+    assertNotNull(reader.valueOf(URL_TAG, 1L, page.entryCount(), 2));
+    assertNull(reader.valueOf(URL_TAG, 1L, page.entryCount(), 3), "an id above the page's own count");
+    assertNull(reader.valueOf(URL_TAG, 1L, page.entryCount(), 0), "id 0 is ID_ABSENT, never a value");
+    assertNull(reader.valueOf(URL_TAG, 1L, page.entryCount(), -1));
+    assertNull(reader.valueOf(URL_TAG, 0L, page.entryCount(), 1), "anchor 0 is the no-dictionary sentinel");
     // A page that saw MORE than the segment was sealed with cannot be resolved: that is a reused key.
-    assertTrue(!reader.accepts(URL_TAG, 0L, page.entryCount() + 1));
-    assertNull(reader.valueOf(URL_TAG, 0L, page.entryCount() + 1, 1));
-    assertTrue(!reader.accepts(4242, 0L, 1), "an unprojected tag has no dictionary to accept");
+    assertTrue(!reader.accepts(URL_TAG, 1L, page.entryCount() + 1));
+    assertNull(reader.valueOf(URL_TAG, 1L, page.entryCount() + 1, 1));
+    assertTrue(!reader.accepts(4242, 1L, 1), "an unprojected tag has no dictionary to accept");
   }
 
   @Test

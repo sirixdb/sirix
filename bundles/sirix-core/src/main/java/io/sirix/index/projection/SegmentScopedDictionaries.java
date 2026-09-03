@@ -194,8 +194,20 @@ public final class SegmentScopedDictionaries {
       return ids.computeIfAbsent(probe, ignored -> next.getAndIncrement());
     }
 
+    /**
+     * Ids issued so far — from the MINTING COUNTER, never from {@code ids.size()}.
+     *
+     * <p>
+     * {@code ConcurrentHashMap.size()} is weakly consistent: while another flush thread is inserting
+     * it can report a count BELOW an id already issued. The encoder derives the id lane's bit width
+     * from this number, so a count that lags an issued id writes that id TRUNCATED — a silently
+     * different value, not a failure (measured: id 344 against a reported 343). The counter can only
+     * ever over-report, by an id whose mapping is still being installed, and a width one bit too wide
+     * costs nothing.
+     * </p>
+     */
     int size() {
-      return ids.size();
+      return next.get() - 1;
     }
 
     Iterator<byte[]> valuesById() {
@@ -278,7 +290,9 @@ public final class SegmentScopedDictionaries {
 
     @Override
     public long dictionaryKey(final int tag) {
-      return segment;
+      // segment + 1, because 0 is the encoder's "this tag has no dictionary" sentinel and segment 0
+      // is a real segment. The read side subtracts it back; nothing else interprets the value.
+      return segment + 1;
     }
 
     @Override

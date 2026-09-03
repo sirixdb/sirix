@@ -56,6 +56,10 @@ import io.sirix.index.projection.TrieLaneDictionaries;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
+import io.sirix.index.projection.SegmentDictionaryAnchors;
+import io.sirix.index.projection.SegmentScopedReadDictionaries;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
@@ -1169,12 +1173,93 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cached != null) {
       return cached;
     }
-    final Int2LongMap anchors = collectTrieLaneAnchors();
-    final GlobalStringDictionaries resolver = anchors.isEmpty()
-        ? TrieLaneDictionaries.NONE
-        : new TrieLaneDictionaries(this, anchors);
+    // SEGMENT-scoped dictionaries first: a page written under them anchors on its SEGMENT, which the
+    // per-column anchors cannot describe. A resource uses one lane or the other, never both, because
+    // both are decided by the load that wrote the pages.
+    GlobalStringDictionaries resolver = segmentLaneDictionaries();
+    if (resolver == null) {
+      final Int2LongMap anchors = collectTrieLaneAnchors();
+      resolver = anchors.isEmpty()
+          ? TrieLaneDictionaries.NONE
+          : new TrieLaneDictionaries(this, anchors);
+    }
     trieLaneDictionaries = resolver;
     return resolver;
+  }
+
+  /**
+   * The SEGMENT-scoped resolver when this revision's projections carry segment anchors, else
+   * {@code null}. Builds the tag-to-column map the same way the per-column anchors are built — from
+   * the path summary — because a page tags with a path class and the anchor table is keyed by column.
+   */
+  private @Nullable GlobalStringDictionaries segmentLaneDictionaries() {
+    final IndexController<?, ?> indexController = resourceSession.getRtxIndexController(revisionNumber);
+    if (indexController == null) {
+      return null;
+    }
+    SegmentDictionaryAnchors anchors = null;
+    final Int2IntMap columnByTag = new Int2IntOpenHashMap();
+    PathSummaryReader pathSummary = null;
+    for (final IndexDef indexDef : indexController.getIndexes().getIndexDefs()) {
+      if (!indexDef.isProjectionIndex()) {
+        continue;
+      }
+      final byte[] blob = ProjectionIndexHOTStorage.readBlob(this, indexDef.getID(), 0L);
+      if (blob == null) {
+        continue;
+      }
+      final ProjectionIndexMetadata.SegmentAnchor[] segmentAnchors =
+          ProjectionIndexMetadata.parse(blob).segmentAnchors();
+      if (segmentAnchors == null || segmentAnchors.length == 0) {
+        continue;
+      }
+      if (pathSummary == null) {
+        pathSummary = PathSummaryReader.getInstance(this, resourceSession);
+      }
+      final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+      for (int column = 0; column < fieldPaths.size(); column++) {
+        addTagColumnsForColumn(columnByTag, pathSummary, fieldPaths.get(column), column);
+      }
+      if (anchors == null) {
+        anchors = new SegmentDictionaryAnchors();
+      }
+      for (final ProjectionIndexMetadata.SegmentAnchor anchor : segmentAnchors) {
+        anchors.seal(anchor.segment(), anchor.column(), anchor.headerKey(), anchor.sealedEntryCount());
+      }
+    }
+    return anchors == null || columnByTag.isEmpty()
+        ? null
+        : new SegmentScopedReadDictionaries(this, columnByTag, anchors);
+  }
+
+  /**
+   * Map every path class of {@code fieldPath} to {@code column}. A tag two columns both claim is
+   * dropped rather than pointed at one of them: there is no right answer, and resolving against the
+   * wrong column returns values that are plausible and wrong.
+   */
+  private void addTagColumnsForColumn(final Int2IntMap columnByTag, final PathSummaryReader pathSummary,
+      final Path<QNm> fieldPath, final int column) {
+    final LongSet pathClasses;
+    try {
+      pathClasses = pathSummary.getPCRsForPath(fieldPath);
+    } catch (final PathException unresolvable) {
+      LOGGER.debug("segment lane: field path {} does not resolve at revision {}", fieldPath, revisionNumber,
+          unresolvable);
+      return;
+    }
+    for (final LongIterator keys = pathClasses.iterator(); keys.hasNext();) {
+      final long pathNodeKey = keys.nextLong();
+      if (pathNodeKey <= 0L || pathNodeKey > Integer.MAX_VALUE) {
+        continue;
+      }
+      final int tag = (int) pathNodeKey;
+      final int previous = columnByTag.getOrDefault(tag, -1);
+      if (previous == -1) {
+        columnByTag.put(tag, column);
+      } else if (previous != column) {
+        columnByTag.remove(tag);
+      }
+    }
   }
 
   private Int2LongMap collectTrieLaneAnchors() {

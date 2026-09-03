@@ -134,6 +134,9 @@ public final class ProjectionBulkLoad {
   /** The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound. */
   private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
 
+  /** The segment-scoped dictionary lane, or {@code null} when that lane is switched off. */
+  private volatile @Nullable SegmentDictionaryLane segmentDictionaryLane;
+
   /**
    * The writer the lane was installed on, so ABORT can uninstall it too.
    *
@@ -369,6 +372,32 @@ public final class ProjectionBulkLoad {
     storageEngineWriter.installDocumentStringDictionaries(dictionaries);
   }
 
+  /** Stop handing segment views to new pages; the lane's state dies with the load. */
+  private void releaseSegmentLane(final @Nullable StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (lane == null) {
+      return;
+    }
+    segmentDictionaryLane = null;
+    lane.release(storageEngineWriter);
+  }
+
+  /**
+   * Arm the SEGMENT-scoped dictionary lane, the alternative to the trie lane that needs no pre-pass:
+   * a segment's dictionary is minted as its pages are encoded and sealed when they are all done.
+   * Silent when the lane is switched off, which is every load that has not asked for it.
+   */
+  private void bindSegmentLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final SegmentDictionaryLane lane =
+        SegmentDictionaryLane.bind(storageEngineWriter, indexDef.getProjectionFields().size());
+    if (lane == null) {
+      return;
+    }
+    this.segmentDictionaryLane = lane;
+    this.trieLaneWriter = storageEngineWriter;
+    builder.setSegmentScopedDictionaries(lane.dictionaries());
+  }
+
   /**
    * Release the trie lane's per-thread snapshot readers.
    *
@@ -460,6 +489,7 @@ public final class ProjectionBulkLoad {
       ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       load.bindTrieLane(storageEngineWriter, indexDef);
+      load.bindSegmentLane(storageEngineWriter, indexDef);
       return load;
     } catch (final Throwable failure) {
       if (persistentMutationStarted) {
@@ -546,6 +576,7 @@ public final class ProjectionBulkLoad {
     // as it frees the bloom chunks and the summaries. The writer reference is not available here, so
     // only the readers are closed -- the writer's own resolver field dies with the writer.
     releaseTrieLane(trieLaneWriter);
+    releaseSegmentLane(trieLaneWriter);
     try {
       bloomChunks.release();
     } finally {
@@ -905,12 +936,14 @@ public final class ProjectionBulkLoad {
       // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
       ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+      sealSegmentDictionaries(storageEngineWriter);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
       // Before every other release, because it is the one that reports: the probe/hit/absent counters
       // are the lane's only evidence of what it actually did, and the converted-arm gate asserts
       // absent == 0. A finish that failed still frees the snapshot readers.
       releaseTrieLane(storageEngineWriter);
+      releaseSegmentLane(storageEngineWriter);
       try {
         bloomChunks.release();
       } finally {
@@ -927,6 +960,42 @@ public final class ProjectionBulkLoad {
         }
       }
     }
+  }
+
+  /**
+   * Seal every segment dictionary and record where each went, then republish slot 0 with the anchor
+   * table. A no-op when the lane is off.
+   *
+   * <p>
+   * Runs AFTER {@code finishPersistWithStreamingFences} has written slot 0, and rewrites it — the same
+   * shape {@code ProjectionRankPass} uses when it turns a column global after the fact. It cannot run
+   * before: the anchors do not exist until the dictionaries are written, and the dictionaries cannot be
+   * written until every page has been encoded. The flush pool is fenced first, because
+   * {@code SegmentSealController.drain} refuses while a page is still encoding — sealing then would
+   * drop the values that page is about to mint.
+   * </p>
+   */
+  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (lane == null) {
+      return;
+    }
+    storageEngineWriter.awaitPendingAsyncFlush();
+    final ProjectionIndexMetadata.SegmentAnchor[] anchors = lane.sealAll(storageEngineWriter);
+    if (anchors.length == 0) {
+      return;
+    }
+    final byte[] blob = storage.getBlob(0L);
+    final ProjectionIndexMetadata metadata = blob == null
+        ? null
+        : ProjectionIndexMetadata.parse(blob);
+    if (metadata == null) {
+      throw new IllegalStateException("segment dictionary lane cannot anchor: slot 0 holds no readable metadata");
+    }
+    final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
+        metadata.fieldNames(), metadata.columnKinds(), metadata.rowGroupCount(), metadata.buildRevision(),
+        metadata.setValueRowCounts(), metadata.valueDictionaryHeaderKeys(), anchors);
+    storage.putBlob(0L, next.serialize());
   }
 
   /** Rows appended so far — test and diagnostic observability. */

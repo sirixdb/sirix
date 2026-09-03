@@ -2185,13 +2185,12 @@ public final class StringRegion {
       // the packing width, the header's count, the parser's derived width -- must come from this
       // snapshot rather than from the live dictionary, which keeps growing underneath a parallel
       // flush.
-      final int entryCount = resolver.dictionaryEntryCount(tagValue);
       final long dictionaryKey = resolver.dictionaryKey(tagValue);
       if (dictionaryKey <= 0L) {
-        return false;
+        return false; // 0 is the "this tag has no dictionary" sentinel, for every lane
       }
-      globalEntryCount[r] = entryCount;
       globalDictionaryKey[r] = dictionaryKey;
+      int maxId = 0;
       int[] ids = globalIds[r];
       if (ids == null || ids.length < sz) {
         ids = new int[Math.max(sz, 16)];
@@ -2212,19 +2211,29 @@ public final class StringRegion {
         if (id == GlobalStringDictionaries.ID_ABSENT) {
           return false;
         }
-        // DENSITY, asserted rather than assumed. The lane's width comes from the dictionary's entry
-        // count, which is only a bound on the ids because they run 1..entryCount with no gaps. If a
-        // dictionary ever became sparse -- reserved ranges, tombstoned ids, per-column partitioning
-        // -- an id could exceed the count, the derived width would be too narrow, and the id would
-        // be written TRUNCATED: a silently different value, not a failure. One compare per
-        // dictionary entry buys the invariant the whole width derivation rests on.
-        if (id > entryCount) {
-          throw new IllegalStateException("global dictionary for tag " + tagValue + " issued id " + id
-              + " above its entry count " + entryCount + "; the trie lane derives its bit width from that count "
-              + "and requires ids to be dense in 1..entryCount");
-        }
         ids[i] = id;
+        if (id > maxId) {
+          maxId = id;
+        }
       }
+      // The count is read AFTER the ids, and that ordering is load-bearing. A prebuilt dictionary is
+      // fixed, so either order gives the same number; a SEGMENT-scoped dictionary is minted BY THIS
+      // LOOP, so a count read first would be the count before this page's own values existed and the
+      // derived width would be too narrow for ids the page just created. Read after, it covers them.
+      // It is still ONE read used for the packing width, the header's count and the parser's derived
+      // width, which is the property the snapshot existed for.
+      final int entryCount = resolver.dictionaryEntryCount(tagValue);
+      if (maxId > entryCount) {
+        // DENSITY, asserted rather than assumed. The lane's width comes from the entry count, which
+        // is only a bound on the ids because they run 1..entryCount with no gaps. If a dictionary
+        // ever became sparse -- reserved ranges, tombstoned ids, per-column partitioning -- an id
+        // could exceed the count, the derived width would be too narrow, and the id would be written
+        // TRUNCATED: a silently different value, not a failure.
+        throw new IllegalStateException("global dictionary for tag " + tagValue + " issued id " + maxId
+            + " above its entry count " + entryCount + "; the trie lane derives its bit width from that count "
+            + "and requires ids to be dense in 1..entryCount");
+      }
+      globalEntryCount[r] = entryCount;
       return true;
     }
 

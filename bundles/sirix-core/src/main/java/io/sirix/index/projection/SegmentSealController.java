@@ -134,6 +134,35 @@ public final class SegmentSealController {
     return ready;
   }
 
+  /**
+   * Every unsealed segment, marked sealed, WITHOUT the outstanding-page check — for a caller that has
+   * already fenced the flush pool.
+   *
+   * <p>
+   * {@link #drain} refuses while a page is outstanding because sealing then would drop the values that
+   * page is about to mint. After a fence that cannot happen: no page is encoding, so a residual count
+   * means only that the page was encoded through a path the encode listener does not observe (the
+   * listener is hooked to the windowed flush's sequential pass; a page promoted to the intent log, or
+   * written synchronously, never reaches it). Those pages HAVE minted their values — the fence
+   * guarantees it — so their segments are sealable, and the counter is stale rather than wrong.
+   * </p>
+   *
+   * <p>
+   * This is the direction the design chose deliberately: a MISSED notification must be safe, a
+   * spurious one must not be. Use this only where the fence is the caller's own guarantee.
+   * </p>
+   */
+  public List<Long> drainAfterFence() {
+    final List<Long> ready = new ArrayList<>();
+    for (final var entry : outstanding.entrySet()) {
+      final long segment = entry.getKey();
+      if (sealed.putIfAbsent(segment, Boolean.TRUE) == null) {
+        ready.add(segment);
+      }
+    }
+    return ready;
+  }
+
   /** Whether {@code segment} has already been handed out for sealing. */
   public boolean isSealed(final long segment) {
     return sealed.containsKey(segment);
