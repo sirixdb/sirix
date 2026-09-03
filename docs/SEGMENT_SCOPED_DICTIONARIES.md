@@ -161,6 +161,41 @@ measured today:**
    check that today catches a genuinely unreadable dictionary, so it needs its own witness and should
    follow the measurement, not precede it.
 
+## BUILT so far (2026-09-03), and the one gap left
+
+Six increments are committed, each with witnesses a mutant kills (36 witnesses, 17/17 mutants):
+
+| commit | piece |
+|---|---|
+| `de755c82b` | `ExternalDistinctValues` — bounded distinct collection (the PROJECTION side needs it; the document side does not, see correction 1) |
+| `8374de233` | `SegmentScopedDictionaries` — mint per segment, per-PAGE views (the encode hazard) |
+| `a5ed6bdde` | `SegmentDictionaryAnchors` + `SegmentScopedReadDictionaries` — resolve a segment-anchored page |
+| `387d361f1` | `SegmentSealController` — seal when the last page is ENCODED (the sealing hazard) |
+| `c48037bc3` | `installDocumentStringDictionaryFactory` — a page's resolver chosen per page |
+| `80a9cbc99` | `installDocumentPageEncodedListener` — the encode-completion signal |
+| `3d29efd17` | `SegmentDictionaryFlusher` — write a sealed segment mid-load, with the id-alignment guard |
+
+Both writer seams are **byte-identical** on `gate1mT.sh converted16k` (537,338,008 B), which is the
+property a change to the commit path has to prove.
+
+**The gap: the anchor table is not persisted.** `SegmentDictionaryAnchors` is in-memory, and a reader
+in a later transaction needs `(segment, column) -> header key`. The lane's own anchors live in
+`ProjectionIndexMetadata.valueDictionaryHeaderKeys()` — a `long[]` indexed by COLUMN, read back through
+`ProjectionIndexHOTStorage.readBlob(reader, indexDef.getID(), 0L)` in
+`NodeStorageEngineReader.collectTrieLaneAnchors`. Segment anchors need the same thing indexed by
+`(segment, column)`: at 100M with 1024-leaf segments that is 10,000 x 4 longs plus their sealed counts,
+≈ 640 KB — affordable, but a metadata format addition (permitted: no version machinery).
+
+**Remaining, in order:**
+1. Extend `ProjectionIndexMetadata` with the segment anchor/count table; write it at load end, read it
+   in the reader's segment-mode sibling of `collectTrieLaneAnchors`.
+2. `bindSegmentLane` in `ProjectionBulkLoad`, gated (default off): construct the three objects, install
+   the factory (`adopted` + `viewFor`) and the encoded listener, and at load end `drain()` ->
+   `SegmentDictionaryFlusher.write` -> `anchors.seal`. Seal at DRAIN first — sealing from the encoded
+   listener would run inside the sequential append pass, on the writer's critical section.
+3. A `gate1mT.sh` arm with the switch on: a 1M number in ~40 s, no rebuild, nothing destructive. The
+   curve predicts it lands between the per-leaf baseline (612.8 MB) and the trie lane's 537.3 MB.
+
 ## Shape of the implementation
 
 1. **Mint** ids in arrival order against the segment's resident `GlobalValueDictionaryProbeFront`,
