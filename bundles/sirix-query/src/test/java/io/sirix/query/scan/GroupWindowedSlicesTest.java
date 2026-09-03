@@ -90,6 +90,12 @@ final class GroupWindowedSlicesTest {
       // composite key with a string component (winner key parts read through the one-leaf access)
       "subsequence(for $h in " + DOC + " let $a := $h.k7, $s := $h.s group by $a, $s let $c := count($h) "
           + "order by $c descending return {\"k7\": $a, \"s\": $s, \"c\": $c}, 1, 12)",
+      // composite key with a CONDITIONAL string part (q39's shape: two equality conditions on other
+      // columns choose between the string column and ""): the winner emission must read the condition
+      // columns of every winner leaf, not only the key columns
+      "subsequence(for $h in " + DOC + " let $a := $h.k7, $src := (if ($h.k7 = 1 and $h.k40 = 3) then $h.s else \"\") "
+          + "group by $a, $src let $c := count($h) order by $c descending "
+          + "return {\"k7\": $a, \"src\": $src, \"c\": $c}, 1, 12)",
       // composite key with a grouped COUNT(DISTINCT)
       "subsequence(for $h in " + DOC + " let $a := $h.k7, $b := $h.k40 group by $a, $b "
           + "let $u := count(distinct-values($h.u)) order by $u descending return {\"k7\": $a, \"k40\": $b, \"u\": $u}, 1, 12)",

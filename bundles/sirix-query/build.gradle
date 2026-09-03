@@ -415,12 +415,18 @@ tasks.register('clickBench', JavaExec) {
     mainClass = 'io.sirix.query.bench.clickbench.ClickBenchRunMain'
     def argsStr = (findProperty('clickbench.args') ?: '').toString()
     args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    // C2, not the Graal JIT, for the query JVM: on GraalVM the JVMCI compiler takes seconds to compile
+    // the mega-kernels, so the "hot" tries of a short query run C1 code (100M q39: 0.49 s under Graal,
+    // 0.065 s under C2 — the whole q36–q42 family swung 3–6× between legs for this reason alone). The
+    // Unlock flag makes the switch a no-op on a plain HotSpot build, where the flag is experimental.
     def baseJvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED',
         '--enable-preview',
+        '-XX:+UnlockExperimentalVMOptions',
+        '-XX:-UseJVMCICompiler',
         '-Xms4g',
         '-Xmx12g'
     ]

@@ -14892,10 +14892,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final byte[] cKeyKinds;
           final ProjectionColumnStore.ColumnSlice[][] cAggCols;
           final ProjectionColumnStore.ColumnSlice[][] cCondCols;
-          // Winner emission reads each winner's key parts from its leaf once; windowed, a one-leaf access.
-          final WindowedSliceArrays cEmit = windowedSlices && compositeSlicedArm
-              ? new WindowedSliceArrays(groupStore, columnFetcher(), null, 1, ProjectionColumnStore.LEAF_ACCESS_WINDOW)
-              : null;
+          // Winner emission reads each winner's key parts from its leaf once; windowed, the winners'
+          // leaves are decoded through ONE leaf-set access (built once the winners are known).
+          final boolean emitFromLeafSet = windowedSlices && compositeSlicedArm;
           if (compositeSlicedArm && !windowedSlices) {
             final ProjectionColumnStore.ColumnSegmentFetcher cFetcher = columnFetcher();
             cPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, cFetcher);
@@ -15365,25 +15364,63 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (anyGlobalKeyComponent && winnerGlobalKeyViews == null) {
             return declineGroupAgg("global substring dictionary became unreadable before winner materialization");
           }
+          // Windowed: the winners sit in as many leaves as there are winners (a thousand for an
+          // OFFSET 1000), so a one-leaf access paid one synchronous fetch per winner per column —
+          // 1,935 single-offset reads, 0.4 s of q39's 0.5 s hot try at 100M — where a leaf-set
+          // access fetches each column's segments for every winner leaf in one batch.
+          final ProjectionColumnStore.ColumnSlice[][] keyColsE;
+          final ProjectionColumnStore.ColumnSlice[][] condColsE;
+          if (emitFromLeafSet) {
+            final int winners = finalSel.size();
+            final int[] winnerLeaves = new int[winners];
+            for (int i = 0; i < winners; i++) {
+              winnerLeaves[i] = (int) (finalSel.keyLongAt(i) >>> 20);
+            }
+            IntArrays.quickSort(winnerLeaves);
+            int distinct = 0;
+            for (int i = 0; i < winners; i++) {
+              if (i == 0 || winnerLeaves[i] != winnerLeaves[i - 1]) {
+                winnerLeaves[distinct++] = winnerLeaves[i];
+              }
+            }
+            final ProjectionColumnStore.LeafColumnAccess emitAccess =
+                groupStore.leafSetAccess(columnFetcher(), null, winnerLeaves, 0, distinct);
+            keyColsE = new ProjectionColumnStore.ColumnSlice[keyCount][rowGroupCount];
+            condColsE = keyCondCols != null
+                ? new ProjectionColumnStore.ColumnSlice[keyCondCols.length][]
+                : null;
+            if (condColsE != null) {
+              for (int c = 0; c < keyCondCols.length; c++) {
+                condColsE[c] = keyCondCols[c] >= 0
+                    ? new ProjectionColumnStore.ColumnSlice[rowGroupCount]
+                    : null;
+              }
+            }
+            for (int i = 0; i < distinct; i++) {
+              final int leaf = winnerLeaves[i];
+              for (int key = 0; key < keyCount; key++) {
+                keyColsE[key][leaf] = emitAccess.predicateSlice(groupCols[key], leaf);
+              }
+              if (condColsE != null) {
+                for (int c = 0; c < keyCondCols.length; c++) {
+                  if (condColsE[c] != null) {
+                    condColsE[c][leaf] = emitAccess.predicateSlice(keyCondCols[c], leaf);
+                  }
+                }
+              }
+            }
+          } else {
+            keyColsE = cKeyCols;
+            condColsE = cCondCols;
+          }
           for (int i = 0; i < finalSel.size(); i++) {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int rowIdx = (int) (src & 0xFFFFF);
             if (compositeSlicedArm) {
-              final ProjectionColumnStore.ColumnSlice[][] keyColsE = cEmit != null
-                  ? cEmit.columns(groupCols, leaf, leaf + 1)
-                  : cKeyCols;
-              final ProjectionColumnStore.ColumnSlice[][] condColsE = cEmit != null
-                  ? keyCondCols != null
-                      ? cEmit.columnsNullable(keyCondCols, leaf, leaf + 1)
-                      : null
-                  : cCondCols;
               ProjectionColumnGroupScan.readRowKeyPartsSliced(keyColsE, cKeyKinds, condColsE, leaf, rowIdx, strParts,
                   longParts, present, isLong, keyOffsetsEff, keySubstrEff, keyCondCols, keyCondLits, keySubstLit, keyDivModEff,
                   winnerGlobalKeyViews);
-              if (cEmit != null) {
-                cEmit.release(leaf, leaf + 1);
-              }
             } else {
               final byte[] payload = armPayloads.get(leaf);
               int[] offs = offsetsByLeaf[leaf];
