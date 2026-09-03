@@ -163,15 +163,26 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 
 Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
 (`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is extension space
-**per page kind, not a shared namespace**: a kind that defines no flag bit writes zero and rejects
-anything else, and a kind that defines one reads through
-`readVersionAndFlagsAllowing(source, allowedMask)`, which rejects any bit outside that kind's own
-mask as "written by a newer version" instead of misparsing. Two kinds define bit `0x01` today, and
-it means a different thing in each: `HOT_LEAF` (`FLAG_OVERFLOW_PAGE_REFS` — the side map below) and
-`OVERFLOW` (`FLAG_OVERFLOW_PAYLOAD_COMPRESSED` — the compressed body below, **the default since the
-payload-compression flip**). **Compatibility is one-directional:** a build that predates a flag bit
-reads a resource written without it, but a resource written WITH it cannot be read by that build —
-the reader refuses the unknown bit loudly rather than misparsing. Kind ids: 1 KVLP, 2 NAME,
+**per page kind, not a shared namespace** — the same bit number means a different thing depending on
+the kind byte that precedes it, so a bit only has meaning once the kind is known. A kind that
+defines no flag writes zero and rejects anything else; a kind that defines flags reads through
+`readVersionAndFlagsAllowing(source, allowedMask)`, which rejects any bit outside **that kind's own**
+mask as "written by a newer version" instead of misparsing.
+
+The masks declared today — derive this list from the `readVersionAndFlagsAllowing` call sites rather
+than trusting it to stay complete, since a kind may add a flag without touching this document:
+
+| kind | bit | constant | meaning |
+|---|---|---|---|
+| KVLP (1) | `0x01` | `ChunkedBodyConfig.FLAG_CHUNKED_BODY` | body is chunk-framed (one META frame plus heap chunks split at entry boundaries, each independently compressed and checksummed) instead of one monolithic codec frame; writer off by default, both bodies readable |
+| KVLP (1) | `0x02` | `FLAG_OVERFLOW_SLOT_SIDECAR` | the page carries a cold overflow-slot sidecar. Set from the data, not a switch: written whenever `getSideSlotCount() != 0` |
+| OVERFLOW (9) | `0x01` | `FLAG_OVERFLOW_PAYLOAD_COMPRESSED` | the compressed body described below — **the default** since the payload-compression flip |
+| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries the segment/blob side map described below |
+
+Every other kind writes zero and refuses any nonzero bit. **Compatibility is one-directional:** a
+build that predates a flag bit reads a resource written without it, but a resource written WITH it
+cannot be read by that build — the reader refuses the unknown bit loudly rather than misparsing.
+Kind ids: 1 KVLP, 2 NAME,
 3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
 12 HOT_LEAF, 13 HOT_INDIRECT, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
 (7 and 14 retired/reserved; readers reject both ids).

@@ -173,8 +173,9 @@ public final class StringRegion {
   /**
    * Arms the TEMPORAL lane: a tag whose whole dictionary is fixed timestamp text is stored as packed
    * numbers instead of text. OFF by default, so a load that does not ask for it writes exactly the
-   * bytes it wrote before; it gates BEHAVIOUR on the WRITE side only, and the decoder always
-   * understands what is on the page.
+   * bytes it wrote before; it gates the ENCODER, and DECODING is unconditional — the decoder always
+   * understands what is on the page, whatever this switch currently says. See
+   * {@link #temporalLaneEnabled()} for the one path by which the switch still reaches a read.
    */
   public static final String TEMPORAL_LANE_PROPERTY = "sirix.page.temporalLane";
 
@@ -193,9 +194,39 @@ public final class StringRegion {
   }
 
   /**
-   * Whether the temporal lane is armed for WRITING. Reads NEVER consult it: a page that was written
-   * with the lane stays readable when the switch goes off, which is what makes the switch safe to
-   * flip on a database that already exists.
+   * Whether the temporal lane is armed for the ENCODER.
+   *
+   * <h2>What is unconditional: DECODING</h2>
+   *
+   * <p>
+   * Reading a region that is already on the page never consults this. Every value is read from the
+   * tag flags the region itself carries, so a page written WITH temporal tags stays readable when
+   * the switch goes off, and a page written without them is unaffected when it goes on. That is
+   * what makes the switch safe to flip on a database that already exists.
+   * </p>
+   *
+   * <h2>What is NOT: a region that has to be REBUILT</h2>
+   *
+   * <p>
+   * A rebuild is an encode, so it consults this like any other encode.
+   * {@code KeyValueLeafPage.getStringRegionHeader()} falls back to re-deriving the region from the
+   * slotted page when none was persisted — a versioning-reconstructed or merged page starts with an
+   * empty region table — and that derive runs a fresh {@link Encoder} and INSTALLS the result into
+   * the page's region table, where {@code getStringRegionPayload()} then finds it. A rebuilt
+   * region's layout therefore follows the CURRENT setting rather than what the writer chose: on a
+   * JVM whose switch disagrees with the writer's, such a page can acquire a temporal tag it never
+   * had on disk, or lose one it did.
+   * </p>
+   *
+   * <p>
+   * Answers do not change — every consumer of a temporal tag either renders it or declines to a
+   * slower route — but which route runs does, so the effect is latency, not correctness.
+   * </p>
+   *
+   * <p>
+   * Consequence worth knowing before inspecting a region: anything that reads one back while this
+   * switch is armed may be observing a read-time rebuild rather than the persisted bytes.
+   * </p>
    */
   public static boolean temporalLaneEnabled() {
     final Boolean override = TEMPORAL_LANE_OVERRIDE;

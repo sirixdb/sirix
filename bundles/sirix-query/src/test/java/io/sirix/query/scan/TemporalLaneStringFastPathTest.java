@@ -138,11 +138,18 @@ final class TemporalLaneStringFastPathTest {
    *
    * <p>
    * Deliberately {@link KeyValueLeafPage#getStringRegionPayload()} and not
-   * {@code getStringRegionHeader()}: the latter falls back to re-encoding the region from the
-   * slotted page when none was persisted, and that encoder consults {@code temporalLaneEnabled()}
-   * at READ time. This witness would then report a tag it manufactured in memory any time the write
-   * switch happened to be armed — so it reads the payload instead, and can only be answered by
-   * bytes that were actually written.
+   * {@code getStringRegionHeader()}: the latter falls back to re-deriving the region from the
+   * slotted page when none was persisted, and a derive is an ENCODE, so it consults
+   * {@code temporalLaneEnabled()} at read time. Asking for the payload does not trigger that
+   * fallback.
+   * </p>
+   *
+   * <p>
+   * The payload accessor alone is not a guarantee of provenance — a derive installs its result into
+   * the same region table, so a page some earlier call already derived would answer from that. What
+   * closes it here is that {@code setUp} disarms the switch before any witness runs: a derive under
+   * a disarmed switch cannot produce a temporal tag, so this count can only be raised by tags that
+   * were genuinely written.
    * </p>
    *
    * @return the number of leaf pages with at least one persisted temporal tag
