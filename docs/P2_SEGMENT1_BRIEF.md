@@ -2149,3 +2149,51 @@ allowance as before, and when the allowance ALONE crosses a power-of-two boundar
 Witness `sharedHintNeverDoublesTheTableForItsSkewAllowance` (the 100M numbers, the share-needs-2^23 case,
 the unchanged 3,000 + 5 % case, and the boundary of `capacityFor`); mutant "never refuse" killed
 (`expected 4194304 but was 8388608`). Unmeasured at 100M until the rebuild frees the machine.
+
+## 2026-09-03 ~01:50: the rebuild lands, and q22 falls to 571 s (dfbadd4a9)
+
+The 4-global-column 100M rebuild finished (`INC100MW_DONE rc=0 wall=3956s size=63,142,316,984` vs the
+previous 63,326,782,966 B — no storage regression, `-DversioningType=FULL` pinned). First leg on it
+(E1FULL1, HEAD rig): q5 0.19 → 0.19, q14 2.7 → 0.59, q16 2.5 → 1.42, q17 0.079/0.048, q18 7.5 → 5.4,
+q21 0.48 → 0.29 hot — and **q22 try 1 = 571.4 s** (cpu 6062 s). Leg killed at q22 try 2; a single-try
+diag leg (`DIAG22B`, `failSoft` now prints the stack under `-Dsirix.projDiag`) gave the frame:
+`ArrayIndexOutOfBoundsException: Index 0 out of bounds for length 0` at
+`ProjectionColumnGroupScan.aggregateByGroupNumericFlat:165` — `groupPresence[w]` on a zero-length array.
+
+Three dormant conditions met on one leaf: (1) lever E made the global SearchPhrase `!= ""` zone-prunable
+(`[prune] col=16 kind=5 op=NE zone: dropped=1265`); (2) q22's `not(contains($h.URL, ".google."))` makes the
+WHERE a predicate TREE with a NOT, which disarms `evaluateMaskTree`'s "every operand pruned ⇒ 0 rows"
+shortcut (a NOT flips a pruned operand to all-true), so the exact evaluation ran — producing an all-zero
+mask (the keep program prices a NOT subtree as all-kept, so the exact mask is bounded above by the keep
+decision) but RETURNING the leaf's row count; (3) the combined fit refused residency (4,611 MB needed vs
+3,072), so the windowed access filled the group column through `predicateSlice`, i.e. the keep-dropped leaf
+was the zero-length PRUNED sentinel for the group column too, and every group kernel hoists
+`groupPresence[w]` above its per-bit mask test. On the old DB the keep mask never dropped a q22 leaf.
+
+Fix: `evaluateMaskTree` ORs the final mask words and returns 0 for an all-zero mask — the contract every
+kernel already honours, and a free skip for any leaf whose exact mask is empty. q22 (FIX22, 3 tries):
+10.87 / 0.80 / 0.78 s, `route=group-aggregate+numeric-group-by+group-distinct`, answer byte-identical to
+D1FULL2. Witness `NegatedTreeOverPrunedGlobalLeavesQueryTest` (200 leaves, even leaves all-empty phrases,
+three global columns, q22's WHERE, 1-byte fill budget, one worker, strict serving); mutant `return rowCount`
+reproduces the exact exception. A witness trap: `min($h.url)` over a GLOBAL column is a deferred string
+extremum that serves only on a rank-ordered dictionary (the 100M build has the rank pass, an `always`-mode
+test build does not) — the witness keeps the WHERE and the key and drops the string MINs.
+
+## 2026-09-03 ~02:15: LEVER H — COUNT(DISTINCT numeric) on every worker (e3c31e8d8)
+
+The leg log had said it all along: `# q4 try 2: wall=1.682 s cpu=1.7 s util=1.0/20`. The projection
+count-distinct arm folded every slice serially into one `LongOpenHashSet` (17.6M keys), and the bitset arm
+(q5) walked the slices serially too. Lever H: `DistinctLongSet` (open addressing, 8 B/slot, murmur fmix64 —
+low bits index, high bits partition), `SharedDistinctLongSet` (64 partitions, per-worker 512-key buffers
+drained under the partition monitor, budget-charged, refusal → serial fold), and
+`ProjectionColumnScan.distinctLongs / distinctBitset / distinctBitsetUnionCount` over slice ranges; the
+executor fans ≥ 32K present rows over its workers, bitset when the span fits 64 MB per worker. Kill switch
+`-Dsirix.projection.countDistinct.numericParallel=false`; counter
+`projectionCountDistinctNumericParallelServedCount`.
+
+H1Q45 (3 tries, answers identical): q4 1.32 / 0.46 / 0.28 s (was 1.44 / 1.68 / 1.48), q5 0.52 / 0.085 /
+0.042 s (was 1.06 / 0.19 / 0.19). Six mutants killed across the unit and the query test (buffer flush
+skipped, union reads one bitset, fan-out gated off, zone guard swallowed) — the query test asserts the
+parallel counter beside the served counter, or the serial fold passes it.
+
+Full leg H1FULL1 (levers E–H on the rebuilt DB) launched 02:18.
