@@ -583,8 +583,15 @@ public final class GroupTableSpill {
    * The stripe at which {@link #bytesPerGroup} reaches the flat {@value #BYTES_PER_GROUP} figure, so
    * that the stride-free overloads keep the numbers they have always returned whatever the property
    * says.
+   *
+   * <p>
+   * It is DERIVED, and public so that a caller planning without a stride charges the flat figure by
+   * construction rather than by repeating the number: a second copy would keep the old value if
+   * {@link #CAPACITY_SLACK} or {@value #BYTES_PER_GROUP} ever moved, and would silently plan a
+   * different number of passes than the stride-free overloads it is meant to match.
+   * </p>
    */
-  private static final int WIDEST_CHARGED_STRIDE = (int) (BYTES_PER_GROUP / (Long.BYTES * CAPACITY_SLACK));
+  public static final int WIDEST_CHARGED_STRIDE = (int) (BYTES_PER_GROUP / (Long.BYTES * CAPACITY_SLACK));
 
   /**
    * The budget a CLEAN heap of this size yields — {@link #groupBudgetFor} at a headroom of the whole

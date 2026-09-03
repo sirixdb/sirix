@@ -117,24 +117,24 @@ final class GlobalValueDictionaryVerdictRangeTest {
     }
   }
 
-  /** The whole sweep, split at {@code lanes} bucket boundaries and merged the way the executor does. */
+  /**
+   * The whole sweep, split at {@code lanes} bucket boundaries and merged.
+   *
+   * <p>
+   * Every number here comes from {@link GlobalValueDictionary.VerdictSlice}, which is the SAME code
+   * the executor's parallel sweep splits and merges through. A copy of the slice sizing, the word
+   * base or the merge clamp in this file would agree with itself while the shipped arithmetic
+   * drifted — and drift in exactly those three numbers is the dropped row this class exists to
+   * catch, so there is no copy.
+   * </p>
+   */
   private static long[] split(final GlobalValueDictionary.ReadView view, final ProjectionIndexScan.Op op,
       final byte[] literal, final int lanes) {
-    final int buckets = view.verdictBucketCount();
-    final long[] merged = new long[view.entryCount() + 64 >>> 6];
+    final long[] merged = view.newVerdict();
     for (int lane = 0; lane < lanes; lane++) {
-      final int lo = (int) ((long) buckets * lane / lanes);
-      final int hi = (int) ((long) buckets * (lane + 1) / lanes);
-      if (lo >= hi) {
-        continue;
-      }
-      final int wordBase = lo << 2;
-      final long[] slice = new long[((hi - lo) << 2) + 1];
-      view.fillStringOpVerdict(op, literal, lo, hi, slice, wordBase);
-      final int limit = Math.min(slice.length, merged.length - wordBase);
-      for (int w = 0; w < limit; w++) {
-        merged[wordBase + w] |= slice[w];
-      }
+      final GlobalValueDictionary.VerdictSlice slice = view.verdictSlice(lane, lanes);
+      slice.fill(view, op, literal);
+      slice.mergeInto(merged);
     }
     return merged;
   }

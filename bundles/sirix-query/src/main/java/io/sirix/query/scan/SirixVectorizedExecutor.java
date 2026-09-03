@@ -8625,7 +8625,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
     final int buckets = view.verdictBucketCount();
     final int entryCount = view.entryCount();
-    final long[] verdict = new long[entryCount + 64 >>> 6];
+    final long[] verdict = view.newVerdict();
     final int lanes = Math.max(1, Math.min(Math.max(1, threads), buckets / VERDICT_BUCKETS_PER_LANE));
     final long t0 = PROJ_DIAG
         ? System.nanoTime()
@@ -8633,12 +8633,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (lanes == 1) {
       view.fillStringOpVerdict(op, literalUtf8, 0, buckets, verdict, 0);
     } else {
-      final long[][] slices = new long[lanes][];
-      final int[] bases = new int[lanes];
+      final GlobalValueDictionary.VerdictSlice[] slices = new GlobalValueDictionary.VerdictSlice[lanes];
       parallel(lanes, idx -> {
-        final int lo = (int) ((long) buckets * idx / lanes);
-        final int hi = (int) ((long) buckets * (idx + 1) / lanes);
-        if (lo >= hi) {
+        final GlobalValueDictionary.VerdictSlice slice = view.verdictSlice(idx, lanes);
+        if (slice.isEmpty()) {
           return;
         }
         final GlobalValueDictionary.ReadView laneView =
@@ -8650,22 +8648,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           throw new IllegalStateException(
               "global value dictionary changed size mid-verdict: " + entryCount + " -> " + laneView.entryCount());
         }
-        final int wordBase = lo << 2;
-        final long[] slice = new long[((hi - lo) << 2) + 1];
-        laneView.fillStringOpVerdict(op, literalUtf8, lo, hi, slice, wordBase);
-        bases[idx] = wordBase;
+        slice.fill(laneView, op, literalUtf8);
         slices[idx] = slice;
       });
       for (int lane = 0; lane < lanes; lane++) {
-        final long[] slice = slices[lane];
+        final GlobalValueDictionary.VerdictSlice slice = slices[lane];
         if (slice == null) {
           continue;
         }
-        final int base = bases[lane];
-        final int limit = Math.min(slice.length, verdict.length - base);
-        for (int w = 0; w < limit; w++) {
-          verdict[base + w] |= slice[w];
-        }
+        slice.mergeInto(verdict);
       }
     }
     if (PROJ_DIAG) {
@@ -13339,7 +13330,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private static final int COMPLETED_REPLAY_MAX_BUDGET_MULTIPLE = 2;
     private static final LongAdder BUDGET_REFRESHES = new LongAdder();
     /** The stripe at which the per-group charge is the flat figure: what a stride-free plan assumes. */
-    private static final int FLAT_CHARGED_STRIDE = 8;
+    private static final int FLAT_CHARGED_STRIDE = GroupTableSpill.WIDEST_CHARGED_STRIDE;
     /** Test seam: the clean-heap ceiling a refresh compares against; negative = the real one. */
     private static volatile long ceilingForTesting = -1L;
     /** Test seam: stands in for the collection plus the budget re-read; {@code null} = the real one. */

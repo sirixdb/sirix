@@ -259,6 +259,138 @@ public final class GlobalValueDictionary {
 
   private static final byte[] EMPTY_SEPARATOR = new byte[0];
 
+  /**
+   * One lane's share of a SPLIT verdict sweep: the bucket range the lane owns, the slice it fills,
+   * and the merge that folds that slice back into the whole-dictionary bitset.
+   *
+   * <h2>Why the arithmetic lives here and nowhere else</h2>
+   *
+   * <p>
+   * Three numbers decide whether a split sweep is lossless: how long the slice is, which global
+   * verdict word its element zero stands for, and how far the merge may write. They are related by
+   * the id/bucket/word aliasing {@link ReadView#fillStringOpVerdict} documents — bucket {@code b}
+   * owns ids {@code 256b+1 .. 256b+256} and therefore words {@code 4b .. 4b+4}, the last of which is
+   * bucket {@code b+1}'s first — so getting any one of them wrong drops a row SILENTLY, at one id in
+   * 256, on the path whose whole job is to decide which rows match. A second copy of the three is
+   * how a caller and its regression test agree with each other while both drift from the sweep;
+   * every caller therefore splits through this type instead of recomputing it.
+   * </p>
+   *
+   * <p>
+   * A lane owns its slice outright, which is what makes the parallel sweep safe: lanes OR-ing into
+   * one shared array would lose one another's bits in the boundary word they share.
+   * </p>
+   */
+  public static final class VerdictSlice {
+
+    private static final long[] NO_WORDS = new long[0];
+
+    private final int bucketLo;
+    private final int bucketHi;
+    private final int wordBase;
+    private final long[] words;
+
+    private VerdictSlice(final int bucketLo, final int bucketHi) {
+      this.bucketLo = bucketLo;
+      this.bucketHi = bucketHi;
+      this.wordBase = bucketLo << 2;
+      this.words = bucketLo >= bucketHi
+          ? NO_WORDS
+          : new long[((bucketHi - bucketLo) << 2) + 1];
+    }
+
+    /**
+     * Lane {@code lane} of {@code lanes} over {@code buckets} buckets — an even split by bucket, so
+     * that no two lanes ever fill the same bucket and every bucket is filled by one.
+     *
+     * @param buckets {@link ReadView#verdictBucketCount()}
+     * @param lane the lane, {@code 0 <= lane < lanes}
+     * @param lanes number of lanes the sweep is split into, at least one
+     * @return the lane's share, possibly {@linkplain #isEmpty() empty} when there are more lanes
+     *         than buckets
+     * @throws IllegalArgumentException if {@code buckets} is negative, {@code lanes} is not
+     *         positive, or {@code lane} is not a lane of {@code lanes}
+     */
+    public static VerdictSlice forLane(final int buckets, final int lane, final int lanes) {
+      if (buckets < 0) {
+        throw new IllegalArgumentException("buckets must not be negative: " + buckets);
+      }
+      if (lanes <= 0) {
+        throw new IllegalArgumentException("lanes must be positive: " + lanes);
+      }
+      if (lane < 0 || lane >= lanes) {
+        throw new IllegalArgumentException("lane " + lane + " is not one of " + lanes + " lanes");
+      }
+      // The multiply is done in long space: buckets * lane overflows an int at ~46k buckets a side,
+      // which a 100M-row dictionary passes, and an overflowed bound would hand a lane a range that
+      // silently excludes buckets no other lane covers.
+      final int lo = (int) ((long) buckets * lane / lanes);
+      final int hi = (int) ((long) buckets * (lane + 1) / lanes);
+      return new VerdictSlice(lo, hi);
+    }
+
+    /** First bucket of the lane, inclusive. */
+    public int bucketLo() {
+      return bucketLo;
+    }
+
+    /** Last bucket of the lane, exclusive. */
+    public int bucketHi() {
+      return bucketHi;
+    }
+
+    /** Whether the lane owns no bucket at all, in which case filling and merging are no-ops. */
+    public boolean isEmpty() {
+      return bucketLo >= bucketHi;
+    }
+
+    /**
+     * Evaluate {@code op} against this lane's buckets into the lane-owned slice.
+     *
+     * <p>
+     * {@code view} may be — and for a parallel sweep MUST be — a view of the lane's own, since a
+     * view's slice caches are single-threaded. It must be a view of the same revision and entry
+     * count the split was sized from; a caller crossing views is responsible for checking that.
+     * </p>
+     *
+     * @param view the dictionary view the lane reads through
+     * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
+     * @param literalUtf8 the literal, UTF-8 encoded
+     */
+    public void fill(final ReadView view, final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
+      Objects.requireNonNull(view, "view must not be null");
+      if (isEmpty()) {
+        return;
+      }
+      view.fillStringOpVerdict(op, literalUtf8, bucketLo, bucketHi, words, wordBase);
+    }
+
+    /**
+     * OR this lane's slice into the whole-dictionary verdict.
+     *
+     * <p>
+     * The write is clamped to what {@code verdict} addresses: the last bucket's slice covers the
+     * boundary word of a bucket that does not exist, and the final bucket is partial whenever the
+     * entry count is not a multiple of 256, so the tail of the last lane's slice legitimately
+     * describes ids past the dictionary. Those words are zero — no id set them — so clamping drops
+     * nothing.
+     * </p>
+     *
+     * @param verdict the whole-dictionary bitset, sized as {@link ReadView#newVerdict()} sizes it
+     * @throws NullPointerException if {@code verdict} is null
+     */
+    public void mergeInto(final long[] verdict) {
+      Objects.requireNonNull(verdict, "verdict must not be null");
+      if (isEmpty()) {
+        return;
+      }
+      final int limit = Math.min(words.length, verdict.length - wordBase);
+      for (int w = 0; w < limit; w++) {
+        verdict[wordBase + w] |= words[w];
+      }
+    }
+  }
+
   /** Revision-bound, fixed-memory reverse-dictionary access for scan kernels. */
   public static final class ReadView {
 
@@ -469,9 +601,31 @@ public final class GlobalValueDictionary {
         }
         default -> throw new IllegalArgumentException("not a per-value string op: " + op);
       }
-      final long[] verdict = new long[entryCount + 64 >>> 6];
+      final long[] verdict = newVerdict();
       fillStringOpVerdict(op, literalUtf8, 0, verdictBucketCount(), verdict, 0);
       return verdict;
+    }
+
+    /**
+     * An empty verdict bitset for this revision, sized {@code (entryCount + 64) >> 6} words — one
+     * bit per id plus the unused bit zero, which is the size every consumer of a verdict assumes.
+     *
+     * @return a fresh, zeroed bitset
+     */
+    public long[] newVerdict() {
+      return new long[entryCount + 64 >>> 6];
+    }
+
+    /**
+     * Lane {@code lane} of {@code lanes} over this dictionary's buckets — {@link VerdictSlice#forLane}
+     * against {@link #verdictBucketCount()}, so a caller never repeats either number.
+     *
+     * @param lane the lane, {@code 0 <= lane < lanes}
+     * @param lanes number of lanes the sweep is split into, at least one
+     * @return the lane's share
+     */
+    public VerdictSlice verdictSlice(final int lane, final int lanes) {
+      return VerdictSlice.forLane(verdictBucketCount(), lane, lanes);
     }
 
     /**

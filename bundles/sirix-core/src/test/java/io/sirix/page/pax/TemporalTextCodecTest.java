@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -258,6 +259,73 @@ final class TemporalTextCodecTest {
         () -> TemporalTextCodec.decode(4_000_000L, TemporalTextCodec.FORM_DATE, new byte[32], 0));
     // Length that does not match the form is refused, not read past.
     assertEquals(TemporalTextCodec.REFUSED, TemporalTextCodec.encode(b, 0, 10, TemporalTextCodec.FORM_DATETIME));
+  }
+
+  @Test
+  @DisplayName("a day count that WRAPS the civil conversion is refused, not rendered as a plausible date")
+  void wrappingDayCountsAreRefused() {
+    // civilFromDays packs the year into the high half of a long. 1_568_703_873_082 days is year
+    // 4_294_967_296 exactly -- 2^32 -- so the year field shifts out entirely and reads back as 0
+    // with a month of 1 and a day of 1. A range check made AFTER the conversion sees "0000-01-01",
+    // accepts it, and the codec writes a date that was never asked for.
+    final long wraps = 1_568_703_873_082L;
+    final byte[] out = new byte[TemporalTextCodec.DATETIME_LENGTH];
+    Arrays.fill(out, (byte) '#');
+    assertThrows(IllegalArgumentException.class,
+        () -> TemporalTextCodec.decode(wraps, TemporalTextCodec.FORM_DATE, out, 0));
+    assertThrows(IllegalArgumentException.class,
+        () -> TemporalTextCodec.decode(wraps * 86_400L, TemporalTextCodec.FORM_DATETIME, out, 0));
+    for (final byte b : out) {
+      assertEquals('#', (char) b, "a refused value must not have written anything");
+    }
+    assertFalse(TemporalTextCodec.isRepresentable(wraps, TemporalTextCodec.FORM_DATE));
+    assertFalse(TemporalTextCodec.isRepresentable(wraps * 86_400L, TemporalTextCodec.FORM_DATETIME));
+  }
+
+  @Test
+  @DisplayName("the representable range is exactly 0000-01-01..9999-12-31, edges included")
+  void theRepresentableRangeIsTheRenderedRange() {
+    assertEquals(TemporalTextCodec.MIN_DAYS, TemporalTextCodec.daysFromCivil(0, 1, 1));
+    assertEquals(TemporalTextCodec.MAX_DAYS, TemporalTextCodec.daysFromCivil(9999, 12, 31));
+    final byte[] out = new byte[TemporalTextCodec.DATETIME_LENGTH];
+    TemporalTextCodec.decode(TemporalTextCodec.MIN_DAYS, TemporalTextCodec.FORM_DATE, out, 0);
+    assertEquals("0000-01-01", new String(out, 0, TemporalTextCodec.DATE_LENGTH, StandardCharsets.UTF_8));
+    TemporalTextCodec.decode(TemporalTextCodec.MAX_DAYS, TemporalTextCodec.FORM_DATE, out, 0);
+    assertEquals("9999-12-31", new String(out, 0, TemporalTextCodec.DATE_LENGTH, StandardCharsets.UTF_8));
+    TemporalTextCodec.decode(TemporalTextCodec.MIN_SECONDS, TemporalTextCodec.FORM_DATETIME, out, 0);
+    assertEquals("0000-01-01 00:00:00", new String(out, StandardCharsets.UTF_8));
+    TemporalTextCodec.decode(TemporalTextCodec.MAX_SECONDS, TemporalTextCodec.FORM_DATETIME, out, 0);
+    assertEquals("9999-12-31 23:59:59", new String(out, StandardCharsets.UTF_8));
+    // One step past either edge is refused on both forms, and REFUSED is not a form at all.
+    for (final long value : new long[] {TemporalTextCodec.MIN_DAYS - 1, TemporalTextCodec.MAX_DAYS + 1}) {
+      assertFalse(TemporalTextCodec.isRepresentable(value, TemporalTextCodec.FORM_DATE), "days " + value);
+      assertThrows(IllegalArgumentException.class,
+          () -> TemporalTextCodec.decode(value, TemporalTextCodec.FORM_DATE, new byte[32], 0));
+    }
+    for (final long value : new long[] {TemporalTextCodec.MIN_SECONDS - 1, TemporalTextCodec.MAX_SECONDS + 1}) {
+      assertFalse(TemporalTextCodec.isRepresentable(value, TemporalTextCodec.FORM_DATETIME), "seconds " + value);
+      assertThrows(IllegalArgumentException.class,
+          () -> TemporalTextCodec.decode(value, TemporalTextCodec.FORM_DATETIME, new byte[32], 0));
+    }
+    assertFalse(TemporalTextCodec.isRepresentable(0L, TemporalTextCodec.FORM_REFUSED));
+    // Long.MIN_VALUE is the REFUSED sentinel: it must never be mistaken for a renderable instant.
+    assertFalse(TemporalTextCodec.isRepresentable(TemporalTextCodec.REFUSED, TemporalTextCodec.FORM_DATE));
+    assertFalse(TemporalTextCodec.isRepresentable(TemporalTextCodec.REFUSED, TemporalTextCodec.FORM_DATETIME));
+  }
+
+  @Test
+  @DisplayName("every value ENCODE produces is representable, so the bound refuses nothing honest")
+  void everyEncodedValueIsRepresentable() {
+    LocalDate d = LocalDate.of(1, 1, 1);
+    final LocalDate end = LocalDate.of(9999, 12, 31);
+    while (!d.isAfter(end)) {
+      final long days = encode(d.toString());
+      assertNotEquals(TemporalTextCodec.REFUSED, days, "date " + d);
+      assertTrue(TemporalTextCodec.isRepresentable(days, TemporalTextCodec.FORM_DATE), "date " + d);
+      assertTrue(TemporalTextCodec.isRepresentable(days * 86_400L + 86_399L, TemporalTextCodec.FORM_DATETIME),
+          "datetime " + d);
+      d = d.plusDays(97);
+    }
   }
 
   @Test

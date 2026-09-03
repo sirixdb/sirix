@@ -681,6 +681,12 @@ public final class StringRegion {
           plain = (formField & 4L) != 0L;
           final long min = VarInt.readSigned(payload, pos);
           pos += VarInt.sizeOfSigned(min);
+          // The frame-of-reference base is bounded here for the same reason form and width are: a
+          // base outside the range the codec can render reaches decode as a value it must refuse,
+          // and a header is cheaper to refuse whole than one value at a time.
+          if (!TemporalTextCodec.isRepresentable(min, form)) {
+            throw new IllegalArgumentException("string region tag " + t + " declares temporal base " + min);
+          }
           tagTemporalMin[t] = min;
           final long bits = VarInt.readUnsigned(payload, pos);
           pos += VarInt.sizeOfUnsigned(bits);

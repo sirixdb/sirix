@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -234,6 +235,68 @@ final class StringRegionTemporalLaneTest {
     for (int entry = 0; entry < 3; entry++) {
       assertEquals(timestamp(entry), valueAt(payload, header, ts, entry));
     }
+  }
+
+  /**
+   * A page whose only tag is the date lane, so the header holds exactly one temporal base.
+   */
+  private static byte[] encodeDateOnlyPage() {
+    StringRegion.setTemporalLaneEnabled(true);
+    try {
+      final StringRegion.Encoder encoder = new StringRegion.Encoder();
+      for (int row = 0; row < ROWS; row++) {
+        encoder.addValue(DATE_TAG, utf8(date(row)));
+      }
+      return encoder.finish(StringRegion.TAG_KIND_PATH_NODE);
+    } finally {
+      StringRegion.clearTemporalLaneOverride();
+    }
+  }
+
+  /** The single offset at which {@code needle} occurs in {@code haystack}; fails if it is not unique. */
+  private static int soleOccurrence(final byte[] haystack, final byte[] needle) {
+    int found = -1;
+    outer:
+    for (int i = 0; i + needle.length <= haystack.length; i++) {
+      for (int j = 0; j < needle.length; j++) {
+        if (haystack[i + j] != needle[j]) {
+          continue outer;
+        }
+      }
+      assertEquals(-1, found, "the pattern must occur once for the splice to be unambiguous");
+      found = i;
+    }
+    assertTrue(found >= 0, "the pattern must occur at all");
+    return found;
+  }
+
+  @Test
+  @DisplayName("a CORRUPT temporal base is refused by the parser, not carried into the decoder")
+  void anUnrepresentableTemporalBaseIsRefused() {
+    final byte[] region = encodeDateOnlyPage();
+    // The page is valid as written, and its base is the earliest date on it.
+    final byte[] first = utf8(date(0));
+    final long min = TemporalTextCodec.encode(first, 0, first.length, TemporalTextCodec.FORM_DATE);
+    final StringRegion.Header header = parse(region);
+    final int dateTag = tagIndexOf(header, DATE_TAG);
+    assertTrue(header.tagTemporal[dateTag]);
+    assertEquals(min, header.tagTemporalMin[dateTag]);
+
+    // Damage only the base, and only in place: a base one day before 0000-01-01 is outside the range
+    // the codec can render, and zig-zags to the same number of varint bytes, so the rest of the
+    // header still frames exactly as it did.
+    final long unrepresentable = TemporalTextCodec.MIN_DAYS - 1L;
+    assertFalse(TemporalTextCodec.isRepresentable(unrepresentable, TemporalTextCodec.FORM_DATE));
+    final byte[] written = new byte[VarInt.sizeOfSigned(min)];
+    VarInt.writeSigned(written, 0, min);
+    final byte[] damaged = new byte[VarInt.sizeOfSigned(unrepresentable)];
+    VarInt.writeSigned(damaged, 0, unrepresentable);
+    assertEquals(written.length, damaged.length, "the splice must not change the header's framing");
+    final byte[] corrupt = region.clone();
+    System.arraycopy(damaged, 0, corrupt, soleOccurrence(region, written), damaged.length);
+
+    assertThrows(IllegalArgumentException.class, () -> parse(corrupt),
+        "a base the codec cannot render must refuse the header, not reach temporalValueAt");
   }
 
   @Test

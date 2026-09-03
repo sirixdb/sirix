@@ -62,6 +62,18 @@ public final class TemporalTextCodec {
   /** Days in each month of a non-leap year, indexed from 1. */
   private static final int[] MONTH_LENGTHS = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+  /** Days since 1970-01-01 of {@code 0000-01-01}, the earliest date {@link #decode} can render. */
+  public static final long MIN_DAYS = daysFromCivil(0, 1, 1);
+
+  /** Days since 1970-01-01 of {@code 9999-12-31}, the latest date {@link #decode} can render. */
+  public static final long MAX_DAYS = daysFromCivil(9999, 12, 31);
+
+  /** Seconds since the epoch of {@code 0000-01-01 00:00:00}. */
+  public static final long MIN_SECONDS = MIN_DAYS * SECONDS_PER_DAY;
+
+  /** Seconds since the epoch of {@code 9999-12-31 23:59:59}. */
+  public static final long MAX_SECONDS = MAX_DAYS * SECONDS_PER_DAY + SECONDS_PER_DAY - 1;
+
   private TemporalTextCodec() {
     throw new AssertionError("no instances");
   }
@@ -82,6 +94,31 @@ public final class TemporalTextCodec {
       return FORM_DATETIME;
     }
     return FORM_REFUSED;
+  }
+
+  /**
+   * Whether {@code value} is a day (DATE) or second (DATETIME) count {@link #decode} can render — the
+   * {@code 0000}..{@code 9999} year range and nothing outside it.
+   *
+   * <p>
+   * This is the check a caller holding a value from an untrusted source owes {@link #decode} BEFORE
+   * the value reaches it, and the check {@code decode} makes first: the day-to-civil conversion packs
+   * the year into the high half of a {@code long}, so a count far enough out of range wraps that
+   * shift and yields a year that any range test applied AFTERWARDS accepts. Validating the input
+   * rather than the converted output is the same discipline {@link #encode} follows — refuse what
+   * cannot be reproduced, never guess.
+   * </p>
+   *
+   * @param value candidate days (DATE) or seconds (DATETIME) since the epoch
+   * @param form {@link #FORM_DATE} or {@link #FORM_DATETIME}
+   * @return {@code false} for {@link #FORM_REFUSED} and for anything outside the range
+   */
+  public static boolean isRepresentable(final long value, final int form) {
+    return switch (form) {
+      case FORM_DATE -> value >= MIN_DAYS && value <= MAX_DAYS;
+      case FORM_DATETIME -> value >= MIN_SECONDS && value <= MAX_SECONDS;
+      default -> false;
+    };
   }
 
   /** Text length a form renders, or {@code 0} for {@link #FORM_REFUSED}. */
@@ -171,6 +208,12 @@ public final class TemporalTextCodec {
       throw new IllegalArgumentException("not an encodable form: " + form);
     }
     Objects.checkFromIndexSize(off, len, dst.length);
+    // BEFORE the conversion, not after it: civilFromDays packs the year into the high half of its
+    // result, so a count outside the range wraps that shift and hands back a year a later guard
+    // waves through -- a guard reading a value the conversion has already destroyed.
+    if (!isRepresentable(value, form)) {
+      throw new IllegalArgumentException("value outside the representable 0000..9999 range: " + value);
+    }
     final long days;
     int secondOfDay = 0;
     if (form == FORM_DATE) {
