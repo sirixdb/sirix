@@ -2399,9 +2399,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final int dictionarySegments = pendingMaintenanceDictionarySegments(globalDictionaries);
       final long[] valueDictionaryHeaderKeys = flushMaintenanceGlobalDictionaries(meta, globalDictionaries);
       final Map<Integer, Map<String, Long>> persistedSetSummaries = setValueRowCounts.flush(persistedKinds);
+      // The SEGMENT anchor table is carried forward, not rebuilt: it describes where each already
+      // sealed segment's dictionary lives, and maintenance neither seals nor moves one. Dropping it
+      // here — which an earlier version of this call did, simply by not passing it — erases the only
+      // route from a converted page's anchor to its dictionary, and every such page becomes
+      // unresolvable on the very next read ("cannot resolve id N against it").
       final ProjectionIndexMetadata refreshed =
           new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(), meta.fieldNames(), persistedKinds,
-              newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries, valueDictionaryHeaderKeys);
+              newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries, valueDictionaryHeaderKeys,
+              meta.segmentAnchors());
       fences.flush(newRowGroupCount);
       final ProjectionBloomChunks.RewriteStats bloomStats =
           ProjectionBloomChunks.rewriteTouchedChunks(storage, persistedKinds, newRowGroupCount,

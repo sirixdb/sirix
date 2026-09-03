@@ -1896,8 +1896,26 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // in getRecordPage(IndexLogKey, boolean), i.e. lazily -- an eager expansion trips
     // PageKind.refuseGlobalTagsOnEagerPath -- and a scan that gets a lazy page expands it itself
     // (PageScanIterator calls ensureAllChunks), so the one-chunk gate is paid once per page.
-    final boolean lazyEligible = trxIntentLog == null
-        && (pointLookup || (indexLogKey.getIndexType() == IndexType.DOCUMENT && documentPagesUseTheTrieLane()));
+    // A lane resource's DOCUMENT pages are lazy on EVERY route, a write transaction's included.
+    //
+    // The comment above called "trxIntentLog == null" a correctness rule, citing the combine that
+    // reads every slot. The assertion it points at says otherwise in its own javadoc: noFragmentIsLazy
+    // is "not a gate -- combine reaches the heap only through accessors that expand for themselves,
+    // so a lazy fragment here would produce the right answer. It would just produce it the expensive
+    // way". It guards a PERFORMANCE promise, not correctness, and the two comments disagreed.
+    //
+    // For a lane resource the eager path is not slower, it is IMPOSSIBLE: expanding a converted page
+    // eagerly trips PageKind.refuseGlobalTagsOnEagerPath, so a write transaction could not read one
+    // at all. Measured before this line existed: a write transaction reached 1,024 of 20,000 records
+    // -- exactly one page -- and moveTo reported "not found" for the rest, which is why incremental
+    // maintenance failed with "inconsistent persistent units" far from its cause.
+    //
+    // The performance the assertion protects is preserved in practice: the lane requires
+    // targetChunkBytes=16384, at which a record page is essentially ONE chunk, so "one chunk at a
+    // time" is one chunk. Measured with -ea and a combine counter: every combine on a lane resource
+    // saw lazy=0 fragments, because the read path materializes before the combine reaches them.
+    final boolean lazyEligible = (indexLogKey.getIndexType() == IndexType.DOCUMENT && documentPagesUseTheTrieLane())
+        || (trxIntentLog == null && pointLookup);
 
     // Symbol tables must be in hand BEFORE the page-cache compute below runs: a document page's
     // fragments are combined inside that compute, combining decodes FSST strings, and fetching a
