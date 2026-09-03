@@ -149,3 +149,34 @@ entry per value), so the cross-leaf prize is larger than the 1M numbers implied 
 Also recorded from the same close: **a negative result must state the scope searched** ("no match under X",
 never a bare "it does not exist"), and **an instrument built from the assumption under test cannot falsify
 it** — a waiter watching the wrong directory corroborates the wrong-directory assumption with silence.
+
+
+## The temporal sub-lever, scoped (2026-09-03)
+
+The only MEASURED route left to ~50 GB at 100M. The three timestamp columns plus EventDate are 3.82 GB
+of written string region; the projection already stores them as epochs (`ClickBenchProjection.
+projectionType` maps DATE/DATETIME to `date`/`timestamp`), but the DOCUMENT record pages still hold the
+text, and `NodeKind` has no temporal kind.
+
+**It does NOT need a new node kind or a new region encoding.** The extension point is the per-TAG lane
+that already exists inside the region: the trie lane marks a tag with `globalTag[r]` and stores packed
+ids plus a per-tag `globalEntryCount` / `globalDictionaryKey` instead of bytes
+(`StringRegion.resolveGlobalIds`, `encodeInto`). A TEMPORAL lane is the sibling of that: a per-tag flag
+saying "every value of this tag is the canonical `YYYY-MM-DD[THH:MM:SS]`", the values stored as packed
+epochs (bit-packed deltas within a page, which is where the real win is — the values inside one leaf are
+seconds apart), and the text reconstructed on read.
+
+**Why it is a better lever than the dictionary lanes, not merely another one:**
+- **No dictionary, so no anchor, no sealing, no closed corpus.** A value either matches the canonical
+  shape or the tag keeps its bytes — decided per page, per tag, with no cross-page state at all.
+- **Incremental by construction.** Nothing to seal and nothing to carry forward in metadata, so none of
+  the machinery that made the dictionary lanes hard to update applies.
+- **Every versioning type for free**, for the same reason: a fragment's tag is self-describing.
+
+**Sizing:** 3 columns x 100M values at ~19 B of text against a packed epoch is the 3.82 GB the census
+measured; delta-packing within a leaf should beat a flat 8 B/value comfortably. 52.49 - ~3.5 = **~49 GB**,
+which is the target.
+
+**Where to start:** `StringRegion.encodeInto` (the per-tag decision, beside `resolveGlobalIds`) and the
+matching parse. The trie lane's density assertion is the model for the guard: refuse loudly rather than
+write a value that reads back plausibly wrong.
