@@ -2520,3 +2520,65 @@ claim at 100M: the framing decomposition (prerequisite 2) and a JUnit witness fo
 baseline `db100m` is 61 GB and must stay as the query-leg reference. A converted 100M build needs
 ≈55–63 GB beside it → free or relocate space first (1M arms under `agents/p2s1/gate1mT/`, old
 `results-*` dumps; never `hits.json.gz`/`hits-1m.json.gz`). Stopped 05:49 on the 06:00 instruction.
+
+## 2026-09-03 morning: the group-by family, then prerequisite 2 closed
+
+### Query lane — c6a hot rank 10 → 6 (`07b36864c`, `a2b83b544`)
+
+The grouped scans cut their key space into **32 partitions whatever the pass count**, so an eight-pass
+shape owns FOUR partitions per pass: the post-scan merge of twelve million groups ran on four threads
+of twenty, into tables of ~500 MB where every probe missed cache. An async-profiler CPU profile of q32
+named it — `acquireExact` 33 % of leaves, `GroupTableSpill.flush → mergePartitionIndexed` 29 % of the
+query's CPU.
+
+Widening alone REGRESSES (4096 partitions with the old table spill: q32 10.4 → 11.3 s, gc 85, 7.96 s of
+pauses) because every partition wanted a presized shared table. The two halves therefore land together:
+
+- **Stripe spill** (`sirix.projection.groupTable.stripeSpill`, default on): a flush copies live stripes
+  into per-partition append buffers, compacted into the partition's table past one partition's share of
+  the pass budget. Buffer chunks ramp from 8 stripes to the `LongChunkPool` length.
+- **`groupMergePartitions()`**: 1024 by default (`sirix.projection.groupTable.partitions`), floored at
+  32, and narrowed by the SELECTION LIMIT — the winner merge takes `partitions × min(limit, candidates)`
+  rows and a partition with fewer candidates than the limit prunes nothing (q39, `LIMIT 10 OFFSET 1000`,
+  handed the final selector 447 k winners instead of 32 k).
+- **Abort on deduplicated groups**: past the budget, compact every buffer, then judge.
+- **`bucketDistinctSizes`** (`a2b83b544`): the grouped COUNT(DISTINCT) sizes are bucketed by partition
+  once per merge instead of the whole map being filtered inside every partition's task, which is what
+  had pinned those arms to the narrow split. q13 alone 2.27 → 1.78 s.
+
+Measured at 100M, three tries: hot sum 32.2 → 26.0 s, cold 71.1 → 65.1 s, 43/43 identical every leg,
+no regressing pair. q32 11.18 → 7.78, q18 4.28 → 3.30, q13 2.37 → 1.85, q31 1.73 → 1.37, q30 0.72 →
+0.54. c6a hot **3.247 → 3.099 (rank 10 → 6 of 140)**, combined 3.865 (rank 2), cold 4.375 (rank 3);
+default board hot 82 → 77, combined 61 → 56.
+
+**Refused by measurement:** a 2× group budget takes q32 alone to four passes and 6.53 s, but a full leg
+is worse (hot 3.159 vs 3.108, gc 309, 15.0 s of pauses) — the group side takes the heap column
+residency was holding. **Leg noise, measured:** repeating one build gives ±0.08 c6a-hot geomean and 2×
+swings on single fast queries; nothing under ≈0.3 ln is a result without a repeat leg.
+
+### Prerequisite 2 (the framing decomposition) is CLOSED FAVOURABLE
+
+Five arms, one build, 1M:
+
+| arm | bytes | vs best no-lane |
+|---|---|---|
+| `prebuiltnochunk` — no lane, no chunking | 612,835,483 | — |
+| `prebuilt` — no lane, default chunk target | 696,721,556 | **+83.9 MB** |
+| `prebuilt16k` — no lane, 16 KB target | 621,224,087 | +8.4 MB |
+| `converted` — lane, default target | 612,835,477 | **−6 bytes** |
+| **`converted16k` — lane, 16 KB target** | **537,338,008** | **−75.5 MB (−12.3 %)** |
+
+The "6 bytes against the best no-lane configuration" from `price-the-frame-a-lever-requires` is
+reproduced to the byte — and explained: at the default chunk target the lane's win pays for its own
+frame and nothing else. The frame is a function of `targetChunkBytes`, not a fixed tax. Priced at its
+best setting the lane is worth −12.3 %, and `BadSlotCensus` on `converted16k` reads back 0 bad of
+1,014,337 nodes (309,129 strings). **Both prerequisites are now closed.**
+
+### 100M re-gate in flight
+
+User decision 09:38: delete the 63.14 GB baseline `db100m/db` (rebuildable from the protected
+`hits.json.gz`; every leg artifact beside it kept) and build the converted arm supervised.
+`agents/p2s1/inc100mLane.sh` = `inc100mW.sh` (which built the 63,326,782,966 B baseline) plus EXACTLY
+three flags — `chunkedBody.enable`, `chunkedBody.targetChunkBytes=16384`, `projection.trieLane` — on a
+frozen rig refreshed to `a2b83b544` (the old `coreL` snapshot was `732a746cc`, BEFORE both lane fixes:
+it would have written truncated slots). Baseline for the comparison: **63,326,782,966 B**.
