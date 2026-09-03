@@ -194,9 +194,43 @@ public final class ProjectionIndexMetadata {
    */
   private final long[] valueDictionaryHeaderKeys;
 
+  /**
+   * Where a SEGMENT-scoped dictionary lives: the sealed anchor for one {@code (segment, column)} pair.
+   *
+   * <p>
+   * A page written under a segment-scoped dictionary records its SEGMENT as its anchor, because at
+   * page-encode time that segment's dictionary has not been written and has no storage key yet. This
+   * is the table that closes the gap, and it is the read side's only route from a page's anchor to a
+   * dictionary. The sealed count travels with the key so the reader's "the dictionary must hold at
+   * least what the page recorded" rule costs no dictionary read.
+   * </p>
+   *
+   * @param segment the segment the pages name
+   * @param column the projected column
+   * @param headerKey the dictionary this segment's values were sealed under, always positive
+   * @param sealedEntryCount entries it held when sealed
+   */
+  public record SegmentAnchor(long segment, int column, long headerKey, int sealedEntryCount) {
+  }
+
+  /**
+   * Segment-scoped dictionary anchors, or {@code null} when this projection has none — which is every
+   * projection that is not using segment-scoped dictionaries, including every one written before they
+   * existed.
+   *
+   * <p>
+   * Written as a SECOND trailing section, after the per-column dictionary anchors. {@link #parse}
+   * treats it as absent when the payload ends at the first section, so a database written before this
+   * section existed still reads; a payload that carries it cannot be read by a build that predates it,
+   * because the parse deliberately refuses trailing bytes it does not understand rather than
+   * interpreting shifted fields.
+   * </p>
+   */
+  private final SegmentAnchor[] segmentAnchors;
+
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null, null);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null, null, null);
   }
 
   /** As above, carrying the index-wide {@link #setValueRowCounts}. */
@@ -204,7 +238,7 @@ public final class ProjectionIndexMetadata {
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
       final Map<Integer, Map<String, Long>> setValueRowCounts) {
     this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
-        null);
+        null, null);
   }
 
   /** As above, carrying the per-column value dictionary header keys. */
@@ -212,12 +246,22 @@ public final class ProjectionIndexMetadata {
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
       final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
     this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
-        valueDictionaryHeaderKeys);
+        valueDictionaryHeaderKeys, null);
+  }
+
+  /** As above, additionally carrying SEGMENT-scoped dictionary anchors. */
+  public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys,
+      final SegmentAnchor[] segmentAnchors) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
+        valueDictionaryHeaderKeys, segmentAnchors);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
-      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys,
+      final SegmentAnchor @org.jspecify.annotations.Nullable [] segmentAnchors) {
     Objects.requireNonNull(rootPath);
     Objects.requireNonNull(fieldPaths);
     Objects.requireNonNull(fieldNames);
@@ -226,6 +270,10 @@ public final class ProjectionIndexMetadata {
     this.valueDictionaryHeaderKeys = valueDictionaryHeaderKeys == null
         ? null
         : valueDictionaryHeaderKeys.clone();
+    this.segmentAnchors = segmentAnchors == null || segmentAnchors.length == 0
+        ? null
+        : segmentAnchors.clone();
+    validateSegmentAnchors(this.segmentAnchors, columnKinds.length);
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
@@ -286,7 +334,8 @@ public final class ProjectionIndexMetadata {
   public static ProjectionIndexMetadata staleTombstone(final StaleReason reason) {
     Objects.requireNonNull(reason, "reason");
     final byte flags = (byte) (FLAG_STALE | (reason.ordinal() << STALE_REASON_SHIFT));
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null,
+        null);
   }
 
   /**
@@ -454,6 +503,40 @@ public final class ProjectionIndexMetadata {
         && persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   }
 
+  /**
+   * A segment anchor must name a real column, a positive header key and a non-negative count, and no
+   * {@code (segment, column)} pair may appear twice: two anchors for one pair would let a page resolve
+   * against whichever the reader happened to index last.
+   */
+  private static void validateSegmentAnchors(final SegmentAnchor @org.jspecify.annotations.Nullable [] anchors,
+      final int columns) {
+    if (anchors == null) {
+      return;
+    }
+    final java.util.Set<Long> seen = new java.util.HashSet<>(anchors.length * 2);
+    for (final SegmentAnchor anchor : anchors) {
+      Objects.requireNonNull(anchor, "a segment anchor must not be null");
+      if (anchor.segment() < 0 || anchor.column() < 0 || anchor.column() >= columns || anchor.headerKey() <= 0
+          || anchor.sealedEntryCount() < 0) {
+        throw new IllegalArgumentException("invalid segment dictionary anchor " + anchor);
+      }
+      if (!seen.add((anchor.segment() << 20) | anchor.column())) {
+        throw new IllegalArgumentException(
+            "segment " + anchor.segment() + " column " + anchor.column() + " is anchored twice");
+      }
+    }
+  }
+
+  /**
+   * Segment-scoped dictionary anchors, or {@code null} when this projection has none. A copy: the
+   * table is part of the persisted shape and callers must not be able to edit it in place.
+   */
+  public SegmentAnchor @org.jspecify.annotations.Nullable [] segmentAnchors() {
+    return segmentAnchors == null
+        ? null
+        : segmentAnchors.clone();
+  }
+
   public byte[] serialize() {
     final ByteArrayOutputStream out = new ByteArrayOutputStream(256);
     putIntLE(out, MAGIC);
@@ -470,6 +553,7 @@ public final class ProjectionIndexMetadata {
     }
     writeSetValueRowCounts(out);
     writeValueDictionaryHeaderKeys(out);
+    writeSegmentAnchors(out);
     return out.toByteArray();
   }
 
@@ -617,12 +701,34 @@ public final class ProjectionIndexMetadata {
           dictionaryKeys[column] = headerKey;
         }
       }
+      // The SEGMENT anchor section is OPTIONAL: a payload that ends here was written by a build (or a
+      // projection) without segment-scoped dictionaries, and must keep reading. Anything else past it
+      // is still refused rather than interpreted as shifted fields.
+      SegmentAnchor[] anchors = null;
+      if (pos[0] != payload.length) {
+        final int anchorCount = getIntLE(payload, pos[0]);
+        pos[0] += 4;
+        if (anchorCount <= 0) {
+          throw new IllegalStateException("Projection metadata declares " + anchorCount + " segment anchors");
+        }
+        anchors = new SegmentAnchor[anchorCount];
+        for (int i = 0; i < anchorCount; i++) {
+          final long segment = getLongLE(payload, pos[0]);
+          pos[0] += 8;
+          final int column = getShortU(payload, pos);
+          final long headerKey = getLongLE(payload, pos[0]);
+          pos[0] += 8;
+          final int sealedEntryCount = getIntLE(payload, pos[0]);
+          pos[0] += 4;
+          anchors[i] = new SegmentAnchor(segment, column, headerKey, sealedEntryCount);
+        }
+      }
       if (pos[0] != payload.length) {
         throw new IllegalStateException(
-            "Projection metadata has " + (payload.length - pos[0]) + " byte(s) past the value dictionary section");
+            "Projection metadata has " + (payload.length - pos[0]) + " byte(s) past its trailing sections");
       }
       return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts,
-          dictionaryKeys);
+          dictionaryKeys, anchors);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }
@@ -684,6 +790,24 @@ public final class ProjectionIndexMetadata {
         putShortU(out, c);
         putLongLE(out, valueDictionaryHeaderKeys[c]);
       }
+    }
+  }
+
+  /**
+   * The SECOND trailing section, written only when the projection has segment anchors — so a
+   * projection without them serializes byte-for-byte as before and stays readable by a build that
+   * predates this section.
+   */
+  private void writeSegmentAnchors(final ByteArrayOutputStream out) {
+    if (segmentAnchors == null) {
+      return;
+    }
+    putIntLE(out, segmentAnchors.length);
+    for (final SegmentAnchor anchor : segmentAnchors) {
+      putLongLE(out, anchor.segment());
+      putShortU(out, anchor.column());
+      putLongLE(out, anchor.headerKey());
+      putIntLE(out, anchor.sealedEntryCount());
     }
   }
 
