@@ -2515,3 +2515,8 @@ ARRAY 1, JSON_DOCUMENT 1); the same arm had exactly one bad slot on every earlie
 the `sirix.trieLaneDiag`-guarded prints stay (off by default). Remaining before re-gating the −11 GB
 claim at 100M: the framing decomposition (prerequisite 2) and a JUnit witness for the aliasing
 (serialize with a probe that deserializes on the same thread).
+
+**05:48 disk note for the 100M re-gate:** the scratch volume has 29 GB free (641 GB, 96 % used); the
+baseline `db100m` is 61 GB and must stay as the query-leg reference. A converted 100M build needs
+≈55–63 GB beside it → free or relocate space first (1M arms under `agents/p2s1/gate1mT/`, old
+`results-*` dumps; never `hits.json.gz`/`hits-1m.json.gz`). Stopped 05:49 on the 06:00 instruction.
