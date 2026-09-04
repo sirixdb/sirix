@@ -696,6 +696,13 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
   private boolean rankOrdered;
 
   /**
+   * Set by a caller whose dictionary is only ever read in the {@code id -> value} direction. Like
+   * {@link #rankOrdered} it skips the forward hash index, but it makes NO ordering claim: the header
+   * records a decode-only dictionary rather than a fully ordered one.
+   */
+  private boolean decodeOnly;
+
+  /**
    * Declare that every value handed to this writer arrives in ascending collation order.
    *
    * <p>
@@ -711,6 +718,31 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     rankOrdered = true;
   }
 
+  /**
+   * Declare that this dictionary will never be probed by value, so the forward hash index is not
+   * built.
+   *
+   * <p>
+   * The claim a caller makes here is about its READERS, not about its data, which is why it is
+   * cheaper to honour than {@link #markRankOrdered()}: arrival-ordered ids stay arrival-ordered and
+   * nothing is asserted about collation. A segment-scoped dictionary qualifies because the write
+   * side keeps its own in-memory map for the segment's lifetime and the read side answers only
+   * {@code valueOf} ({@code SegmentScopedReadDictionaries.idOf} returns {@code ID_ABSENT}).
+   * </p>
+   *
+   * <p>
+   * The saving is the whole point: the forward index costs 64.7 B/entry at D = 275K and 173 B/entry
+   * at D = 2.62M because copy-on-write retains every radix node each bounded append writes, and a
+   * per-segment dictionary would pay that again for every segment.
+   * </p>
+   */
+  void markDecodeOnly() {
+    if (entryCount != 0) {
+      throw new IllegalStateException("decode-only must be declared before the first value is interned");
+    }
+    decodeOnly = true;
+  }
+
   public long flush(final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
     if (released) {
@@ -722,7 +754,7 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
 
       final long headerKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
       final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(0L, 0L, 0, this, namePage,
-          databaseType, storageEngineWriter, log, !rankOrdered);
+          databaseType, storageEngineWriter, log, !rankOrdered && !decodeOnly);
       final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey,
           ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0, rankOrdered
               ? entryCount
@@ -754,9 +786,21 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
       // an intern-ordered base would produce a sorted run above an unsorted one, which is exactly the
       // state orderedPrefixCount exists to describe rather than to claim away.
       final boolean ordered = rankOrdered && baseHeader.isFullyOrdered();
+      // Decode-only is a property of the CHAIN, never of one generation. Appending an indexed
+      // generation onto a decode-only base would leave the forward index covering the base's ids
+      // only, and a partial index is worse than none: supportsValueProbe() would answer true while
+      // every value in this generation probed as absent, minting a duplicate id for it.
+      final boolean decodeOnlyChain = decodeOnly || baseHeader.isDecodeOnly();
+      if (decodeOnlyChain && !ordered && baseHeader.getForwardRootKey() != 0) {
+        throw new IllegalArgumentException(
+            "refusing to append a decode-only generation onto a dictionary with a forward index at root "
+                + baseHeader.getForwardRootKey() + ": the index would cover only the first "
+                + baseHeader.getEntryCount() + " ids");
+      }
       final GlobalValueDictionaryRadix.Roots roots =
           GlobalValueDictionaryRadix.append(baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(),
-              baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log, !ordered);
+              baseHeader.getEntryCount(), this, namePage, databaseType, storageEngineWriter, log,
+              !ordered && !decodeOnlyChain);
       namePage.putProjectionValueDictionaryRecord(
           new ValueDictionaryHeaderNode(baseHeader.getNodeKey(), ValueDictionaryHeaderNode.VERSION, totalEntries,
               roots.forward(), roots.reverse(), Math.addExact(baseHeader.getGeneration(), 1), ordered
@@ -811,10 +855,17 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
         maxValueLength);
   }
 
-  private static void validateAppendHeader(final ValueDictionaryHeaderNode baseHeader) {
+  private void validateAppendHeader(final ValueDictionaryHeaderNode baseHeader) {
     if (baseHeader == null || baseHeader.getVersion() != ValueDictionaryHeaderNode.VERSION
         || !baseHeader.isDirectoryComplete()) {
       throw new IllegalArgumentException("a complete current value dictionary header is required");
+    }
+    // Interning needs the encode direction to avoid minting a second id for a value already in the
+    // base. A decode-only writer does not intern across the seam -- its generation is a fresh id
+    // range appended as base + local -- so it is the one caller that may append to a base it cannot
+    // probe.
+    if (!baseHeader.supportsValueProbe() && !decodeOnly) {
+      throw new IllegalArgumentException("a decode-only value dictionary can only be extended by a decode-only writer");
     }
   }
 

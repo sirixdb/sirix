@@ -74,4 +74,77 @@ final class ValueDictionaryHeaderLayoutTest {
     assertThrows(IllegalArgumentException.class,
         () -> ValueDictionaryHeaderNode.unknownLayout(0L, ValueDictionaryHeaderNode.VERSION + 1));
   }
+
+  /**
+   * A decode-only dictionary — no forward index, ids NOT in collation order — is the shape that makes
+   * an incremental, per-segment dictionary affordable, because the forward index is what copy-on-write
+   * retains per append. The header used to refuse it outright, so this pins that it is now legal AND
+   * that it is still distinguishable from the two shapes it must not be confused with.
+   */
+  @Test
+  @DisplayName("A decode-only header is legal, readable, and refuses the encode direction")
+  void decodeOnlyHeaderIsLegalButNotProbeable() {
+    final ValueDictionaryHeaderNode decodeOnly =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 0, 0);
+
+    assertTrue(decodeOnly.isDecodeOnly(), "no forward root and no ordering claim IS the decode-only shape");
+    assertTrue(decodeOnly.isDirectoryComplete(), "the reverse index answers id -> value, which is what serving needs");
+    assertFalse(decodeOnly.supportsValueProbe(), "value -> id cannot be answered without a forward index");
+    assertFalse(decodeOnly.isFullyOrdered(), "decode-only makes no ordering claim; that is why it is cheap");
+  }
+
+  /**
+   * The distinction the two predicates exist for. A rank-ordered dictionary also has no forward root,
+   * but it CAN be probed — by binary search over a reverse index sorted by value — so a caller that
+   * tested only "is the forward root zero" would refuse it wrongly.
+   */
+  @Test
+  @DisplayName("A fully ordered header has no forward index yet still answers the encode direction")
+  void fullyOrderedHeaderIsProbeableWithoutAForwardIndex() {
+    final ValueDictionaryHeaderNode ranked =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 0, 512);
+
+    assertTrue(ranked.isFullyOrdered());
+    assertTrue(ranked.supportsValueProbe(), "binary search over the sorted reverse index serves as the probe");
+    assertFalse(ranked.isDecodeOnly(), "a fully ordered dictionary is not decode-only");
+    assertTrue(ranked.isDirectoryComplete());
+  }
+
+  /**
+   * The invariant that must NOT have been relaxed along with the forward root: the reverse index is
+   * the positive witness that a header describes a readable dictionary. Losing it is corruption, and
+   * corruption must still be refused rather than reported as "decode-only".
+   */
+  @Test
+  @DisplayName("A missing reverse index is still refused, decode-only or not")
+  void missingReverseIndexIsStillCorruption() {
+    final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+        () -> new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 0L, 0, 0));
+    assertTrue(thrown.getMessage().contains("invalid value dictionary header"), thrown.getMessage());
+
+    final ValueDictionaryHeaderNode empty =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 0, 0L, 0L, 0, 0);
+    assertFalse(empty.isDecodeOnly(), "an EMPTY dictionary is not decode-only, it is empty");
+    assertTrue(empty.supportsValueProbe(), "and it can be probed vacuously, so no caller need special-case it");
+  }
+
+  /** A decode-only header survives the wire unchanged: the shape needs no new field to be expressed. */
+  @Test
+  @DisplayName("A decode-only header round-trips through the record serializer")
+  void decodeOnlyHeaderRoundTrips() {
+    final ValueDictionaryHeaderNode header =
+        new ValueDictionaryHeaderNode(7L, ValueDictionaryHeaderNode.VERSION, 512, 0L, 99L, 3, 0);
+    try (final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer()) {
+      NodeKind.VALUE_DICTIONARY_HEADER.serialize(bytes, header, null);
+      final ValueDictionaryHeaderNode read = (ValueDictionaryHeaderNode) NodeKind.VALUE_DICTIONARY_HEADER.deserialize(
+          Bytes.wrapForRead(bytes.toByteArray()), 7L, null, null);
+      assertTrue(read.isDecodeOnly());
+      assertFalse(read.supportsValueProbe());
+      assertTrue(read.isDirectoryComplete());
+      assertEquals(512, read.getEntryCount());
+      assertEquals(0L, read.getForwardRootKey());
+      assertEquals(99L, read.getReverseRootKey());
+      assertEquals(3, read.getGeneration());
+    }
+  }
 }

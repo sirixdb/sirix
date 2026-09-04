@@ -324,4 +324,85 @@ final class GlobalValueDictionaryTailCowTest {
       }
     }
   }
+
+  /**
+   * The decode-only variant of {@link #appendOne}: same incremental shape, but the writer declares
+   * that nothing will ever probe this dictionary by value, so no forward hash index is built.
+   */
+  private static long appendOneDecodeOnly(final JsonResourceSession session, final int id, final long headerKey) {
+    try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      if (id == 1) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"k\":\"v\"}"), JsonNodeTrx.Commit.NO);
+      }
+      final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
+      dictionary.markDecodeOnly();
+      final byte[] utf8 = valueOf(id).getBytes(StandardCharsets.UTF_8);
+      dictionary.intern(utf8, 0, utf8.length);
+      final var writer = wtx.getStorageEngineWriter();
+      final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
+      final long resulting;
+      if (id == 1) {
+        resulting = dictionary.flush(namePage, DatabaseType.JSON, writer, writer.getLog());
+      } else {
+        dictionary.flushAppend(GlobalValueDictionary.header(headerKey, writer), namePage, DatabaseType.JSON, writer,
+            writer.getLog());
+        resulting = headerKey;
+      }
+      wtx.commit();
+      return resulting;
+    }
+  }
+
+  /**
+   * A decode-only dictionary persists NO forward hash index, across revisions, and still decodes.
+   *
+   * <p>
+   * This is the property that makes a per-segment dictionary affordable under copy-on-write. The
+   * forward index is the expensive half — every bounded append writes a fresh set of radix nodes at
+   * new keys and CoW retains all of them, measured at 64.7 B/entry at D = 275K — and for a dictionary
+   * that is only ever read {@code id -> value} it is written and never probed
+   * ({@code SegmentScopedReadDictionaries.idOf} answers {@code ID_ABSENT}).
+   * </p>
+   *
+   * <p>
+   * Pinned from both sides, because "no forward root" alone would also be satisfied by a dictionary
+   * that failed to write one: every value must still resolve in EVERY revision, and the header must
+   * report itself decode-only rather than merely incomplete.
+   * </p>
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  @DisplayName("a decode-only dictionary persists no forward index across revisions and still decodes")
+  void decodeOnlyRevisionsPersistNoForwardIndex(final VersioningType versioning) {
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH)) {
+      db.createResource(ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(versioning).build());
+    }
+    final int revisions = 24;
+
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+      long headerKey = 0L;
+      for (int id = 1; id <= revisions; id++) {
+        headerKey = appendOneDecodeOnly(session, id, headerKey);
+
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final var reader = rtx.getStorageEngineReader();
+          final var header = GlobalValueDictionary.header(headerKey, reader);
+          assertNotNull(header, "header must be readable at revision " + id);
+          assertEquals(0L, header.getForwardRootKey(),
+              "revision " + id + " must not persist a forward hash index");
+          assertTrue(header.isDecodeOnly(), "revision " + id + " must report itself decode-only, not merely indexed");
+          assertTrue(header.isDirectoryComplete(), "the reverse index still makes it readable at revision " + id);
+          assertEquals(id, header.getEntryCount());
+
+          // The positive witness: every id ever minted still decodes, so the missing forward index
+          // cost nothing that a reader needs.
+          for (int earlier = 1; earlier <= id; earlier++) {
+            assertEquals(valueOf(earlier), GlobalValueDictionary.value(headerKey, earlier, reader),
+                "id " + earlier + " must still decode at revision " + id);
+          }
+        }
+      }
+    }
+  }
 }

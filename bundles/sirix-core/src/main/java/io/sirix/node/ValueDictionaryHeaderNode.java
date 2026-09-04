@@ -121,14 +121,22 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     if ((entryCount == 0) != (reverseRootKey == 0)) {
       throw new IllegalArgumentException("invalid value dictionary header");
     }
-    // RELAXED for the rank pass (design §3.3.2): a FULLY ordered dictionary needs no forward hash
-    // index, because "which id holds this value" is a binary search over a reverse index that is
-    // already sorted by value. A zero forward root is therefore legal exactly when the whole
-    // dictionary is ordered; anywhere else it means a directory that cannot be probed at all.
-    if (forwardRootKey == 0 && entryCount != 0 && orderedPrefixCount != entryCount) {
-      throw new IllegalArgumentException("value dictionary header has no forward index but only " + orderedPrefixCount
-          + " of " + entryCount + " ids are ordered");
-    }
+    // A zero forward root used to be legal ONLY for a fully ordered dictionary (the rank pass,
+    // design §3.3.2), where "which id holds this value" is a binary search over a reverse index that
+    // is already sorted by value. It is now also legal for a DECODE-ONLY dictionary, which answers
+    // id -> value and refuses value -> id.
+    //
+    // That distinction has to exist because the forward index is what makes an INCREMENTAL
+    // dictionary unaffordable: every bounded append writes a fresh set of radix nodes at new keys
+    // and copy-on-write retains all of them (64.7 B/entry at D = 275K, 173 B/entry at D = 2.62M --
+    // GlobalValueDictionaryRadix.append), so a dictionary sealed per segment pays it again per
+    // segment while nothing ever probes it (SegmentScopedReadDictionaries.idOf returns ID_ABSENT).
+    //
+    // What is NOT relaxed: the reverse root. It is what turns an id back into bytes, the
+    // biconditional above still demands it, and it is the positive witness that this header
+    // describes a readable dictionary rather than a truncated one. A caller that needs the encode
+    // direction must ask supportsValueProbe(); "no forward index" is an answer to that question, not
+    // a claim that the directory is incomplete.
     this.nodeKey = nodeKey;
     this.version = version;
     this.entryCount = entryCount;
@@ -228,9 +236,35 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     if (entryCount == 0) {
       return forwardRootKey == 0 && reverseRootKey == 0;
     }
-    // A fully ordered dictionary is probed by binary search over the reverse index, so it is
-    // complete without a forward root; a partly ordered one needs the forward index for its tail.
-    return reverseRootKey > 0 && (forwardRootKey > 0 || isFullyOrdered());
+    // DECODE completeness, which is what every serving path needs: the reverse index is the one that
+    // turns an id back into bytes. Whether the dictionary can also be probed BY VALUE is a separate
+    // question with its own predicate, because the two have different answers for a decode-only
+    // dictionary and a caller that conflated them would either reject a readable dictionary or
+    // accept one it cannot intern into.
+    return reverseRootKey > 0;
+  }
+
+  /**
+   * Whether "which id holds this value" can be answered, which every ENCODE-direction caller needs:
+   * interning into this dictionary, binding it as a write-side resolver, or appending a generation
+   * that must not mint a duplicate id for a value already present.
+   *
+   * @return {@code true} when a forward hash index exists or binary search over the reverse index
+   *         serves instead, {@code false} for a decode-only dictionary
+   */
+  public boolean supportsValueProbe() {
+    return entryCount == 0 || forwardRootKey > 0 || isFullyOrdered();
+  }
+
+  /**
+   * Whether this dictionary answers only {@code id -> value}. The shape is unforgeable by older
+   * writers: before the decode-only mode existed the header REFUSED a missing forward index on a
+   * dictionary that was not fully ordered, so no database can contain this combination by accident.
+   *
+   * @return {@code true} when there is no forward index and the ids are not fully ordered
+   */
+  public boolean isDecodeOnly() {
+    return entryCount != 0 && forwardRootKey == 0 && !isFullyOrdered();
   }
 
   @Override

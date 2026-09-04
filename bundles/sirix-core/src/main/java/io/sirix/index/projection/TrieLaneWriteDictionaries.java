@@ -241,6 +241,14 @@ public final class TrieLaneWriteDictionaries implements GlobalStringDictionaries
               + " is unreadable or incomplete at revision " + dictionaryRevision
               + "; record pages must not name a dictionary no reader can resolve");
         }
+        // Separate refusal, separate cause: this dictionary is READABLE, it just cannot answer
+        // "which id holds this value", which is the only question a write-side resolver asks. Folding
+        // it into the message above would report a decode-only dictionary as corrupt.
+        if (!header.supportsValueProbe()) {
+          throw new IllegalStateException("trie lane: prebuilt dictionary " + anchors[column] + " for column " + column
+              + " is decode-only (no forward index, " + header.getOrderedPrefixCount() + " of "
+              + header.getEntryCount() + " ids ordered), so it cannot resolve values to ids for the encode side");
+        }
         headerKeys.put(column, anchors[column]);
         entryCounts.put(column, header.getEntryCount());
       }

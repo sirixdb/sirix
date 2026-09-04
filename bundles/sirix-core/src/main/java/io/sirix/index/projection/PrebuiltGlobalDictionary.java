@@ -68,6 +68,12 @@ final class PrebuiltGlobalDictionary implements GlobalValueDictionaryEncoder {
     if (header == null || !header.isDirectoryComplete()) {
       throw new IllegalStateException("global projection column " + column + " has an unreadable value dictionary");
     }
+    // A decode-only dictionary is readable; it simply has no forward index to probe. The
+    // full-ordering check below would catch it too, but only by reporting the wrong cause.
+    if (!header.supportsValueProbe()) {
+      throw new IllegalStateException("global projection column " + column
+          + " was handed a decode-only dictionary (no forward index); injection needs the encode direction");
+    }
     if (!header.isFullyOrdered()) {
       throw new IllegalStateException("global projection column " + column + " was handed a dictionary whose ids are "
           + "not all in collation order (" + header.getOrderedPrefixCount() + " of " + header.getEntryCount()

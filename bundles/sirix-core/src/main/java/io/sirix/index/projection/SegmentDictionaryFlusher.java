@@ -115,6 +115,12 @@ public final class SegmentDictionaryFlusher {
     int base = 0;
     while (values.hasNext()) {
       final GlobalValueDictionaryWriter generation = new GlobalValueDictionaryWriter(column, budgetBytes);
+      // A segment dictionary is read in the id -> value direction only: the encode side keeps the
+      // segment's own in-memory map while the segment is open, and after the seal
+      // SegmentScopedReadDictionaries.idOf answers ID_ABSENT by construction. So the forward hash
+      // index is written and never probed, and it is the expensive half -- copy-on-write retains
+      // every radix node an append writes, and a per-segment dictionary pays that PER SEGMENT.
+      generation.markDecodeOnly();
       try {
         // ONE GENERATION at a time. A writer refuses past
         // GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND entries -- the safe per-append
