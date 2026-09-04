@@ -128,9 +128,11 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
   }
 
   /**
-   * One shape's evidence: what the generic pipeline said, what the routes said, and whether they ran.
+   * One shape's evidence: what the generic pipeline said, what the routes said, whether they ran, and
+   * whether the oracle stayed generic ({@code oracleDelta} must be zero — see {@link #probe}).
    */
-  private record Evidence(String shape, String generic, String served, String auto, long counterDelta) {
+  private record Evidence(String shape, String generic, String served, String auto, long counterDelta,
+      long oracleDelta) {
     boolean agrees() {
       return generic.equals(served);
     }
@@ -150,8 +152,8 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
 
     @Override
     public String toString() {
-      return String.format("%-18s explicit=%-6s autoWired=%-6s counterDelta=%d", shape, verdict(generic, served),
-          verdict(generic, auto), counterDelta);
+      return String.format("%-18s explicit=%-6s autoWired=%-6s counterDelta=%d oracleDelta=%d", shape,
+          verdict(generic, served), verdict(generic, auto), counterDelta, oracleDelta);
     }
   }
 
@@ -514,7 +516,7 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
    *
    * <p>
    * Reachability attribution, not decoration: the open question is WHICH pipeline lands in the
-   * predicate-count route when {@code -Dsirix.query.autoVectorize=false} is set. If it is the generic
+   * predicate-count route in the {@link Arm#GENERIC} oracle arm. If it is the generic
    * pipeline, then making that route decline would change what the differential oracle itself does —
    * and a route that declines into itself either regresses infinitely or answers wrongly. If it is a
    * third, auto-wired shortcut, the oracle is independent and the fix is safe.
@@ -599,25 +601,37 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
       throws IOException {
     // The oracle must be the GENERIC pipeline, and merely not installing an executor does not give
     // one: the compile chain AUTO-WIRES the analytical routes from the store, so an "oracle" taken
-    // that way is the very path under test. -Dsirix.query.autoVectorize=false is the only switch
-    // that compiles every query generically (SirixCompileChain:112), and it is read at COMPILE
-    // time, so it has to be set before the chain is built.
+    // that way is the very path under test. The oracle arm therefore builds its chain with
+    // SirixCompileChain.createWithJsonStoreWithoutAutoWiring, a PER-CHAIN decision.
+    // -Dsirix.query.autoVectorize=false does NOT work here and used to make this differential
+    // compare the fast path against itself: SirixCompileChain.AUTO_VECTORIZE_ENABLED is a
+    // static final read at CLASS INITIALIZATION, and the AUTO_WIRED arm below loads that class
+    // first, so a property set afterwards is read by nobody.
     // ORDER IS LOAD-BEARING, and finding that out cost a contradictory pair of runs. The AUTO-WIRED
     // arm goes FIRST because that is the real sequence — a writer commits, then somebody queries —
     // and because the handle/metadata caches are re-populated by whichever arm touches the store
     // first. Running it last let an earlier arm resolve the handle and cache its decision, which
     // masked a failure that appears when the auto-wired path is the first reader after the commit.
     final String auto = evaluateIsolated(q, Arm.AUTO_WIRED);
+    final long oracleStart = counter.read();
     final String generic = evaluateIsolated(q, Arm.GENERIC);
+    final long oracleDelta = counter.read() - oracleStart;
+    // The oracle's positive witness. An oracle that quietly takes the route under test still AGREES
+    // with it and reports nothing, which is how this differential ran self-referentially before; a
+    // served counter that moves during the GENERIC arm is the only direct evidence of that, so it is
+    // asserted here rather than left for a caller to remember.
+    Assertions.assertEquals(0L, oracleDelta,
+        () -> "the GENERIC oracle served " + oracleDelta + " " + counter + " shape(s) through the vectorized "
+            + "routes, so it is not an independent oracle: " + phase + "/" + shape);
     final long start = counter.read();
     final String served = evaluateIsolated(q, Arm.EXPLICIT_EXECUTOR);
     final long delta = counter.read() - start;
-    return new Evidence(phase + "/" + shape, generic, served, auto, delta);
+    return new Evidence(phase + "/" + shape, generic, served, auto, delta, oracleDelta);
   }
 
   /** Which pipeline an evaluation runs through. */
   private enum Arm {
-    /** {@code -Dsirix.query.autoVectorize=false} — the oracle. */
+    /** A chain built without auto-wiring — the oracle. */
     GENERIC,
     /** An executor installed by hand, as the serving suites do. */
     EXPLICIT_EXECUTOR,
@@ -632,14 +646,13 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
    * whether the others decline cleanly.
    */
   private String evaluateIsolated(final String q, final Arm arm) throws IOException {
-    if (arm == Arm.GENERIC) {
-      System.setProperty("sirix.query.autoVectorize", "false");
-    }
     try (
         final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixCompileChain chain = arm == Arm.GENERIC
+            ? SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)
+            : SirixCompileChain.createWithJsonStore(store)) {
       SirixVectorizedExecutor executor = null;
       if (arm == Arm.EXPLICIT_EXECUTOR) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
@@ -657,10 +670,6 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
         if (executor != null) {
           executor.close();
         }
-      }
-    } finally {
-      if (arm == Arm.GENERIC) {
-        System.clearProperty("sirix.query.autoVectorize");
       }
     }
   }
