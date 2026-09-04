@@ -6,7 +6,6 @@
 package io.sirix.index.hot;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.PageContainer;
@@ -37,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doAnswer;
@@ -95,37 +95,41 @@ class HOTLeafWriterGuardTest {
   private static final int MAX_ATTEMPTS_PER_MILLI_WHILE_RETIRING = 20;
 
   @Test
-  void trieWriterKeepsSourceGuardedAcrossPressureAndTilTransfer() {
-    final LeafState source = leafState(1L);
-    final HOTLeafPage modified = mock(HOTLeafPage.class);
+  void guardedReadProbeReloadsInsteadOfReadingALeafLostBeforeGuardAcquisition() {
+    final LeafState raced = leafState(1L);
+    final LeafState replacement = leafState(1L);
     final PageReference reference = reference(1L);
-    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-    cache.put(reference, source.page());
-    reference.setPage(source.page());
+    reference.setPage(raced.page());
 
-    when(source.page().copy()).thenAnswer(_ -> {
-      assertEquals(1, source.guards().get(), "the source must be guarded before copy allocation");
-      cache.evictUnderPressure();
-      assertNull(cache.get(reference), "the writer must own the source before copy allocation");
-      assertFalse(source.closed().get());
-      return modified;
+    when(raced.page().acquireGuard()).thenAnswer(_ -> {
+      raced.orphaned().set(true);
+      raced.closed().set(true);
+      return false;
     });
+    final TransactionIntentLog log = mock(TransactionIntentLog.class);
+    when(log.get(reference)).thenReturn(null);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+    when(storageEngineWriter.getLog()).thenReturn(log);
+    when(storageEngineWriter.loadHOTPage(reference)).thenReturn(replacement.page());
 
-    final TransactionIntentLog log = detachingLog(reference, source, modified, cache);
-    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
-    final PageContainer result = new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log,
-        reference, new byte[] {1}, IndexType.PATH, 0);
+    final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
+    final HOTLeafPage guarded = writer.acquireReadLeaf(reference);
+    try {
+      assertSame(replacement.page(), guarded,
+          "a lost resolve-to-guard race must reload, never escape the retired page as a read result");
+      assertEquals(1, replacement.guards().get());
+    } finally {
+      guarded.releaseGuard();
+    }
 
-    assertSame(source.page(), result.getComplete());
-    assertSame(modified, result.getModified());
-    assertEquals(0, source.guards().get(), "the writer must release its guard exactly once");
-    assertEquals(0L, cache.size(), "TIL admission must detach the shared cache mapping");
-    assertFalse(source.closed().get(), "the detached source is now owned by the TIL");
-    verify(source.page(), times(1)).releaseGuard();
+    verify(raced.page(), times(1)).acquireGuard();
+    verify(replacement.page(), times(1)).acquireGuard();
+    assertEquals(0, replacement.guards().get());
   }
 
+
   @Test
-  void trieWriterRejectsLateGuardEvictionAndReloadsByIdentity() throws Exception {
+  void abstractIndexWriterRejectsLateGuardEvictionAndReloadsByIdentity() throws Exception {
     final LeafState retired = leafState(2L);
     final LeafState replacement = leafState(2L);
     final HOTLeafPage modified = mock(HOTLeafPage.class);
@@ -166,7 +170,7 @@ class HOTLeafWriterGuardTest {
     }).when(retired.page()).acquireGuard();
 
     final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
-    when(replacement.page().copy()).thenReturn(modified);
+    when(replacement.page().copyForRevision(anyInt())).thenReturn(modified);
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
     when(storageEngineWriter.loadHOTPage(reference)).thenReturn(replacement.page());
 
@@ -174,15 +178,13 @@ class HOTLeafWriterGuardTest {
     try {
       final Future<?> eviction = executor.submit(cache::evictUnderPressure);
       assertTrue(evictionObservedZero.await(5, TimeUnit.SECONDS));
-      final Future<PageContainer> copy =
-          executor.submit(() -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference,
-              new byte[] {2}, IndexType.PATH, 0));
+      final Future<HOTLeafPage> copy =
+          executor.submit(() -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, retired.page()));
       assertTrue(writerAcquiredGuard.await(5, TimeUnit.SECONDS));
       allowEviction.countDown();
 
       eviction.get(5, TimeUnit.SECONDS);
-      final PageContainer result = copy.get(5, TimeUnit.SECONDS);
-      assertSame(replacement.page(), result.getComplete());
+      assertSame(modified, copy.get(5, TimeUnit.SECONDS));
     } finally {
       allowEviction.countDown();
       executor.shutdownNow();
@@ -190,41 +192,11 @@ class HOTLeafWriterGuardTest {
 
     assertTrue(retired.orphaned().get(), "the eviction that observed zero first must retire its page");
     assertTrue(retired.closed().get(), "the rejected page must close on the writer's guard release");
-    verify(retired.page(), never()).copy();
+    verify(retired.page(), never()).copyForRevision(anyInt());
     verify(retired.page(), times(1)).releaseGuard();
     verify(replacement.page(), times(1)).releaseGuard();
   }
 
-  @Test
-  void trieWriterOutlastsAnEvictionStormThatKeepsRetiringTheReloadedLeaf() {
-    final LeafState firstRetired = retiredLeafState(9L);
-    final LeafState replacement = leafState(9L);
-    final HOTLeafPage modified = mock(HOTLeafPage.class);
-    final PageReference reference = reference(9L);
-    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-    reference.setPage(firstRetired.page());
-
-    // Every reload loses the guard again, exactly as pressure eviction retiring each freshly
-    // published instance looks to the writer. The count exceeds any fixed tight-loop attempt
-    // budget: the storm has to be outlasted in wall-clock time, not in attempts.
-    final AtomicInteger retiredLoads = new AtomicInteger();
-    final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
-    when(replacement.page().copy()).thenReturn(modified);
-    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
-    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retiredLoads.getAndIncrement() < RETIRED_RELOADS
-        ? retiredLeafState(9L).page()
-        : replacement.page());
-
-    final PageContainer result = new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log,
-        reference, new byte[] {9}, IndexType.PATH, 0);
-
-    assertSame(replacement.page(), result.getComplete(), "the storm must end in the live instance, not in a failure");
-    assertSame(modified, result.getModified());
-    assertEquals(RETIRED_RELOADS + 1, retiredLoads.get(), "every retired reload must be retried, not skipped");
-    assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
-    verify(firstRetired.page(), never()).copy();
-    verify(replacement.page(), times(1)).releaseGuard();
-  }
 
   @Test
   void abstractIndexWriterKeepsCombinedSourceGuardedUntilTilOwnsIt() {
@@ -235,7 +207,7 @@ class HOTLeafWriterGuardTest {
     cache.put(reference, source.page());
     reference.setPage(source.page());
 
-    when(source.page().copy()).thenAnswer(_ -> {
+    when(source.page().copyForRevision(anyInt())).thenAnswer(_ -> {
       assertEquals(1, source.guards().get(), "the combined source must be guarded before copy allocation");
       cache.evictUnderPressure();
       assertNull(cache.get(reference), "the index writer must own the versioning source before copy");
@@ -267,7 +239,7 @@ class HOTLeafWriterGuardTest {
 
     final AtomicInteger retiredLoads = new AtomicInteger();
     final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
-    when(replacement.page().copy()).thenReturn(modified);
+    when(replacement.page().copyForRevision(anyInt())).thenReturn(modified);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
     when(storageEngineWriter.getLog()).thenReturn(log);
     attachCache(storageEngineWriter, cache);
@@ -280,26 +252,26 @@ class HOTLeafWriterGuardTest {
     assertSame(modified, invokeCow(new TestIndexWriter(storageEngineWriter), reference, firstRetired.page()));
     assertEquals(RETIRED_RELOADS + 1, retiredLoads.get(), "every retired reload must be retried, not skipped");
     assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
-    verify(firstRetired.page(), never()).copy();
+    verify(firstRetired.page(), never()).copyForRevision(anyInt());
     verify(replacement.page(), times(1)).releaseGuard();
   }
 
   @Test
-  void trieWriterRetiresDetachedSourceWhenCopyFailsBeforeTilAdmission() {
+  void abstractIndexWriterRetiresDetachedSourceWhenCopyFailsBeforeTilAdmission() {
     final LeafState source = leafState(4L);
     final PageReference reference = reference(4L);
     final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
     cache.put(reference, source.page());
     reference.setPage(source.page());
-    when(source.page().copy()).thenThrow(new OutOfMemoryError("injected copy failure"));
+    final OutOfMemoryError copyFailure = new OutOfMemoryError("injected copy failure");
+    when(source.page().copyForRevision(anyInt())).thenThrow(copyFailure);
 
     final TransactionIntentLog log = mock(TransactionIntentLog.class);
     when(log.get(reference)).thenReturn(null);
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
 
-    final HOTTrieWriter writer = new HOTTrieWriter();
-    assertThrows(OutOfMemoryError.class, () -> writer.prepareKeyedLeafForModification(storageEngineWriter, log,
-        reference, new byte[] {4}, IndexType.PATH, 0));
+    assertThrows(OutOfMemoryError.class,
+        () -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, source.page()));
 
     assertEquals(0, source.guards().get());
     assertTrue(source.orphaned().get());
@@ -307,34 +279,9 @@ class HOTLeafWriterGuardTest {
     assertEquals(0L, cache.size());
     verify(source.page(), times(1)).releaseGuard();
     verify(log, never()).put(same(reference), any(PageContainer.class));
+    verify(storageEngineWriter).markTransactionRollbackOnly(same(copyFailure));
   }
 
-  @Test
-  void trieWriterPreservesCopyFailureWhenGuardReleaseAlsoFails() {
-    final LeafState source = leafState(41L);
-    final PageReference reference = reference(41L);
-    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-    cache.put(reference, source.page());
-    reference.setPage(source.page());
-    final AssertionError copyFailure = new AssertionError("injected copy failure");
-    final IllegalStateException releaseFailure = new IllegalStateException("injected guard release failure");
-    when(source.page().copy()).thenThrow(copyFailure);
-    failGuardReleaseAfterStateTransition(source, releaseFailure);
-
-    final TransactionIntentLog log = mock(TransactionIntentLog.class);
-    when(log.get(reference)).thenReturn(null);
-    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
-
-    final AssertionError thrown = assertThrows(AssertionError.class,
-        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {41},
-            IndexType.PATH, 0));
-
-    assertSame(copyFailure, thrown);
-    assertEquals(1, thrown.getSuppressed().length);
-    assertSame(releaseFailure, thrown.getSuppressed()[0]);
-    assertEquals(0, source.guards().get());
-    assertTrue(source.closed().get());
-  }
 
   @Test
   void abstractIndexWriterPreservesCombineFailureWhenGuardReleaseAlsoFails() {
@@ -345,7 +292,7 @@ class HOTLeafWriterGuardTest {
     reference.setPage(source.page());
     final AssertionError combineFailure = new AssertionError("injected combine failure");
     final IllegalStateException releaseFailure = new IllegalStateException("injected guard release failure");
-    when(source.page().copy()).thenThrow(combineFailure);
+    when(source.page().copyForRevision(anyInt())).thenThrow(combineFailure);
     failGuardReleaseAfterStateTransition(source, releaseFailure);
 
     final TransactionIntentLog log = mock(TransactionIntentLog.class);
@@ -367,14 +314,14 @@ class HOTLeafWriterGuardTest {
   }
 
   @Test
-  void trieWriterRetiresDetachedPagesWhenTilPutFailsBeforePublication() {
+  void abstractIndexWriterRetiresDetachedPagesWhenTilPutFailsBeforePublication() {
     final LeafState source = leafState(5L);
     final LeafState modified = leafState(6L);
     final PageReference reference = reference(5L);
     final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
     cache.put(reference, source.page());
     reference.setPage(source.page());
-    when(source.page().copy()).thenReturn(modified.page());
+    when(source.page().copyForRevision(anyInt())).thenReturn(modified.page());
 
     final TransactionIntentLog log = mock(TransactionIntentLog.class);
     when(log.get(reference)).thenReturn(null);
@@ -384,8 +331,7 @@ class HOTLeafWriterGuardTest {
 
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
     assertThrows(IllegalStateException.class,
-        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {5},
-            IndexType.PATH, 0));
+        () -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, source.page()));
 
     assertTrue(source.closed().get(), "the detached complete page has no owner after failed publication");
     assertTrue(modified.closed().get(), "the detached modified page has no owner after failed publication");
@@ -395,14 +341,14 @@ class HOTLeafWriterGuardTest {
   }
 
   @Test
-  void trieWriterPreservesPagesWhenTilPublishesBeforeThrowing() {
+  void abstractIndexWriterPreservesPagesWhenTilPublishesBeforeThrowing() {
     final LeafState source = leafState(7L);
     final LeafState modified = leafState(8L);
     final PageReference reference = reference(7L);
     final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
     cache.put(reference, source.page());
     reference.setPage(source.page());
-    when(source.page().copy()).thenReturn(modified.page());
+    when(source.page().copyForRevision(anyInt())).thenReturn(modified.page());
 
     final AtomicReference<PageContainer> published = new AtomicReference<>();
     final TransactionIntentLog log = mock(TransactionIntentLog.class);
@@ -414,8 +360,7 @@ class HOTLeafWriterGuardTest {
 
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
     assertThrows(IllegalStateException.class,
-        () -> new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {7},
-            IndexType.PATH, 0));
+        () -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, source.page()));
 
     assertSame(source.page(), published.get().getComplete());
     assertSame(modified.page(), published.get().getModified());
@@ -452,7 +397,7 @@ class HOTLeafWriterGuardTest {
     final AtomicBoolean retirementCompleted = new AtomicBoolean();
 
     final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
-    when(replacement.page().copy()).thenReturn(modified);
+    when(replacement.page().copyForRevision(anyInt())).thenReturn(modified);
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
     when(storageEngineWriter.getLog()).thenReturn(log);
     attachCache(storageEngineWriter, cache);
@@ -482,54 +427,8 @@ class HOTLeafWriterGuardTest {
 
     assertTrue(retirementCompleted.get(), "the retiring thread must have been scheduled while the writer waited");
     assertParkedRatherThanSpun(guardAttempts.get(), waitedMillis);
-    verify(retiring.page(), never()).copy();
+    verify(retiring.page(), never()).copyForRevision(anyInt());
     assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
-  }
-
-  /** Same contract for the document trie's copy-on-write path. */
-  @Test
-  void trieWriterYieldsTheCoreToTheThreadRetiringTheLeaf() throws Exception {
-    final LeafState retiring = leafState(12L);
-    final LeafState replacement = leafState(12L);
-    final HOTLeafPage modified = mock(HOTLeafPage.class);
-    final PageReference reference = reference(12L);
-    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-
-    assertTrue(retiring.page().acquireGuard());
-    retiring.page().retire();
-    assertFalse(retiring.closed().get(), "a guarded retirement must defer the close");
-
-    final AtomicInteger guardAttempts = countGuardAttempts(retiring);
-    final AtomicBoolean retirementCompleted = new AtomicBoolean();
-
-    final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
-    when(replacement.page().copy()).thenReturn(modified);
-    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
-    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retirementCompleted.get()
-        ? replacement.page()
-        : retiring.page());
-
-    final Thread retiringThread = new Thread(() -> {
-      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(RETIREMENT_IN_FLIGHT_MILLIS));
-      retirementCompleted.set(true);
-    }, "hot-trie-leaf-retirement");
-    retiringThread.start();
-    final long startedNanos = System.nanoTime();
-    final PageContainer result;
-    final long waitedMillis;
-    try {
-      result = new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {12},
-          IndexType.PATH, 0);
-    } finally {
-      waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
-      retiringThread.join(TimeUnit.SECONDS.toMillis(10L));
-      retiring.page().releaseGuard();
-    }
-
-    assertSame(replacement.page(), result.getComplete(),
-        "the writer must outlast the in-flight retirement, not abort on it");
-    assertSame(modified, result.getModified());
-    assertParkedRatherThanSpun(guardAttempts.get(), waitedMillis);
   }
 
   /**
@@ -578,33 +477,7 @@ class HOTLeafWriterGuardTest {
     assertTrue(thrown.getMessage().contains("disappeared"),
         "a closed leaf is a lost leaf, not an exhausted retry budget: " + thrown.getMessage());
     assertEquals(1, reloads.get(), "a closed leaf must be reported on its first reload, not retried");
-    verify(closedLeaf.page(), never()).copy();
-  }
-
-  /** Same dead end on the document trie's path, where a lost leaf is reported as a {@code null}. */
-  @Test
-  void trieWriterReportsAClosedLeafInsteadOfRetryingIt() {
-    final LeafState closedLeaf = leafState(14L);
-    closedLeaf.page().retire();
-    assertTrue(closedLeaf.closed().get(), "an unguarded retirement closes immediately");
-
-    final PageReference reference = reference(14L);
-    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-    final TransactionIntentLog log = mock(TransactionIntentLog.class);
-    when(log.get(reference)).thenReturn(null);
-    final AtomicInteger reloads = new AtomicInteger();
-    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
-    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> {
-      reloads.incrementAndGet();
-      return closedLeaf.page();
-    });
-
-    assertNull(new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {14},
-        IndexType.PATH, 0), "a lost leaf must be reported, not retried");
-    // Trie navigation resolves the leaf, the copy-on-write path resolves it again, and the lost guard
-    // buys exactly one reload before the dead end is reported. Any spinning shows up here.
-    assertEquals(3, reloads.get(), "the closed leaf must not be retried past its first reload");
-    verify(closedLeaf.page(), never()).copy();
+    verify(closedLeaf.page(), never()).copyForRevision(anyInt());
   }
 
   /**
@@ -653,9 +526,11 @@ class HOTLeafWriterGuardTest {
 
   private static StorageEngineWriter storageEngineWriter(final TransactionIntentLog log,
       final ShardedPageCache<HOTLeafPage> cache) {
-    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
     when(storageEngineWriter.getLog()).thenReturn(log);
     attachCache(storageEngineWriter, cache);
+    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
+        ResourceConfiguration.newBuilder("hot-writer-canonical").versioningApproach(VersioningType.FULL).build());
     return storageEngineWriter;
   }
 
@@ -773,6 +648,11 @@ class HOTLeafWriterGuardTest {
 
     private TestIndexWriter(final StorageEngineWriter storageEngineWriter) {
       super(storageEngineWriter, IndexType.PATH, 0);
+    }
+
+    private HOTLeafPage acquireReadLeaf(final PageReference reference) {
+      rootReference = reference;
+      return acquireLeafForRead(new byte[Long.BYTES]);
     }
 
     @Override

@@ -33,7 +33,8 @@ list of files.
 | [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md) | Normative contract for the V0 storage format: exact record lookup, document-order routing, and local update/delete/insert/move maintenance. |
 
 The remaining `PROJECTION_INDEX_*.md` files are storage-format design notes; the deep dive cites
-them where they matter.
+them where they matter. Plans for shrinking what these indexes store are working notes of the
+ClickBench 100M campaign, indexed under [Design notes & development archive](#design-notes--development-archive).
 
 ## Benchmarks
 
@@ -83,3 +84,23 @@ user-facing documentation.
   [ZERO_COPY_PLAN.md](ZERO_COPY_PLAN.md),
   [NAME_DICTIONARY_RECONSTRUCTION_PLAN.md](NAME_DICTIONARY_RECONSTRUCTION_PLAN.md),
   [ROWSTORE_RANGED_DECODE_PLAN.md](ROWSTORE_RANGED_DECODE_PLAN.md)
+
+### ClickBench 100M storage & speed campaign
+
+Working notes from the campaign to shrink the 100M-row ClickBench database without giving up query
+speed. [CLICKBENCH.md](CLICKBENCH.md) above owns the benchmark itself and its published numbers;
+these documents record the plans, the arithmetic, and the verdicts — including the levers that were
+measured and rejected.
+
+| Doc | What it covers |
+|-----|----------------|
+| [CAMPAIGN_PROGRESS.md](CAMPAIGN_PROGRESS.md) | The campaign's running ledger: every session's measurements, gates, dead ends and verdicts in chronological order. The briefs below cite it for raw numbers. |
+| [CLICKBENCH_100M_RESUMPTION_PLAN.md](CLICKBENCH_100M_RESUMPTION_PLAN.md) | The correctness + HFT plan the campaign resumed from after the 2026-08-29 crash: root cause, the failures it had to clear, and the measurement protocol. |
+| [STORAGE_AND_SPEED_PLAN.md](STORAGE_AND_SPEED_PLAN.md) | Plan of record for cutting storage and latency together, including the generality contract every lever must satisfy — triggered by data, statistics or configuration, never by a column name or query id. |
+| [STORAGE_FOOTPRINT_REDUCTION_PLAN.md](STORAGE_FOOTPRINT_REDUCTION_PLAN.md) | Measurement-gated plan for shrinking the primary tree, projection segments and global dictionaries without giving up direct SIMD execution or incremental copy-on-write updates. |
+| [STORAGE_TO_MID_TABLE.md](STORAGE_TO_MID_TABLE.md) | Where the bytes of the 69.6 GB database actually sit, and what would have to change to reach the leaderboard's ~15 GB median. |
+| [ROADMAP_TO_30GB.md](ROADMAP_TO_30GB.md) | The stack of levers between 69.5 GB and the ~30 GB target, each with its delta, its status, and the gate that would accept it. |
+| [SEGMENT_SCOPED_DICTIONARIES.md](SEGMENT_SCOPED_DICTIONARIES.md) | Design for retiring the load-time dictionary pre-pass by scoping record-page dictionaries to a segment. |
+| [P2_GLOBAL_DICTIONARY_DESIGN.md](P2_GLOBAL_DICTIONARY_DESIGN.md) | Resource-wide dictionaries for the fat string columns: the design, and the post-mortem of why its first gate failed and the track was stopped. |
+| [P2_SEGMENT1_BRIEF.md](P2_SEGMENT1_BRIEF.md) | Segment 1 of that design with the acceptance corrected to distinct-weighted value lengths; read it together with the document above. |
+| [INGEST_RADIX_ALLOCATION_BRIEF.md](INGEST_RADIX_ALLOCATION_BRIEF.md) | Allocation profile of the global value-dictionary radix during ingestion, recorded so the measurement survives. Deliberately not implemented. |

@@ -69,15 +69,12 @@ class HOTMultiLayerIndirectPageTest {
   void setUp() throws IOException {
     DATABASE_PATH = tempDir.resolve("hot-multilayer-db");
     Files.createDirectories(DATABASE_PATH);
-    // Use correct property for HOT index enable - this controls both writing and reading
-    System.setProperty("sirix.index.useHOT", "true");
     // Initialize memory allocator for HOTLeafPage
     Allocators.getInstance();
   }
 
   @AfterEach
   void tearDown() {
-    System.clearProperty("sirix.index.useHOT");
     try {
       Databases.removeDatabase(DATABASE_PATH);
     } catch (Exception ignored) {
@@ -122,8 +119,9 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Verify data was indexed - 5000 entries (0-4999), query >= 0, expect 5000 entries
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -174,8 +172,9 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query to verify index works - use GREATER search to find all entries
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/items/[]/nested/score"), new Dbl(0.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/items/[]/nested/score"), new Dbl(0.0),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -306,8 +305,9 @@ class HOTMultiLayerIndirectPageTest {
 
           // Query the CAS index with various search modes
           for (SearchMode mode : new SearchMode[] {SearchMode.EQUAL, SearchMode.GREATER, SearchMode.LOWER}) {
-            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-                Set.of("/records/[]/id"), new Int32(1500), mode, new JsonPCRCollector(wtx)));
+            var casIndex =
+                indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                    Set.of("/records/[]/id"), new Int32(1500), mode, new JsonPCRCollector(wtx)));
             int count = 0;
             while (casIndex.hasNext()) {
               casIndex.next();
@@ -359,14 +359,15 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
         }
 
-        // Revision 2 (new write transaction): verify existing entries, append one, verify again before commit.
+        // Revision 2 (new write transaction): verify existing entries, append one, verify again before
+        // commit.
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
             JsonNodeTrx wtx = session.beginNodeTrx()) {
           final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
-          final var beforeInsert = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
-              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          final var beforeInsert =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
           long beforeInsertNodeRefs = 0;
           while (beforeInsert.hasNext()) {
             beforeInsertNodeRefs += beforeInsert.next().getNodeKeys().getLongCardinality();
@@ -381,9 +382,9 @@ class HOTMultiLayerIndirectPageTest {
           assertTrue(wtx.moveToLastChild(), "Records array should have existing entries");
           wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 5000}"));
 
-          final var afterInsertBeforeCommit = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
-              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          final var afterInsertBeforeCommit =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
           long afterInsertNodeRefs = 0;
           while (afterInsertBeforeCommit.hasNext()) {
             afterInsertNodeRefs += afterInsertBeforeCommit.next().getNodeKeys().getLongCardinality();
@@ -398,27 +399,27 @@ class HOTMultiLayerIndirectPageTest {
             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
 
-          final var allEntries = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
-              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(rtx)));
+          final var allEntries =
+              indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx)));
           long totalNodeRefs = 0;
           while (allEntries.hasNext()) {
             totalNodeRefs += allEntries.next().getNodeKeys().getLongCardinality();
           }
           assertEquals(5001, totalNodeRefs, "After reopen, CAS index must retain all pre-split and post-split entries");
 
-          final var fromMiddle = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
-              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(2500), SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(rtx)));
+          final var fromMiddle =
+              indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(2500), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx)));
           long fromMiddleNodeRefs = 0;
           while (fromMiddle.hasNext()) {
             fromMiddleNodeRefs += fromMiddle.next().getNodeKeys().getLongCardinality();
           }
           assertEquals(2501, fromMiddleNodeRefs, "Range >=2500 must include all tail entries after rewrite");
 
-          final var newestOnly = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
-              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(rtx)));
+          final var newestOnly =
+              indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx)));
           long newestOnlyNodeRefs = 0;
           while (newestOnly.hasNext()) {
             newestOnlyNodeRefs += newestOnly.next().getNodeKeys().getLongCardinality();
@@ -461,8 +462,9 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Now query with range - 10000 entries (0-9999), query >= 5000, expect 5000 entries
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/items/[]/value"), new Int32(5000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/items/[]/value"), new Int32(5000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -507,8 +509,9 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query to verify - 5000 entries (0-4999), query >= 2500, expect 2500 entries
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/records/[]/score"), new Int32(2500), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/records/[]/score"), new Int32(2500), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -566,8 +569,9 @@ class HOTMultiLayerIndirectPageTest {
 
           for (int i = 0; i < starts.length; i++) {
             int start = starts[i];
-            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-                Set.of("/entries/[]/key"), new Int32(start), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
+                indexController.createCASFilter(Set.of("/entries/[]/key"), new Int32(start),
+                    SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             long totalNodeRefs = 0;
             while (casIndex.hasNext()) {
@@ -606,7 +610,8 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Access via HOTLongIndexReader
-          var longReader = HOTLongIndexReader.create(wtx.getStorageEngineReader(), pathIndexDef.getType(), pathIndexDef.getID());
+          var longReader =
+              HOTLongIndexReader.create(wtx.getStorageEngineReader(), pathIndexDef.getType(), pathIndexDef.getID());
 
           // Test get method - should have exactly 1 entry for path /data/id
           var iterator = longReader.iterator();
@@ -622,7 +627,7 @@ class HOTMultiLayerIndirectPageTest {
   }
 
   @Nested
-  @DisplayName("HOTTrieWriter Split Tests")
+  @DisplayName("Canonical HOT writer split tests")
   class TrieWriterSplitTests {
 
     @Test
@@ -658,8 +663,9 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query with range - 10000 entries (0-9999), query > 5000, expect 4999 entries
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -673,4 +679,3 @@ class HOTMultiLayerIndirectPageTest {
     }
   }
 }
-

@@ -1,128 +1,82 @@
 package io.sirix.index.name;
 
-import io.sirix.utils.Iterators;
-import io.sirix.access.IndexBackendType;
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.ChangeListener;
-import io.sirix.index.Filter;
 import io.sirix.index.IndexDef;
-import io.sirix.index.IndexFilterAxis;
+import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.NameKeySerializer;
-import io.sirix.index.redblacktree.RBNodeKey;
-import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.settings.Fixed;
-import io.brackit.query.atomic.QNm;
+import io.sirix.utils.Iterators;
 
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Optional;
+import java.util.NoSuchElementException;
 import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
 
 public interface NameIndex<B, L extends ChangeListener> {
   B createBuilder(StorageEngineWriter storageEngineWriter, IndexDef indexDef);
 
   L createListener(StorageEngineWriter storageEngineWriter, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter) {
-    // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(storageEngineReader)) {
-      return openHOTIndex(storageEngineReader, indexDef, filter);
+  /** Open the canonical HOT-backed NAME index. */
+  default Iterator<NodeReferences> openIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
+      final NameFilter filter) {
+    requireNonNull(storageEngineReader);
+    requireNonNull(indexDef);
+    requireNonNull(filter);
+    if (indexDef.getType() != IndexType.NAME) {
+      throw new IllegalArgumentException("NAME reader requires an IndexType.NAME definition");
     }
-
-    // Use RBTree (default)
-    return openRBTreeIndex(storageEngineReader, indexDef, filter);
-  }
-
-  /**
-   * Checks if HOT indexes should be used for reading.
-   */
-  private static boolean isHOTEnabled(final StorageEngineReader storageEngineReader) {
-    // System property takes precedence (for testing)
-    final String sysProp = System.getProperty(NameIndexListenerFactory.USE_HOT_PROPERTY);
-    if (sysProp != null) {
-      return Boolean.parseBoolean(sysProp);
-    }
-
-    // Fall back to resource configuration
-    final var resourceConfig = storageEngineReader.getResourceSession().getResourceConfig();
-    return resourceConfig.indexBackendType == IndexBackendType.HOT;
-  }
-
-  /**
-   * Open HOT-based name index.
-   */
-  private Iterator<NodeReferences> openHOTIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter) {
     final HOTIndexReader<QNm> reader =
         HOTIndexReader.create(storageEngineReader, NameKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+    final Set<QNm> includes = filter.getIncludes();
+    final Set<QNm> excludes = filter.getExcludes();
 
-    if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
-      // Single name lookup
-      QNm name = filter.getIncludes().iterator().next();
-      NodeReferences refs = reader.get(name, SearchMode.EQUAL);
+    if (includes.size() == 1 && excludes.isEmpty()) {
+      final QNm name = includes.iterator().next();
+      final NodeReferences refs = reader.get(name, SearchMode.EQUAL);
       if (refs != null) {
         return Iterators.forArray(refs);
       }
-      return Iterators.forArray(new NodeReferences());
-    } else {
-      // Iterate over all entries and apply filter
-      final Set<QNm> includes = filter.getIncludes();
-      final Set<QNm> excludes = filter.getExcludes();
-      final Iterator<Map.Entry<QNm, NodeReferences>> entryIterator = reader.iterator();
+      return Collections.emptyIterator();
+    }
 
-      return new Iterator<>() {
-        private NodeReferences next = null;
+    final Iterator<Map.Entry<QNm, NodeReferences>> entries = reader.iterator();
+    return new Iterator<>() {
+      private NodeReferences next;
 
-        @Override
-        public boolean hasNext() {
-          if (next != null) {
+      @Override
+      public boolean hasNext() {
+        if (next != null) {
+          return true;
+        }
+        while (entries.hasNext()) {
+          final Map.Entry<QNm, NodeReferences> entry = entries.next();
+          final QNm name = entry.getKey();
+          if ((includes.isEmpty() || includes.contains(name)) && !excludes.contains(name)) {
+            next = entry.getValue();
             return true;
           }
-          while (entryIterator.hasNext()) {
-            Map.Entry<QNm, NodeReferences> entry = entryIterator.next();
-            QNm name = entry.getKey();
-
-            // Check includes/excludes
-            if ((includes.isEmpty() || includes.contains(name)) && !excludes.contains(name)) {
-              next = entry.getValue();
-              return true;
-            }
-          }
-          return false;
         }
+        return false;
+      }
 
-        @Override
-        public NodeReferences next() {
-          if (!hasNext()) {
-            throw new java.util.NoSuchElementException();
-          }
-          NodeReferences result = next;
-          next = null;
-          return result;
+      @Override
+      public NodeReferences next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
         }
-      };
-    }
-  }
-
-  /**
-   * Open RBTree-based name index (default).
-   */
-  private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter) {
-    final RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(
-        storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader, indexDef.getType(), indexDef.getID());
-
-    if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
-      final Optional<NodeReferences> optionalNodeReferences =
-          reader.get(filter.getIncludes().iterator().next(), SearchMode.EQUAL);
-      return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
-    } else {
-      final Iterator<RBNodeKey<QNm>> iter = reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = Set.of(filter);
-
-      return new IndexFilterAxis<>(reader, iter, setFilter);
-    }
+        final NodeReferences result = next;
+        next = null;
+        return result;
+      }
+    };
   }
 }

@@ -29,34 +29,26 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * End-to-end regression for the projection force-rebuild persist failure
- * ({@code SirixIOException: Projection HOT chunk insert failed after split}): mirrors
- * {@code ScaleBenchProjectionSetup.installWildcard} with
- * {@code -Dsirix.projection.forceRebuild=true} over a database that already carries SMALLER
- * persisted leaves.
+ * End-to-end regression for the projection tree's one-way initialization lifecycle.
  *
  * <ol>
  * <li>Shred a records array with the bench's six fields.</li>
  * <li>Build a 3-column projection ({@code age, active, dept}) via the real
- * {@link ProjectionIndexBuilder} and persist its leaves through {@link ProjectionIndexHOTStorage} —
- * the historical on-disk state.</li>
- * <li>Force-rebuild with all SIX columns over the same revision and persist the (strictly larger)
- * leaves at the SAME slot ids — the failing scenario.</li>
- * <li>Hydrate via {@link ProjectionIndexHOTStorage#readAllRowGroupsFromColumnSegmentSlots} and
- * assert every leaf comes back byte-identical to the freshly built 6-column leaves; then drive the
- * actual {@code installWildcard} fast path on top.</li>
+ * {@link ProjectionIndexBuilder} into tree 0.</li>
+ * <li>Prove that initializing tree 0 again with a different shape fails before mutation and leaves
+ * every persisted row group byte-identical.</li>
+ * <li>Build the 6-column projection into virgin tree 1 and prove that it hydrates
+ * byte-identically.</li>
  * </ol>
  *
  * <p>
  * The fixture persists through the production builder, including locators, dictionaries, summaries,
- * Bloom/fence chunks and live slot-0 metadata strictly last. That is load-bearing rather than
- * cosmetic: {@code installWildcard} decides fast-path-vs-rebuild by parsing slot 0, so a
- * leaves-only store sends phase 4 down the SLOW path and can make the test pass while exercising
- * the opposite path. Phase 4 pins the distinction on the revision number, the one thing the two
- * paths do not share (the rebuild commits, the hydrate does not).
+ * Bloom/fence chunks and live slot-0 metadata strictly last. It therefore exercises the exact
+ * boundary that once allowed a populated tree to be overwritten, not a leaves-only test double.
  */
 public final class ProjectionPersistForceRebuildTest {
 
@@ -112,22 +104,22 @@ public final class ProjectionPersistForceRebuildTest {
   }
 
   @Test
-  void forceRebuildWithMoreColumns_persistsAndHydratesByteIdentical() {
+  void populatedTreeRejectsReplacementAndFreshTreeHydratesByteIdentical() {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       try (final var database = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = database.beginResourceSession(RES)) {
 
-        // ---- Phase 1: historical state — 3-column projection persisted. ----
+        // ---- Phase 1: tree 0 receives its one permitted initialization. ----
         final Built threeCol = buildLeaves(session, threeColumnDef());
         final List<byte[]> threeColLeaves = threeCol.leaves();
         assertTrue(threeColLeaves.size() >= 32,
             "test needs enough leaves to split HOT pages, got " + threeColLeaves.size());
         persist(session, threeColumnDef());
 
-        // ---- Phase 2: force-rebuild with all six columns (larger leaves). ----
-        final Built sixCol = buildLeaves(session, sixColumnDef());
+        // ---- Phase 2: a replacement under tree 0 is rejected before touching it. ----
+        final Built sixCol = buildLeaves(session, sixColumnDef(0));
         final List<byte[]> sixColLeaves = sixCol.leaves();
         assertEquals(threeColLeaves.size(), sixColLeaves.size(), "same rows, same rows-per-leaf → same leaf count");
         long grownLeaves = 0;
@@ -139,27 +131,30 @@ public final class ProjectionPersistForceRebuildTest {
         assertTrue(grownLeaves > sixColLeaves.size() / 2,
             "6-column leaves must be larger than their 3-column predecessors (grown=" + grownLeaves + "/"
                 + sixColLeaves.size() + ")");
-        persist(session, sixColumnDef());
-
-        // ---- Phase 3: hydrate — every leaf byte-identical to the rebuild. ----
+        final IllegalStateException refusal =
+            assertThrows(IllegalStateException.class, () -> persist(session, sixColumnDef(0)));
+        assertTrue(refusal.getMessage().contains("virgin"), refusal::getMessage);
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           final List<byte[]> hydrated = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
-              rtx.getStorageEngineReader(), INDEX_NUMBER, sixColLeaves.size());
-          assertEquals(sixColLeaves.size(), hydrated.size(),
-              "every persisted leaf must hydrate after the grow-rebuild");
-          for (int i = 0; i < sixColLeaves.size(); i++) {
-            assertArrayEquals(sixColLeaves.get(i), hydrated.get(i),
-                "leaf " + i + " must be byte-identical after force-rebuild persist");
+              rtx.getStorageEngineReader(), INDEX_NUMBER, threeColLeaves.size());
+          assertEquals(threeColLeaves.size(), hydrated.size());
+          for (int i = 0; i < threeColLeaves.size(); i++) {
+            assertArrayEquals(threeColLeaves.get(i), hydrated.get(i),
+                "rejected replacement must preserve tree-0 leaf " + i);
           }
         }
 
-        // ---- Phase 4: the real bench entry point takes the fast (hydrate) path. ----
-        final int revisionBefore = session.getMostRecentRevisionNumber();
-        final int installed = ScaleBenchProjectionSetup.installWildcard(session);
-        assertEquals(sixColLeaves.size(), installed, "installWildcard must hydrate the persisted (rebuilt) projection");
-        assertEquals(revisionBefore, session.getMostRecentRevisionNumber(),
-            "the hydrate path reads only — a bumped revision means installWildcard silently "
-                + "REBUILT instead, which would make the leaf-count assertion above vacuous");
+        // ---- Phase 3: the new shape is initialized once in virgin tree 1. ----
+        persist(session, sixColumnDef(1));
+        try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final List<byte[]> hydrated = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+              rtx.getStorageEngineReader(), 1, sixColLeaves.size());
+          assertEquals(sixColLeaves.size(), hydrated.size());
+          for (int i = 0; i < sixColLeaves.size(); i++) {
+            assertArrayEquals(sixColLeaves.get(i), hydrated.get(i),
+                "fresh tree-1 leaf " + i + " must hydrate byte-identically");
+          }
+        }
       }
     }
   }
@@ -192,11 +187,11 @@ public final class ProjectionPersistForceRebuildTest {
         List.of(Type.LON, Type.BOOL, Type.STR), INDEX_NUMBER, IndexDef.DbType.JSON);
   }
 
-  private static IndexDef sixColumnDef() {
+  private static IndexDef sixColumnDef(final int indexNumber) {
     return IndexDefs.createProjectionIdxDef(path("/[]"),
         List.of(path("/[]/age"), path("/[]/active"), path("/[]/dept"), path("/[]/city"), path("/[]/amount"),
             path("/[]/score")),
-        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON), INDEX_NUMBER, IndexDef.DbType.JSON);
+        List.of(Type.LON, Type.BOOL, Type.STR, Type.STR, Type.LON, Type.LON), indexNumber, IndexDef.DbType.JSON);
   }
 
   private static Path<QNm> path(final String p) {

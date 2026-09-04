@@ -1,6 +1,7 @@
 package io.sirix.io;
 
 import java.lang.foreign.MemorySegment;
+import java.nio.ByteBuffer;
 
 /**
  * High-performance page checksum computation and verification.
@@ -88,6 +89,11 @@ public final class PageHasher {
    */
   public static long computeLong(MemorySegment segment, HashAlgorithm hashAlgorithm) {
     return hashAlgorithm.computeHashLong(segment);
+  }
+
+  /** Compute a hash over a FileChannel buffer's remaining bytes without changing its position. */
+  public static long computeLong(final ByteBuffer buffer, final HashAlgorithm hashAlgorithm) {
+    return hashAlgorithm.computeHashLong(buffer);
   }
 
   /**

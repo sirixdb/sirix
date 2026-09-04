@@ -5,7 +5,7 @@
 > mechanism (documented in `DISK_FORMAT.md` §2), SEV-2 items 5–8 (LE pin, pure-Java LZ4
 > decode fallback, long counts, hash-identity persistence), and SEV-3 items 9–13 (golden
 > tests in `io.sirix.format.GoldenFormatTest`, config validation, reserved envelope flags
-> byte + superblock stride, PIXC/PIX1 versions, DeweyID/offset-table guards) are done; item
+> byte + superblock stride, projection-substructure versions, DeweyID/offset-table guards) are done; item
 > 14 (Roaring format coupling) is pinned by a golden test. The final hardening pass closed
 > the rest: resource-UUID cross-linking (superblock ⇄ `ressetting.obj`), composite-page
 > golden fixtures (`GoldenCompositePageTest`), and verified crash-gate coverage of write
@@ -62,20 +62,13 @@ the V0 freeze (`docs/DISK_FORMAT.md` §5).
 
 ## SEV-1 — encodings that bypass the versioning discipline (fix before freeze)
 
-1. **Enum-ordinal on-disk encodings.** `HOTIndirectPage.NodeType` and `LayoutType` are
-   persisted as `.ordinal()` and read via `values()[id]` (`PageKind.java:3956-3957`,
-   `:3838-3843`); `BitmapChunkPage` persists `indexType.ordinal()` and reads
-   `IndexType.values()[ordinal]` (`BitmapChunkPage.java:449`, `:503`) — bypassing the stable
-   `IndexType.getID()` byte used everywhere else (including HOT leaf pages). Reordering or
-   inserting an enum constant silently corrupts existing pages, and an out-of-range id throws
-   `ArrayIndexOutOfBoundsException` instead of a versioned error. Fix: write stable id bytes
-   with a lookup that throws a named error, exactly like `PageKind`/`IndexType` already do.
-2. **Platform-default charset in a persisted path.** The NAMERB (name red-black index node)
-   serializer calls `getBytes()` with no charset (`NodeKind.java:865-871`) while its
-   deserializer decodes explicit UTF-8 (`:846-847`). Under any JVM where the default charset
-   is not UTF-8 (`-Dfile.encoding`, pre-JEP-400 runtimes), non-ASCII names corrupt on
-   round-trip. This is the only charset-less `getBytes()` in the persisted store path. Fix:
-   `getBytes(Constants.DEFAULT_ENCODING)`.
+1. **Resolved: enum ordinals removed from live persisted indexes.** HOT indirect-node layout
+   discriminators and all persisted index types use stable IDs with checked lookup. The unreachable
+   bitmap-chunk secondary-index prototype that also persisted an ordinal was removed entirely;
+   page-kind ID 14 remains reserved and must not be reused.
+2. **Resolved by format removal: name secondary-index charset split.** The retired name
+   red-black-tree codec encoded with the platform charset and decoded as UTF-8. The codec and its
+   record kind no longer exist; the canonical HOT name-key serializer owns the persisted encoding.
 3. **Unknown node-kind id fails as NPE/AIOOBE, not a versioned error.**
    `NodeKind.getKind(byte)` indexes a 128-slot array with no null/range check
    (`NodeKind.java:2085-2087`), so a record written by a newer version (or a corrupt kind
@@ -134,9 +127,10 @@ the V0 freeze (`docs/DISK_FORMAT.md` §5).
     hard-codes 11 delegate references — any additive change is a global version bump. Likewise
     the 32-byte revision record has no remaining reserved field and its stride is not recorded
     in the superblock geometry.
-12. **Unversioned magics.** `ProjectionIndexLeafCodec` (`PIXC`) and the `PIX1` presence-tail
-    footer carry magic but no version byte — a future layout change needs a new magic rather
-    than a version bump. Index-definition files (`indexes/<revision>.xml`) have no
+12. **Unversioned magics.** The `PIX1` in-memory scan-form presence tail originally carried a
+    magic but no version byte — a future layout change would have needed a new magic rather than a
+    version bump. The canonical projection descriptor and segment envelopes now likewise carry
+    explicit versions. Index-definition files (`indexes/<revision>.xml`) have no
     magic/version/checksum.
 13. **Small unguarded limits.** Per-field offset-table entries are a single unchecked byte
     (`PageLayout.java:589,602`) — an offset > 255 silently truncates, held off only by the

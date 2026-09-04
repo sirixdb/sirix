@@ -239,8 +239,12 @@ public final class ProjectionIndexRowExtractor {
         rowNonDoubleSource[column] = true;
       }
       switch (columnKinds[column]) {
+        // The temporal kinds join the long lane here, not the string one: the batch already parsed
+        // the document's canonical text into an epoch when the worker fed the cell, so nothing is
+        // re-parsed per row and nothing string-shaped reaches the leaf.
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           rowLongs[column] = batch.longValue(column, row);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> rowBools[column] = batch.booleanValue(column, row);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
@@ -254,7 +258,7 @@ public final class ProjectionIndexRowExtractor {
                   : scratch.length, Math.max(1, length))];
               rowStringUtf8Scratch[column] = scratch;
             }
-            System.arraycopy(batch.stringArena(column), batch.stringOffset(column, row), scratch, 0, length);
+            batch.copyStringTo(column, row, scratch);
             rowStringUtf8[column] = scratch;
             rowStringUtf8Lengths[column] = length;
           }
@@ -314,7 +318,12 @@ public final class ProjectionIndexRowExtractor {
           "XML projection record roots must be elements; node " + recordKey + " has kind " + rtx.getKind());
     }
     if (!isXmlRecordRoot(rtx.getPathNodeKey())) {
-      return false;
+      // Attribution said this key roots a record; the path class disagreeing is an invariant
+      // break, not a vanished record. It must be loud: unlike the JSON load path, XML record
+      // sets have no end-of-load row-count assertion, so a silent false here would persist a
+      // short index with no witness.
+      throw new IllegalStateException("XML projection record " + recordKey + " at path class " + rtx.getPathNodeKey()
+          + " is not at a record-set root path — attribution and extraction disagree");
     }
     extractAt(rtx, recordKey, selectedColumns);
     return true;
@@ -661,6 +670,12 @@ public final class ProjectionIndexRowExtractor {
         } else {
           rowLongs[column] = ProjectionDoubleEncoding.encode(number);
         }
+      } else if (ProjectionIndexRowGroupPage.isTemporalKind(columnKind)) {
+        final long epoch = ProjectionTemporalCodec.parse(columnKind, value);
+        if (epoch == ProjectionTemporalCodec.NOT_CANONICAL) {
+          throw ProjectionTemporalCodec.notCanonical(columnKind, column, value);
+        }
+        rowLongs[column] = epoch;
       } else {
         final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
         rowStringUtf8[column] = utf8;
@@ -935,6 +950,30 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
+   * Convert the UTF-8 already buffered for {@code col} into the column's epoch lane.
+   *
+   * <p>
+   * A value that is not exactly the declared shape FAILS THE BUILD rather than degrading the cell.
+   * That is the whole contract of a declared temporal column: the numeric lane is lossless only
+   * because every stored value formats back to the bytes the document held, so a value that cannot
+   * make the round trip must never be stored — and a silently unrepresentable cell would make the
+   * column answer nothing while looking healthy.
+   */
+  private void readTemporalIntoRow(final byte columnKind, final int col) {
+    final byte[] utf8 = rowStringUtf8[col];
+    final int length = rowStringUtf8Lengths[col];
+    final long epoch = ProjectionTemporalCodec.parse(columnKind, utf8, 0, length);
+    if (epoch == ProjectionTemporalCodec.NOT_CANONICAL) {
+      throw ProjectionTemporalCodec.notCanonical(columnKind, col, utf8, 0, length);
+    }
+    rowLongs[col] = epoch;
+    // The cell lives in the long lane from here on; leaving the borrowed slice visible would let a
+    // string-shaped consumer read a value this column does not store.
+    rowStringUtf8[col] = null;
+    rowStringUtf8Lengths[col] = 0;
+  }
+
+  /**
    * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into the current row.
    * The rtx's value predicates already return true on a fused record; dispatch is by record kind:
    * fused-number → numeric column, fused-boolean → boolean column, fused-string → string column,
@@ -1003,7 +1042,8 @@ public final class ProjectionIndexRowExtractor {
         }
       }
       case OBJECT_NAMED_STRING -> {
-        if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        final boolean temporal = ProjectionIndexRowGroupPage.isTemporalKind(columnKind);
+        if (temporal || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
             || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           // The production cursor copies/decodes into a grow-only per-column buffer. Custom cursors
           // retain the public-byte fallback; their returned array may be node-owned, so it is never
@@ -1014,6 +1054,12 @@ public final class ProjectionIndexRowExtractor {
             rowStringUtf8Lengths[col] = value == null
                 ? 0
                 : value.length;
+          }
+          if (temporal) {
+            // A declared temporal column takes the STRING off the record and stores its EPOCH. The
+            // bytes are read into the same reusable buffer a string column uses and converted in
+            // place, so the parse costs no allocation and the leaf never sees a string lane.
+            readTemporalIntoRow(columnKind, col);
           }
         } else {
           rowUnrepresentable[col] = true;

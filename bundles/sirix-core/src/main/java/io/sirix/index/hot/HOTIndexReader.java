@@ -27,15 +27,12 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
-import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -46,8 +43,7 @@ import static java.util.Objects.requireNonNull;
  * Generic HOT index reader for object keys (CASValue, QNm).
  *
  * <p>
- * Replaces {@link io.sirix.index.redblacktree.RBTreeReader} for HOT-based secondary indexes.
- * Provides read-only access with optimistic concurrency for lock-free reads.
+ * Provides the canonical secondary-index read path with optimistic concurrency for lock-free reads.
  * </p>
  *
  * <h2>Zero Allocation Design</h2>
@@ -64,27 +60,11 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
   /**
    * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
-   * {@code MAX_STRING_VALUE_BYTES = 246}), rounded to 512 for headroom. Only the LOGICAL key is ever
-   * written here — the chunkIdx trailer is appended into a right-sized seek array by
-   * {@link AbstractHOTIndexReader#collectChunksViaLowerBoundWalk}, never in place, because the trie
-   * descent takes the search key's length from the array it is handed.
+   * {@code MAX_STRING_VALUE_BYTES = 246}), rounded to 512 for headroom. The logical key is written
+   * first; point lookup may append the four-byte zero chunk trailer into the spare capacity and pass
+   * its explicit valid length to the canonical HOT lower-bound seek.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
-
-  /**
-   * Whether a lookup miss retries with the O(index) leftmost leaf walk. Resolved once at class load
-   * (it was a synchronized system-Properties lookup on every miss).
-   *
-   * <p>
-   * Historically this was ON by default and switched off via
-   * {@code hot.cas.leftmostfallback.disable}; it is now opt-in through
-   * {@code hot.cas.leftmostfallback.enable}, because the writer enforces I8/I12 pre-commit and the
-   * walk costs a whole-index scan on EVERY miss (~2.5 ms against ~2 us for the primary path on a
-   * 33K-key index). The retired {@code .disable} property is deliberately NOT consulted: reading it
-   * would make {@code .disable=false} — the value that used to mean "leave the default alone" —
-   * silently turn the whole-index scan back on.
-   */
-  private static final boolean LEFTMOST_FALLBACK_ENABLED = Boolean.getBoolean("hot.cas.leftmostfallback.enable");
 
   private final HOTKeySerializer<K> keySerializer;
 
@@ -114,6 +94,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    */
   public static <K extends Comparable<? super K>> HOTIndexReader<K> create(StorageEngineReader storageEngineReader,
       HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
+    requireNonNull(storageEngineReader);
+    requireNonNull(indexType);
+    HOTIndexNumberValidator.validate(storageEngineReader, indexType, indexNumber);
     return new HOTIndexReader<>(storageEngineReader, keySerializer, indexType, indexNumber);
   }
 
@@ -154,57 +137,6 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     // asked about under this revision is answered without re-walking. A writer-backed reader gets a
     // null cache and always computes — see AbstractHOTIndexReader#lookupCache.
     return pointLookup(keyBuf, prefixLen);
-  }
-
-  /**
-   * Reassemble all chunk slots whose composite key starts with {@code keyBuf[0..keyLen)}, without
-   * consulting or populating the memoization cache.
-   *
-   * <p>
-   * This is the whole of what {@link #get} used to do inline. It carries the leftmost-fallback retry
-   * for tries written before the writer enforced I8/I12, which is why the override exists rather than
-   * leaving the base class's chunk-walk-only default.
-   * </p>
-   */
-  @Override
-  protected @Nullable NodeReferences computePointLookup(final byte[] keyBuf, final int keyLen) {
-    final NodeReferences collected = collectChunksViaLowerBoundWalk(keyBuf, keyLen);
-    if (collected != null) {
-      return collected;
-    }
-
-    if (!LEFTMOST_FALLBACK_ENABLED) {
-      return null;
-    }
-    // Phase 7v retry for tries written before the writer enforced I8/I12: a full leaf-walk scan
-    // robust against non-lex-order leaves.
-    final PageReference rootRef = getRootReference();
-    if (rootRef == null) {
-      return null;
-    }
-    final Roaring64Bitmap merged = collectViaLeafWalk(rootRef, keyBuf, keyLen);
-    if (merged == null || merged.isEmpty()) {
-      return null;
-    }
-    return NodeReferences.owning(merged);
-  }
-
-  /**
-   * Phase 7v fallback: walk every leaf in the trie (left-to-right traversal order, NOT lex order —
-   * robust against I8 violations) and merge every chunk whose composite carries the prefix. Used only
-   * when the primary PEXT-routed lookup returns 0 chunks for a key that IS stored. O(total trie
-   * entries) per call; only triggered on a miss, and only when explicitly enabled.
-   *
-   * <p>
-   * An unbounded cursor visits exactly the same slots in the same order, so this shares the one
-   * chunk-merge implementation rather than restating it — including its torn-read discipline, which a
-   * second copy would have to keep in lockstep by hand.
-   */
-  private @Nullable Roaring64Bitmap collectViaLeafWalk(PageReference rootRef, byte[] prefixBuf, int prefixLen) {
-    try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader());
-        HOTRangeCursor cursor = reader.range(rootRef, null, null)) {
-      return NodeReferencesSerializer.mergeChunksInPrefixRange(cursor, prefixBuf, prefixLen);
-    }
   }
 
   /**

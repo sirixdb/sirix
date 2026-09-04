@@ -5,8 +5,9 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
-import io.sirix.node.interfaces.Node;
 import io.sirix.page.interfaces.Page;
+
+import io.sirix.node.interfaces.DataRecord;
 
 public interface BufferManager extends AutoCloseable {
   Cache<PageReference, KeyValueLeafPage> getRecordPageCache();
@@ -33,11 +34,8 @@ public interface BufferManager extends AutoCloseable {
 
   Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache();
 
-  Cache<RBIndexKey, Node> getIndexCache();
-
   /**
-   * Memoized HOT point lookups, keyed by committed revision — the HOT analogue of
-   * {@link #getIndexCache()}, which serves the red-black-tree backend.
+   * Memoized HOT point lookups, keyed by committed revision.
    *
    * <p>
    * Not a {@link Cache} like its neighbours because it does not hold pages: it holds the ANSWER to a
@@ -50,6 +48,39 @@ public interface BufferManager extends AutoCloseable {
   Cache<NamesCacheKey, Names> getNamesCache();
 
   Cache<PathSummaryCacheKey, PathSummaryData> getPathSummaryCache();
+
+  /**
+   * Verdict bitsets for string predicates over global projection value dictionaries.
+   *
+   * <p>
+   * Resource-scoped rather than executor-scoped by necessity: a verdict costs a sweep of every
+   * distinct value, and the query engine builds a NEW executor per execution, so an executor-held
+   * cache is measurably never reused. Missing is always safe -- the caller recomputes.
+   * </p>
+   */
+  Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache();
+
+  /**
+   * Decoded global-dictionary records, retained across transactions.
+   *
+   * <p>
+   * A read view retains blocks only for its own lifetime and is built per query execution, so without
+   * this every execution re-decodes the dictionary material it touches. Missing is safe.
+   * </p>
+   */
+  Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache();
+
+  /**
+   * Dictionaries already warmed, keyed with the dictionary's header key in the node-key slot.
+   *
+   * <p>
+   * On the buffer manager rather than in a static so it inherits
+   * {@link #clearCachesForResource(long, long)}: a resource deleted and recreated with the same ids
+   * must not find a surviving marker and conclude its dictionaries are warm when the caches holding
+   * them were just swept.
+   * </p>
+   */
+  Cache<GlobalDictionaryRecordCacheKey, Boolean> getGlobalDictionaryWarmMarkers();
 
   void clearAllCaches();
 

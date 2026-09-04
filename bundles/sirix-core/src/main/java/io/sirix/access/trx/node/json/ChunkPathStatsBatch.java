@@ -72,6 +72,15 @@ public final class ChunkPathStatsBatch {
     acc.recordPageOfNode(nodeKey);
   }
 
+  void recordLong(final long pathNodeKey, final long value, final long nodeKey) {
+    if (pathNodeKey < 0) {
+      return;
+    }
+    final PathStatsAccumulator acc = partialFor(pathNodeKey);
+    acc.addLong(value);
+    acc.recordPageOfNode(nodeKey);
+  }
+
   void recordBoolean(final long pathNodeKey, final boolean value, final long nodeKey) {
     if (pathNodeKey < 0) {
       return;

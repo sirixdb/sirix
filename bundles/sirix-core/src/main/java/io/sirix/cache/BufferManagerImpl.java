@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.node.interfaces.Node;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
@@ -25,7 +24,7 @@ import java.util.function.Predicate;
  * <li><b>Record page cache:</b> Full KeyValueLeafPages for data access</li>
  * <li><b>Fragment cache:</b> Page fragments for versioning reconstruction</li>
  * <li><b>Page cache:</b> Other page types (NamePage, RevisionRootPage, etc.)</li>
- * <li><b>Specialized caches:</b> RevisionRootPages, RBTree nodes, Names, PathSummary</li>
+ * <li><b>Specialized caches:</b> RevisionRootPages, HOT lookups, Names, PathSummary</li>
  * </ul>
  * <p>
  * The buffer manager coordinates with background ClockSweeper threads for eviction, following the
@@ -223,13 +222,30 @@ public final class BufferManagerImpl implements BufferManager {
   private final PageCache pageCache;
 
   private final RevisionRootPageCache revisionRootPageCache;
-  private final RedBlackTreeNodeCache redBlackTreeNodeCache;
-
   // Memoized HOT point-lookup answers. Sized independently of the page caches: entries are a key
   // plus a bounded long[], so this is kilobytes where the page caches are megabytes.
+  /**
+   * Verdict-cache budget. A verdict is one bit per dictionary id, so this is tens of kilobytes at a
+   * million distinct values and a few megabytes at a hundred million; the bound is in BYTES so the
+   * second scale cannot quietly cost hundreds of megabytes the way a count bound would.
+   */
+  private static final long GLOBAL_VERDICT_CACHE_BYTES =
+      Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
+
+  /**
+   * Decoded dictionary bytes retained across transactions. Sized to hold a mid-cardinality column's
+   * blocks outright; above that it degrades to the hit rate its weight supports, which is the point
+   * of metering it rather than sizing it from the dictionary.
+   */
+  private static final long GLOBAL_DICTIONARY_RECORD_CACHE_BYTES =
+      Long.getLong("sirix.projection.globalDict.recordCacheBytes", 256L << 20);
+
   private final HOTLookupCache hotLookupCache;
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
+  private final GlobalVerdictCache globalVerdictCache;
+  private final GlobalDictionaryRecordCache globalDictionaryRecordCache;
+  private final GlobalDictionaryWarmMarkerCache globalDictionaryWarmMarkers;
 
   // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
   // Started when BufferManager is initialized, run until shutdown
@@ -247,13 +263,12 @@ public final class BufferManagerImpl implements BufferManager {
    * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment
    *        cache
    * @param maxRevisionRootPageCache maximum number of revision root pages to cache
-   * @param maxRBTreeNodeCache maximum number of RB-tree nodes to cache
    * @param maxNamesCacheSize maximum number of name entries to cache
    * @param maxPathSummaryCacheSize maximum number of path summary entries to cache
    */
   public BufferManagerImpl(long maxPageCacheWeight, long maxRecordPageCacheWeight,
-      long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache,
-      int maxNamesCacheSize, int maxPathSummaryCacheSize) {
+      long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxNamesCacheSize,
+      int maxPathSummaryCacheSize) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
     // ShardedPageCache uses long for maxWeightBytes - supports > 2GB caches
     recordPageCache = new ShardedPageCache<>(maxRecordPageCacheWeight);
@@ -312,7 +327,6 @@ public final class BufferManagerImpl implements BufferManager {
     LinuxMemorySegmentAllocator.setPressureListener(pressureListener);
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
-    redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     final String configuredHotLookupEntries = System.getProperty(HOT_LOOKUP_CACHE_ENTRIES_PROPERTY);
     final HotLookupSize hotLookupSize = hotLookupCacheEntries(maxRecordPageCacheWeight, configuredHotLookupEntries);
     final int hotLookupEntries = hotLookupSize.entries();
@@ -321,6 +335,9 @@ public final class BufferManagerImpl implements BufferManager {
         : new HOTLookupCache(hotLookupEntries);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
+    globalVerdictCache = new GlobalVerdictCache(GLOBAL_VERDICT_CACHE_BYTES);
+    globalDictionaryRecordCache = new GlobalDictionaryRecordCache(GLOBAL_DICTIONARY_RECORD_CACHE_BYTES);
+    globalDictionaryWarmMarkers = new GlobalDictionaryWarmMarkerCache();
 
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
     this.clockSweeperThreads = new ArrayList<>();
@@ -366,11 +383,6 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<RBIndexKey, Node> getIndexCache() {
-    return redBlackTreeNodeCache;
-  }
-
-  @Override
   public HOTLookupCache getHOTLookupCache() {
     return hotLookupCache;
   }
@@ -378,6 +390,44 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public NamesCache getNamesCache() {
     return namesCache;
+  }
+
+  @Override
+  public GlobalVerdictCache getGlobalVerdictCache() {
+    return globalVerdictCache;
+  }
+
+  @Override
+  public GlobalDictionaryRecordCache getGlobalDictionaryRecordCache() {
+    return globalDictionaryRecordCache;
+  }
+
+  @Override
+  public GlobalDictionaryWarmMarkerCache getGlobalDictionaryWarmMarkers() {
+    return globalDictionaryWarmMarkers;
+  }
+
+  /**
+   * Drops this resource's dictionary-derived state: verdicts, decoded records and warm markers.
+   *
+   * <p>
+   * All three are keyed by {@code (databaseId, resourceId, ...)}, so a resource recreated with the
+   * same ids would otherwise be served its predecessor's answers -- the pollution
+   * {@code clearCachesForResource}'s own comment exists to prevent. The marker is the worst of the
+   * three: surviving alone it reports "already warm" over caches that were just swept, and the warmer
+   * never runs again for that resource.
+   * </p>
+   */
+  private void clearDictionaryCachesForResource(final long databaseId, final long resourceId) {
+    globalVerdictCache.asMap()
+                      .keySet()
+                      .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+    globalDictionaryRecordCache.asMap()
+                               .keySet()
+                               .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
+    globalDictionaryWarmMarkers.asMap()
+                               .keySet()
+                               .removeIf(key -> key.databaseId() == databaseId && key.resourceId() == resourceId);
   }
 
   @Override
@@ -514,8 +564,10 @@ public final class BufferManagerImpl implements BufferManager {
       hotLeafPageCache.clear();
       hotLeafFragmentCache.clear();
       revisionRootPageCache.clear();
-      redBlackTreeNodeCache.clear();
       namesCache.clear();
+      globalVerdictCache.clear();
+      globalDictionaryRecordCache.clear();
+      globalDictionaryWarmMarkers.clear();
       pathSummaryCache.clear();
     } finally {
       hotLookupCache.clear();
@@ -692,6 +744,10 @@ public final class BufferManagerImpl implements BufferManager {
 
   @Override
   public void clearCachesForResource(long databaseId, long resourceId) {
+    // Before anything else, and unconditionally: the dictionary-derived caches are keyed by
+    // (databaseId, resourceId, ...) and a resource recreated with the same ids would otherwise be
+    // served its predecessor's verdicts, records and warm markers.
+    clearDictionaryCachesForResource(databaseId, resourceId);
     // try/catch/finally around the WHOLE body, not just around the HOT page sweep. The body's
     // exception is CAPTURED rather than left to propagate on its own, because a bare finally that
     // itself throws discards it outright — not even as a suppressed cause — and the body's failure is

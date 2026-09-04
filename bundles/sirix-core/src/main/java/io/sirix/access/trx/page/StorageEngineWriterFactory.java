@@ -32,13 +32,10 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
-import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
-import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
@@ -88,9 +85,9 @@ public final class StorageEngineWriterFactory {
    */
   public StorageEngineWriter createStorageEngineWriter(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
-      final UberPage uberPage, final Writer writer, final int trxId,
-      final int representRevision, final int lastStoredRevision,
-      final int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
+      final UberPage uberPage, final Writer writer, final int trxId, final int representRevision,
+      final int lastStoredRevision, final int lastCommitedRevision, final boolean isBoundToNodeTrx,
+      final BufferManager bufferManager) {
     final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
     // Use representRevision + 1 because that's the NEW revision being created.
@@ -98,6 +95,11 @@ public final class StorageEngineWriterFactory {
     // so we need to use the same revision for the index controller to ensure they share state.
     final int newRevisionNumber = representRevision + 1;
     final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
+
+    // The prospective-revision controller is cached and may still contain catalogue mutations from
+    // a transaction that is now rolling back. This factory is the authoritative persisted-state
+    // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
+    indexController.getIndexes().reset();
 
     // Deserialize index definitions.
     final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
@@ -113,7 +115,8 @@ public final class StorageEngineWriterFactory {
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
     final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
-    // Create revision tree if needed. Note: This must happen before the storage engine reader is created.
+    // Create revision tree if needed. Note: This must happen before the storage engine reader is
+    // created.
     if (uberPage.isBootstrap()) {
       uberPage.createRevisionTree(log);
     }
@@ -126,8 +129,8 @@ public final class StorageEngineWriterFactory {
     final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
     // Use temporary KeyedTrieWriter to prepare revision root page.
     final var tempKeyedTrieWriter = new KeyedTrieWriter();
-    final RevisionRootPage newRevisionRootPage =
-        tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage, storageEngineReader, log, representRevision, lastStoredRevision);
+    final RevisionRootPage newRevisionRootPage = tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage,
+        storageEngineReader, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     if (resourceConfig.storeNodeHistory()) {
@@ -159,66 +162,40 @@ public final class StorageEngineWriterFactory {
       final DeweyIDPage deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
 
       if (resourceSession instanceof JsonResourceSession) {
-        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
+        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
+            NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
         deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
       } else if (resourceSession instanceof XmlResourceSession) {
-        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
+        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.ATTRIBUTES_REFERENCE_OFFSET,
+            log);
+        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.ELEMENTS_REFERENCE_OFFSET,
+            log);
+        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.NAMESPACE_REFERENCE_OFFSET,
+            log);
+        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
+            NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
         deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
       } else {
         throw new IllegalStateException("Resource session type not known.");
       }
     } else {
-      // Top-down CoW (task #57), analogous to KeyedTrieWriter.prepareIndirectPage in the document
-      // trie: pre-stage NamePage / CASPage / PathPage / ProjectionIndexPage with a deep-copied
-      // page instance (used as BOTH complete AND modified — exactly the document-trie pattern).
-      // The cached prior-revision instance stays in the buffer cache untouched; the TIL holds the
-      // private deep-copy that the writer mutates. Without this every per-index reference array
-      // (and the rootRef slot) is shared with historical revisions and writer-side mutations
-      // bleed into historical reads. Eager-loading Names dictionaries at copy time keeps the
-      // cached and CoW'd NamePage Names instances aligned (without it, lazy-loads via either
-      // side later create disconnected dictionaries and breaks DELETE event-firing).
-      if (log.get(newRevisionRootPage.getNamePageReference()) == null) {
-        final NamePage cached = storageEngineReader.getNamePage(newRevisionRootPage);
-        final NamePage cowed = new NamePage(cached, storageEngineReader);
-        log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(cowed, cowed));
-      }
-
-      if (log.get(newRevisionRootPage.getCASPageReference()) == null) {
-        final CASPage cached = storageEngineReader.getCASPage(newRevisionRootPage);
-        final CASPage cowed = new CASPage(cached);
-        log.put(newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(cowed, cowed));
-      }
-
-      if (log.get(newRevisionRootPage.getPathPageReference()) == null) {
-        final PathPage cached = storageEngineReader.getPathPage(newRevisionRootPage);
-        final PathPage cowed = new PathPage(cached);
-        log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(cowed, cowed));
-      }
-
-      if (log.get(newRevisionRootPage.getProjectionIndexPageReference()) == null) {
-        final ProjectionIndexPage cached = storageEngineReader.getProjectionIndexPage(newRevisionRootPage);
-        if (cached != null) {
-          final ProjectionIndexPage cowed = new ProjectionIndexPage(cached);
-          log.put(newRevisionRootPage.getProjectionIndexPageReference(), PageContainer.getInstance(cowed, cowed));
-        }
-      }
-
+      // Secondary container pages are intentionally absent from the TIL until their first write.
+      // NodeStorageEngineWriter.prepareSecondaryIndexPage performs the single, typed first-touch
+      // CoW operation. An empty write transaction consequently neither copies nor serializes every
+      // secondary-index container in the resource.
       if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
         final Page deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
-      final var revisionRootPageReference =
-          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
+      final var revisionRootPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
+                                                               .setResourceId(storageEngineReader.getResourceId());
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
       uberPage.setRevisionRootPageReference(revisionRootPageReference);
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController, representRevision,
-        isBoundToNodeTrx);
+    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController,
+        representRevision, isBoundToNodeTrx);
   }
 }

@@ -18,6 +18,7 @@ import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageConstants;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
@@ -131,11 +132,14 @@ final class FreshRecordPageAllocationTest {
                                                                           .build();
       config.resourcePath = tempDir.resolve("resource-" + storeDeweyIds);
 
-      final byte[] record = new byte[513];
+      final byte[] deweyId = {1, 3, 5, 8, 13, 21};
+      final int recordLength = PageConstants.MAX_RECORD_SIZE - (storeDeweyIds
+          ? deweyId.length + PageLayout.DEWEY_ID_TRAILER_SIZE
+          : 0);
+      final byte[] record = new byte[recordLength];
       for (int i = 0; i < record.length; i++) {
         record[i] = (byte) (i * 29 + 7);
       }
-      final byte[] deweyId = {1, 3, 5, 8, 13, 21};
       final PageContainer container =
           NodeStorageEngineWriter.createFreshRecordPage(91L, IndexType.DOCUMENT, config, 17);
       final KeyValueLeafPage complete = (KeyValueLeafPage) container.getComplete();
@@ -149,6 +153,8 @@ final class FreshRecordPageAllocationTest {
         if (storeDeweyIds) {
           modified.setDeweyId(deweyId, 37);
         }
+        assertEquals(PageConstants.MAX_RECORD_SIZE, PageLayout.getDirDataLength(modified.getSlottedPage(), 37),
+            "the record body and optional Dewey metadata must exercise the exact inline boundary");
 
         final PageReference writtenReference = new PageReference();
         try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);

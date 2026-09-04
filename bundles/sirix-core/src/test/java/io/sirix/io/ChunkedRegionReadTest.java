@@ -25,28 +25,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The bounded ("chunked") region read, which engages only when checksum verification is off.
  *
- * <p>That condition is the whole reason this test exists. The column-scan tests all run with
- * checksums ON, so they exercise the full-page region read and never touch this path — and the
- * defect it hid was invisible from every other angle: the chunk decoder built its
- * {@link RegionsOnlyPage} without decoding the slot bitmap, so the versioned column merge refused
- * every fragment and quietly sent each multi-fragment page back to reconstructing records. Nothing
- * failed; the fast path simply stopped existing whenever it was eligible, which is exactly the
- * configuration a benchmark run selects.
+ * <p>
+ * That condition is the whole reason this test exists. The column-scan tests all run with checksums
+ * ON, so they exercise the full-page region read and never touch this path — and the defect it hid
+ * was invisible from every other angle: the chunk decoder built its {@link RegionsOnlyPage} without
+ * decoding the slot bitmap, so the versioned column merge refused every fragment and quietly sent
+ * each multi-fragment page back to reconstructing records. Nothing failed; the fast path simply
+ * stopped existing whenever it was eligible, which is exactly the configuration a benchmark run
+ * selects.
  *
  * <h2>What these assertions have to be about</h2>
  *
- * <p>Not a query result: a count is answered correctly by the record path either way, so it agrees
+ * <p>
+ * Not a query result: a count is answered correctly by the record path either way, so it agrees
  * whether or not the column path exists.
  *
- * <p>Not {@link RegionsOnlyPage#hasSlotBitmap()} either, which is what an earlier version of this
- * test asserted and why it passed with the fix reverted. That method reports {@code slotBitmap !=
+ * <p>
+ * Not {@link RegionsOnlyPage#hasSlotBitmap()} either, which is what an earlier version of this test
+ * asserted and why it passed with the fix reverted. That method reports {@code slotBitmap !=
  * null}, and the chunk reader allocates the bitmap array from a thread-local scratch and passes a
  * copy of it unconditionally — so the array is non-null however the probe behaved. Skipping the
  * bitmap leaves it all ZEROS, not absent, and an all-zero bitmap is worse than a missing one: it is
  * the confident and false claim that this fragment defines no slots, which resolves every slot to
  * an older fragment.
  *
- * <p>So each assertion below is about bitmap CONTENT — its cardinality against the populated-slot
+ * <p>
+ * So each assertion below is about bitmap CONTENT — its cardinality against the populated-slot
  * count the same header carries — plus one about the chunk path having been taken at all, because
  * the read declines by silently falling back to the whole page, and a test that stopped covering
  * this path would otherwise keep passing on the fallback's bitmap.
@@ -128,18 +132,17 @@ final class ChunkedRegionReadTest {
 
   /**
    * The bitmap decoded off disk has to describe the page it came from. Cardinality against the
-   * populated-slot count is the check that distinguishes a decoded bitmap from an allocated one:
-   * both are non-null, only one of them counts the page's slots.
+   * populated-slot count is the check that distinguishes a decoded bitmap from an allocated one: both
+   * are non-null, only one of them counts the page's slots.
    */
   private static void assertBitmapDescribesPage(final RegionsOnlyPage page, final String what) {
     assertTrue(page.hasSlotBitmap(), what + " came back with no slot bitmap at all");
-    assertTrue(page.getPopulatedSlotCount() > 0,
-               what + " reports no populated slots, so it cannot witness anything");
+    assertTrue(page.getPopulatedSlotCount() > 0, what + " reports no populated slots, so it cannot witness anything");
     assertEquals(page.getPopulatedSlotCount(), page.definedSlotCount(),
-                 what + " carries a slot bitmap that does not describe its own slots. All-zero "
-                     + "means the region decoder allocated the bitmap but never read it, and a "
-                     + "fragment that claims to define nothing loses every slot it owns to an "
-                     + "older fragment in the column merge");
+        what + " carries a slot bitmap that does not describe its own slots. All-zero "
+            + "means the region decoder allocated the bitmap but never read it, and a "
+            + "fragment that claims to define nothing loses every slot it owns to an "
+            + "older fragment in the column merge");
   }
 
   @Test
@@ -158,16 +161,18 @@ final class ChunkedRegionReadTest {
         // Walk the record pages for one the single-page entry point serves. A multi-fragment page
         // declines here by design and is covered by the fragment test below.
         for (long pageKey = 0; pageKey < MAX_PAGE_KEY && seen == null; pageKey++) {
-          seen = reader.getRecordPageRegionsOnly(
-              new IndexLogKey(IndexType.DOCUMENT, pageKey, 0, revision), NUMBER_MASK, 0);
+          seen = reader.getRecordPageRegionsOnly(new IndexLogKey(IndexType.DOCUMENT, pageKey, 0, revision), NUMBER_MASK,
+              0);
         }
         assertNotNull(seen, "no record page could be read column-only at all");
-        assertTrue(AbstractReader.regionChunkHits() > chunkHitsBefore,
-                   "the column-only read never took the bounded chunk path, so this test is "
-                       + "asserting about the whole-page reader instead. Check "
-                       + "FileChannelReader#regionChunkEligible against this fixture's config "
-                       + "(verifyChecksumsOnRead off, non-FSST) before trusting it again");
-        assertBitmapDescribesPage(seen, "a chunk-read page");
+        try (RegionsOnlyPage page = seen) {
+          assertTrue(AbstractReader.regionChunkHits() > chunkHitsBefore,
+              "the column-only read never took the bounded chunk path, so this test is "
+                  + "asserting about the whole-page reader instead. Check "
+                  + "FileChannelReader#regionChunkEligible against this fixture's config "
+                  + "(verifyChecksumsOnRead off, non-FSST) before trusting it again");
+          assertBitmapDescribesPage(page, "a chunk-read page");
+        }
       } finally {
         reader.close();
       }
@@ -191,18 +196,22 @@ final class ChunkedRegionReadTest {
         final long chunkHitsBefore = AbstractReader.regionChunkHits();
         RegionsOnlyPage[] fragments = null;
         for (long pageKey = 0; pageKey < MAX_PAGE_KEY && fragments == null; pageKey++) {
-          fragments = reader.getRecordPageFragmentRegions(
-              new IndexLogKey(IndexType.DOCUMENT, pageKey, 0, revision), NUMBER_MASK);
+          fragments = reader.getRecordPageFragmentRegions(new IndexLogKey(IndexType.DOCUMENT, pageKey, 0, revision),
+              NUMBER_MASK);
         }
-        assertNotNull(fragments,
-                      "no multi-fragment page was served column-only, so the merge input this "
-                          + "test exists for was never built — the second revision may no longer "
-                          + "be leaving a second fragment");
+        assertNotNull(fragments, "no multi-fragment page was served column-only, so the merge input this "
+            + "test exists for was never built — the second revision may no longer " + "be leaving a second fragment");
         assertTrue(fragments.length > 1, "expected a chain, got " + fragments.length + " fragment");
         assertTrue(AbstractReader.regionChunkHits() > chunkHitsBefore,
-                   "the fragment reads never took the bounded chunk path");
-        for (int i = 0; i < fragments.length; i++) {
-          assertBitmapDescribesPage(fragments[i], "fragment " + i + " of " + fragments.length);
+            "the fragment reads never took the bounded chunk path");
+        try {
+          for (int i = 0; i < fragments.length; i++) {
+            assertBitmapDescribesPage(fragments[i], "fragment " + i + " of " + fragments.length);
+          }
+        } finally {
+          for (final RegionsOnlyPage fragment : fragments) {
+            fragment.close();
+          }
         }
       } finally {
         reader.close();

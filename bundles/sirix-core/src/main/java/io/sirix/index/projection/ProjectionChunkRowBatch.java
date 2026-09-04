@@ -27,11 +27,18 @@ import java.util.Arrays;
  * record) can differ, and consumers never read either through a poisoned cell.
  *
  * <h2>Memory discipline</h2> All row-indexed storage is allocated ONCE per chunk, pre-sized from
- * the feeder's member count: flat flag bytes, per-numeric-column long lanes, one growing UTF-8
- * arena per string column. The per-record hot path allocates nothing; only set columns (absent from
- * typical corpora) allocate per row, mirroring the read-back extractor's own trim allocation.
+ * the feeder's member count: flat flag bytes, per-numeric-column long lanes, and per-row offsets
+ * into fixed 64 KiB UTF-8 arena chunks. Every array payload is bounded to 256 KiB; the per-record
+ * hot path only adds another fixed-size arena chunk when a string crosses a chunk boundary. Only
+ * set columns (absent from typical corpora) allocate per row, mirroring the read-back extractor's
+ * own trim allocation.
  */
 public final class ProjectionChunkRowBatch {
+
+  private static final int MAX_SAFE_ARRAY_PAYLOAD_BYTES = 256 << 10;
+  private static final int MAX_SAFE_REFERENCE_ARRAY_LENGTH = MAX_SAFE_ARRAY_PAYLOAD_BYTES / Long.BYTES;
+  private static final int STRING_ARENA_CHUNK_BYTES = 64 << 10;
+  private static final int INITIAL_STRING_ARENA_CHUNKS = 4;
 
   private static final int FLAG_PRESENT = 1;
   private static final int FLAG_UNREPRESENTABLE = 1 << 1;
@@ -67,13 +74,12 @@ public final class ProjectionChunkRowBatch {
   /** Numeric/boolean-encoded lanes, allocated only for numeric column kinds. */
   private final long[][] longLanes;
 
-  /**
-   * String lanes: one arena plus per-row (offset, length) per string column; length -1 = no value.
-   */
-  private final byte[][] stringArenas;
+  /** String lanes: fixed-size arena chunks plus per-row offsets/lengths; length -1 = no value. */
+  private final byte[][][] stringArenaChunks;
   private final int[][] stringOffsets;
   private final int[][] stringLengths;
   private final int[] stringArenaUsed;
+  private final int[] stringArenaAllocatedChunks;
 
   /** Set lanes (rare): trimmed elements per row, plus the per-record open-collection state. */
   private final String[][][] setElements;
@@ -90,6 +96,11 @@ public final class ProjectionChunkRowBatch {
     if (expectedRows < 0) {
       throw new IllegalArgumentException("expectedRows must be non-negative: " + expectedRows);
     }
+    final int maxRows = maxHftChunkRows(columnKinds.length);
+    if (expectedRows > maxRows) {
+      throw new IllegalArgumentException("expectedRows " + expectedRows + " exceeds the HFT-safe chunk limit " + maxRows
+          + " for " + columnKinds.length + " projection columns");
+    }
     this.fieldPcrKeys = fieldPcrKeys;
     this.fieldPcrColumns = fieldPcrColumns;
     this.columnKinds = columnKinds;
@@ -99,10 +110,11 @@ public final class ProjectionChunkRowBatch {
     final int columns = columnKinds.length;
     this.flags = new byte[Math.multiplyExact(columns, expectedRows)];
     this.longLanes = new long[columns][];
-    this.stringArenas = new byte[columns][];
+    this.stringArenaChunks = new byte[columns][][];
     this.stringOffsets = new int[columns][];
     this.stringLengths = new int[columns][];
     this.stringArenaUsed = new int[columns];
+    this.stringArenaAllocatedChunks = new int[columns];
     this.setElements = new String[columns][][];
     this.setScratch = new String[columns][];
     this.setScratchLength = new int[columns];
@@ -110,12 +122,15 @@ public final class ProjectionChunkRowBatch {
     boolean anySet = false;
     for (int column = 0; column < columns; column++) {
       switch (columnKinds[column]) {
+        // The temporal kinds hold an epoch per row: the long lane, allocated exactly as for a
+        // numeric column, and no string arena at all.
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
           longLanes[column] = new long[expectedRows];
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
-          stringArenas[column] = new byte[Math.max(64, expectedRows * 8)];
+          stringArenaChunks[column] = new byte[INITIAL_STRING_ARENA_CHUNKS][];
           stringOffsets[column] = new int[expectedRows];
           final int[] lengths = new int[expectedRows];
           Arrays.fill(lengths, -1);
@@ -221,6 +236,43 @@ public final class ProjectionChunkRowBatch {
     }
   }
 
+  /** Feed an integral value without allocating an {@link Integer} wrapper. */
+  public void onNamedInt(final long pathNodeKey, final int value) {
+    onNamedIntegral(pathNodeKey, value, false);
+  }
+
+  /** Feed an integral value without allocating a {@link Long} wrapper. */
+  public void onNamedLong(final long pathNodeKey, final long value) {
+    onNamedIntegral(pathNodeKey, value, true);
+  }
+
+  private void onNamedIntegral(final long pathNodeKey, final long value, final boolean longSource) {
+    for (int mapping = firstMapping(pathNodeKey); mapping >= 0; mapping = nextMapping(pathNodeKey, mapping)) {
+      final int column = fieldPcrColumns[mapping];
+      final int cell = cellOf(column);
+      final byte cellFlags = flags[cell];
+      if ((cellFlags & FLAG_PRESENT) != 0) {
+        flags[cell] = (byte) (cellFlags | FLAG_UNREPRESENTABLE);
+        continue;
+      }
+      final byte columnKind = columnKinds[column];
+      if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
+        longLanes[column][rowCount] = value;
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+        final double doubleValue = value;
+        byte updated = (byte) (cellFlags | FLAG_PRESENT | FLAG_NON_DOUBLE_SOURCE);
+        if (longSource && (value == Long.MAX_VALUE || (long) doubleValue != value)) {
+          updated |= FLAG_NON_INTEGRAL;
+        }
+        flags[cell] = updated;
+        longLanes[column][rowCount] = ProjectionDoubleEncoding.encode(doubleValue);
+      } else {
+        flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+      }
+    }
+  }
+
   public void onNamedString(final long pathNodeKey, final byte[] utf8, final int length) {
     for (int mapping = firstMapping(pathNodeKey); mapping >= 0; mapping = nextMapping(pathNodeKey, mapping)) {
       final int column = fieldPcrColumns[mapping];
@@ -235,6 +287,16 @@ public final class ProjectionChunkRowBatch {
           || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
         storeString(column, utf8, length);
+      } else if (ProjectionIndexRowGroupPage.isTemporalKind(columnKind)) {
+        // A declared temporal column converts the feed's bytes straight into its epoch lane — no
+        // arena copy, no dictionary, and a value that is not exactly canonical fails the LOAD,
+        // where the record that carries it is still identifiable.
+        final long epoch = ProjectionTemporalCodec.parse(columnKind, utf8, 0, length);
+        if (epoch == ProjectionTemporalCodec.NOT_CANONICAL) {
+          throw ProjectionTemporalCodec.notCanonical(columnKind, column, utf8, 0, length);
+        }
+        flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
+        longLanes[column][rowCount] = epoch;
       } else {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }
@@ -375,20 +437,50 @@ public final class ProjectionChunkRowBatch {
   }
 
   private void storeString(final int column, final byte[] utf8, final int length) {
-    byte[] arena = stringArenas[column];
     final int used = stringArenaUsed[column];
-    if (used + length > arena.length) {
-      int grown = Math.max(64, arena.length);
-      while (grown < used + length) {
-        grown = Math.multiplyExact(grown, 2);
-      }
-      arena = Arrays.copyOf(arena, grown);
-      stringArenas[column] = arena;
+    if (length < 0 || used > Integer.MAX_VALUE - length) {
+      throw new IllegalStateException(
+          "string arena for projection column " + column + " exceeds the 2 GiB addressable limit");
     }
-    System.arraycopy(utf8, 0, arena, used, length);
+    final int required = used + length;
+    ensureStringArenaCapacity(column, required);
+    int sourceOffset = 0;
+    int destinationOffset = used;
+    int remaining = length;
+    final byte[][] chunks = stringArenaChunks[column];
+    while (remaining > 0) {
+      final int chunkIndex = destinationOffset / STRING_ARENA_CHUNK_BYTES;
+      final int chunkOffset = destinationOffset & (STRING_ARENA_CHUNK_BYTES - 1);
+      final int copied = Math.min(remaining, STRING_ARENA_CHUNK_BYTES - chunkOffset);
+      System.arraycopy(utf8, sourceOffset, chunks[chunkIndex], chunkOffset, copied);
+      sourceOffset += copied;
+      destinationOffset += copied;
+      remaining -= copied;
+    }
     stringOffsets[column][rowCount] = used;
     stringLengths[column][rowCount] = length;
-    stringArenaUsed[column] = used + length;
+    stringArenaUsed[column] = required;
+  }
+
+  private void ensureStringArenaCapacity(final int column, final int requiredBytes) {
+    if (requiredBytes == 0) {
+      return;
+    }
+    final int requiredChunks = 1 + (requiredBytes - 1) / STRING_ARENA_CHUNK_BYTES;
+    byte[][] chunks = stringArenaChunks[column];
+    if (requiredChunks > chunks.length) {
+      int grown = chunks.length;
+      while (grown < requiredChunks) {
+        grown = Math.multiplyExact(grown, 2);
+      }
+      chunks = Arrays.copyOf(chunks, grown);
+      stringArenaChunks[column] = chunks;
+    }
+    final int allocatedChunks = stringArenaAllocatedChunks[column];
+    for (int chunk = allocatedChunks; chunk < requiredChunks; chunk++) {
+      chunks[chunk] = new byte[STRING_ARENA_CHUNK_BYTES];
+    }
+    stringArenaAllocatedChunks[column] = requiredChunks;
   }
 
   private int cellOf(final int column) {
@@ -457,16 +549,44 @@ public final class ProjectionChunkRowBatch {
     return longLanes[column][row];
   }
 
-  byte[] stringArena(final int column) {
-    return stringArenas[column];
-  }
-
-  int stringOffset(final int column, final int row) {
-    return stringOffsets[column][row];
-  }
-
   int stringLength(final int column, final int row) {
     return stringLengths[column][row];
+  }
+
+  void copyStringTo(final int column, final int row, final byte[] destination) {
+    final int length = stringLengths[column][row];
+    if (length < 0 || destination.length < length) {
+      throw new IllegalArgumentException(
+          "destination length " + destination.length + " cannot hold string length " + length);
+    }
+    int sourceOffset = stringOffsets[column][row];
+    int destinationOffset = 0;
+    int remaining = length;
+    final byte[][] chunks = stringArenaChunks[column];
+    while (remaining > 0) {
+      final int chunkIndex = sourceOffset / STRING_ARENA_CHUNK_BYTES;
+      final int chunkOffset = sourceOffset & (STRING_ARENA_CHUNK_BYTES - 1);
+      final int copied = Math.min(remaining, STRING_ARENA_CHUNK_BYTES - chunkOffset);
+      System.arraycopy(chunks[chunkIndex], chunkOffset, destination, destinationOffset, copied);
+      sourceOffset += copied;
+      destinationOffset += copied;
+      remaining -= copied;
+    }
+  }
+
+  static int maxHftChunkRows(final int columnCount) {
+    if (columnCount < 0) {
+      throw new IllegalArgumentException("columnCount must be non-negative: " + columnCount);
+    }
+    if (columnCount > MAX_SAFE_REFERENCE_ARRAY_LENGTH) {
+      throw new IllegalArgumentException("columnCount " + columnCount + " exceeds the HFT-safe reference-array limit "
+          + MAX_SAFE_REFERENCE_ARRAY_LENGTH);
+    }
+    return MAX_SAFE_ARRAY_PAYLOAD_BYTES / Math.max(Long.BYTES, columnCount);
+  }
+
+  static int stringArenaChunkBytes() {
+    return STRING_ARENA_CHUNK_BYTES;
   }
 
   String[] setElementsAt(final int column, final int row) {

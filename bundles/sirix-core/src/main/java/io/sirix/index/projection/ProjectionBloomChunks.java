@@ -19,19 +19,17 @@ import java.util.Arrays;
  * Bounded streaming store for the projection's contiguous string-fingerprint acceleration.
  *
  * <p>
- * The original acceleration was one {@code PBLM} blob per string column. A streaming bulk load
- * therefore retained every row group's fingerprint until the final commit, even though the
- * per-row-group fingerprint segment itself had already been persisted. This store cuts that block
- * into fixed {@link #CHUNK_LEAVES}-row-group blobs and writes each full chunk immediately. The
- * writer retains only one reusable reference array per string column.
+ * Fingerprints are stored only as fixed {@link #CHUNK_LEAVES}-row-group blobs. A streaming bulk
+ * load writes each full chunk immediately and retains only one reusable reference array per string
+ * column.
  * </p>
  *
  * <p>
- * A column's small, versioned manifest occupies the legacy block slot ({@code 16 + column}) and is
- * published only after every chunk is durable in the transaction. An old reader sees an unknown
- * magic where it expected {@code PBLM} and safely falls back to the per-leaf chain. A new reader
- * accepts both layouts. Missing or malformed chunks are represented as absent evidence: probes keep
- * every leaf in that span, preserving the Bloom filter's no-false-negative contract.
+ * A column's small, versioned manifest occupies slot {@code 16 + column} and is published only
+ * after every chunk is durable in the transaction. The manifest-plus-chunks representation is the
+ * sole persisted block format. A missing or malformed manifest disables block pruning for that
+ * column; a missing or malformed chunk keeps every leaf in that span, preserving the Bloom filter's
+ * no-false-negative contract.
  * </p>
  */
 public final class ProjectionBloomChunks {
@@ -58,19 +56,44 @@ public final class ProjectionBloomChunks {
   /** Referenced chunk payloads held at once by one pruning call. */
   static final int FETCH_WINDOW_CHUNKS = 4;
 
-  /** Hard payload-byte ceiling for both a chunk window and a deferred legacy compatibility read. */
-  static final int MAX_FETCH_WINDOW_BYTES =
-      FETCH_WINDOW_CHUNKS * ProjectionIndexColumnSegmentCodec.maxBloomBlockBytes(CHUNK_LEAVES);
-
-  /** A deferred legacy candidate proved not to be an exact PBLM block. */
-  static final int EVIDENCE_UNUSABLE = -1;
-
   /** Fixed owner-thread scratch; payload references are cleared before every window is released. */
   private static final ThreadLocal<FetchScratch> FETCH_SCRATCH = ThreadLocal.withInitial(FetchScratch::new);
 
   private ProjectionBloomChunks() {}
 
   /** Number of fixed chunks needed for {@code rowGroupCount}. */
+  /**
+   * Drops every Bloom byte a column owns, for a column that is ceasing to be a string kind.
+   *
+   * <p>
+   * Needed because {@link #rewriteTouchedChunks} SKIPS any column whose kind is not a string kind —
+   * so once a column has been flipped to {@code COLUMN_KIND_STRING_GLOBAL} the ordinary maintenance
+   * path will never look at its chunks again, and they become bytes that are stored, paid for, and
+   * unreachable. **[M]** at 1M that is 1.82 MB across the four ClickBench fat columns, silently. A
+   * storage lever that leaks bytes is not a storage lever, so the flip drops them explicitly.
+   * </p>
+   *
+   * @param physicalRowGroupCount how many row groups the index holds, which bounds the chunk ids
+   * @return the number of blobs tombstoned
+   */
+  static int dropColumn(final ProjectionIndexHOTStorage storage, final int column, final int physicalRowGroupCount) {
+    int dropped = 0;
+    final long manifestSlot = ProjectionIndexHOTStorage.bloomBlockSlotKey(column);
+    if (storage.getBlob(manifestSlot) != null) {
+      storage.tombstoneBlob(manifestSlot);
+      dropped++;
+    }
+    final int chunks = chunkCount(physicalRowGroupCount);
+    for (int chunkId = 0; chunkId < chunks; chunkId++) {
+      final long chunkSlot = chunkSlotKey(column, chunkId);
+      if (storage.getBlob(chunkSlot) != null) {
+        storage.tombstoneBlob(chunkSlot);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   static int chunkCount(final int rowGroupCount) {
     checkRowGroupCount(rowGroupCount);
     return (rowGroupCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
@@ -111,7 +134,7 @@ public final class ProjectionBloomChunks {
 
   /**
    * Manifest over a physical high-water mark. Incremental maintenance may unlink a split leaf without
-   * renumbering its suffix, so the Bloom blocks remain physical-slot indexed while metadata and query
+   * renumbering its suffix, so the Bloom chunks remain physical-slot indexed while metadata and query
    * masks remain live/logical-count indexed.
    */
   private static byte[] manifest(final int rowGroupCount, final int physicalRowGroupCount) {
@@ -130,10 +153,6 @@ public final class ProjectionBloomChunks {
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, Integer.BYTES + 1 + 3 * Integer.BYTES,
         chunkCount(physicalRowGroupCount));
     return bytes;
-  }
-
-  static void publishManifest(final ProjectionIndexHOTStorage storage, final int column, final int rowGroupCount) {
-    storage.putBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(column), manifest(rowGroupCount));
   }
 
   /** Parsed manifest, or {@code null}; a negative expected count accepts any valid live count. */
@@ -156,13 +175,6 @@ public final class ProjectionBloomChunks {
     return new Manifest(rowGroupCount, physicalRowGroupCount, chunks);
   }
 
-  private static int manifestChunkCount(final byte @Nullable [] bytes, final int expectedRowGroupCount) {
-    final Manifest manifest = parseManifest(bytes, expectedRowGroupCount);
-    return manifest == null
-        ? -1
-        : manifest.chunkCount();
-  }
-
   /** Whether {@code bytes} is the exact manifest for {@code expectedRowGroupCount}. */
   static boolean isManifest(final byte @Nullable [] bytes, final int expectedRowGroupCount) {
     return parseManifest(bytes, expectedRowGroupCount) != null;
@@ -182,22 +194,13 @@ public final class ProjectionBloomChunks {
    * {@link #FETCH_WINDOW_CHUNKS}-chunk window by {@link #prune}.
    */
   public static final class ColumnEvidence {
-    private final byte @Nullable [] inlineLegacyBlock;
-    private final long legacyOffset;
-    private final int legacyLength;
-    private final long legacyHash;
-    private final ProjectionIndexHOTStorage.@Nullable BlobLocators chunks;
+    private final ProjectionIndexHOTStorage.BlobLocators chunks;
     private final int rowGroupCount;
     private final int physicalRowGroupCount;
     private final int @Nullable [] logicalByPhysical;
 
-    private ColumnEvidence(final byte @Nullable [] inlineLegacyBlock, final long legacyOffset, final int legacyLength,
-        final long legacyHash, final ProjectionIndexHOTStorage.@Nullable BlobLocators chunks, final int rowGroupCount,
+    private ColumnEvidence(final ProjectionIndexHOTStorage.BlobLocators chunks, final int rowGroupCount,
         final int physicalRowGroupCount) {
-      this.inlineLegacyBlock = inlineLegacyBlock;
-      this.legacyOffset = legacyOffset;
-      this.legacyLength = legacyLength;
-      this.legacyHash = legacyHash;
       this.chunks = chunks;
       this.rowGroupCount = rowGroupCount;
       this.physicalRowGroupCount = physicalRowGroupCount;
@@ -205,49 +208,26 @@ public final class ProjectionBloomChunks {
     }
 
     private ColumnEvidence(final ColumnEvidence source, final int[] logicalByPhysical) {
-      this.inlineLegacyBlock = source.inlineLegacyBlock;
-      this.legacyOffset = source.legacyOffset;
-      this.legacyLength = source.legacyLength;
-      this.legacyHash = source.legacyHash;
       this.chunks = source.chunks;
       this.rowGroupCount = source.rowGroupCount;
       this.physicalRowGroupCount = source.physicalRowGroupCount;
       this.logicalByPhysical = logicalByPhysical;
     }
 
-    private static ColumnEvidence inlineLegacy(final byte[] block, final int rowGroupCount) {
-      return new ColumnEvidence(block, Constants.NULL_ID_LONG, block.length,
-          ProjectionIndexColumnSegmentCodec.contentHash(block), null, rowGroupCount, rowGroupCount);
-    }
-
-    private static ColumnEvidence deferredLegacy(final ProjectionIndexHOTStorage.BlobLocators roots, final int column,
-        final int rowGroupCount) {
-      return new ColumnEvidence(null, roots.offset(column), roots.length(column), roots.hash(column), null,
-          rowGroupCount, rowGroupCount);
-    }
-
     private static ColumnEvidence chunked(final ProjectionIndexHOTStorage.BlobLocators chunks, final int rowGroupCount,
         final int physicalRowGroupCount) {
-      return new ColumnEvidence(null, Constants.NULL_ID_LONG, -1, 0L, chunks, rowGroupCount, physicalRowGroupCount);
+      return new ColumnEvidence(chunks, rowGroupCount, physicalRowGroupCount);
     }
 
     /** Resident bytes charged to the decoded-handle cache. */
     private long retainedBytes() {
-      long bytes = 64L;
-      if (inlineLegacyBlock != null) {
-        bytes += inlineLegacyBlock.length;
-      }
-      if (chunks != null) {
-        bytes += chunks.retainedBytes();
-      }
-      return bytes;
+      return 48L + chunks.retainedBytes();
     }
 
     /**
      * Clear bits proved absent by this evidence.
      *
-     * @return newly cleared bits, or {@link #EVIDENCE_UNUSABLE} when a deferred legacy candidate is not
-     *         an exact block (the caller then falls back to the authoritative per-leaf chain)
+     * @return newly cleared bits
      */
     int prune(final long hash, final long[] keep, final int leafCount,
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
@@ -257,51 +237,58 @@ public final class ProjectionBloomChunks {
       if (keep == null || keep.length < ((leafCount + 63) >>> 6) || fetcher == null) {
         throw new IllegalArgumentException("keep/fetcher must cover the evidence leaf count");
       }
-      if (inlineLegacyBlock != null) {
-        return pruneBlock(inlineLegacyBlock, 0, leafCount, hash, keep, logicalByPhysical);
-      }
-      if (legacyLength >= 0) {
-        return pruneDeferredLegacy(hash, keep, fetcher);
-      }
-      return pruneChunks(hash, keep, fetcher);
+      return pruneChunks(new long[] {hash}, new long[][] {keep}, fetcher, 0, chunks.size());
     }
 
-    private int pruneDeferredLegacy(final long hash, final long[] keep,
-        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
-      if (legacyOffset == Constants.NULL_ID_LONG || legacyLength > MAX_FETCH_WINDOW_BYTES
-          || !ProjectionIndexColumnSegmentCodec.bloomBlockLengthCouldBeWellFormed(legacyLength, rowGroupCount)) {
-        return EVIDENCE_UNUSABLE;
+    /**
+     * {@link #prune} for MANY literals in ONE walk over the evidence: {@code keeps[j]} is narrowed by
+     * {@code hashes[j]}, every chunk fetched and validated once and every leaf's fingerprint located
+     * once for all literals. A disjunction of equalities or a planner pricing candidate values pays the
+     * chunk walk once instead of once per literal (measured: one walk ≈ one {@link #prune}).
+     *
+     * @param chunkFrom first chunk (inclusive), {@code chunkTo} exclusive — callers that split the walk
+     *        over threads hand each a disjoint chunk range; chunks own disjoint 256-leaf ranges, so two
+     *        ranges never touch the same keep word
+     * @return newly cleared bits summed over every mask
+     */
+    int pruneMany(final long[] hashes, final long[][] keeps, final int leafCount,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int chunkFrom, final int chunkTo) {
+      if (leafCount != rowGroupCount) {
+        throw new IllegalArgumentException("leafCount " + leafCount + " != evidence rowGroupCount " + rowGroupCount);
       }
-      final FetchScratch scratch = acquireScratch();
-      try {
-        scratch.offsets[0] = legacyOffset;
-        try {
-          fetcher.fetchRange(scratch.offsets, 0, FETCH_WINDOW_CHUNKS, scratch.payloads);
-        } catch (final RuntimeException unreadable) {
-          return EVIDENCE_UNUSABLE;
-        }
-        final byte[] block = scratch.payloads[0];
-        if (!referencedBlockIsValid(block, legacyLength, legacyHash, rowGroupCount)) {
-          return EVIDENCE_UNUSABLE;
-        }
-        return pruneBlock(block, 0, rowGroupCount, hash, keep, logicalByPhysical);
-      } finally {
-        releaseScratch(scratch);
+      if (hashes == null || keeps == null || hashes.length != keeps.length || fetcher == null) {
+        throw new IllegalArgumentException("hashes/keeps must pair up and a fetcher is required");
       }
+      final int words = (leafCount + 63) >>> 6;
+      for (final long[] keep : keeps) {
+        if (keep == null || keep.length < words) {
+          throw new IllegalArgumentException("every keep mask must cover the evidence leaf count");
+        }
+      }
+      if (chunkFrom < 0 || chunkTo > chunks.size() || chunkFrom > chunkTo) {
+        throw new IllegalArgumentException(
+            "chunk range [" + chunkFrom + ", " + chunkTo + ") outside 0.." + chunks.size());
+      }
+      if (hashes.length == 0) {
+        return 0;
+      }
+      return pruneChunks(hashes, keeps, fetcher, chunkFrom, chunkTo);
     }
 
-    private int pruneChunks(final long hash, final long[] keep,
-        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    /** How many 256-leaf chunks this evidence spans (the unit {@link #pruneMany} splits over). */
+    int chunkCount() {
+      return chunks.size();
+    }
+
+    private int pruneChunks(final long[] hashes, final long[][] keeps,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int chunkFrom, final int chunkTo) {
       final ProjectionIndexHOTStorage.BlobLocators localChunks = chunks;
-      if (localChunks == null) {
-        return EVIDENCE_UNUSABLE;
-      }
       final FetchScratch scratch = acquireScratch();
       int dropped = 0;
       try {
-        for (int windowBase = 0; windowBase < localChunks.size(); windowBase += FETCH_WINDOW_CHUNKS) {
+        for (int windowBase = chunkFrom; windowBase < chunkTo; windowBase += FETCH_WINDOW_CHUNKS) {
           scratch.clearPayloadsAndOffsets();
-          final int inWindow = Math.min(FETCH_WINDOW_CHUNKS, localChunks.size() - windowBase);
+          final int inWindow = Math.min(FETCH_WINDOW_CHUNKS, chunkTo - windowBase);
           boolean needsFetch = false;
           for (int j = 0; j < inWindow; j++) {
             final int chunkId = windowBase + j;
@@ -342,7 +329,7 @@ public final class ProjectionBloomChunks {
                       : null;
             }
             if (block != null) {
-              dropped += pruneBlock(block, chunkId * CHUNK_LEAVES, expectedLeaves, hash, keep, logicalByPhysical);
+              dropped += pruneBlock(block, chunkId * CHUNK_LEAVES, expectedLeaves, hashes, keeps, logicalByPhysical);
             }
           }
           // The payload window is not live across the next fetch. This explicit clear matters for
@@ -368,9 +355,10 @@ public final class ProjectionBloomChunks {
         && ProjectionIndexColumnSegmentCodec.bloomBlockIsWellFormed(block, expectedLeaves);
   }
 
-  private static int pruneBlock(final byte[] block, final int firstLeaf, final int leafCount, final long hash,
-      final long[] keep, final int @Nullable [] logicalByPhysical) {
+  private static int pruneBlock(final byte[] block, final int firstLeaf, final int leafCount, final long[] hashes,
+      final long[][] keeps, final int @Nullable [] logicalByPhysical) {
     int dropped = 0;
+    final int literals = hashes.length;
     for (int localLeaf = 0; localLeaf < leafCount; localLeaf++) {
       final int physicalLeaf = firstLeaf + localLeaf;
       final int leaf = logicalByPhysical == null
@@ -382,11 +370,37 @@ public final class ProjectionBloomChunks {
         // Recycled physical slot: it has no logical keep bit and contributes no negative evidence.
         continue;
       }
+      final int word = leaf >>> 6;
       final long mask = 1L << (leaf & 63);
-      if ((keep[leaf >>> 6] & mask) != 0
-          && !ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHashValidated(block, localLeaf, leafCount, hash)) {
-        keep[leaf >>> 6] &= ~mask;
-        dropped++;
+      if (literals == 1) {
+        // The single-literal path keeps the allocation-free probe it always had.
+        final long[] keep = keeps[0];
+        if ((keep[word] & mask) != 0 && !ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHashValidated(block,
+            localLeaf, leafCount, hashes[0])) {
+          keep[word] &= ~mask;
+          dropped++;
+        }
+        continue;
+      }
+      // Locate the leaf's fingerprint words once, then probe every literal against them.
+      long packed = 0L;
+      boolean located = false;
+      for (int j = 0; j < literals; j++) {
+        final long[] keep = keeps[j];
+        if ((keep[word] & mask) == 0) {
+          continue;
+        }
+        if (!located) {
+          packed = ProjectionIndexColumnSegmentCodec.bloomBlockLeafWords(block, localLeaf, leafCount);
+          located = true;
+          if (packed == ProjectionIndexColumnSegmentCodec.NO_FINGERPRINT) {
+            break;
+          }
+        }
+        if (!ProjectionIndexColumnSegmentCodec.bloomWordsMayContainHash(block, packed, hashes[j])) {
+          keep[word] &= ~mask;
+          dropped++;
+        }
       }
     }
     return dropped;
@@ -437,32 +451,10 @@ public final class ProjectionBloomChunks {
     }
   }
 
-  /** Wrap legacy in-memory blocks (used by callers/tests that already assembled them). */
-  static ColumnEvidence @Nullable [] fromLegacyBlocks(final byte @Nullable [] @Nullable [] blocks,
-      final int rowGroupCount) {
-    checkRowGroupCount(rowGroupCount);
-    if (blocks == null) {
-      return null;
-    }
-    final ColumnEvidence[] evidence = new ColumnEvidence[blocks.length];
-    boolean any = false;
-    for (int c = 0; c < blocks.length; c++) {
-      final byte[] block = blocks[c];
-      final int declared = ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block);
-      if (declared == rowGroupCount && ProjectionIndexColumnSegmentCodec.bloomBlockIsWellFormed(block, declared)) {
-        evidence[c] = ColumnEvidence.inlineLegacy(block, rowGroupCount);
-        any = true;
-      }
-    }
-    return any
-        ? evidence
-        : null;
-  }
-
   /**
-   * Read every string column's legacy block or chunk manifest from a committed projection. Corruption
-   * is deliberately local: an unreadable manifest disables the column acceleration; an unreadable
-   * chunk leaves only its 256-row-group span unpruned.
+   * Read every string column's chunk manifest from a committed projection. Corruption is deliberately
+   * local: an unreadable manifest disables the column acceleration; an unreadable chunk leaves only
+   * its 256-row-group span unpruned.
    */
   static ColumnEvidence @Nullable [] read(final StorageEngineReader reader, final int indexNumber,
       final byte[] columnKinds, final int rowGroupCount) {
@@ -532,31 +524,16 @@ public final class ProjectionBloomChunks {
   private static @Nullable ColumnEvidence readColumn(final StorageEngineReader reader, final int indexNumber,
       final ProjectionIndexHOTStorage.BlobLocators roots, final int column, final int rowGroupCount) {
     final byte[] root = roots.inlinePayload(column);
-    final int legacyLeafCount = ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(root);
-    if (legacyLeafCount == rowGroupCount
-        && ProjectionIndexColumnSegmentCodec.bloomBlockIsWellFormed(root, legacyLeafCount)) {
-      return ColumnEvidence.inlineLegacy(root, rowGroupCount);
+    final Manifest manifest = parseManifest(root, rowGroupCount);
+    if (manifest == null) {
+      return null;
     }
-    if (isManifest(root, rowGroupCount)) {
-      final Manifest manifest = parseManifest(root, rowGroupCount);
-      if (manifest == null) {
-        return null;
-      }
-      try {
-        return ColumnEvidence.chunked(ProjectionIndexHOTStorage.collectBlobLocators(reader, indexNumber,
-            chunkSlotKey(column, 0), manifest.chunkCount()), rowGroupCount, manifest.physicalRowGroupCount());
-      } catch (final IllegalStateException unreadable) {
-        return null;
-      }
+    try {
+      return ColumnEvidence.chunked(ProjectionIndexHOTStorage.collectBlobLocators(reader, indexNumber,
+          chunkSlotKey(column, 0), manifest.chunkCount()), rowGroupCount, manifest.physicalRowGroupCount());
+    } catch (final IllegalStateException unreadable) {
+      return null;
     }
-    // A referenced root is a legacy corpus block candidate. Its payload remains deferred and must
-    // declare EXACTLY rowGroupCount at probe time; anything else returns EVIDENCE_UNUSABLE so the
-    // store falls through to the authoritative per-leaf chain.
-    if (roots.offset(column) != Constants.NULL_ID_LONG && roots.length(column) <= MAX_FETCH_WINDOW_BYTES
-        && ProjectionIndexColumnSegmentCodec.bloomBlockLengthCouldBeWellFormed(roots.length(column), rowGroupCount)) {
-      return ColumnEvidence.deferredLegacy(roots, column, rowGroupCount);
-    }
-    return null;
   }
 
   /** Resident primitive/inline evidence bytes charged to the catalog's decoded-handle weight. */
@@ -679,7 +656,7 @@ public final class ProjectionBloomChunks {
           continue;
         }
         if (block == null) {
-          storage.tombstoneRowGroup(chunkSlot);
+          storage.tombstoneBlob(chunkSlot);
         } else {
           storage.putBlob(chunkSlot, block);
           bytesWritten += block.length;
@@ -698,7 +675,7 @@ public final class ProjectionBloomChunks {
         final int nextChunkCount = chunkCount(physicalRowGroupCount);
         if (parsedPrior != null && parsedPrior.chunkCount() > nextChunkCount) {
           for (int chunkId = nextChunkCount; chunkId < parsedPrior.chunkCount(); chunkId++) {
-            storage.tombstoneRowGroup(chunkSlotKey(c, chunkId));
+            storage.tombstoneBlob(chunkSlotKey(c, chunkId));
             chunksWritten++;
           }
         }
@@ -755,7 +732,6 @@ public final class ProjectionBloomChunks {
     private int pendingLeaves;
     private int nextChunkId;
     private byte @Nullable [] publicationKinds;
-    private int @Nullable [] priorChunkCounts;
     private boolean chunksFinished;
 
     /** Add one encoded row group, in exact ascending id order. */
@@ -846,10 +822,7 @@ public final class ProjectionBloomChunks {
           final ColumnBuffer buffer = buffers[c];
           final long slotKey = chunkSlotKey(c, nextChunkId);
           final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(buffer.segments, leafCount);
-          if (block == null) {
-            // A current all-empty span must not inherit a chunk from an abandoned older build.
-            storage.tombstoneRowGroup(slotKey);
-          } else {
+          if (block != null) {
             storage.putBlob(slotKey, block);
           }
           Arrays.fill(buffer.segments, 0, leafCount, null);
@@ -860,8 +833,7 @@ public final class ProjectionBloomChunks {
     }
 
     /**
-     * Persist a partial tail and remember prior PBMF chunk counts before its manifest is invalidated.
-     * The remembered exact counts let publication reclaim only a rebuild's trailing old range.
+     * Persist a partial tail and capture the final publication shape for this virgin build.
      */
     public void finishChunks(final ProjectionIndexHOTStorage storage, final int rowGroupCount,
         final byte[] columnKinds) {
@@ -880,14 +852,6 @@ public final class ProjectionBloomChunks {
             "columnKinds length " + columnKinds.length + " != streamed descriptor width " + buffers.length);
       }
       publicationKinds = columnKinds.clone();
-      final int[] priorCounts = new int[columnKinds.length];
-      Arrays.fill(priorCounts, -1);
-      final ProjectionIndexHOTStorage.BlobLocators priorRoots =
-          storage.collectBlobLocatorsForWrite(ProjectionIndexHOTStorage.bloomBlockSlotKey(0), columnKinds.length);
-      for (int c = 0; c < columnKinds.length; c++) {
-        priorCounts[c] = manifestChunkCount(priorRoots.inlinePayload(c), -1);
-      }
-      priorChunkCounts = priorCounts;
       if (pendingLeaves != 0) {
         flush(storage, pendingLeaves);
       }
@@ -899,38 +863,16 @@ public final class ProjectionBloomChunks {
     }
 
     /**
-     * Publish one manifest per string column. Call only after old block/manifest slots were invalidated
-     * and after {@link #finishChunks}; this is the visibility point for all chunks.
+     * Publish one manifest per string column after {@link #finishChunks}; this is the visibility point
+     * for all chunks in the virgin build.
      */
     public void publishManifests(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
       if (!chunksFinished || rowGroupCount != acceptedRowGroups) {
         throw new IllegalStateException("finishChunks must complete for the same rowGroupCount before publication");
       }
       final byte[] kinds = publicationKinds;
-      final int[] priorCounts = priorChunkCounts;
-      if (kinds == null || priorCounts == null) {
+      if (kinds == null) {
         throw new IllegalStateException("finishChunks did not capture publication shape");
-      }
-      final int currentChunkCount = chunkCount(rowGroupCount);
-      final ColumnBuffer[] buffers = columns;
-      // Reclaim before publication. For a still-string column, only the exact old trailing range is
-      // stale; for a column whose final representation is no longer local-string, both old chunks
-      // and any chunks emitted before its representation election are unreachable and reclaimed.
-      for (int c = 0; c < kinds.length; c++) {
-        final boolean publish = isStringKind(kinds[c]);
-        final int generatedChunks = buffers != null && buffers[c] != null
-            ? currentChunkCount
-            : 0;
-        final int oldChunks = Math.max(priorCounts[c], 0);
-        final int firstStale = publish
-            ? currentChunkCount
-            : 0;
-        final int staleEnd = Math.max(oldChunks, publish
-            ? 0
-            : generatedChunks);
-        for (int chunkId = firstStale; chunkId < staleEnd; chunkId++) {
-          storage.tombstoneRowGroup(chunkSlotKey(c, chunkId));
-        }
       }
       // PBMF is the visibility point and therefore strictly last.
       for (int c = 0; c < kinds.length; c++) {
@@ -953,7 +895,6 @@ public final class ProjectionBloomChunks {
       columns = null;
       stringColumns = null;
       publicationKinds = null;
-      priorChunkCounts = null;
       pendingLeaves = 0;
     }
 

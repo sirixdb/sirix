@@ -6,7 +6,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
-import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.RowGroupDescriptor;
 import io.sirix.io.Superblock;
@@ -20,10 +19,15 @@ import io.sirix.node.NodeKind;
 import io.sirix.index.path.summary.PathStats;
 import io.sirix.node.RevisionReferencesNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
+import io.sirix.page.CASPage;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
+import io.sirix.page.PathPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.interfaces.Page;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,13 +45,15 @@ import java.util.StringJoiner;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 /**
  * Golden-file tests: pin the EXACT bytes of representative serialized structures so that any
  * accidental change to the binary format fails CI instead of silently breaking every existing
- * resource. A legitimate format change must update these constants consciously — together with a
- * {@code BinaryEncodingVersion}/superblock-version decision and a migration note in
- * {@code docs/DISK_FORMAT.md}.
+ * resource. A legitimate format change must update these constants and {@code docs/DISK_FORMAT.md}
+ * consciously. A released compatibility contract also requires a
+ * {@code BinaryEncodingVersion}/superblock-version decision; unreleased layouts may deliberately
+ * replace V0 in place when no persisted database has to remain readable.
  */
 public final class GoldenFormatTest {
 
@@ -80,12 +86,17 @@ public final class GoldenFormatTest {
       "01020000000000000000020002000000000100040000000000000000000000000000000000040000"
           + "00000001000000010000000000000001000000fe02000000010202000000010064000102010000000"
           + "00002000000000000000000000001000000";
+  private static final String GOLDEN_EMPTY_CAS_PAGE = "080000000000000000";
+  private static final String GOLDEN_EMPTY_PATH_PAGE = "0a0000000000000000";
+  private static final String GOLDEN_EMPTY_PROJECTION_PAGE = "100000000000000000";
+  private static final String GOLDEN_EMPTY_VALID_TIME_PAGE = "110000000000000000";
 
   /** Stable id registries — changing any value is an on-disk format break. */
   private static final String GOLDEN_PAGE_KIND_IDS =
       "KEYVALUELEAFPAGE=1,NAMEPAGE=2,UBERPAGE=3,INDIRECTPAGE=4,REVISIONROOTPAGE=5,PATHSUMMARYPAGE=6,"
           + "CASPAGE=8,OVERFLOWPAGE=9,PATHPAGE=10,DEWEYIDPAGE=11,HOT_LEAF_PAGE=12,HOT_INDIRECT_PAGE=13,"
-          + "BITMAP_CHUNK_PAGE=14,VECTORPAGE=15,PROJECTIONPAGE=16,VALIDTIMEPAGE=17";
+          // ID 14 is intentionally unassigned after removing the unreachable bitmap-chunk format.
+          + "VECTORPAGE=15,PROJECTIONPAGE=16,VALIDTIMEPAGE=17";
 
   private static final String GOLDEN_INDEX_TYPE_IDS =
       "REVISIONS=0,DOCUMENT=1,CHANGED_NODES=2,RECORD_TO_REVISIONS=3,PATH_SUMMARY=4,PATH=5,CAS=6,"
@@ -108,6 +119,17 @@ public final class GoldenFormatTest {
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     new PagePersister().serializePage(config, sink, uberPage, SerializationType.DATA);
     assertGolden("uber-page", GOLDEN_UBER_PAGE, hex(sink));
+  }
+
+  @Test
+  public void hotOnlyIndexContainerBytesArePinned() throws IOException {
+    final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
+    assertGolden("empty-cas-page", GOLDEN_EMPTY_CAS_PAGE, serializePage(config, new CASPage()));
+    assertGolden("empty-path-page", GOLDEN_EMPTY_PATH_PAGE, serializePage(config, new PathPage()));
+    assertGolden("empty-projection-page", GOLDEN_EMPTY_PROJECTION_PAGE,
+        serializePage(config, new ProjectionIndexPage()));
+    assertGolden("empty-valid-time-page", GOLDEN_EMPTY_VALID_TIME_PAGE,
+        serializePage(config, new ValidTimeIndexPage()));
   }
 
   @Test
@@ -200,6 +222,7 @@ public final class GoldenFormatTest {
       joiner.add(kind.name() + "=" + (kind.getID() & 0xFF));
     }
     assertEquals(GOLDEN_PAGE_KIND_IDS, joiner.toString());
+    assertThrows(IllegalStateException.class, () -> PageKind.getKind((byte) 14));
   }
 
   private static final String GOLDEN_PATH_STATS_RECORD =
@@ -256,7 +279,6 @@ public final class GoldenFormatTest {
     assertEquals(0, ValueDictionaryHeaderNode.VERSION);
     assertEquals(0, RowGroupDescriptor.VERSION);
     assertEquals(0, ProjectionIndexColumnSegmentCodec.SEGMENT_VERSION);
-    assertEquals(0, ProjectionIndexRowGroupCodec.COMPACT_VERSION);
     assertEquals(0, ProjectionIndexRowGroupPage.PRESENCE_TAIL_VERSION);
   }
 
@@ -271,8 +293,10 @@ public final class GoldenFormatTest {
 
   private static final String GOLDEN_NODE_KIND_IDS =
       "ELEMENT=1,ATTRIBUTE=2,NAMESPACE=13,TEXT=3,PROCESSING_INSTRUCTION=7,COMMENT=8,XML_DOCUMENT=9,"
-          + "WHITESPACE=4,DELETE=5,NULL=6,DUMB=20,ATOMIC=15,PATH=16,CASRB=17,PATHRB=18,NAMERB=19,"
-          + "RB_NODE_VALUE=55,DEWEYIDMAPPING=23,OBJECT=24,ARRAY=25,OBJECT_NAMED_BOOLEAN=48,"
+          // IDs 17, 18, 19 and 55 are intentionally unassigned after removing the inactive
+          // red-black-tree secondary-index format. Do not reuse persisted kind IDs accidentally.
+          + "WHITESPACE=4,DELETE=5,NULL=6,DUMB=20,ATOMIC=15,PATH=16,"
+          + "DEWEYIDMAPPING=23,OBJECT=24,ARRAY=25,OBJECT_NAMED_BOOLEAN=48,"
           + "OBJECT_NAMED_NUMBER=49,OBJECT_NAMED_STRING=50,OBJECT_NAMED_NULL=51,OBJECT_NAMED_OBJECT=52,"
           + "OBJECT_NAMED_ARRAY=53,STRING_VALUE=30,BOOLEAN_VALUE=27,NUMBER_VALUE=28,NULL_VALUE=29,"
           + "JSON_DOCUMENT=31,HASH_ENTRY=32,HASH_NAME_COUNT_TO_NAME_ENTRY=33,DEWEY_ID_NODE=34,"
@@ -291,7 +315,15 @@ public final class GoldenFormatTest {
           + "REVISION_REFERENCES_NODE=35,FSST_SYMBOL_TABLE=36,VALUE_DICTIONARY_ENTRY=37,"
           + "VALUE_DICTIONARY_DIRECTORY=38,VALUE_DICTIONARY_HEADER=39,VALUE_DICTIONARY_SEGMENT=40,"
           + "VALUE_DICTIONARY_RADIX=41,VALUE_DICTIONARY_HASH_BUCKET=42,VALUE_DICTIONARY_VALUE_BUCKET=43,"
-          + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
+          // 59: packed reverse value sub-block — bounded consecutive dictionary values in one record
+          // (the multi-sub-block bounded packed reverse dictionary of the 2026-08 campaign).
+          + "VALUE_DICTIONARY_VALUE_BLOCK=59,"
+          // 60: the block index that names which value sub-blocks a dictionary segment holds, added
+          // with the rank pass (1b92b6614). Same case as 36 and 37-40 and deliberately so: one id
+          // taken from the free range above 59, NO existing id moved, and the kind only ever appears
+          // inside a projection index built by a version that knows it -- so a database written
+          // before it existed cannot contain one and still reads unchanged.
+          + "VALUE_DICTIONARY_BLOCK_INDEX=60," + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
           + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
   @Test
@@ -315,6 +347,12 @@ public final class GoldenFormatTest {
 
   private static String hex(final BytesOut<?> sink) {
     return hex(sink.toByteArray());
+  }
+
+  private static String serializePage(final ResourceConfiguration config, final Page page) throws IOException {
+    final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+    new PagePersister().serializePage(config, sink, page, SerializationType.DATA);
+    return hex(sink);
   }
 
   private static String hex(final ByteBuffer buf) {

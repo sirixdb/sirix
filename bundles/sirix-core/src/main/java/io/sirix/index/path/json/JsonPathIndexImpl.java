@@ -1,6 +1,5 @@
 package io.sirix.index.path.json;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.PathIndexBuilderFactory;
@@ -14,8 +13,8 @@ public final class JsonPathIndexImpl implements JsonPathIndex {
   private final PathIndexListenerFactory pathIndexListenerFactory;
 
   public JsonPathIndexImpl() {
-    pathIndexBuilderFactory = new PathIndexBuilderFactory(DatabaseType.JSON);
-    pathIndexListenerFactory = new PathIndexListenerFactory(DatabaseType.JSON);
+    pathIndexBuilderFactory = new PathIndexBuilderFactory();
+    pathIndexListenerFactory = new PathIndexListenerFactory();
   }
 
   @Override

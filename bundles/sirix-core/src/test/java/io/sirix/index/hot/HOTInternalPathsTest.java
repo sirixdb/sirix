@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
+import io.sirix.index.name.NameFilter;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -125,9 +126,11 @@ class HOTInternalPathsTest {
           wtx.commit();
 
           // Open and iterate
-          var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
+          var indexDef = indexController.getIndexes().getIndexDef(nameIndexDef.getID(), IndexType.NAME);
           if (indexDef != null) {
-            var nameIndex = indexController.openNameIndex(wtx.getStorageEngineReader(), indexDef, null);
+            // An empty include/exclude set is the match-all filter; openIndex refuses null.
+            var nameIndex = indexController.openNameIndex(wtx.getStorageEngineReader(), indexDef,
+                new NameFilter(Set.of(), Set.of()));
 
             int count = 0;
             while (nameIndex.hasNext()) {
@@ -334,7 +337,7 @@ class HOTInternalPathsTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"single\": 1}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
 
-          var nameIdx = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
+          var nameIdx = indexController.getIndexes().getIndexDef(nameIndexDef.getID(), IndexType.NAME);
           if (nameIdx != null) {
             var nameIter = indexController.openNameIndex(wtx.getStorageEngineReader(), nameIdx,
                 indexController.createNameFilter(Set.of("single")));
@@ -382,4 +385,3 @@ class HOTInternalPathsTest {
     }
   }
 }
-

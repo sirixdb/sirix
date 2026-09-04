@@ -11,6 +11,7 @@ import io.sirix.node.ValueDictionaryCollisionNode;
 import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHashBucketNode;
 import io.sirix.node.ValueDictionaryRadixNode;
+import io.sirix.node.ValueDictionaryValueBlockNode;
 import io.sirix.node.ValueDictionaryValueBucketNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
@@ -113,10 +114,6 @@ final class GlobalValueDictionaryRadix {
     return Math.addExact(plan.leafCount(), plan.nodeCount());
   }
 
-  static long entryKeyForLocalIdForTest(final long runStart, final int localId) {
-    return entryKeyForLocalId(runStart, localId);
-  }
-
   private static long saturatedAdd(final long left, final long right) {
     if (left < 0 || right < 0 || left > Long.MAX_VALUE - right) {
       return Long.MAX_VALUE;
@@ -148,19 +145,49 @@ final class GlobalValueDictionaryRadix {
   static Roots append(final long oldForwardRoot, final long oldReverseRoot, final int oldEntryCount,
       final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
       final StorageEngineWriter writer, final TransactionIntentLog log) {
+    return append(oldForwardRoot, oldReverseRoot, oldEntryCount, additions, namePage, databaseType, writer, log, true);
+  }
+
+  /**
+   * Appends {@code additions}, optionally WITHOUT a forward hash index.
+   *
+   * <p>
+   * A rank-ordered dictionary does not need one: "which id holds this value" is a binary search over
+   * the reverse index, which is already sorted by value because ids were minted in collation order.
+   * Skipping it is not a minor saving — the forward index measured 64.7 B/entry at D = 275K and 173
+   * B/entry at D = 2.62M, because each bounded append writes a fresh set of forward radix nodes at
+   * new keys and copy-on-write retains every one of them. The caller is responsible for the ordering
+   * claim; {@code ValueDictionaryHeaderNode} refuses a zero forward root on any dictionary that is
+   * not fully ordered, so a wrong claim fails loudly at the header rather than silently producing a
+   * dictionary nothing can probe.
+   * </p>
+   *
+   * @param buildForwardIndex {@code false} only for a rank-ordered build
+   */
+  static Roots append(final long oldForwardRoot, final long oldReverseRoot, final int oldEntryCount,
+      final GlobalValueDictionaryWriter additions, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineWriter writer, final TransactionIntentLog log, final boolean buildForwardIndex) {
     if (additions.entryCount() == 0) {
       return new Roots(oldForwardRoot, oldReverseRoot);
     }
     final int finalEntryCount = Math.addExact(oldEntryCount, additions.entryCount());
 
+    // Left EMPTY when no forward index is wanted: every forward structure below is driven by this
+    // map, so the planning loop, the bucket writes and RadixPlan all become no-ops without a
+    // second code path to keep in step.
     final TreeMap<Integer, IntList> additionsByPrimary = new TreeMap<>();
-    for (int localId = 1; localId <= additions.entryCount(); localId++) {
-      additionsByPrimary.computeIfAbsent(hashBucket(additions.hashAt(localId)), ignored -> new IntList()).add(localId);
+    if (buildForwardIndex) {
+      for (int localId = 1; localId <= additions.entryCount(); localId++) {
+        additionsByPrimary.computeIfAbsent(hashBucket(additions.hashAt(localId)), ignored -> new IntList())
+                          .add(localId);
+      }
     }
     final int firstReverseBucket = oldEntryCount >>> 8;
     final int lastReverseBucket = (finalEntryCount - 1) >>> 8;
 
-    long recordCount = additions.entryCount();
+    final OpenTail openTail = findExtendableTail(oldReverseRoot, oldEntryCount, namePage, databaseType, writer);
+    final ReverseAppendPlan reversePlan = planReverseAppend(additions, oldEntryCount, openTail);
+    long recordCount = reversePlan.recordCount();
     for (final Map.Entry<Integer, IntList> entry : additionsByPrimary.entrySet()) {
       final ForwardPlan plan = planForwardUpdate(oldForwardRoot, oldReverseRoot, oldEntryCount, entry.getKey(),
           entry.getValue(), additions, namePage, databaseType, writer);
@@ -174,19 +201,72 @@ final class GlobalValueDictionaryRadix {
     recordCount = Math.addExact(recordCount, forwardRadixPlan.nodeCount());
     recordCount = Math.addExact(recordCount, Math.addExact(reverseRadixPlan.leafCount(), reverseRadixPlan.nodeCount()));
 
-    additions.ensureAppendWorkspaceFitsBudget(
-        estimateWorkspaceBytes(recordCount, additionsByPrimary, forwardRadixPlan, reverseRadixPlan, additions));
+    additions.ensureAppendWorkspaceFitsBudget(Math
+                                                  .addExact(
+                                                      estimateWorkspaceBytes(recordCount, additionsByPrimary,
+                                                          forwardRadixPlan, reverseRadixPlan, additions),
+                                                      // A tail extension COPIES the old run's bytes and offsets into
+                                                      // the replacement, so those
+                                                      // bytes are live in this append's workspace even though they are
+                                                      // not new values.
+                                                      reversePlan.extendsTail()
+                                                          ? Math.addExact((long) reversePlan.tailPrefixBytes.length,
+                                                              (long) reversePlan.tailPrefixOffsets.length
+                                                                  * Integer.BYTES)
+                                                          : 0L));
     final long reserved = Math.multiplyExact(recordCount, RECORD_STRIDE);
     final long runStart = namePage.reserveProjectionValueDictionaryKeys(databaseType, reserved);
     final KeyCursor cursor = new KeyCursor(runStart, recordCount);
 
-    for (int localId = 1; localId <= additions.entryCount(); localId++) {
-      final long entryKey = cursor.next();
-      if (entryKey != entryKeyForLocalId(runStart, localId)) {
-        throw new IllegalStateException("value dictionary entry run is not dense");
+    // Blocks and spills FIRST, so the bucket directory records that follow the forward section stay
+    // a dense consecutive run for DenseRadixPlan.
+    for (int b = 0; b < reversePlan.blockFirstLocal.length; b++) {
+      final int firstLocal = reversePlan.blockFirstLocal[b];
+      final boolean extendsTail = b == 0 && reversePlan.extendsTail();
+      // Block 0 of a tail-extending append carries the OLD tail's values first and keeps its first
+      // id, so the run it replaces is the same run — one record rewritten, not a new run appended.
+      final int prefixCount = extendsTail
+          ? reversePlan.tailPrefixCount()
+          : 0;
+      final byte[] prefixBytes = extendsTail
+          ? reversePlan.tailPrefixBytes
+          : null;
+      final int additionCount = reversePlan.blockCounts[b] - prefixCount;
+      final int[] offsets = new int[reversePlan.blockCounts[b] + 1];
+      int total = 0;
+      for (int i = 0; i < prefixCount; i++) {
+        total = reversePlan.tailPrefixOffsets[i + 1];
+        offsets[i + 1] = total;
       }
-      put(ValueDictionaryEntryNode.takeOwnership(entryKey, additions.valueBytes(localId)), namePage, databaseType,
+      for (int i = 0; i < additionCount; i++) {
+        total = Math.addExact(total, additions.valueBytes(firstLocal + i).length);
+        offsets[prefixCount + i + 1] = total;
+      }
+      final byte[] packed = new byte[total];
+      int at = 0;
+      if (prefixCount > 0) {
+        System.arraycopy(prefixBytes, 0, packed, 0, prefixBytes.length);
+        at = prefixBytes.length;
+      }
+      for (int i = 0; i < additionCount; i++) {
+        final byte[] value = additions.valueBytes(firstLocal + i);
+        System.arraycopy(value, 0, packed, at, value.length);
+        at += value.length;
+      }
+      final long blockKey = cursor.next();
+      reversePlan.blockKeys[b] = blockKey;
+      final int blockFirstId = extendsTail
+          ? reversePlan.tailFirstAbsoluteId
+          : Math.addExact(oldEntryCount, firstLocal);
+      // Ownership transfers: these arrays are built here and never touched again.
+      put(ValueDictionaryValueBlockNode.takeOwnership(blockKey, blockFirstId, offsets, packed), namePage, databaseType,
           writer, log);
+    }
+    for (int i = 0; i < reversePlan.spillLocals.length; i++) {
+      final long spillKey = cursor.next();
+      reversePlan.spillKeys[i] = spillKey;
+      put(ValueDictionaryEntryNode.takeOwnership(spillKey, additions.valueBytes(reversePlan.spillLocals[i])), namePage,
+          databaseType, writer, log);
     }
 
     for (final IntList primaryGroup : additionsByPrimary.values()) {
@@ -218,11 +298,20 @@ final class GlobalValueDictionaryRadix {
         additionsByPrimary, cursor, namePage, databaseType, writer, log);
 
     final long reverseLeafRunStart = cursor.peek();
+    // MONOTONIC cursors over the plan's ascending run arrays. The bucket loop used to rescan every
+    // planned block and spill for every bucket, which is O(buckets x runs) — quadratic on a large
+    // append, and paid entirely to rediscover an ordering the plan already has.
+    int planBlockCursor = 0;
+    int planSpillCursor = 0;
     for (int bucket = firstReverseBucket;; bucket++) {
       final int firstId = Math.toIntExact(
           Math.addExact(Math.multiplyExact((long) bucket, ValueDictionaryValueBucketNode.VALUES_PER_BUCKET), 1L));
       final int size = Math.min(ValueDictionaryValueBucketNode.VALUES_PER_BUCKET, finalEntryCount - firstId + 1);
-      final long[] entryKeys = new long[size];
+      final IntList dirBlockFirst = new IntList();
+      final IntList dirBlockCount = new IntList();
+      final LongList dirBlockKeys = new LongList();
+      final IntList dirSpillIds = new IntList();
+      final LongList dirSpillKeys = new LongList();
       final int[] path = reversePath(bucket);
       final LeafResult oldLeaf =
           leafKey(oldReverseRoot, ValueDictionaryRadixNode.REVERSE, path, 0, namePage, databaseType, writer);
@@ -235,21 +324,58 @@ final class GlobalValueDictionaryRadix {
         if (oldBucket.size() != expectedOldSize) {
           throw new IllegalStateException("reverse bucket disagrees with dictionary cardinality");
         }
-        System.arraycopy(oldBucket.getEntryKeys(), 0, entryKeys, 0, oldBucket.size());
+        // Completed runs carry over BY REFERENCE. An append never rewrites a closed sub-block, so a
+        // bucket that is being extended keeps every block key it already had and only gains new ones.
+        for (int i = 0; i < oldBucket.blockCount(); i++) {
+          // Skip ONLY the run an extended replacement supersedes. Every other completed block keeps
+          // its key, so older revisions continue to address exactly the records they always did.
+          if (reversePlan.extendsTail() && oldBucket.blockKey(i) == reversePlan.tailReplacedKey) {
+            continue;
+          }
+          dirBlockFirst.add(oldBucket.blockFirstId(i));
+          dirBlockCount.add(oldBucket.blockIdCount(i));
+          dirBlockKeys.add(oldBucket.blockKey(i));
+        }
+        for (int i = 0; i < oldBucket.spillCount(); i++) {
+          dirSpillIds.add(oldBucket.spillId(i));
+          dirSpillKeys.add(oldBucket.spillKeyAt(i));
+        }
       } else if (expectedOldSize != 0) {
         throw new IllegalStateException("missing reverse bucket below dictionary cardinality");
       }
-      final int firstNewId = Math.max(firstId, oldEntryCount + 1);
-      final long endExclusive = (long) firstId + size;
-      for (int id = firstNewId; (long) id < endExclusive;) {
-        entryKeys[id - firstId] = entryKeyForLocalId(runStart, id - oldEntryCount);
-        if (id == Integer.MAX_VALUE) {
+      // New runs from THIS append that fall inside this bucket. Both plan arrays ascend and the
+      // bucket loop ascends, so each cursor advances at most once per run across the WHOLE loop —
+      // no run is ever examined twice and none is rescanned by a later bucket.
+      final long bucketEndExclusive = (long) firstId + size;
+      while (planBlockCursor < reversePlan.blockFirstLocal.length) {
+        final long absoluteFirst = planBlockCursor == 0 && reversePlan.extendsTail()
+            ? reversePlan.tailFirstAbsoluteId
+            : (long) oldEntryCount + reversePlan.blockFirstLocal[planBlockCursor];
+        if (absoluteFirst >= bucketEndExclusive) {
           break;
         }
-        id++;
+        if (absoluteFirst >= firstId) {
+          dirBlockFirst.add(Math.toIntExact(absoluteFirst));
+          dirBlockCount.add(reversePlan.blockCounts[planBlockCursor]);
+          dirBlockKeys.add(reversePlan.blockKeys[planBlockCursor]);
+        }
+        planBlockCursor++;
+      }
+      while (planSpillCursor < reversePlan.spillLocals.length) {
+        final long absoluteId = (long) oldEntryCount + reversePlan.spillLocals[planSpillCursor];
+        if (absoluteId >= bucketEndExclusive) {
+          break;
+        }
+        if (absoluteId >= firstId) {
+          dirSpillIds.add(Math.toIntExact(absoluteId));
+          dirSpillKeys.add(reversePlan.spillKeys[planSpillCursor]);
+        }
+        planSpillCursor++;
       }
       final long bucketKey = cursor.next();
-      put(new ValueDictionaryValueBucketNode(bucketKey, firstId, entryKeys), namePage, databaseType, writer, log);
+      put(ValueDictionaryValueBucketNode.takeOwnership(bucketKey, firstId, size, dirBlockFirst.toArray(),
+          dirBlockCount.toArray(), dirBlockKeys.toArray(), dirSpillIds.toArray(), dirSpillKeys.toArray()), namePage,
+          databaseType, writer, log);
       if (bucket == lastReverseBucket) {
         break;
       }
@@ -579,6 +705,108 @@ final class GlobalValueDictionaryRadix {
     return valueResult(reverseRootKey, id, namePage, databaseType, reader).value;
   }
 
+  /**
+   * Reverse lookup for a revision-bound {@link GlobalValueDictionary.ReadView}, allocating nothing of
+   * its own.
+   *
+   * <p>
+   * The general {@link #entryResult} path exists to report PROBE UNITS for the HFT telemetry the
+   * forward probe feeds, and it pays for that with three allocations per call: a three-element
+   * {@code int[]} radix path, a {@link LeafResult} and an {@link EntryResult}. The read view discards
+   * the unit count entirely, so on a high-cardinality scan — where the view's fixed 256-slot cache
+   * cannot hold the working set and nearly every row misses — those three objects were being
+   * allocated per row and immediately dropped.
+   *
+   * <p>
+   * This variant walks the same three reverse-radix levels with the path bytes computed inline and
+   * the leaf key carried in a local, so the traversal itself allocates nothing. It does NOT remove
+   * the cost of materialising a record the reader's own record cache has evicted: that decode is
+   * inherent to reading a page-resident record and is bounded by that cache, not by this method.
+   *
+   * <p>
+   * Semantics are those of {@link #entryResult} exactly — same bucket derivation, same
+   * {@code maximumId} refusal, same absent/short-bucket answers, same invalid-record failure.
+   *
+   * @return the entry, or {@code null} when this revision stores no such id
+   */
+  static ValueDictionaryEntryNode entry(final long reverseRootKey, final int id, final int maximumId,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+    if (reverseRootKey == 0 || id <= 0) {
+      return null;
+    }
+    if (id > maximumId) {
+      throw new IllegalStateException("value dictionary entry id exceeds header cardinality");
+    }
+    final int bucket = (id - 1) >>> 8;
+    // primaryPath(bucket) inlined: {bucket >>> 16, bucket >>> 8 & 0xFF, bucket & 0xFF}.
+    long key = reverseRootKey;
+    for (int depth = 0; depth < REVERSE_PATH_BYTES; depth++) {
+      if (key == 0) {
+        return null;
+      }
+      final int index = switch (depth) {
+        case 0 -> bucket >>> 16;
+        case 1 -> bucket >>> 8 & 0xFF;
+        default -> bucket & 0xFF;
+      };
+      key = radixNode(key, ValueDictionaryRadixNode.REVERSE, depth, namePage, databaseType, reader).childKey(index);
+    }
+    if (key == 0) {
+      return null;
+    }
+    return entryInBucket(valueBucket(key, bucket, namePage, databaseType, reader), id, namePage, databaseType, reader);
+  }
+
+  /**
+   * The reverse bucket owning {@code id}'s block of 256 ids, or {@code null} when this revision
+   * stores none.
+   *
+   * <p>
+   * Exposed so a read view can RETAIN the bucket across probes. A read-only transaction's dictionary
+   * record memo is a no-op, so every probe that walks from the root materialises three radix nodes
+   * and the bucket before it even reaches the entry — five record decodes per id. One bucket covers
+   * 256 consecutive ids, so holding a handful of them collapses that to one decode per id for any
+   * scan with locality, without retaining anything per VALUE.
+   *
+   * @return the bucket node, or {@code null} when the path is absent in this revision
+   */
+  static ValueDictionaryValueBucketNode valueBucketOf(final long reverseRootKey, final int bucket,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+    if (reverseRootKey == 0) {
+      return null;
+    }
+    long key = reverseRootKey;
+    for (int depth = 0; depth < REVERSE_PATH_BYTES; depth++) {
+      if (key == 0) {
+        return null;
+      }
+      final int index = switch (depth) {
+        case 0 -> bucket >>> 16;
+        case 1 -> bucket >>> 8 & 0xFF;
+        default -> bucket & 0xFF;
+      };
+      key = radixNode(key, ValueDictionaryRadixNode.REVERSE, depth, namePage, databaseType, reader).childKey(index);
+    }
+    return key == 0
+        ? null
+        : valueBucket(key, bucket, namePage, databaseType, reader);
+  }
+
+  /**
+   * Resolve {@code id} inside an ALREADY resolved reverse bucket — the step a retained bucket lets a
+   * read view skip the radix walk for.
+   *
+   * @return the entry, or {@code null} when the bucket does not cover {@code id}
+   */
+  static ValueDictionaryEntryNode entryInBucket(final ValueDictionaryValueBucketNode values, final int id,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+    if (values == null || id < values.getFirstId() || (long) id >= (long) values.getFirstId() + values.size()) {
+      return null;
+    }
+    final ValueDictionaryEntryNode entry = resolveEntry(values, id, namePage, databaseType, reader);
+    return entry;
+  }
+
   private static ValueResult valueResult(final long reverseRootKey, final int id, final NamePage namePage,
       final DatabaseType databaseType, final StorageEngineReader reader) {
     final EntryResult result = entryResult(reverseRootKey, id, Integer.MAX_VALUE, namePage, databaseType, reader);
@@ -603,11 +831,7 @@ final class GlobalValueDictionaryRadix {
     if (id < values.getFirstId() || (long) id >= (long) values.getFirstId() + values.size()) {
       return new EntryResult(null, leaf.units + 1);
     }
-    final DataRecord record =
-        dictionaryRecord(values.entryKey(id - values.getFirstId()), namePage, databaseType, reader);
-    if (!(record instanceof ValueDictionaryEntryNode entry)) {
-      throw new IllegalStateException("invalid value dictionary entry");
-    }
+    final ValueDictionaryEntryNode entry = resolveEntry(values, id, namePage, databaseType, reader);
     return new EntryResult(entry, leaf.units + 2);
   }
 
@@ -701,6 +925,61 @@ final class GlobalValueDictionaryRadix {
       throw new IllegalStateException("invalid value dictionary forward bucket");
     }
     return node;
+  }
+
+  /**
+   * Resolve one id through its bucket's sparse directory: either it is packed in a sub-block, or it
+   * spilled to its own record.
+   *
+   * <p>
+   * NOTE: for a PACKED id this still materialises an entry node over a copied slice. That is a
+   * correctness bridge, not the end state — {@link GlobalValueDictionary.ReadView} is what must
+   * ultimately hold the block's backing array, offset and length and compare in place. Until it does,
+   * no claim of per-id allocation freedom is made for packed ids.
+   */
+  private static ValueDictionaryEntryNode resolveEntry(final ValueDictionaryValueBucketNode values, final int id,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader) {
+    final long blockKey = values.blockKeyCovering(id);
+    if (blockKey != 0L) {
+      final ValueDictionaryValueBlockNode block = blockNode(blockKey, id, namePage, databaseType, reader);
+      final int offset = block.valueOffset(id);
+      final int length = block.valueLength(id);
+      final byte[] value = java.util.Arrays.copyOfRange(block.rawBytes(), offset, offset + length);
+      return ValueDictionaryEntryNode.takeOwnership(blockKey, value);
+    }
+    final long spillKey = values.spillKeyCovering(id);
+    if (spillKey == 0L) {
+      throw new IllegalStateException("value dictionary bucket covers neither a block nor a spill for id " + id);
+    }
+    final DataRecord record = dictionaryRecord(spillKey, namePage, databaseType, reader);
+    if (!(record instanceof ValueDictionaryEntryNode entry)) {
+      throw new IllegalStateException("invalid value dictionary entry");
+    }
+    return entry;
+  }
+
+  /**
+   * Decode one packed sub-block and check it really covers {@code id}. Exposed so a read view can
+   * RETAIN decoded blocks: a block is up to 64 KiB, so decoding it per probe is by far the largest
+   * term in a high-cardinality miss.
+   */
+  static ValueDictionaryValueBlockNode blockNode(final long blockKey, final int id, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
+    final DataRecord record = dictionaryRecord(blockKey, namePage, databaseType, reader);
+    if (!(record instanceof ValueDictionaryValueBlockNode block) || !block.covers(id)) {
+      throw new IllegalStateException("invalid value dictionary sub-block for id " + id);
+    }
+    return block;
+  }
+
+  /** The entry record of a SPILLED id. */
+  static ValueDictionaryEntryNode spillEntry(final long spillKey, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineReader reader) {
+    final DataRecord record = dictionaryRecord(spillKey, namePage, databaseType, reader);
+    if (!(record instanceof ValueDictionaryEntryNode entry)) {
+      throw new IllegalStateException("invalid value dictionary entry");
+    }
+    return entry;
   }
 
   private static ValueDictionaryValueBucketNode valueBucket(final long key, final int bucket, final NamePage namePage,
@@ -865,6 +1144,172 @@ final class GlobalValueDictionaryRadix {
     final long pageAndTilBytes =
         Math.multiplyExact(2L, Math.addExact(encodedBytes, Math.multiplyExact(recordCount, RECORD_STRIDE)));
     return Math.addExact(pageAndTilBytes, Math.multiplyExact((long) additions.entryCount(), 64L));
+  }
+
+  /**
+   * The ONE decision about how an append's values are laid out: which consecutive runs are packed
+   * into sub-blocks and which individual ids spill to their own record.
+   *
+   * <p>
+   * Built once, then consumed by BOTH the exact record-count arithmetic and the emit loop. Deriving
+   * it twice is how the count and the emission drift apart, and while {@code KeyCursor} would catch
+   * that loudly, catching it is worse than not being able to express it.
+   */
+  private static final class ReverseAppendPlan {
+    private final int[] blockFirstLocal;
+    private final int[] blockCounts;
+    private final long[] blockKeys;
+    private final int[] spillLocals;
+    private final long[] spillKeys;
+    /** Old tail block replaced by an extended copy, or {@code 0} when none was extendable. */
+    private final long tailReplacedKey;
+    /** Absolute first id the extended block keeps — the OLD tail's, not the first addition's. */
+    private final int tailFirstAbsoluteId;
+    /** The old tail's values, carried into the replacement. */
+    private final int[] tailPrefixOffsets;
+    private final byte[] tailPrefixBytes;
+
+    private ReverseAppendPlan(final int[] blockFirstLocal, final int[] blockCounts, final int[] spillLocals,
+        final long tailReplacedKey, final int tailFirstAbsoluteId, final int[] tailPrefixOffsets,
+        final byte[] tailPrefixBytes) {
+      this.blockFirstLocal = blockFirstLocal;
+      this.blockCounts = blockCounts;
+      this.blockKeys = new long[blockFirstLocal.length];
+      this.spillLocals = spillLocals;
+      this.spillKeys = new long[spillLocals.length];
+      this.tailReplacedKey = tailReplacedKey;
+      this.tailFirstAbsoluteId = tailFirstAbsoluteId;
+      this.tailPrefixOffsets = tailPrefixOffsets;
+      this.tailPrefixBytes = tailPrefixBytes;
+    }
+
+    private boolean extendsTail() {
+      return tailReplacedKey != 0L;
+    }
+
+    /** Values the old tail contributes to the replacement block. */
+    private int tailPrefixCount() {
+      return tailPrefixOffsets == null
+          ? 0
+          : tailPrefixOffsets.length - 1;
+    }
+
+    private int recordCount() {
+      return blockFirstLocal.length + spillLocals.length;
+    }
+  }
+
+  /**
+   * The old last packed run, when it can absorb more values.
+   *
+   * <p>
+   * Only the OLD TAIL is ever considered. Every completed block is immutable and keeps its key, so a
+   * revision that adds one value must not rewrite the bucket's history — it copies at most the one
+   * run that was still open and leaves the rest addressed exactly as before. Without this, each
+   * one-value revision opened a fresh one-value block and the directory grew a run per revision.
+   */
+  private record OpenTail(long key, int firstId, int[] offsets, byte[] bytes) {
+  }
+
+  private static OpenTail findExtendableTail(final long oldReverseRoot, final int oldEntryCount,
+      final NamePage namePage, final DatabaseType databaseType, final StorageEngineWriter writer) {
+    if (oldReverseRoot == 0L || oldEntryCount <= 0) {
+      return null;
+    }
+    // The next id must land in the SAME 256-id bucket, or the run would have to span a directory it
+    // does not belong to.
+    if (((oldEntryCount - 1) >>> 8) != (oldEntryCount >>> 8)) {
+      return null;
+    }
+    final ValueDictionaryValueBucketNode bucket =
+        valueBucketOf(oldReverseRoot, (oldEntryCount - 1) >>> 8, namePage, databaseType, writer);
+    if (bucket == null) {
+      return null;
+    }
+    final long key = bucket.blockKeyCovering(oldEntryCount);
+    if (key == 0L) {
+      return null; // the last id SPILLED — nothing open to extend
+    }
+    final ValueDictionaryValueBlockNode block = blockNode(key, oldEntryCount, namePage, databaseType, writer);
+    // It must END exactly at the old cardinality; a block covering ids beyond it is not the tail.
+    if ((long) block.getFirstId() + block.size() - 1L != oldEntryCount) {
+      return null;
+    }
+    if (block.size() >= ValueDictionaryValueBlockNode.MAX_BLOCK_VALUES
+        || block.rawBytes().length >= ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES) {
+      return null; // full — start a new block
+    }
+    return new OpenTail(key, block.getFirstId(), block.copyOffsets(), block.rawBytes());
+  }
+
+  /**
+   * Lay out an append: consecutive values pack into byte-bounded sub-blocks, and ONLY a value longer
+   * than a whole block spills to its own record. A block also closes at a bucket boundary, because
+   * the directory that addresses it lives in the bucket.
+   */
+  private static ReverseAppendPlan planReverseAppend(final GlobalValueDictionaryWriter additions,
+      final int oldEntryCount, final OpenTail tail) {
+    final IntList blockFirst = new IntList();
+    final IntList blockCount = new IntList();
+    final IntList spills = new IntList();
+    int openFirst = 0;
+    int openCount = 0;
+    long openBytes = 0;
+    // Seed the first open block from the old tail so the leading additions extend IT rather than
+    // opening a run of their own. The seeded count and bytes make the same capacity tests below
+    // decide when the extended block must close, so the tail cannot be overfilled.
+    boolean extending = false;
+    if (tail != null) {
+      openFirst = 1;
+      openCount = tail.offsets().length - 1;
+      openBytes = tail.bytes().length;
+      extending = true;
+    }
+    for (int localId = 1; localId <= additions.entryCount(); localId++) {
+      final int length = additions.valueBytes(localId).length;
+      final int absoluteId = Math.addExact(oldEntryCount, localId);
+      if (length > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES) {
+        if (openCount > 0) {
+          blockFirst.add(openFirst);
+          blockCount.add(openCount);
+          openCount = 0;
+          openBytes = 0;
+        } else if (extending && blockFirst.size == 0) {
+          // The very first addition spills, so the seeded tail never grew: leave it alone.
+          extending = false;
+        }
+        spills.add(localId);
+        continue;
+      }
+      final int openFirstAbsolute = extending && blockFirst.size == 0
+          ? tail.firstId()
+          : Math.addExact(oldEntryCount, openFirst);
+      final boolean crossesBucket = openCount > 0 && ((absoluteId - 1) >>> 8) != ((openFirstAbsolute - 1) >>> 8);
+      if (openCount > 0 && (crossesBucket || openCount == ValueDictionaryValueBlockNode.MAX_BLOCK_VALUES
+          || openBytes + length > ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES)) {
+        blockFirst.add(openFirst);
+        blockCount.add(openCount);
+        openCount = 0;
+        openBytes = 0;
+      }
+      if (openCount == 0) {
+        openFirst = localId;
+      }
+      openCount++;
+      openBytes += length;
+    }
+    if (openCount > 0) {
+      blockFirst.add(openFirst);
+      blockCount.add(openCount);
+    } else if (extending && blockFirst.size == 0) {
+      extending = false;
+    }
+    // The extended block is block 0 and its count already includes the tail's values; every other
+    // planned block counts only its own additions.
+    return extending
+        ? new ReverseAppendPlan(blockFirst.toArray(), blockCount.toArray(), spills.toArray(), tail.key(),
+            tail.firstId(), tail.offsets(), tail.bytes())
+        : new ReverseAppendPlan(blockFirst.toArray(), blockCount.toArray(), spills.toArray(), 0L, 0, null, null);
   }
 
   private record LeafResult(long key, int units) {
@@ -1471,6 +1916,25 @@ final class GlobalValueDictionaryRadix {
       if (size == values.length)
         values = Arrays.copyOf(values, size << 1);
       values[size++] = value;
+    }
+
+    private int[] toArray() {
+      return Arrays.copyOf(values, size);
+    }
+  }
+
+  private static final class LongList {
+    private long[] values = new long[4];
+    private int size;
+
+    private void add(final long value) {
+      if (size == values.length)
+        values = Arrays.copyOf(values, size << 1);
+      values[size++] = value;
+    }
+
+    private long[] toArray() {
+      return Arrays.copyOf(values, size);
     }
   }
 

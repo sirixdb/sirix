@@ -43,36 +43,42 @@ import org.openjdk.jmh.annotations.Warmup;
 import java.util.concurrent.TimeUnit;
 
 /**
- * JMH benchmark for {@link HOTIndirectPage#findChildIndex(byte[])} on a SpanNode-style
- * compound node with SparsePartialKeys (the equality-preferred routing path at
- * {@code HOTIndirectPage.findChildSpanNode}).
+ * JMH benchmark for {@link HOTIndirectPage#findChildIndex(byte[])} on a SpanNode-style compound
+ * node with SparsePartialKeys (the equality-preferred routing path at
+ * {@code HOTIndirectPage.findChildByPartialKey}).
  *
- * <p>Goal: isolate the cost of the {@code (denseKey & sparseKey) == sparseKey} SIMD
- * subset search plus the scalar equality-preferred follow-up scan so we can measure
- * the win from candidate-bit-iteration over the {@code matchMask} returned by
- * {@link io.sirix.index.hot.SparsePartialKeys#search(int)}.</p>
+ * <p>
+ * Goal: isolate the cost of the {@code (denseKey & sparseKey) == sparseKey} SIMD subset search plus
+ * the scalar equality-preferred follow-up scan so we can measure the win from
+ * candidate-bit-iteration over the {@code matchMask} returned by
+ * {@link io.sirix.index.hot.SparsePartialKeys#search(int)}.
+ * </p>
  *
- * <p>Parameters:</p>
+ * <p>
+ * Parameters:
+ * </p>
  * <ul>
- *   <li>{@code numChildren} — node fanout (drives both the SparsePartialKeys SIMD
- *       width and the length of the equality-preferred scan).</li>
- *   <li>{@code discBitCount} — number of discriminative bits in the routing mask;
- *       selects the SparsePartialKeys storage tier (byte / short / int).</li>
+ * <li>{@code numChildren} — node fanout (drives both the SparsePartialKeys SIMD width and the
+ * length of the equality-preferred scan).</li>
+ * <li>{@code discBitCount} — number of discriminative bits in the routing mask; selects the
+ * SparsePartialKeys storage tier (byte / short / int).</li>
  * </ul>
  *
- * <p>Two methods:</p>
+ * <p>
+ * Two methods:
+ * </p>
  * <ul>
- *   <li>{@code lookupFound} — search keys whose dense partial key exactly equals one
- *       of the stored partials, so the equality scan terminates somewhere in the
- *       middle of the array (best case for the new bit-iteration, worst case for the
- *       scalar scan when the match index is large).</li>
- *   <li>{@code lookupMissingEquality} — search keys whose dense partial is outside the
- *       stored set but is a superset of {@code 0}, so the equality scan completes
- *       all {@code numChildren} iterations and falls back to {@code subsetPick}
- *       (the absolute worst case for the scalar scan).</li>
+ * <li>{@code lookupFound} — search keys whose dense partial key exactly equals one of the stored
+ * partials, so the equality scan terminates somewhere in the middle of the array (best case for the
+ * new bit-iteration, worst case for the scalar scan when the match index is large).</li>
+ * <li>{@code lookupMissingEquality} — search keys whose dense partial is outside the stored set but
+ * is a superset of {@code 0}, so the equality scan completes all {@code numChildren} iterations and
+ * falls back to {@code subsetPick} (the absolute worst case for the scalar scan).</li>
  * </ul>
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="HotIndirectPageLookupBenchmark"
  * </pre>
@@ -93,8 +99,8 @@ public class HotIndirectPageLookupBenchmark {
   public int numChildren;
 
   /**
-   * Number of discriminative bits in the routing mask. 8 → byte-tier SparsePartialKeys,
-   * 16 → short-tier, 24 → int-tier. Must satisfy {@code numChildren <= 2^discBitCount}.
+   * Number of discriminative bits in the routing mask. 8 → byte-tier SparsePartialKeys, 16 →
+   * short-tier, 24 → int-tier. Must satisfy {@code numChildren <= 2^discBitCount}.
    */
   @Param({"8", "16", "24"})
   public int discBitCount;
@@ -107,11 +113,12 @@ public class HotIndirectPageLookupBenchmark {
   @Setup(Level.Trial)
   public void setUp() {
     if (numChildren > (1L << discBitCount)) {
-      throw new IllegalStateException(
-          "numChildren=" + numChildren + " exceeds 2^" + discBitCount);
+      throw new IllegalStateException("numChildren=" + numChildren + " exceeds 2^" + discBitCount);
     }
 
-    final long bitMask = (discBitCount == 64) ? -1L : ((1L << discBitCount) - 1L);
+    final long bitMask = (discBitCount == 64)
+        ? -1L
+        : ((1L << discBitCount) - 1L);
 
     final int[] partials = new int[numChildren];
     final PageReference[] children = new PageReference[numChildren];
@@ -120,17 +127,10 @@ public class HotIndirectPageLookupBenchmark {
       children[i] = new PageReference();
     }
 
-    // createMultiNode supports 1..32 children and installs SparsePartialKeys
-    // → both findChildMultiNode and findChildSpanNode converge on the same
-    // equality-preferred routing path we want to benchmark.
-    page = HOTIndirectPage.createMultiNode(
-        /* pageKey */ 1L,
-        /* revision */ 1,
-        /* initialBytePos */ 0,
-        bitMask,
-        partials,
-        children,
-        /* height */ 0);
+    // createMultiNode supports 1..32 children and installs SparsePartialKeys. SpanNode and
+    // MultiNode both use the canonical equality-preferred partial-key route benchmarked here.
+    page = HOTIndirectPage.createMultiNode(/* pageKey */ 1L, /* revision */ 1, /* initialBytePos */ 0, bitMask,
+        partials, children, /* height */ 0);
 
     foundKeys = new byte[numChildren][];
     missingKeys = new byte[numChildren][];
@@ -145,11 +145,10 @@ public class HotIndirectPageLookupBenchmark {
   }
 
   /**
-   * Build a 16-byte key whose dense partial key (extracted via {@code Long.compress}
-   * with the contiguous low-{@code discBitCount} mask placed at the LSB end of the
-   * 8-byte BE window at byte 0) equals {@code partial}. The mask occupies the lowest
-   * {@code ceil(discBitCount/8)} bytes of that window — i.e., bytes {@code 7, 6, ...}
-   * counting from the end.
+   * Build a 16-byte key whose dense partial key (extracted via {@code Long.compress} with the
+   * contiguous low-{@code discBitCount} mask placed at the LSB end of the 8-byte BE window at byte 0)
+   * equals {@code partial}. The mask occupies the lowest {@code ceil(discBitCount/8)} bytes of that
+   * window — i.e., bytes {@code 7, 6, ...} counting from the end.
    */
   private byte[] makeKey(int partial) {
     final byte[] key = new byte[16];

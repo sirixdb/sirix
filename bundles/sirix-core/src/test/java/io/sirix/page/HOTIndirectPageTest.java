@@ -174,32 +174,25 @@ class HOTIndirectPageTest {
   class MultiNodeTests {
 
     @Test
-    @DisplayName("MultiNode uses direct byte indexing")
-    void testMultiNodeDirectIndexing() {
+    @DisplayName("MultiNode uses canonical PEXT partial-key routing")
+    void testMultiNodePextRouting() {
       // Create 32 children
       PageReference[] children = new PageReference[32];
+      int[] partialKeys = new int[32];
       for (int i = 0; i < 32; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
+        partialKeys[i] = i;
       }
 
-      // Child index maps byte values to child slots
-      byte[] childIndex = new byte[256];
-      for (int i = 0; i < 256; i++) {
-        childIndex[i] = (byte) (i % 32); // Round-robin mapping
-      }
-
-      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, childIndex, children);
+      final HOTIndirectPage multiNode =
+          HOTIndirectPage.createMultiNode(1L, 1, 0, 0xF800_0000_0000_0000L, partialKeys, children, 0);
 
       assertEquals(32, multiNode.getNumChildren());
-
-      // Key with byte 0 = 5 should map to child 5
-      int found = multiNode.findChildIndex(new byte[] {5, 0, 0, 0});
-      assertEquals(5, found, "Byte 5 should map to child 5");
-
-      // Key with byte 0 = 37 should map to child 5 (37 % 32)
-      found = multiNode.findChildIndex(new byte[] {37, 0, 0, 0});
-      assertEquals(5, found, "Byte 37 should map to child 5 (37 % 32)");
+      for (int partial = 0; partial < partialKeys.length; partial++) {
+        final byte[] key = {(byte) (partial << 3)};
+        assertEquals(partial, multiNode.findChildIndex(key), "dense partial " + partial + " must route exactly");
+      }
     }
   }
 
@@ -288,8 +281,8 @@ class HOTIndirectPageTest {
     }
 
     @Test
-    @DisplayName("MultiNode round-trip reconstructs navigation from partial keys")
-    void testMultiNodeRoundTripUsesPartialKeysWhenChildIndexFallbackIsZeroed() {
+    @DisplayName("MultiNode round-trip preserves canonical PEXT navigation")
+    void testMultiNodeRoundTripPreservesPartialKeyNavigation() {
       final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build();
 
       final PageReference[] children = new PageReference[3];
@@ -321,7 +314,8 @@ class HOTIndirectPageTest {
 
       final BytesIn<?> source = sink.bytesForRead();
       source.readByte(); // Skip page kind id.
-      return (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(resourceConfig, source, SerializationType.DATA);
+      return (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(resourceConfig, source,
+          SerializationType.DATA);
     }
   }
 }

@@ -11,12 +11,13 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Storage profiler that walks a {@code sirix.data} file and reports byte
- * counts broken down by {@link io.sirix.page.PageKind}. Gives a
- * data-driven view of where on-disk space goes so structural compression
- * work can target the biggest buckets first.
+ * Storage profiler that walks a {@code sirix.data} file and reports byte counts broken down by
+ * {@link io.sirix.page.PageKind}. Gives a data-driven view of where on-disk space goes so
+ * structural compression work can target the biggest buckets first.
  *
- * <p>Read format (see {@code FileWriter.writePageReference}):
+ * <p>
+ * Read format (see {@code FileWriter.writePageReference}):
+ * 
  * <pre>
  *   per page fragment:
  *     int32  payloadLength        (big-endian)
@@ -24,7 +25,9 @@ import java.util.TreeMap;
  *   page fragments are aligned to {@link #PAGE_FRAGMENT_ALIGN} boundaries.
  * </pre>
  *
- * <p>Usage:
+ * <p>
+ * Usage:
+ * 
  * <pre>
  *   java io.sirix.benchmark.StorageProfiler /tmp/sirix-scale-bench.../scale-db/resources/records.jn/data/sirix.data
  * </pre>
@@ -40,19 +43,19 @@ public final class StorageProfiler {
   private static final String[] KIND_NAMES = new String[256];
   static {
     Arrays.fill(KIND_NAMES, null);
-    KIND_NAMES[1]  = "KEYVALUELEAFPAGE";
-    KIND_NAMES[2]  = "NAMEPAGE";
-    KIND_NAMES[3]  = "UBERPAGE";
-    KIND_NAMES[4]  = "INDIRECTPAGE";
-    KIND_NAMES[5]  = "REVISIONROOTPAGE";
-    KIND_NAMES[6]  = "PATHSUMMARYPAGE";
-    KIND_NAMES[8]  = "CASPAGE";
-    KIND_NAMES[9]  = "OVERFLOWPAGE";
+    KIND_NAMES[1] = "KEYVALUELEAFPAGE";
+    KIND_NAMES[2] = "NAMEPAGE";
+    KIND_NAMES[3] = "UBERPAGE";
+    KIND_NAMES[4] = "INDIRECTPAGE";
+    KIND_NAMES[5] = "REVISIONROOTPAGE";
+    KIND_NAMES[6] = "PATHSUMMARYPAGE";
+    KIND_NAMES[8] = "CASPAGE";
+    KIND_NAMES[9] = "OVERFLOWPAGE";
     KIND_NAMES[10] = "PATHPAGE";
     KIND_NAMES[11] = "DEWEYIDPAGE";
     KIND_NAMES[12] = "HOT_LEAF_PAGE";
     KIND_NAMES[13] = "HOT_INDIRECT_PAGE";
-    KIND_NAMES[14] = "BITMAP_CHUNK_PAGE";
+    KIND_NAMES[14] = "RESERVED_PAGE_KIND_14";
     KIND_NAMES[15] = "VECTORPAGE";
   }
 
@@ -112,29 +115,30 @@ public final class StorageProfiler {
 
       System.out.printf("%n=== Storage profile: %s (%,d bytes) ===%n", sirixData, fileLen);
       System.out.printf("%-24s | %14s | %10s | %7s%n", "kind", "bytes", "fragments", "avg");
-      System.out.printf("%-24s-+-%14s-+-%10s-+-%7s%n", "------------------------",
-          "--------------", "----------", "-------");
+      System.out.printf("%-24s-+-%14s-+-%10s-+-%7s%n", "------------------------", "--------------", "----------",
+          "-------");
       for (final var e : summary.entrySet()) {
         final long bytes = e.getValue()[0];
         final long frags = e.getValue()[1];
-        final long avg = frags == 0 ? 0 : bytes / frags;
+        final long avg = frags == 0
+            ? 0
+            : bytes / frags;
         System.out.printf("%-24s | %,14d | %,10d | %,7d%n", e.getKey(), bytes, frags, avg);
       }
       System.out.printf("%-24s | %,14d | %,10d |%n", "(alignment padding)", alignmentPadding, 0L);
       if (unreadableFragments > 0) {
-        System.out.printf("%-24s | %,14d | %,10d |%n",
-            "(unrecognized)", unreadableBytes, unreadableFragments);
+        System.out.printf("%-24s | %,14d | %,10d |%n", "(unrecognized)", unreadableBytes, unreadableFragments);
       }
-      System.out.printf("%nTotal: %,d bytes across %,d recognized fragments%n",
-          fileLen, scannedAligned);
+      System.out.printf("%nTotal: %,d bytes across %,d recognized fragments%n", fileLen, scannedAligned);
     }
   }
 
   private static long nextAligned(final long offset, final int align) {
     final long mod = offset % align;
-    return mod == 0 ? offset : offset + align - mod;
+    return mod == 0
+        ? offset
+        : offset + align - mod;
   }
 
-  private StorageProfiler() {
-  }
+  private StorageProfiler() {}
 }

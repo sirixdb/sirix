@@ -3,6 +3,7 @@ package io.sirix.query;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
@@ -25,6 +26,7 @@ import io.sirix.query.json.BasicJsonDBStore;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
@@ -32,18 +34,15 @@ import java.nio.file.Path;
  * Incremental maintenance of a SEGMENT-SLOT projection store.
  *
  * <p>
- * Both storage layouts are patched in place at pre-commit. A segment-slot store keys its zone-map
- * descriptor at slotKind 0 of the composite key and each column segment at its own slot, so every
- * row-group read/write in the maintenance path is layout-dispatched; before that dispatch existed
- * the listener bailed out and forced a FULL REBUILD on every change.
+ * The sole persisted layout keys each row group's descriptor at slotKind 0 of the composite key and
+ * each semantic column segment at its own slot. Pre-commit maintenance patches those units
+ * directly; there is no layout dispatch and no whole-index rebuild route.
  * </p>
  *
  * <p>
- * Correctness alone cannot distinguish the two paths — a rebuild is also correct — so
- * {@link #segmentSlotDeleteLeavesRowGroupsUnrepacked()} pins the difference that IS observable:
- * incremental patching only rewrites the touched row group and leaves the others exactly as they
- * were, whereas a full rebuild re-extracts every record and re-packs the rows densely, shifting
- * them between row groups. The per-row-group row counts therefore differ between the two.
+ * {@link #segmentSlotDeleteLeavesRowGroupsUnrepacked()} pins the observable incremental unit:
+ * maintenance rewrites only the touched row group and leaves every other row group exactly where it
+ * was. The per-row-group row counts make an accidental whole-store rewrite visible.
  * </p>
  */
 public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest {
@@ -161,7 +160,7 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
   }
 
   @Test
-  public void segmentSlotUpdateIsMaintainedAndKeepsTheLayoutFlag() throws IOException {
+  public void segmentSlotUpdateIsMaintainedIncrementally() throws IOException {
     storeAndCreateSegmentSlotProjection();
     final long baseline = expectedTotalAge();
     ProjectionIndexChangeListener.resetMaintenanceTelemetry();
@@ -206,10 +205,61 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
       } finally {
         afterCommit.close();
       }
+    }
+  }
 
-      // Regression guard: the layout flag is sticky. The public metadata constructor defaults it to
-      // the descriptor layout, so a maintenance pass that forgot to re-stamp it would leave every
-      // later read reinterpreting this store's composite slot keys under the wrong layout.
+  @Test
+  public void twoColumnUpdatePublishesOneDescriptorAndReopensCold() throws Exception {
+    storeAndCreateSegmentSlotProjection();
+    final int recordIndex = 7; // d0; earlier rows retain the stable d0..d6 dictionary order.
+    final long expectedAgeSum = expectedTotalAge() - ageOf(recordIndex) + 9_999L;
+    ProjectionIndexChangeListener.resetMaintenanceTelemetry();
+
+    try (final Database<JsonResourceSession> database = openDatabase();
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        moveToAgeField(wtx, recordIndex);
+        wtx.setNumberValue(9_999L);
+        Assertions.assertTrue(wtx.moveToRightSibling(), "age must be followed by active");
+        Assertions.assertTrue(wtx.moveToRightSibling(), "active must be followed by dept");
+        wtx.setStringValue("d1");
+        wtx.commit();
+      }
+
+      final ProjectionIndexChangeListener.MaintenanceLocality locality =
+          ProjectionIndexChangeListener.lastMaintenanceLocality();
+      Assertions.assertEquals(0, locality.fullRowGroupsRead(),
+          "two field updates must not assemble the full row group");
+      Assertions.assertEquals(1, locality.descriptorsRead());
+      Assertions.assertEquals(1, locality.keySegmentsRead());
+      Assertions.assertEquals(2, locality.bodySegmentsRead(), "only age and dept BODY segments are read");
+      Assertions.assertEquals(1, locality.dictionarySegmentsRead(), "dept needs its existing local dictionary");
+      Assertions.assertEquals(5, locality.columnSegmentsEncoded(),
+          "age BODY plus dept BODY/DICT/BLOOM/DICT_HASH are encoded as one batch");
+      Assertions.assertEquals(2, locality.columnSegmentsWritten(),
+          "only the changed age and dept BODY slots are written");
+      Assertions.assertEquals(1, locality.descriptorsWritten(),
+          "one logical row-group mutation publishes its descriptor exactly once");
+      Assertions.assertEquals(1, locality.rowGroupsColumnPatched());
+    }
+
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    try (final Database<JsonResourceSession> reopened = openDatabase();
+        final JsonResourceSession reopenedSession = reopened.beginResourceSession("sales.jn")) {
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(reopenedSession, reopenedSession.getMostRecentRevisionNumber(), 2);
+      try {
+        Assertions.assertEquals(expectedAgeSum, sumAges(executor),
+            "the cold-reopened projection must retain the numeric update");
+        final Sequence groups = executor.executeGroupByCount(null, SOURCE_PATH, "dept");
+        Assertions.assertNotNull(groups, "the cold-reopened projection must serve dept groups");
+        final String compactGroups = serialize(groups).replaceAll("\\s+", "");
+        Assertions.assertTrue(compactGroups.contains("{\"dept\":\"d0\",\"count\":214}"), compactGroups);
+        Assertions.assertTrue(compactGroups.contains("{\"dept\":\"d1\",\"count\":216}"), compactGroups);
+      } finally {
+        executor.close();
+      }
     }
   }
 
@@ -251,8 +301,7 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
       }
 
       // The decisive check: only row group 1 was rewritten, and it simply lost its deleted rows.
-      // A full rebuild would have re-extracted all RECORDS-deletions records and re-packed them
-      // densely — row group 1 would be back at MAX_ROWS and row group 2 would have shrunk instead.
+      // Re-packing the full store would instead refill row group 1 and shrink row group 2.
       Assertions.assertEquals(MAX_ROWS - deletions, rowGroupRowCount(session, 1),
           "row group 1 must keep its remaining rows in place (no re-pack)");
       Assertions.assertEquals(tailRows, rowGroupRowCount(session, 2),
@@ -312,6 +361,14 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
     }
   }
 
+  private static String serialize(final Sequence sequence) throws Exception {
+    final StringWriter out = new StringWriter();
+    try (final PrintWriter writer = new PrintWriter(out)) {
+      new StringSerializer(writer).serialize(sequence);
+    }
+    return out.toString();
+  }
+
   @Test
   public void groupByAfterAppendEmitsNoPhantomNullGroup() throws IOException {
     // End-to-end shape of the defect {@link #segmentSlotAppendAddsExactlyOneRowPerRecord} pins
@@ -361,13 +418,10 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
   }
 
   @Test
-  public void droppedSegmentSlotIndexRebuildsInTheSameLayout() throws IOException {
-    // The layout is STICKY, and a tombstone is the only surviving record of it: dropping the index
-    // leaves every row-group slot in place. If the tombstone dropped the flag, the re-creation below
-    // — running with the opt-in property UNSET — would rebuild in the descriptor layout and write
-    // raw-keyed row groups into a sub-tree still full of `rowGroupId << 16` composite keys, which
-    // every later full read rejects as "mixed storage layouts in one sub-tree" (a permanently dead
-    // projection). The re-created index must therefore come back as segment-slot and serve.
+  public void droppedSegmentSlotIndexIsRecreatedInANewTree() throws IOException {
+    // Dropping removes only the catalogue definition. Tree 0 stays untouched for historical
+    // revisions, and the new definition must use virgin tree 1; mixing new slots with the old
+    // payloads would violate the one-way lifecycle.
     storeAndCreateSegmentSlotProjection();
 
     query("""
@@ -378,9 +432,6 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    // Re-create the SAME definition. With the descriptor layout retired there is no longer a knob
-    // that could send this the other way, so what this still pins is that a drop-then-recreate
-    // round trip rebuilds a store that reads correctly over its surviving slots.
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
           let $stats := jn:create-projection-index($doc, '/[]',
@@ -389,12 +440,18 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
           return {"revision": sdb:commit($doc)}
         """);
 
+    Assertions.assertEquals("1", serialize("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return jn:find-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'))
+        """), "a dropped physical tree id must never be reused");
+
     try (final Database<JsonResourceSession> database = openDatabase();
         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       final SirixVectorizedExecutor executor =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
       try {
-        // A mixed-layout sub-tree would make this full read throw and serve nothing.
+        // The newly allocated tree must serve independently of the retained historical tree.
         Assertions.assertEquals(expectedTotalAge(), sumAges(executor));
         Assertions.assertEquals(RECORDS, countAges(executor));
       } finally {

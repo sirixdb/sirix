@@ -98,6 +98,7 @@ def evaluate_run(
             "g1RegionSizeBytes": str(ingestion_gate.EXPECTED_G1_REGION_SIZE_BYTES),
             "gcLogging": "true",
             "safepointLogging": "true",
+            "importer": "ordinary-maintenance",
             "projectionMode": "incremental",
             "storage": "FILE_CHANNEL",
             "expectedRows": str(expected_rows),

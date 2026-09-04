@@ -28,7 +28,6 @@
 package io.sirix.index.hot;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
@@ -54,13 +53,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 import static java.util.Objects.requireNonNull;
@@ -77,7 +76,7 @@ import static java.util.Objects.requireNonNull;
  * <ul>
  * <li>Thread-local byte buffers for key/value serialization</li>
  * <li>No Optional - uses @Nullable returns</li>
- * <li>Pre-allocated traversal state via {@link HOTTrieWriter}</li>
+ * <li>Writer-local pre-allocated traversal arrays</li>
  * </ul>
  *
  * @param <K> the key type exposed by the writer
@@ -149,7 +148,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private static final long HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(5L);
 
-  /** Inserts between periodic leaf-consolidation sweeps ({@link #consolidateSubtree}). */
+  /** Inserts between bounded, route-local leaf-consolidation attempts. */
   private static final int CONSOLIDATION_INTERVAL = 4096;
 
   /**
@@ -158,10 +157,34 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private static final int CONSOLIDATION_TARGET = (HOTLeafPage.MAX_ENTRIES * 3) / 4;
 
+  /**
+   * Hard physical bounds for exact structural guard traversals. These limits describe one ordinary
+   * 32-leaf HOT frontier and are enforced by a read-only, early-stopping walk. A proper tree with 32
+   * leaves can have up to 31 indirect pages (every indirect has at least two children), hence the
+   * 63-page ceiling; the independent leaf/entry/reference/byte limits remain the payload-work bounds.
+   */
+  private static final int MAX_BOUNDED_REBUILD_LEAVES = HOTIndirectPage.MAX_NODE_ENTRIES;
+  private static final int MAX_BOUNDED_REBUILD_PAGES = (MAX_BOUNDED_REBUILD_LEAVES << 1) - 1;
+  private static final int MAX_BOUNDED_REBUILD_ENTRIES = HOTIndirectPage.MAX_NODE_ENTRIES * HOTLeafPage.MAX_ENTRIES;
+  private static final int MAX_BOUNDED_REBUILD_SIDE_REFS = 8_192;
+  private static final long MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES = 8L << 20;
+
+  private static final int EXTREME_RELATION_UNCERTAIN = 0;
+  private static final int EXTREME_RELATION_OPPOSITE_AT_BETA = 1;
+  private static final int EXTREME_RELATION_SAME_SIDE_AT_BETA = 2;
+  private static final int WHOLE_NODE_PROOF_NOT_APPLICABLE = 0;
+  private static final int WHOLE_NODE_PROOF_OPPOSITE = 1;
+  private static final int WHOLE_NODE_PROOF_NOT_ONE_SIDED = 2;
+  private static final int WHOLE_NODE_PROOF_UNCERTAIN = 3;
+
   private static final Logger LOG = LoggerFactory.getLogger(AbstractHOTIndexWriter.class);
 
   /** Package-private deterministic fault seam; non-null only inside the atomicity regression test. */
-  private static volatile @Nullable Runnable directionOneFrontierAfterPublicationTestHook;
+  private static volatile @Nullable Runnable structuralPublicationTestHook;
+
+  /** Package-private deterministic fault seam for two-leaf migration publication atomicity tests. */
+  private static volatile @Nullable Runnable twoLeafMigrationAfterPublicationTestHook;
+  private static volatile @Nullable Consumer<HOTIndirectPage> twoLeafMigrationAfterReattachTestHook;
 
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
@@ -173,18 +196,26 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected final LongSupplier pageKeyAllocator;
 
-  /** HOT trie writer for handling page splits. */
-  protected final HOTTrieWriter trieWriter;
-
   /** Cached root page reference for the index. */
   protected PageReference rootReference;
 
-  // ===== Pre-allocated path-tracking arrays — ZERO allocation per insert on hot path =====
-  // These are overwritten on every prepareLeafOfTree() call; LeafNavigationResult stores
-  // copies only when the path depth is non-zero (a small Arrays.copyOf of depth <= 64).
+  /** One writer-local scratch object: rebuild preflights do not allocate on recurring split paths. */
+  private final RebuildFootprint rebuildFootprintScratch = new RebuildFootprint();
+
+  /** Cached method reference shared by the preflight and full detector. */
+  private final HOTMalformedSubtreeDetector.PageResolver traversalPageResolver;
+
+  // ===== Pre-allocated path-tracking state — ZERO allocation per mutation on the hot path =====
+  // The writer is transaction-confined. prepareLeafOfTree() overwrites these arrays and resets the
+  // one navigation carrier below; structural recursive sub-inserts deliberately use independent
+  // local routes so they cannot clobber the outer dispatch's spine.
   private final HOTIndirectPage[] _pathNodes = new HOTIndirectPage[MAX_PATH_DEPTH];
   private final PageReference[] _pathRefs = new PageReference[MAX_PATH_DEPTH];
   private final int[] _pathChildIndices = new int[MAX_PATH_DEPTH];
+  private final LeafNavigationResult navigationScratch = new LeafNavigationResult();
+
+  /** Writer-confined result carrier reused by the new-key descent analysis. */
+  private final HOTIncrementalInsert.DescentScratch descentScratch = new HOTIncrementalInsert.DescentScratch();
 
   // ===== Last serialized value — replaces Object[] return from serializeValue =====
   /** The serialized value bytes from the most recent {@link #serializeValueInto} call. */
@@ -192,17 +223,14 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** The valid byte count in {@link #lastSerializedValueBuf}. */
   protected int lastSerializedValueLen;
 
-  /** Inserts since the last {@link #consolidateSubtree} sweep — drives periodic consolidation. */
+  /** Inserts since the last route-local consolidation attempt. */
   private int insertsSinceConsolidation;
 
   /**
-   * The reference a structural handler last spliced into the trie this dispatch — the root of the
-   * subtree the mutation touched, captured at the {@link #registerFreshSubtree} choke point. The
-   * post-dispatch full-invariant self-heal scopes its detector to exactly this subtree: a mutation
-   * can only malform nodes it touched, so verifying this subtree is sound, and far cheaper than a
-   * from-root scan. {@code null} when no structural change occurred (the merge fast path).
+   * Root of the last published structural splice, captured at {@link #registerFreshSubtree} and used
+   * only by fail-closed invariant validation. {@code null} on the non-structural merge fast path.
    */
-  private PageReference selfHealScope;
+  private PageReference structuralValidationScope;
 
   /**
    * Set by {@link #resolveHOTPageForTraversal} when it refused a MERGED-AWAY HOT leaf and had no
@@ -263,15 +291,177 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Result of navigating to a leaf page, including the path from root. This is needed for proper
    * split handling.
    */
-  protected record LeafNavigationResult(HOTLeafPage leaf, PageReference leafRef, HOTIndirectPage[] pathNodes,
-      PageReference[] pathRefs, int[] pathChildIndices, int pathDepth) {
+  protected static final class LeafNavigationResult {
+    private HOTLeafPage leaf;
+    private PageReference leafRef;
+    private HOTIndirectPage[] pathNodes;
+    private PageReference[] pathRefs;
+    private int[] pathChildIndices;
+    private int pathDepth;
+
+    /** Private constructor for the writer-owned reusable carrier. */
+    private LeafNavigationResult() {}
+
+    /**
+     * Stable route constructor retained for structural tests and recursive slow paths whose route must
+     * outlive another descent.
+     */
+    protected LeafNavigationResult(final HOTLeafPage leaf, final PageReference leafRef,
+        final HOTIndirectPage[] pathNodes, final PageReference[] pathRefs, final int[] pathChildIndices,
+        final int pathDepth) {
+      reset(leaf, leafRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
+    }
+
+    private LeafNavigationResult reset(final HOTLeafPage leaf, final PageReference leafRef,
+        final HOTIndirectPage[] pathNodes, final PageReference[] pathRefs, final int[] pathChildIndices,
+        final int pathDepth) {
+      this.leaf = requireNonNull(leaf, "leaf");
+      this.leafRef = requireNonNull(leafRef, "leafRef");
+      this.pathNodes = requireNonNull(pathNodes, "pathNodes");
+      this.pathRefs = requireNonNull(pathRefs, "pathRefs");
+      this.pathChildIndices = requireNonNull(pathChildIndices, "pathChildIndices");
+      if (pathDepth < 0 || pathDepth > pathNodes.length || pathDepth > pathRefs.length
+          || pathDepth > pathChildIndices.length) {
+        throw new IllegalArgumentException("pathDepth " + pathDepth + " exceeds supplied path buffers");
+      }
+      this.pathDepth = pathDepth;
+      return this;
+    }
+
+    public HOTLeafPage leaf() {
+      return leaf;
+    }
+
+    public PageReference leafRef() {
+      return leafRef;
+    }
+
+    public HOTIndirectPage[] pathNodes() {
+      return pathNodes;
+    }
+
+    public PageReference[] pathRefs() {
+      return pathRefs;
+    }
+
+    public int[] pathChildIndices() {
+      return pathChildIndices;
+    }
+
+    public int pathDepth() {
+      return pathDepth;
+    }
+  }
+
+  /**
+   * Operation code for the single foreground HOT mutation driver.
+   *
+   * <p>
+   * The enum values are JVM singletons, so selecting an operation does not allocate. Keeping the
+   * operation in the shared driver is also what prevents posting-list deletes from growing a second,
+   * subtly different copy-on-write/navigation path beside inserts and replacements.
+   * </p>
+   */
+  private enum MutationOperation {
+    UPSERT, REMOVE_POSTING_BIT
+  }
+
+  /** Why the bounded source-footprint walk stopped. */
+  enum RebuildFootprintStatus {
+    WITHIN_BUDGET(false), PAGE_LIMIT(true), LEAF_LIMIT(true), ENTRY_LIMIT(true), SIDE_REFERENCE_LIMIT(
+        true), MATERIALIZED_BYTE_LIMIT(true), DEPTH_LIMIT(
+            false), UNRESOLVABLE_REFERENCE(false), REPEATED_PAGE(false), INVALID_PAGE(false), UNSUPPORTED_PAGE(false);
+
+    private final boolean budgetLimit;
+
+    RebuildFootprintStatus(final boolean budgetLimit) {
+      this.budgetLimit = budgetLimit;
+    }
+
+    boolean isBudgetLimit() {
+      return budgetLimit;
+    }
+  }
+
+  /**
+   * Mutable, writer-local result of the bounded source walk. The fixed page-identity array doubles as
+   * a cycle/DAG guard without a per-preflight hash-table allocation.
+   */
+  static final class RebuildFootprint {
+    private RebuildFootprintStatus status = RebuildFootprintStatus.WITHIN_BUDGET;
+    private int pages;
+    private int leaves;
+    private int entries;
+    private int sideReferences;
+    private long materializedBytes;
+    private final Page[] visitedPages = new Page[MAX_BOUNDED_REBUILD_PAGES];
+    private final int[] visitedPageOwnerSlots = new int[MAX_BOUNDED_REBUILD_PAGES];
+
+    private void reset() {
+      Arrays.fill(visitedPages, 0, pages, null);
+      Arrays.fill(visitedPageOwnerSlots, 0, pages, -1);
+      status = RebuildFootprintStatus.WITHIN_BUDGET;
+      pages = 0;
+      leaves = 0;
+      entries = 0;
+      sideReferences = 0;
+      materializedBytes = 0;
+    }
+
+    RebuildFootprintStatus status() {
+      return status;
+    }
+
+    int pages() {
+      return pages;
+    }
+
+    int leaves() {
+      return leaves;
+    }
+
+    int entries() {
+      return entries;
+    }
+
+    int sideReferences() {
+      return sideReferences;
+    }
+
+    long materializedBytes() {
+      return materializedBytes;
+    }
+
+    boolean withinBudget() {
+      return status == RebuildFootprintStatus.WITHIN_BUDGET;
+    }
+
+    private void reject(final RebuildFootprintStatus rejection) {
+      if (withinBudget()) {
+        status = rejection;
+      }
+    }
+
+    private String summary() {
+      return "status=" + status + " pages=" + pages + "/" + MAX_BOUNDED_REBUILD_PAGES + " leaves=" + leaves + "/"
+          + MAX_BOUNDED_REBUILD_LEAVES + " entries=" + entries + "/" + MAX_BOUNDED_REBUILD_ENTRIES + " sideRefs="
+          + sideReferences + "/" + MAX_BOUNDED_REBUILD_SIDE_REFS + " materializedBytes=" + materializedBytes + "/"
+          + MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES;
+    }
+  }
+
+  /** Internal fail-closed signal; optional structural fallbacks must never swallow it. */
+  private static final class MutationTraversalRefusal extends IllegalStateException {
+    private MutationTraversalRefusal(final String message) {
+      super(message);
+    }
   }
 
   /**
    * Protected constructor.
    *
    * @param storageEngineWriter the storage engine writer
-   * @param indexType the index type (PATH, CAS, NAME)
+   * @param indexType the HOT index type (PATH, CAS, NAME, PROJECTION, or VALIDTIME)
    * @param indexNumber the index number
    */
   protected AbstractHOTIndexWriter(StorageEngineWriter storageEngineWriter, IndexType indexType, int indexNumber) {
@@ -279,43 +469,228 @@ public abstract class AbstractHOTIndexWriter<K> {
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
     this.pageKeyAllocator = createPageKeyAllocator(storageEngineWriter, indexType, indexNumber);
-    this.trieWriter = new HOTTrieWriter(pageKeyAllocator);
+    this.traversalPageResolver = this::resolveHOTPageForTraversal;
   }
 
   /**
-   * May this index rebuild a subtree of {@code entryCount} entries canonically? The base writer
-   * always may — the scoped rebuild is the canonical fallback for the rare fold states the
-   * incremental handlers cannot place (I8-unsafe branches, non-convergent self-heal). An index type
-   * whose contract forbids UNBOUNDED rebuilds overrides this with a size gate: the hazard the refusal
-   * exists for is O(index) work hiding inside a commit, and that is a property of the MEASURED
-   * subtree, not of the fallback itself.
+   * Measure a rebuild source without materializing a key, value, side-reference array, or child list.
+   * The walk refuses to resolve page {@code MAX_BOUNDED_REBUILD_PAGES + 1}, so even its negative path
+   * has a total-index-size-independent I/O/allocation ceiling.
+   *
+   * <p>
+   * Package-private with an explicit scratch argument so the same production primitive is directly
+   * regression-testable. Writers reuse one scratch object; tests may provide their own.
+   * </p>
    */
-  protected boolean allowsSubtreeRebuild(final int entryCount, final int subtreeHeight) {
-    return true;
+  static RebuildFootprint measureBoundedRebuildFootprint(final Page root,
+      final HOTMalformedSubtreeDetector.PageResolver resolver, final RebuildFootprint footprint) {
+    requireNonNull(root, "root");
+    requireNonNull(resolver, "resolver");
+    requireNonNull(footprint, "footprint");
+    footprint.reset();
+    measureBoundedRebuildPage(root, resolver, footprint, 0);
+    return footprint;
+  }
+
+  private RebuildFootprint measureBoundedRebuildFootprint(final Page root) {
+    return measureBoundedRebuildFootprint(root, traversalPageResolver, rebuildFootprintScratch);
+  }
+
+  private static void measureBoundedRebuildPage(final Page page,
+      final HOTMalformedSubtreeDetector.PageResolver resolver, final RebuildFootprint footprint, final int depth) {
+    if (!footprint.withinBudget()) {
+      return;
+    }
+    if (depth > MAX_PATH_DEPTH) {
+      footprint.reject(RebuildFootprintStatus.DEPTH_LIMIT);
+      return;
+    }
+    if (page.isClosed()) {
+      footprint.reject(RebuildFootprintStatus.UNRESOLVABLE_REFERENCE);
+      return;
+    }
+    for (int i = 0; i < footprint.pages; i++) {
+      if (footprint.visitedPages[i] == page) {
+        footprint.reject(RebuildFootprintStatus.REPEATED_PAGE);
+        return;
+      }
+    }
+    if (footprint.pages >= MAX_BOUNDED_REBUILD_PAGES) {
+      footprint.reject(RebuildFootprintStatus.PAGE_LIMIT);
+      return;
+    }
+    footprint.visitedPages[footprint.pages++] = page;
+
+    if (page instanceof HOTLeafPage leaf) {
+      if (footprint.leaves >= MAX_BOUNDED_REBUILD_LEAVES) {
+        footprint.reject(RebuildFootprintStatus.LEAF_LIMIT);
+        return;
+      }
+      footprint.leaves++;
+      final int entryCount = leaf.getEntryCount();
+      final int sideReferenceCount = leaf.segmentRefCount();
+      final int usedSlotBytes = leaf.getUsedSlotsSize();
+      final int commonPrefixLength = leaf.getCommonPrefixLen();
+      if (entryCount < 0 || entryCount > HOTLeafPage.MAX_ENTRIES || sideReferenceCount < 0 || usedSlotBytes < 0
+          || commonPrefixLength < 0) {
+        footprint.reject(RebuildFootprintStatus.INVALID_PAGE);
+        return;
+      }
+      if (entryCount > MAX_BOUNDED_REBUILD_ENTRIES - footprint.entries) {
+        footprint.entries += entryCount;
+        footprint.reject(RebuildFootprintStatus.ENTRY_LIMIT);
+        return;
+      }
+      footprint.entries += entryCount;
+      if ((long) sideReferenceCount > (long) MAX_BOUNDED_REBUILD_SIDE_REFS - footprint.sideReferences) {
+        footprint.sideReferences = MAX_BOUNDED_REBUILD_SIDE_REFS + 1;
+        footprint.reject(RebuildFootprintStatus.SIDE_REFERENCE_LIMIT);
+        return;
+      }
+      footprint.sideReferences += sideReferenceCount;
+      // getKey(i) reconstructs the leaf's common prefix for every materialized key; used slots
+      // already cover suffixes and values. This is therefore the relevant transient byte footprint.
+      final long leafMaterializedBytes = usedSlotBytes + (long) entryCount * commonPrefixLength;
+      if (leafMaterializedBytes > MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES - footprint.materializedBytes) {
+        footprint.materializedBytes = MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES + 1;
+        footprint.reject(RebuildFootprintStatus.MATERIALIZED_BYTE_LIMIT);
+        return;
+      }
+      footprint.materializedBytes += leafMaterializedBytes;
+      return;
+    }
+
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      footprint.reject(RebuildFootprintStatus.UNSUPPORTED_PAGE);
+      return;
+    }
+    final int childCount = indirect.getNumChildren();
+    if (childCount < 1 || childCount > HOTIndirectPage.MAX_NODE_ENTRIES) {
+      footprint.reject(RebuildFootprintStatus.INVALID_PAGE);
+      return;
+    }
+    for (int i = 0; i < childCount; i++) {
+      // Stop BEFORE resolving the first page beyond the cap. The source can therefore be arbitrarily
+      // large without making the refusal path itself an unbounded read.
+      if (footprint.pages >= MAX_BOUNDED_REBUILD_PAGES) {
+        footprint.reject(RebuildFootprintStatus.PAGE_LIMIT);
+        return;
+      }
+      final PageReference childReference = indirect.getChildReference(i);
+      if (childReference == null) {
+        footprint.reject(RebuildFootprintStatus.UNRESOLVABLE_REFERENCE);
+        return;
+      }
+      final Page child = resolver.resolve(childReference);
+      if (child == null) {
+        footprint.reject(RebuildFootprintStatus.UNRESOLVABLE_REFERENCE);
+        return;
+      }
+      measureBoundedRebuildPage(child, resolver, footprint, depth + 1);
+      if (!footprint.withinBudget()) {
+        return;
+      }
+    }
+  }
+
+  /** Preserve the primary structural/rebuild failure even if poisoning itself also fails. */
+  private void markTransactionRollbackOnly(final Throwable failure) {
+    try {
+      storageEngineWriter.markTransactionRollbackOnly(failure);
+    } catch (final RuntimeException | Error poisonFailure) {
+      addSuppressedSafely(failure, poisonFailure);
+    }
+  }
+
+  /** Release an unpublished off-heap leaf without replacing the failure that made it disposable. */
+  private static void closeSpeculativeLeaf(final HOTLeafPage leaf, final Throwable failure) {
+    try {
+      leaf.close();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(failure, cleanupFailure);
+    }
+  }
+
+  /** Retry-safe variant for an outer ownership catch that may observe an inner cleanup. */
+  private static void closeSpeculativeLeafIfOpen(final HOTLeafPage leaf, final Throwable failure) {
+    try {
+      if (!leaf.isClosed()) {
+        leaf.close();
+      }
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(failure, cleanupFailure);
+    }
   }
 
   /**
-   * Why the imminent subtree rebuild was demanded — set by each caller immediately before the rebuild
-   * entry points. Cold diagnostics: the projection's refusal ends the transaction, and every other
-   * index type never reads it. Two callers and five trigger families shared one refusal message; this
-   * names them.
+   * Retire a fresh leaf only while ownership is still local to the structural mutation.
+   *
+   * <p>
+   * Fresh-subtree registration is post-order: one or more leaves can already belong to the
+   * transaction-intent log when registration of their containing indirect page fails. Closing such a
+   * leaf in the caller's publication catch would leave the TIL holding a freed 64 KiB frame. The
+   * leaf's own reference is the exact O(1) ownership witness; an exact container match transfers
+   * cleanup to the TIL. If the ownership probe itself fails, retain the page and poison the already
+   * failing transaction rather than risk freeing a log-owned page.
+   * </p>
    */
-  private @Nullable String pendingRebuildReason;
+  private void closeFreshLeafUnlessLogOwned(final @Nullable PageReference ref, final HOTLeafPage leaf,
+      final Throwable failure) {
+    if (leaf.isClosed()) {
+      return;
+    }
+    if (ref != null && ref.getLogKey() >= 0) {
+      final PageContainer owner;
+      try {
+        owner = requireNonNull(storageEngineWriter.getLog(), "transaction intent log").get(ref);
+      } catch (final RuntimeException | Error ownershipFailure) {
+        addSuppressedSafely(failure, ownershipFailure);
+        return;
+      }
+      if (containerOwnsPage(owner, leaf)) {
+        return;
+      }
+    }
+    closeSpeculativeLeafIfOpen(leaf, failure);
+  }
 
-  private void requireSubtreeRebuildAllowed(final int entryCount, final int subtreeHeight) {
-    if (!allowsSubtreeRebuild(entryCount, subtreeHeight)) {
-      final String reason = pendingRebuildReason == null
-          ? "unrecorded"
-          : pendingRebuildReason;
-      pendingRebuildReason = null;
-      throw new IllegalStateException(indexType + " index " + indexNumber + " requires a subtree rebuild of "
-          + entryCount + " entries at height " + subtreeHeight + "; refusing the transaction before publication ["
-          + reason + " lastHandler=" + lastDispatchHandler + "]");
+  /** Populate a fresh one-entry leaf or retire its off-heap frame before propagating failure. */
+  private void putFreshSingleEntryOrThrow(final HOTLeafPage leaf, final byte[] key, final byte[] value) {
+    try {
+      if (!leaf.put(key, value)) {
+        throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
+      }
+    } catch (final RuntimeException | Error failure) {
+      closeSpeculativeLeaf(leaf, failure);
+      throw failure;
     }
-    if (indexType == IndexType.PROJECTION) {
-      PROJECTION_BOUNDED_REBUILD_ALLOWED.incrementAndGet();
+  }
+
+  /**
+   * Admit a mandatory mutation-time subtree scan only when its complete physical footprint is bounded
+   * by one HOT frontier. The preflight stops before resolving page 64 and allocates nothing;
+   * therefore both the accepted scan and its refusal have a total-index-size-independent ceiling.
+   *
+   * <p>
+   * A stranding/routing guard is correctness-critical: treating an uninspected suffix as "no match"
+   * can publish a cross-leaf duplicate. A refusal consequently poisons the transaction before it can
+   * be caught and committed by a higher layer.
+   * </p>
+   */
+  private void requireBoundedMutationTraversal(final Page root, final String operation) {
+    final RebuildFootprint footprint = measureBoundedRebuildFootprint(root);
+    if (!footprint.withinBudget()) {
+      throw refuseMutationTraversal(operation, footprint.summary());
     }
-    pendingRebuildReason = null;
+  }
+
+  /** Create and latch one fail-closed mutation-traversal refusal. */
+  private MutationTraversalRefusal refuseMutationTraversal(final String operation, final String detail) {
+    MUTATION_TRAVERSAL_REFUSED.incrementAndGet();
+    final MutationTraversalRefusal failure = new MutationTraversalRefusal(indexType + " index " + indexNumber
+        + " cannot complete mandatory bounded mutation traversal '" + operation + "' (" + detail + ")");
+    markTransactionRollbackOnly(failure);
+    return failure;
   }
 
   /**
@@ -323,8 +698,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * <p>
    * The returned {@link LongSupplier} allocates monotonically increasing page keys that are persisted
-   * across transactions via the index page (PathPage/CASPage/NamePage). This replaces the old
-   * hardcoded {@code nextPageKey = 1000000L} counter that restarted on every transaction.
+   * across transactions via the owning Path/CAS/Name/Projection/ValidTime container page. The
+   * allocator therefore never restarts at a hard-coded transaction-local value.
    * </p>
    *
    * @param writer the storage engine writer
@@ -335,26 +710,15 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static LongSupplier createPageKeyAllocator(final StorageEngineWriter writer, final IndexType type,
       final int indexNo) {
     return switch (type) {
-      case PATH -> () -> {
-        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
-        return writer.getPathPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
-      };
-      case CAS -> () -> {
-        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
-        return writer.getCASPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
-      };
-      case NAME -> () -> {
-        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
-        return writer.getNamePage(rrp).incrementAndGetMaxHotPageKey(indexNo);
-      };
-      case PROJECTION -> () -> {
-        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
-        return writer.getProjectionIndexPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
-      };
-      case VALIDTIME -> () -> {
-        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
-        return writer.getValidTimeIndexPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
-      };
+      case PATH ->
+        () -> writer.<PathPage>prepareSecondaryIndexPage(IndexType.PATH).incrementAndGetMaxHotPageKey(indexNo);
+      case CAS -> () -> writer.<CASPage>prepareSecondaryIndexPage(IndexType.CAS).incrementAndGetMaxHotPageKey(indexNo);
+      case NAME ->
+        () -> writer.<NamePage>prepareSecondaryIndexPage(IndexType.NAME).incrementAndGetMaxHotPageKey(indexNo);
+      case PROJECTION -> () -> writer.<ProjectionIndexPage>prepareSecondaryIndexPage(IndexType.PROJECTION)
+                                     .incrementAndGetMaxHotPageKey(indexNo);
+      case VALIDTIME -> () -> writer.<ValidTimeIndexPage>prepareSecondaryIndexPage(IndexType.VALIDTIME)
+                                    .incrementAndGetMaxHotPageKey(indexNo);
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -432,11 +796,11 @@ public abstract class AbstractHOTIndexWriter<K> {
     return switch (indexType) {
       case PATH -> {
         final PathPage pathPage = storageEngineWriter.getPathPage(revisionRootPage);
-        yield pathPage.getOrCreateReference(indexNumber);
+        yield pathPage.getIndirectPageReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = storageEngineWriter.getCASPage(revisionRootPage);
-        yield casPage.getOrCreateReference(indexNumber);
+        yield casPage.getIndirectPageReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
@@ -444,11 +808,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       case PROJECTION -> {
         final ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
-        yield projPage.getOrCreateReference(indexNumber);
+        yield projPage.getIndirectPageReference(indexNumber);
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
-        yield vtPage.getOrCreateReference(indexNumber);
+        yield vtPage.getIndirectPageReference(indexNumber);
       }
       default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
@@ -458,56 +822,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Mark the index page as dirty so changes are persisted.
    */
   protected void prepareIndexPage() {
-    final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     switch (indexType) {
-      case PATH -> {
-        final PageReference pathPageRef = revisionRootPage.getPathPageReference();
-        PageContainer container = storageEngineWriter.getLog().get(pathPageRef);
-        if (container == null) {
-          PathPage pathPage = storageEngineWriter.getPathPage(revisionRootPage);
-          storageEngineWriter.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
-        }
-      }
-      case CAS -> {
-        final PageReference casPageRef = revisionRootPage.getCASPageReference();
-        PageContainer container = storageEngineWriter.getLog().get(casPageRef);
-        if (container == null) {
-          CASPage casPage = storageEngineWriter.getCASPage(revisionRootPage);
-          storageEngineWriter.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
-        }
-      }
-      case NAME -> {
-        final PageReference namePageRef = revisionRootPage.getNamePageReference();
-        PageContainer container = storageEngineWriter.getLog().get(namePageRef);
-        if (container == null) {
-          NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
-          storageEngineWriter.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
-        }
-      }
-      case PROJECTION -> {
-        final PageReference projPageRef = revisionRootPage.getProjectionIndexPageReference();
-        PageContainer container = storageEngineWriter.getLog().get(projPageRef);
-        if (container == null) {
-          // Top-down CoW: deep-copy the page so the writer-side mutates a private instance.
-          // Without this the rev-(N-1) cached ProjectionIndexPage still aliases the same root
-          // PageReference instance, and TIL.put / chain-bump mutations bleed into historical reads.
-          ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
-          ProjectionIndexPage modified = new ProjectionIndexPage(projPage);
-          storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, modified));
-        }
-      }
-      case VALIDTIME -> {
-        final PageReference vtPageRef = revisionRootPage.getValidTimeIndexPageReference();
-        PageContainer container = storageEngineWriter.getLog().get(vtPageRef);
-        if (container == null) {
-          // Top-down CoW: deep-copy the page so the writer-side mutates a private instance.
-          // Without this the rev-(N-1) cached ValidTimeIndexPage still aliases the same root
-          // PageReference instance, and TIL.put / chain-bump mutations bleed into historical reads.
-          ValidTimeIndexPage vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
-          ValidTimeIndexPage modified = new ValidTimeIndexPage(vtPage);
-          storageEngineWriter.appendLogRecord(vtPageRef, PageContainer.getInstance(vtPage, modified));
-        }
-      }
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME -> storageEngineWriter.prepareSecondaryIndexPage(indexType);
       default -> {
         /* ignore */ }
     }
@@ -518,10 +834,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * <p>
    * <b>Zero allocation design:</b> Path nodes/refs/indices are accumulated in pre-allocated instance
-   * arrays ({@code _pathNodes}, {@code _pathRefs}, {@code _pathChildIndices}). Only shallow
-   * {@link Arrays#copyOf} trims are done on return to give the caller independent arrays of exactly
-   * the right depth. This eliminates {@code ArrayList} and {@code Integer} boxing that would
-   * otherwise occur on every insert.
+   * arrays ({@code _pathNodes}, {@code _pathRefs}, {@code _pathChildIndices}) and returned through
+   * one writer-owned mutable carrier. The carrier remains valid until this writer starts its next
+   * top-level descent. Recursive structural insertions use independent stable routes.
    * </p>
    *
    * <p>
@@ -538,6 +853,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     storageEngineWriter.assertTransactionWritable();
     if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
+    }
+    requireNonNull(keyBuf, "keyBuf");
+    if (keyLen < 0 || keyLen > keyBuf.length) {
+      throw new IllegalArgumentException("keyLen " + keyLen + " outside keyBuf length " + keyBuf.length);
     }
     // Any write-path navigation invalidates the read-side leaf cache —
     // splits/merges change key ranges and leaf identities, so the cached
@@ -558,9 +877,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Reset path depth counter — no allocation
     int pathDepth = 0;
     PageReference currentRef = cowedRootRef;
-    final byte[] keySlice = keyLen == keyBuf.length
-        ? keyBuf
-        : Arrays.copyOf(keyBuf, keyLen);
     Page page = resolveHOTPageForTraversal(currentRef);
 
     // Top-down CoW (task #57): on every indirect along the path, deep-copy it on first
@@ -577,7 +893,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       _pathNodes[pathDepth] = cowedIndirect;
       _pathRefs[pathDepth] = currentRef;
 
-      int childIndex = cowedIndirect.findChildIndex(keySlice);
+      int childIndex = cowedIndirect.findChildIndex(keyBuf, keyLen);
       if (childIndex < 0) {
         childIndex = 0; // Default to first child
       }
@@ -613,8 +929,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     // over it is the worst available answer: the slot keeps its routing partial but loses its
     // content, so every key of that partial reads as absent while the entries sit in the merge
     // target, and the first later insert whose mismatch bit reaches an ancestor's discriminative bit
-    // fails as an unplaceable branch — which on PROJECTION, where subtree rebuilds are refused, ends
-    // the transaction. The release forwards the orphan's identity to the page that absorbed it, so
+    // fails as an unplaceable branch and ends the transaction. The release forwards the orphan's
+    // identity to the page that absorbed it, so
     // this is reachable only when the merge named no replacement at all: fail loudly rather than
     // corrupt the trie.
     if (releasedLeafRefused) {
@@ -634,8 +950,18 @@ public abstract class AbstractHOTIndexWriter<K> {
     // relies on one key naming one logical page.
     final HOTLeafPage newLeaf =
         new HOTLeafPage(pageKeyAllocator.getAsLong(), storageEngineWriter.getRevisionNumber(), indexType);
-    final PageContainer container = PageContainer.getInstance(newLeaf, newLeaf);
-    storageEngineWriter.getLog().put(currentRef, container);
+    PageContainer container = null;
+    TransactionIntentLog log = null;
+    boolean putStarted = false;
+    try {
+      container = PageContainer.getInstance(newLeaf, newLeaf);
+      log = requireNonNull(storageEngineWriter.getLog(), "transaction intent log");
+      putStarted = true;
+      log.put(currentRef, container);
+    } catch (final RuntimeException | Error failure) {
+      recoverFromRegistrationFailure(failure, currentRef, newLeaf, container, log, putStarted);
+      throw failure;
+    }
 
     return buildNavigationResult(newLeaf, currentRef, pathDepth);
   }
@@ -644,9 +970,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Resolve the root reference of this HOT sub-tree from the CoW'd index page now in the transaction
    * log. Required because the cached {@link #rootReference} field points at the pre-CoW index page's
    * slot — that instance is shared with the historical revision's view. After
-   * {@link #prepareIndexPage()} has put a deep-copied page in the log, the slot returned by
-   * {@code getOrCreateReference(indexNumber)} on the CoW'd page is a fresh {@link PageReference}
-   * owned exclusively by this writer's transaction.
+   * {@link #prepareIndexPage()} has put a deep-copied page in the log, the slot returned by typed
+   * index-reference accessor on the CoW'd page is a fresh {@link PageReference} owned exclusively by
+   * this writer's transaction.
    *
    * @param fallbackRef returned when no CoW'd page is in the log (e.g. unsupported index types)
    * @return the writer-private root reference
@@ -668,11 +994,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       return fallbackRef;
     final Page modified = container.getModified();
     final PageReference cowed = switch (indexType) {
-      case PATH -> ((PathPage) modified).getOrCreateReference(indexNumber);
-      case CAS -> ((CASPage) modified).getOrCreateReference(indexNumber);
+      case PATH -> ((PathPage) modified).getIndirectPageReference(indexNumber);
+      case CAS -> ((CASPage) modified).getIndirectPageReference(indexNumber);
       case NAME -> ((NamePage) modified).getOrCreateReference(indexNumber);
-      case PROJECTION -> ((ProjectionIndexPage) modified).getOrCreateReference(indexNumber);
-      case VALIDTIME -> ((ValidTimeIndexPage) modified).getOrCreateReference(indexNumber);
+      case PROJECTION -> ((ProjectionIndexPage) modified).getIndirectPageReference(indexNumber);
+      case VALIDTIME -> ((ValidTimeIndexPage) modified).getIndirectPageReference(indexNumber);
       default -> fallbackRef;
     };
     return cowed != null
@@ -705,7 +1031,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Get the HOT leaf page for reading.
+   * Navigate to a HOT leaf immediately before a caller attempts to acquire its lifetime guard.
    *
    * <p>
    * Uses the storage engine's versioning-aware page loading. Navigates through the tree structure
@@ -713,9 +1039,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    * </p>
    *
    * @param keyBuf the key buffer
-   * @return the HOT leaf page, or null if not found
+   *        <p>
+   *        The returned page is deliberately private to the guarded-read primitive below. A resolved
+   *        committed leaf remains evictable until {@link HOTLeafPage#acquireGuard()} succeeds;
+   *        exposing the bare page let callers mistake a frame reclaimed in that window for an absent
+   *        key.
+   *        </p>
+   *
+   * @return the HOT leaf page, or {@code null} if the tree cannot resolve one
    */
-  protected @Nullable HOTLeafPage getLeafForRead(byte[] keyBuf) {
+  private @Nullable HOTLeafPage navigateToLeafBeforeReadGuard(final byte[] keyBuf, final int keyLen) {
     // NOTE: min/max-range leaf caching is UNSAFE for HOT. Leaves partition
     // by PEXT of disc bits, not by total key order — two distinct leaves
     // can have overlapping [firstKey, lastKey]. A key K matching cached
@@ -728,7 +1061,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     Page page = resolveHOTPageForTraversal(currentRef);
     while (page instanceof HOTIndirectPage indirectPage) {
-      int childIndex = indirectPage.findChildIndex(keyBuf);
+      int childIndex = indirectPage.findChildIndex(keyBuf, keyLen);
       if (childIndex < 0)
         childIndex = 0;
       final PageReference childRef = indirectPage.getChildReference(childIndex);
@@ -747,6 +1080,63 @@ public abstract class AbstractHOTIndexWriter<K> {
     return page instanceof HOTLeafPage hotLeaf
         ? hotLeaf
         : null;
+  }
+
+  /**
+   * Resolve and guard a HOT leaf for writer-side read-before-write work.
+   *
+   * <p>
+   * A failed guard acquisition means eviction won the resolve-to-guard race, never that the key is
+   * absent. Re-resolve with the same bounded back-off used by copy-on-write and return only a page
+   * whose off-heap frame cannot be reclaimed until the caller invokes
+   * {@link #releaseLeafReadGuard(HOTLeafPage, Throwable)}. This keeps no-op probes page-write-free
+   * without reading an unpinned frame.
+   * </p>
+   *
+   * @param keyBuf exact serialized key used for HOT navigation
+   * @return a guard-held leaf, or {@code null} only when the tree itself resolves no leaf
+   */
+  protected final @Nullable HOTLeafPage acquireLeafForRead(final byte[] keyBuf) {
+    return acquireLeafForRead(keyBuf, keyBuf.length);
+  }
+
+  /**
+   * {@link #acquireLeafForRead(byte[])} over {@code keyBuf[0..keyLen)}. The returned leaf is guarded
+   * identically; only routing ignores spare bytes in a reusable serializer buffer.
+   */
+  protected final @Nullable HOTLeafPage acquireLeafForRead(final byte[] keyBuf, final int keyLen) {
+    requireNonNull(keyBuf, "keyBuf");
+    if (keyLen < 0 || keyLen > keyBuf.length) {
+      throw new IllegalArgumentException("keyLen " + keyLen + " outside keyBuf length " + keyBuf.length);
+    }
+    long retryDeadlineNanos = 0L;
+    for (long attempt = 0L;; attempt++) {
+      final HOTLeafPage leaf = navigateToLeafBeforeReadGuard(keyBuf, keyLen);
+      if (leaf == null) {
+        return null;
+      }
+      if (leaf.acquireGuard()) {
+        return leaf;
+      }
+      retryDeadlineNanos = backOffBeforeHOTLeafGuardRetry(attempt, retryDeadlineNanos);
+    }
+  }
+
+  /**
+   * Release a writer-side read guard without replacing a failure raised while the guard was held.
+   *
+   * @param leaf the guard-held leaf
+   * @param guardedFailure primary failure from guarded work, or {@code null} on its success path
+   */
+  protected static final void releaseLeafReadGuard(final HOTLeafPage leaf, final @Nullable Throwable guardedFailure) {
+    try {
+      leaf.releaseGuard();
+    } catch (final RuntimeException | Error releaseFailure) {
+      if (guardedFailure == null) {
+        throw releaseFailure;
+      }
+      addSuppressedSafely(guardedFailure, releaseFailure);
+    }
   }
 
 
@@ -867,9 +1257,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * PRE-MERGE bytes, whose keys now also live in the merge target. Handing either one to the descent
    * seeds it with a leaf whose key set contradicts the live routing, and the insert dispatch reads
    * that contradiction as a branch escape (mismatch bit at or above an ancestor's discriminative bit)
-   * it cannot place incrementally — which on the projection index, where subtree rebuilds are refused
-   * outright, ends the transaction. The merge forwarded the orphan to the page that absorbed its
-   * entries, and that page is the one the descent must continue at.
+   * it cannot place and ends the transaction. The merge forwarded the orphan to the page that
+   * absorbed its entries, and that page is the one the descent must continue at.
    * </p>
    *
    * <p>
@@ -1108,8 +1497,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * <p>
    * True exactly for a freshly initialized index: its root reference resolves to the single empty
-   * leaf {@code createHOT*IndexTree} planted. An indirect root only exists once a leaf has split, so
-   * it always covers at least one entry.
+   * leaf {@code create*IndexTree} planted. An indirect root only exists once a leaf has split, so it
+   * always covers at least one entry.
    * </p>
    */
   public final boolean isEmptyTree() {
@@ -1123,10 +1512,10 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Replace the whole index tree with one bulk-built from {@code sortedEntries}.
    *
    * <p>
-   * Splices exactly like the scoped {@link #rebuildExistingSubtree} does, but at the root and from
-   * externally supplied entries: {@link HOTBulkBuilder} output is invariant-clean by construction
-   * (foundation Theorem 1), so no self-heal is needed afterwards. Registering the fresh subtree also
-   * re-puts the root reference, which closes the empty leaf it displaces.
+   * This is the initial-build-only path: externally supplied, strictly sorted entries become the root
+   * in one publication. Populated trees never call it and use incremental HOT mutation exclusively.
+   * Registering the fresh subtree also re-puts the root reference, which closes the empty leaf it
+   * displaces.
    * </p>
    *
    * @param sortedEntries entries sorted strictly ascending by unsigned key, with no duplicates
@@ -1142,27 +1531,32 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw new IllegalStateException(
           "Bulk load requires an empty " + indexType + " index tree (index " + indexNumber + ')');
     }
-    final HOTBulkBuilder.BuildResult built =
-        HOTBulkBuilder.build(sortedEntries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
-    rootReference.setPage(built.rootPage());
-    registerFreshSubtree(rootReference);
+    Page freshRoot = null;
+    boolean published = false;
+    boolean registrationCompleted = false;
+    try {
+      final HOTBulkBuilder.BuildResult built =
+          HOTBulkBuilder.build(sortedEntries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
+      freshRoot = built.rootPage();
+      rootReference.setPage(freshRoot);
+      published = true;
+      registerFreshSubtree(rootReference);
+      registrationCompleted = true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+        closeLocallyOwnedFreshSubtree(rootReference, freshRoot, registrationCompleted, failure);
+      } else {
+        closeFreshHOTSubtree(freshRoot, failure);
+      }
+      throw failure;
+    }
   }
 
-  /**
-   * Build immutable navigation result by trimming reusable path buffers.
-   */
+  /** Reset and return the writer-confined navigation carrier without copying its path buffers. */
   private LeafNavigationResult buildNavigationResult(final HOTLeafPage leaf, final PageReference leafRef,
       final int pathDepth) {
-    final HOTIndirectPage[] pathNodes = pathDepth == 0
-        ? new HOTIndirectPage[0]
-        : Arrays.copyOf(_pathNodes, pathDepth);
-    final PageReference[] pathRefs = pathDepth == 0
-        ? new PageReference[0]
-        : Arrays.copyOf(_pathRefs, pathDepth);
-    final int[] pathChildIndices = pathDepth == 0
-        ? new int[0]
-        : Arrays.copyOf(_pathChildIndices, pathDepth);
-    return new LeafNavigationResult(leaf, leafRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
+    return navigationScratch.reset(leaf, leafRef, _pathNodes, _pathRefs, _pathChildIndices, pathDepth);
   }
 
   /**
@@ -1182,6 +1576,19 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the writable modified leaf now registered in the transaction log
    */
   private HOTLeafPage cowHOTLeafForModification(final PageReference currentRef, final HOTLeafPage hotLeaf) {
+    try {
+      return cowHOTLeafForModificationUnpoisoned(currentRef, hotLeaf);
+    } catch (final RuntimeException | Error failure) {
+      // prepareLeafOfTree has already published the writer-private index page and possibly an
+      // indirect spine before it reaches this leaf. A failed combine, fragment release, guard
+      // transfer, or TIL admission is therefore never safe to catch-and-commit, even when the
+      // versioning layer restored the leaf reference's exact pre-bump fragment chain.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
+  private HOTLeafPage cowHOTLeafForModificationUnpoisoned(final PageReference currentRef, final HOTLeafPage hotLeaf) {
     final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
     final TransactionIntentLog log = storageEngineWriter.getLog();
     HOTLeafPage sourceLeaf = hotLeaf;
@@ -1346,7 +1753,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     retireDetachedHOTLeavesAfterFailure(unownedSource, unownedModified, logFailure);
   }
 
-  private static boolean containerOwnsPage(final @Nullable PageContainer container, final HOTLeafPage page) {
+  private static boolean containerOwnsPage(final @Nullable PageContainer container, final Page page) {
     return container != null && (container.getComplete() == page || container.getModified() == page);
   }
 
@@ -1388,28 +1795,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializePathIndex() {
     try {
-      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
-
-      // CRITICAL: Check if PathPage is already in the transaction log first
-      final PageReference pathPageRef = revisionRootPage.getPathPageReference();
-      PageContainer pathContainer = storageEngineWriter.getLog().get(pathPageRef);
-      final PathPage pathPage;
-      if (pathContainer != null && pathContainer.getModified() instanceof PathPage modifiedPath) {
-        pathPage = modifiedPath;
-      } else {
-        pathPage = storageEngineWriter.getPathPage(revisionRootPage);
-        storageEngineWriter.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
-      }
+      final PathPage pathPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.PATH);
 
       // Get existing reference first to check if index already exists
-      PageReference existingRef = pathPage.getOrCreateReference(indexNumber);
-      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
-          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+      final PageReference existingRef = pathPage.getIndirectPageReference(indexNumber);
+      final boolean indexExists = !existingRef.isVirginStructuralPlaceholder();
 
       if (!indexExists) {
-        pathPage.createHOTPathIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+        pathPage.createPathIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
-      rootReference = pathPage.getOrCreateReference(indexNumber);
+      rootReference = pathPage.getIndirectPageReference(indexNumber);
     } catch (SirixIOException e) {
       throw new IllegalStateException("Failed to initialize HOT PATH index", e);
     }
@@ -1422,28 +1817,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializeCASIndex() {
     try {
-      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
-
-      // CRITICAL: Check if CASPage is already in the transaction log first
-      final PageReference casPageRef = revisionRootPage.getCASPageReference();
-      PageContainer casContainer = storageEngineWriter.getLog().get(casPageRef);
-      final CASPage casPage;
-      if (casContainer != null && casContainer.getModified() instanceof CASPage modifiedCAS) {
-        casPage = modifiedCAS;
-      } else {
-        casPage = storageEngineWriter.getCASPage(revisionRootPage);
-        storageEngineWriter.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
-      }
+      final CASPage casPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.CAS);
 
       // Get existing reference first to check if index already exists
-      PageReference existingRef = casPage.getOrCreateReference(indexNumber);
-      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
-          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+      final PageReference existingRef = casPage.getIndirectPageReference(indexNumber);
+      final boolean indexExists = !existingRef.isVirginStructuralPlaceholder();
 
       if (!indexExists) {
-        casPage.createHOTCASIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+        casPage.createCASIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
-      rootReference = casPage.getOrCreateReference(indexNumber);
+      rootReference = casPage.getIndirectPageReference(indexNumber);
     } catch (SirixIOException e) {
       throw new IllegalStateException("Failed to initialize HOT CAS index", e);
     }
@@ -1456,18 +1839,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializeNameIndex() {
     try {
-      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
-
-      // CRITICAL: Check if NamePage is already in the transaction log first
-      final PageReference namePageRef = revisionRootPage.getNamePageReference();
-      PageContainer nameContainer = storageEngineWriter.getLog().get(namePageRef);
-      final NamePage namePage;
-      if (nameContainer != null && nameContainer.getModified() instanceof NamePage modifiedName) {
-        namePage = modifiedName;
-      } else {
-        namePage = storageEngineWriter.getNamePage(revisionRootPage);
-        storageEngineWriter.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
-      }
+      final NamePage namePage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.NAME);
 
       // Get existing reference first to check if index already exists
       PageReference existingRef = namePage.getOrCreateReference(indexNumber);
@@ -1475,7 +1847,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
 
       if (!indexExists) {
-        namePage.createHOTNameIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+        namePage.createNameIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
       rootReference = namePage.getOrCreateReference(indexNumber);
     } catch (SirixIOException e) {
@@ -1490,28 +1862,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializeValidTimeIndex() {
     try {
-      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
-
-      // CRITICAL: Check if ValidTimeIndexPage is already in the transaction log first
-      final PageReference vtPageRef = revisionRootPage.getValidTimeIndexPageReference();
-      PageContainer vtContainer = storageEngineWriter.getLog().get(vtPageRef);
-      final ValidTimeIndexPage vtPage;
-      if (vtContainer != null && vtContainer.getModified() instanceof ValidTimeIndexPage modifiedVt) {
-        vtPage = modifiedVt;
-      } else {
-        vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
-        storageEngineWriter.appendLogRecord(vtPageRef, PageContainer.getInstance(vtPage, vtPage));
-      }
+      final ValidTimeIndexPage vtPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.VALIDTIME);
 
       // Get existing reference first to check if index already exists
-      PageReference existingRef = vtPage.getOrCreateReference(indexNumber);
-      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
-          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+      final PageReference existingRef = vtPage.getIndirectPageReference(indexNumber);
+      final boolean indexExists = !existingRef.isVirginStructuralPlaceholder();
 
       if (!indexExists) {
         vtPage.createValidTimeIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
-      rootReference = vtPage.getOrCreateReference(indexNumber);
+      rootReference = vtPage.getIndirectPageReference(indexNumber);
     } catch (SirixIOException e) {
       throw new IllegalStateException("Failed to initialize HOT VALIDTIME index", e);
     }
@@ -1542,18 +1902,69 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @param valueLen the value length
    * @throws SirixIOException if the index is uninitialized or the entry cannot be stored
    */
-  protected void doIndex(byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+  protected final void doIndex(byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+    doMutation(MutationOperation.UPSERT, keyBuf, keyLen, valueBuf, valueLen, 0L);
+  }
+
+  /**
+   * Remove one low-16 posting-list bit from an already-serialized composite chunk key.
+   *
+   * <p>
+   * This is the posting-list delete arm of the same mutation driver used by
+   * {@link #doIndex(byte[], int, byte[], int)}. Concrete writers are responsible only for their key
+   * serialization; copy-on-write navigation, tombstoning and replacement live here once.
+   * </p>
+   *
+   * @param keyBuf buffer containing the composite key
+   * @param keyLen valid composite-key bytes in {@code keyBuf}
+   * @param bit16 low 16 bits of the node key stored in this chunk
+   * @return {@code true} iff the bit existed and was removed
+   */
+  protected final boolean doRemovePostingBit(final byte[] keyBuf, final int keyLen, final long bit16) {
+    if ((bit16 & ~0xFFFFL) != 0L) {
+      throw new IllegalArgumentException("posting-list chunk bit must be in [0, 65535]: " + bit16);
+    }
+    return doMutation(MutationOperation.REMOVE_POSTING_BIT, keyBuf, keyLen, null, 0, bit16);
+  }
+
+  /**
+   * The one operation-coded foreground mutation driver for HOT indexes.
+   *
+   * <p>
+   * The private method is deliberately reached through final, operation-specific wrappers. The JIT
+   * therefore sees a constant operation at every production call site and can eliminate the unused
+   * arm; no command object, lambda or per-call result object is allocated.
+   * </p>
+   */
+  private boolean doMutation(final MutationOperation operation, final byte[] keyBuf, final int keyLen,
+      final @Nullable byte[] valueBuf, final int valueLen, final long operationArgument) {
+    storageEngineWriter.assertTransactionWritable();
     if (rootReference == null) {
       throw new SirixIOException("HOT index not initialized for " + indexType);
     }
 
-    // Trim the 4KB thread-local key buffer to its real length ONCE, then reuse the slice for
-    // navigation too: passing keySlice (whose length == keyLen) makes prepareLeafOfTree's own
-    // trim a no-op, eliminating one redundant per-insert copy on the dominant churn path.
-    final byte[] keySlice = keyLen == keyBuf.length
-        ? keyBuf
-        : Arrays.copyOf(keyBuf, keyLen);
-    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, keySlice.length);
+    requireNonNull(operation, "operation");
+    requireNonNull(keyBuf, "keyBuf");
+    if (keyLen < 0 || keyLen > keyBuf.length) {
+      throw new IllegalArgumentException("keyLen " + keyLen + " outside keyBuf length " + keyBuf.length);
+    }
+    if (operation == MutationOperation.UPSERT && (valueBuf == null || valueLen < 0 || valueLen > valueBuf.length)) {
+      throw new IllegalArgumentException("invalid UPSERT value range: valueLen=" + valueLen + ", bufferLength="
+          + (valueBuf == null
+              ? "null"
+              : valueBuf.length));
+    }
+
+    if (operation == MutationOperation.REMOVE_POSTING_BIT) {
+      return removePostingBit(keyBuf, keyLen, operationArgument);
+    }
+
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+
+    // The operation guard above proves this non-null. Keeping the nullable carrier private lets the
+    // delete arm avoid fabricating a dummy value buffer while the public insert contract stays
+    // non-null and allocation-free.
+    final byte[] upsertValue = requireNonNull(valueBuf);
 
     final boolean localize =
         LOCALIZE_I8 && storageEngineWriter.getRevisionNumber() >= LOCALIZE_I8_FROM_REV && i8ProbeReports < 60;
@@ -1566,60 +1977,189 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // Factored merge-vs-branch dispatch — re-used by {@link #subInsertAt} on a C2 re-descend
     // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §4.1).
-    dispatchInsert(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice);
+    dispatchInsert(navResult, keyBuf, keyLen, upsertValue, valueLen);
 
     if (localize && i8Before == null) {
       i8ProbeReport("dispatch(" + (i8ProbeMerge
           ? "merge"
-          : "branch") + ")", keySlice, cntBefore);
+          : "branch") + ")", keyBuf, keyLen, cntBefore);
     }
 
-    // Periodic leaf consolidation (the thesis's underflow rule). The incremental insert leaves
-    // the trie over-partitioned — under-full frozen leaves an insert never re-routes to — so a
-    // per-insert trigger cannot reach them; a periodic sweep does. Amortized: one O(index) sweep
-    // per CONSOLIDATION_INTERVAL inserts.
+    // Periodic leaf consolidation (the thesis's underflow rule), bounded to the direct parent of
+    // the route just updated. The former implementation started at pathRefs[0] and recursively
+    // CoW'd every indirect in the index every 4,096 inserts: a deterministic O(index) latency cliff
+    // on an ordinary foreground put. One HOT block has at most MAX_NODE_ENTRIES children, so this
+    // attempt is O(path depth + fixed fanout), independent of total index size.
     if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
       insertsSinceConsolidation = 0;
+      // A split/fold may have replaced the pre-dispatch parent, so re-descend only after a
+      // structural splice. A plain value merge leaves navResult current and avoids a second walk.
+      final LeafNavigationResult consolidationRoute = structuralValidationScope == null
+          ? navResult
+          : prepareLeafOfTree(rootReference, keyBuf, keyLen);
       final String consBefore = localize
           ? firstStructuralViolationFromRoot()
           : null;
       final long[] consCntBefore = localize
           ? i8ProbeSnapshot()
           : null;
-      consolidateSubtree(navResult.pathRefs()[0]);
-      // Defense-in-depth: consolidation is a whole-subtree post-order sweep (it merges under-full
-      // sibling leaves), so unlike a dispatch fold it can touch nodes OFF the inserted key's path
-      // — the path self-heal above cannot see those. Run the FULL-invariant detector over the
-      // consolidated subtree (incl. I5 = routing soundness) and discharge every malformed node via
-      // a scoped rebuild. Amortized cheap: runs once per CONSOLIDATION_INTERVAL inserts, the same
-      // O(subtree) cadence as the sweep it guards.
-      if (SELFHEAL_STRUCTURAL) {
-        lastDispatchHandler = "h:consolidate-sweep";
-        detectAndHeal(navResult.pathRefs()[0], keySlice);
-      }
+      consolidateLeafParent(consolidationRoute);
       if (localize && consBefore == null) {
-        i8ProbeReport("consolidate", keySlice, consCntBefore);
+        i8ProbeReport("consolidate", keyBuf, keyLen, consCntBefore);
       }
     }
+    return true;
+  }
+
+  /**
+   * Shared implementation of a chunked posting-list delete.
+   *
+   * <p>
+   * The first descent is read-only. An absent key/bit therefore returns without copy-on-writing the
+   * index page, indirect spine or leaf. A confirmed hit is then applied to the ordinary CoW route.
+   * The writer is transaction-confined, so nothing can change the slot between those two descents.
+   * </p>
+   */
+  private boolean removePostingBit(final byte[] keyBuf, final int keyLen, final long bit16) {
+    try {
+      final int replacementLength = preparePostingBitRemovalUnderGuard(keyBuf, keyLen, bit16);
+      if (replacementLength == NodeReferencesSerializer.PACKED_REMOVE_ABSENT) {
+        return false;
+      }
+
+      lastDispatchHandler = "h:remove-posting-bit";
+      final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+      final HOTLeafPage writableLeaf = navResult.leaf();
+      final int writableIndex = writableLeaf.findEntry(keyBuf, keyLen);
+      if (writableIndex < 0) {
+        throw new IllegalStateException(
+            "HOT posting-list slot disappeared between read and CoW descents; leaf=" + writableLeaf.getPageKey());
+      }
+
+      if (replacementLength == NodeReferencesSerializer.PACKED_REMOVE_EMPTY) {
+        if (!writableLeaf.deleteAt(writableIndex)) {
+          throw new IllegalStateException("HOT posting-list slot could not be tombstoned at leaf "
+              + writableLeaf.getPageKey() + ", slot " + writableIndex);
+        }
+        return true;
+      }
+
+      final byte[] replacementBuffer = requireNonNull(lastSerializedValueBuf, "posting removal buffer");
+      if (writableLeaf.updateValueRange(writableIndex, replacementBuffer, 0, replacementLength)) {
+        return true;
+      }
+
+      // A remove can grow only when its representation changes (notably a 65-entry Roaring chunk
+      // becoming a 64-entry packed chunk). updateValueRange handles ordinary growth and compaction
+      // directly; a false result means the compacted replacement still cannot fit. Preserve an exact
+      // payload only for the rare tombstone + re-entry through the SAME structural dispatcher, whose
+      // split machinery creates the required space.
+      final byte[] exactReplacement = Arrays.copyOf(replacementBuffer, replacementLength);
+      if (writableLeaf.updateValue(writableIndex, exactReplacement)) {
+        return true;
+      }
+      if (!writableLeaf.deleteAt(writableIndex)) {
+        throw new IllegalStateException("HOT posting-list overflow fallback could not tombstone leaf "
+            + writableLeaf.getPageKey() + ", slot " + writableIndex);
+      }
+      dispatchInsert(navResult, keyBuf, keyLen, exactReplacement, exactReplacement.length);
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      // This includes stable slot corruption discovered by the read-only preflight. Never allow a
+      // caller that catches the exception to commit a transaction whose index state is suspect; it
+      // must roll back before doing further work.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
+  /** Compute a posting replacement while the resolved leaf's off-heap frame is pinned. */
+  private int preparePostingBitRemovalUnderGuard(final byte[] keyBuf, final int keyLen, final long bit16) {
+    final HOTLeafPage readLeaf = acquireLeafForRead(keyBuf, keyLen);
+    if (readLeaf == null) {
+      throw new IllegalStateException(
+          "HOT posting-list read descent did not resolve a leaf for index " + indexType + '/' + indexNumber);
+    }
+    Throwable guardedFailure = null;
+    try {
+      return preparePostingBitRemoval(readLeaf, keyBuf, keyLen, bit16);
+    } catch (final RuntimeException | Error failure) {
+      guardedFailure = failure;
+      throw failure;
+    } finally {
+      releaseLeafReadGuard(readLeaf, guardedFailure);
+    }
+  }
+
+  /**
+   * Compute one posting-bit removal without mutating {@code leaf}.
+   *
+   * <p>
+   * Packed chunks use the slot-native primitive and the writer's thread-local scratch: the dominant
+   * delete path neither copies the old slot nor materializes a bitmap. Roaring is the cold arm and
+   * remains bounded to one 16-bit chunk, never the full logical posting list.
+   * </p>
+   *
+   * @return {@link NodeReferencesSerializer#PACKED_REMOVE_ABSENT},
+   *         {@link NodeReferencesSerializer#PACKED_REMOVE_EMPTY}, or the positive exact byte length
+   *         now stored in {@link #lastSerializedValueBuf}
+   */
+  private int preparePostingBitRemoval(final HOTLeafPage leaf, final byte[] keyBuf, final int keyLen,
+      final long bit16) {
+    final int index = leaf.findEntry(keyBuf, keyLen);
+    if (index < 0) {
+      return NodeReferencesSerializer.PACKED_REMOVE_ABSENT;
+    }
+
+    final byte[] scratch = VALUE_BUFFER.get();
+    final int packedResult =
+        NodeReferencesSerializer.removePackedSingleBitFromSlot(leaf, leaf.valueRef(index), bit16, scratch, 0);
+    if (packedResult != NodeReferencesSerializer.PACKED_REMOVE_NOT_APPLICABLE) {
+      if (packedResult > 0) {
+        lastSerializedValueBuf = scratch;
+        lastSerializedValueLen = packedResult;
+      }
+      return packedResult;
+    }
+
+    // Exact-copy is intentional for the non-packed arm: unlike getValue(), it distinguishes a
+    // corrupt/unreadable slot from an empty value. Posting indexes never use a zero-length tombstone.
+    final byte[] valueBytes = leaf.copyStoredValue(index);
+    if (valueBytes.length == 0) {
+      throw new IllegalStateException(
+          "HOT posting-list slot has a zero-length value at leaf " + leaf.getPageKey() + ", slot " + index);
+    }
+    if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
+      return NodeReferencesSerializer.PACKED_REMOVE_ABSENT;
+    }
+
+    final NodeReferences chunkReferences = NodeReferencesSerializer.deserializeChunk(valueBytes);
+    if (!chunkReferences.removeNodeKey(bit16)) {
+      return NodeReferencesSerializer.PACKED_REMOVE_ABSENT;
+    }
+    if (!chunkReferences.hasNodeKeys()) {
+      return NodeReferencesSerializer.PACKED_REMOVE_EMPTY;
+    }
+    serializeValueInto(chunkReferences);
+    return lastSerializedValueLen;
   }
 
   // ===== I8-onset localizer helpers (diagnostic; see field declarations). =====
 
   private long[] i8ProbeSnapshot() {
     return new long[] {OFF_PATH_OVERFLOW_OK.get(), OFF_PATH_OVERFLOW_FALLBACK.get(), DIRECTION_ONE_SUBINSERT.get(),
-        DIRECTION_ONE_FALLBACK.get(), STRAND_LEAF_REBUILD.get(), STRAND_FULL_FALLBACK.get(),
-        STRAND_TWO_LEAF_MIGRATE.get(), REBUILD_SUBTREE_CALLED.get()};
+        DIRECTION_ONE_FALLBACK.get(), STRAND_COMPLETE_FRONTIER.get(), STRAND_TWO_LEAF_MIGRATE.get()};
   }
 
-  private void i8ProbeReport(String phase, byte[] keySlice, long[] before) {
+  private void i8ProbeReport(final String phase, final byte[] keyBuf, final int keyLen, final long[] before) {
     final String viol = firstStructuralViolationFromRoot();
     if (viol == null) {
       return;
     }
     i8ProbeReports++;
     final long[] after = i8ProbeSnapshot();
-    final String[] names = {"offPathOk", "offPathFallback", "dir1Subinsert", "dir1Fallback", "strandLeaf", "strandFull",
-        "strandMigrate", "rebuild"};
+    final String[] names =
+        {"offPathOk", "offPathFallback", "dir1Subinsert", "dir1Fallback", "strandFrontier", "strandMigrate"};
     final StringBuilder deltas = new StringBuilder();
     for (int i = 0; i < names.length; i++) {
       if (after[i] != before[i]) {
@@ -1627,8 +2167,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
     }
     System.err.println("[I8-LOCALIZE] rev=" + storageEngineWriter.getRevisionNumber() + " phase=" + phase + " key="
-        + HexFormat.of().formatHex(keySlice, 0, Math.min(keySlice.length, 22)) + " handlers={"
-        + deltas.toString().trim() + "} onset=" + viol);
+        + HexFormat.of().formatHex(keyBuf, 0, Math.min(keyLen, 22)) + " handlers={" + deltas.toString().trim()
+        + "} onset=" + viol);
   }
 
   /**
@@ -1638,6 +2178,18 @@ public abstract class AbstractHOTIndexWriter<K> {
    * per-revision {@code HOTInvariantValidator}. Diagnostic only (localizer).
    */
   private @Nullable String firstStructuralViolationFromRoot() {
+    if (rootReference == null) {
+      return null;
+    }
+    final Page page = resolveHOTPageForTraversal(rootReference);
+    if (!(page instanceof HOTIndirectPage)) {
+      return null;
+    }
+    final RebuildFootprint footprint = measureBoundedRebuildFootprint(page);
+    if (!footprint.withinBudget()) {
+      DIAGNOSTIC_TRAVERSAL_SKIPPED.incrementAndGet();
+      return null;
+    }
     return structuralDfs(rootReference, 0);
   }
 
@@ -1697,12 +2249,19 @@ public abstract class AbstractHOTIndexWriter<K> {
    * handler. Factored out so {@link #subInsertAt} can re-use it on a C2 re-descend
    * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} Â§4.1).
    */
-  private void dispatchInsert(LeafNavigationResult navResult, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen,
-      byte[] keySlice) {
+  private void dispatchInsert(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen,
+      final byte[] valueBuf, final int valueLen) {
     final int pathDepth = navResult.pathDepth();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
-    final HOTIncrementalInsert.DescentAnalysis analysis = HOTIncrementalInsert.analyzeDescent(pathNodes,
-        navResult.pathChildIndices(), pathDepth, navResult.leaf(), keySlice);
+    HOTIncrementalInsert.analyzeDescentInto(pathNodes, navResult.pathChildIndices(), pathDepth, navResult.leaf(),
+        keyBuf, keyLen, descentScratch);
+
+    // Copy these primitives before dispatch: a structural handler may recursively sub-insert and
+    // reuse this writer's DescentScratch. The outer route remains independent and these locals retain
+    // its decision without allocating a recursion frame object.
+    final int beta = descentScratch.mismatchBit();
+    final int insertDepth = descentScratch.insertDepth();
+    final int affectedChildIndex = descentScratch.affectedChildIndex();
 
     // Merge-vs-branch: the key merges into the routed leaf when there is no compound ancestor,
     // when it is already present or the leaf is empty (beta < 0), or when the mismatch bit beta
@@ -1710,152 +2269,100 @@ public abstract class AbstractHOTIndexWriter<K> {
     // inside the leaf's R(S)-subtree (I5 holds). The bound is the deepest compound node's least
     // significant disc bit (I11 dominates the shallower bits). Larger absolute bit index = less
     // significant.
-    final int beta = analysis.mismatchBit();
     final boolean merge = beta < 0 || pathDepth == 0 || beta > leastSignificantDiscBit(pathNodes[pathDepth - 1]);
     if (LOCALIZE_I8) {
       i8ProbeMerge = merge;
     }
 
-    selfHealScope = null; // set by registerFreshSubtree iff this dispatch splices a subtree
+    structuralValidationScope = null; // set by registerFreshSubtree iff this dispatch splices a subtree
     lastDispatchHandler = merge
         ? "merge"
         : "branch";
-    final boolean structurallyChanged = merge
-        ? mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice)
-        : branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
+    final byte[] structuralKey;
+    final boolean structurallyChanged;
+    if (merge) {
+      structuralKey = mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen);
+      structurallyChanged = structuralKey != null;
+    } else {
+      structuralKey = exactKeyForStructuralMutation(keyBuf, keyLen);
+      structurallyChanged =
+          branchAboveLeaf(navResult, beta, insertDepth, affectedChildIndex, structuralKey, valueBuf, valueLen);
+    }
 
-    // Defense-in-depth (full-invariant). A structural fold (off-path-overflow / integrate / a
-    // combo-add the pre-commit guards don't fully cover) can, in rare multi-value-leaf shapes at
-    // high chunkIdx, leave the touched subtree malformed. Two scoped, complementary checks, both
-    // discharging via the Theorem-4 scoped rebuild and both skipped on the fast merge (no
-    // structural change) and after a rebuild (already canonical):
-    // (1) detectAndHeal on the touched subtree runs the FULL invariant set — crucially I5
-    // (leaf-constancy), which is routing-soundness (foundation Theorem 2), so it transitively
-    // covers I6 (mis-route) and I1 (cross-leaf dup) without separate machinery — plus
-    // I3/I4/I7/I8/I11. A mutation only malforms nodes it touched, so scoping the O(subtree)
-    // walk to selfHealScope is sound and bounded (not a from-root scan).
-    // (2) healStructuralViolationOnPath covers the ANCESTORS above the touched subtree: their
-    // blocks are unmodified (I5 preserved), but the touched subtree's key range may have
-    // shifted, so re-verify the cheap ordering invariants (I4/I7/I8/I12) up the spine.
-    if (structurallyChanged && SELFHEAL_STRUCTURAL) {
-      detectAndHeal(selfHealScope, keySlice);
-      healStructuralViolationOnPath(keySlice);
+    // Defense-in-depth only. Every structural handler must finish all checks before its sole
+    // publication boundary; this post-publication pass is forbidden to mutate. If a primitive ever
+    // violates that contract, poison the transaction and surface the exact invariant immediately.
+    if (structurallyChanged && VALIDATE_STRUCTURAL_MUTATIONS) {
+      final byte[] exactStructuralKey = requireNonNull(structuralKey, "structuralKey");
+      validatePublishedStructuralScope(structuralValidationScope, exactStructuralKey);
+      validatePublishedStructuralPath(exactStructuralKey);
     }
   }
 
-  /**
-   * Branch-escape guard for subclasses that run their own merge path (multi-entry slot stores such as
-   * the projection index, whose slot semantics are replace-not-OR-merge): decide whether
-   * {@code (keySlice, value)} may be MERGED into the routed leaf, and if not, perform the branch
-   * insert here.
-   *
-   * <p>
-   * This is the merge-vs-branch dispatch of {@link #dispatchInsert} made available to callers that
-   * bypass {@link #doIndex}. Skipping it is not an optimisation but a correctness bug: subset-match
-   * routing ({@link HOTIndirectPage#findChildIndex}) can land a key in a leaf whose
-   * {@code R(S)}-subtree it does not belong to (mismatch bit β at or above an ancestor's
-   * discriminative bit). Absorbing there makes the leaf's key range NON-CONTIGUOUS — point lookups
-   * keep working (routing stays self-consistent), but leaves stop being lex-ordered, and every
-   * bounded range scan that ends at the first key past its upper bound silently truncates. Measured
-   * on a 196-row-group projection index: one absorbed boundary key left a leaf holding row groups
-   * {@code 128..159} AND {@code 192..196} while its right sibling held {@code 160..191}, and the
-   * index silently stopped serving.
-   *
-   * @return {@code true} when the key branched (it is fully inserted — the caller must NOT also
-   *         merge); {@code false} when the key belongs in the routed leaf and the caller merges
-   */
-  protected final boolean branchIfEscapesRoutedLeaf(final LeafNavigationResult navResult, final byte[] keySlice,
-      final byte[] valueBuf, final int valueLen) {
-    final int pathDepth = navResult.pathDepth();
-    if (pathDepth == 0) {
-      return false; // the root is the leaf — nothing to escape from
-    }
-    final HOTIncrementalInsert.DescentAnalysis analysis = HOTIncrementalInsert.analyzeDescent(navResult.pathNodes(),
-        navResult.pathChildIndices(), pathDepth, navResult.leaf(), keySlice);
-    final int beta = analysis.mismatchBit();
-    if (beta < 0 || beta > leastSignificantDiscBit(navResult.pathNodes()[pathDepth - 1])) {
-      return false; // present/empty, or β inside the leaf's R(S)-subtree
-    }
-    selfHealScope = null;
-    final boolean structurallyChanged = branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
-    if (structurallyChanged && SELFHEAL_STRUCTURAL) {
-      detectAndHeal(selfHealScope, keySlice);
-      healStructuralViolationOnPath(keySlice);
-    }
-    return true;
+  /** Materialize an exact key only after a mutation has entered a structural slow path. */
+  private static byte[] exactKeyForStructuralMutation(final byte[] keyBuf, final int keyLen) {
+    return keyLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, keyLen);
   }
 
-  /**
-   * Full-invariant self-heal scoped to {@code scope}'s subtree: run the executable invariant spec
-   * ({@link HOTMalformedSubtreeDetector}, I3/I4/I5/I7/I8/I11) and discharge every highest malformed
-   * indirect via a canonical scoped rebuild ({@link #rebuildExistingSubtree}). Because I5 is
-   * routing-soundness (foundation Theorem 2), this is the runtime guarantee that the touched subtree
-   * routes correctly (I6) and holds no cross-leaf duplicate (I1) — not merely the cheap structural
-   * invariants. {@code scope} is the just-spliced subtree root, so the detector cost is bounded by
-   * the mutation's footprint, and the rebuild is Θ(n)-optimal (foundation Theorem 4).
-   */
-  private void detectAndHeal(@Nullable PageReference scope, byte[] keySlice) {
+  /** Run the full invariant detector over the bounded published splice, without repairing it. */
+  private void validatePublishedStructuralScope(@Nullable PageReference scope, byte[] keySlice) {
     if (scope == null) {
       return;
     }
-    // Iterate to a fixed point. The detector's I8/I12 checks read a child's extremes off its edge
-    // descents, which only report the truth once the child itself is clean — so a node judged in
-    // the same round as a malformed descendant may have passed on stale extremes. A discharge is a
-    // canonical rebuild (never itself malformed), so each round only ever surfaces nodes ABOVE the
-    // previous round's repairs: the loop terminates within the scope's height, and the common case
-    // — detect finds nothing — still runs exactly one pass, as before.
-    for (int round = 0; round <= MAX_PATH_DEPTH; round++) {
-      final var malformed = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
-      if (malformed.isEmpty()) {
+    try {
+      validatePublishedStructuralScopeBounded(scope, keySlice);
+    } catch (final RuntimeException | Error failure) {
+      // The splice is already published. A validation failure must be impossible to catch-and-commit.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
+  private void validatePublishedStructuralScopeBounded(final PageReference scope, final byte[] keySlice) {
+    final Page scopeRoot = resolveHOTPageForTraversal(scope);
+    if (scopeRoot instanceof HOTLeafPage) {
+      return;
+    }
+    if (!(scopeRoot instanceof HOTIndirectPage)) {
+      throw new IllegalStateException("HOT structural validation scope is unresolvable or is not a HOT page");
+    }
+    final RebuildFootprint footprint = measureBoundedRebuildFootprint(scopeRoot);
+    if (!footprint.withinBudget()) {
+      if (footprint.status().isBudgetLimit()) {
+        // The full detector is defense-in-depth over formally verified incremental primitives and
+        // includes I5's subtree-key walk. On a scope larger than one bounded HOT block, running it
+        // would reintroduce the O(index) foreground cliff this gate exists to remove. The mandatory
+        // route-local structural guard still runs immediately after this method; any defect it
+        // observes is transaction-fatal and cannot trigger a second mutation route.
+        STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED.incrementAndGet();
         return;
       }
-      for (final HOTMalformedSubtreeDetector.MalformedSubtree m : malformed) {
-        STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
-        HEAL_TALLY.computeIfAbsent(m.invariant() + "|" + lastDispatchHandler, k -> new AtomicLong()).incrementAndGet();
-        if (Boolean.getBoolean("hot.diag.healDump")) {
-          final Page malformedPage = resolveHOTPageForTraversal(m.reference());
-          final int height = malformedPage instanceof HOTIndirectPage hi
-              ? hi.getHeight()
-              : 0;
-          System.err.println("[healdump] inv=" + m.invariant() + " handler=" + lastDispatchHandler + " round=" + round
-              + " height=" + height + " atScopeRoot=" + (m.reference() == scope) + " K="
-              + HexFormat.of().formatHex(keySlice) + " detail=" + m.detail());
-        }
-        pendingRebuildReason = "trigger=selfheal invariant=" + m.invariant() + " round=" + round + " atScopeRoot="
-            + (m.reference() == scope);
-        rebuildExistingSubtree(m.reference());
+      throw new IllegalStateException(
+          "HOT structural validation cannot safely inspect its scope: " + footprint.summary());
+    }
+    final List<HOTMalformedSubtreeDetector.MalformedSubtree> malformed =
+        HOTMalformedSubtreeDetector.detect(scope, traversalPageResolver);
+    if (malformed.isEmpty()) {
+      return;
+    }
+    for (final HOTMalformedSubtreeDetector.MalformedSubtree defect : malformed) {
+      STRUCTURAL_VALIDATION_TALLY.computeIfAbsent(defect.invariant() + "|" + lastDispatchHandler,
+          ignored -> new AtomicLong()).incrementAndGet();
+      if (Boolean.getBoolean("hot.diag.validationDump")) {
+        final Page malformedPage = resolveHOTPageForTraversal(defect.reference());
+        final int height = malformedPage instanceof HOTIndirectPage indirect
+            ? indirect.getHeight()
+            : 0;
+        System.err.println("[validation-dump] inv=" + defect.invariant() + " handler=" + lastDispatchHandler
+            + " height=" + height + " atScopeRoot=" + (defect.reference() == scope) + " K="
+            + HexFormat.of().formatHex(keySlice) + " detail=" + defect.detail());
       }
     }
-    // Every round is spent, so the LAST round's rebuilds have not been re-checked yet. Verify them
-    // before declaring failure: reporting from inside the loop marked a run unresolved that the very
-    // rebuilds it was about to perform went on to fix.
-    if (HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal).isEmpty()) {
-      return;
-    }
-
-    // Still malformed after every round. The per-defect discharge is converging too slowly (or
-    // oscillating, if a child page resolves in one round and not the next), so escalate to the one
-    // operation that cannot itself be malformed: rebuild the WHOLE scope canonically.
-    LOG.warn("HOT self-heal did not converge in {} rounds; rebuilding the whole scope canonically.",
-        MAX_PATH_DEPTH + 1);
-    STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
-    pendingRebuildReason = "trigger=selfheal-nonconvergent-whole-scope";
-    rebuildExistingSubtree(scope);
-
-    final var residual = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
-    if (residual.isEmpty()) {
-      return;
-    }
-
-    // A canonical rebuild left defects behind, so the trie cannot be repaired by this machinery at
-    // all. Committing anyway would persist an index whose bounded range scans truncate at the first
-    // out-of-order leaf and silently return partial answers — for good, since committed pages are
-    // never revisited. Fail the transaction instead; every caller runs inside doIndex, before commit.
-    SELFHEAL_UNRESOLVED.incrementAndGet();
-    final String detail = String.format(
-        "HOT self-heal could not repair the index: %d subtree(s) still malformed after %d rounds and a "
-            + "canonical scope rebuild (first: %s — %s).",
-        residual.size(), MAX_PATH_DEPTH + 1, residual.getFirst().invariant(), residual.getFirst().detail());
+    STRUCTURAL_VALIDATION_FAILURE.incrementAndGet();
+    final String detail = "HOT published structural splice is malformed (first: " + malformed.getFirst().invariant()
+        + " — " + malformed.getFirst().detail() + ')';
     LOG.error(detail);
     throw new IllegalStateException(detail);
   }
@@ -1873,8 +2380,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * invocation (a sub-insert that itself triggers another C2). Bounded by tree depth
    * ({@code MAX_PATH_DEPTH}).
    *
-   * @return {@code true} iff the insert succeeded incrementally; {@code false} on defensive failure
-   *         (unresolvable descent / depth overflow) -- caller falls back to its scoped rebuild.
+   * @return {@code true} iff the insert succeeded incrementally; {@code false} before publication on
+   *         an unresolvable descent or depth overflow, so the caller can use the complete frontier
    */
   private boolean subInsertAt(PageReference subtreeRef, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
     if (subtreeRef == null) {
@@ -1930,7 +2437,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         new LeafNavigationResult(modifiedLeaf, currentRef, Arrays.copyOf(subPathNodes, subPathDepth),
             Arrays.copyOf(subPathRefs, subPathDepth), Arrays.copyOf(subPathChildIndices, subPathDepth), subPathDepth);
 
-    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen, keySlice);
+    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen);
     return true;
   }
 
@@ -2028,14 +2535,216 @@ public abstract class AbstractHOTIndexWriter<K> {
    * single-TID leaves trivially satisfy this). Sirix's multi-entry leaves can straddle it, so a
    * sibling subtree may already hold keys captured by the new child's partial. PEXT routing is
    * equality-/most-specific-preferred, so the new child silently steals them. On a detected strand
-   * the caller abandons the incremental branch and returns {@code false}, falling back to the
-   * canonical {@link #rebuildSubtree} at the insert depth — straddle-free and I5/I6/I8-clean by
-   * construction. (An earlier merge-into-descended-leaf shortcut was abandoned: it left a straddling
-   * leaf that a later branch could mis-encode, surfacing as I8/I5/I6 under fuzzing.)
+   * the caller rejects that unpublished candidate and delegates to the common complete-frontier
+   * splice.
    */
-  private boolean branchAddStrandsExisting(HOTIndirectPage oldNode, HOTIndirectPage newNode, byte[] newKey) {
+  final boolean branchAddStrandsExisting(HOTIndirectPage oldNode, HOTIndirectPage newNode, byte[] newKey) {
     final int newSlot = newNode.findChildIndex(newKey);
-    return newSlot >= 0 && existingKeyRoutesToSlot(oldNode, newNode, newSlot, newKey);
+    if (newSlot < 0) {
+      return false;
+    }
+    final long endpointProof = classifyWholeNodeOneSidedOnAddedBit(oldNode, newNode, newSlot, newKey);
+    if (wholeNodeProofStatus(endpointProof) == WHOLE_NODE_PROOF_OPPOSITE) {
+      return false;
+    }
+    try {
+      return existingKeyRoutesToSlot(oldNode, newNode, newSlot, newKey);
+    } catch (MutationTraversalRefusal refusal) {
+      // Failure-path-only structural evidence for diagnosing a bounded traversal refusal. The
+      // packed proof contains enum-like integers and a bit position, never key/value bytes.
+      refusal.addSuppressed(new IllegalStateException("whole-node endpoint proof status="
+          + wholeNodeProofStatus(endpointProof) + " beta=" + wholeNodeProofBeta(endpointProof) + " first="
+          + wholeNodeProofFirstRelation(endpointProof) + " last=" + wholeNodeProofLastRelation(endpointProof)));
+      throw refusal;
+    }
+  }
+
+  /**
+   * Prove that a one-bit whole-node branch cannot strand an existing key, using only the old
+   * subtree's physical extrema.
+   *
+   * <p>
+   * The proof is intentionally restricted to the exact flattened-BiNode encoding. The candidate adds
+   * one bit {@code beta} above every old bit and retains the complete old node on the side opposite
+   * {@code newKey}. Its fresh slot consequently selects precisely the old keys on {@code newKey}'s
+   * beta side. Existing valid HOT subtrees are globally ordered (I8/I12), so if both physical extrema
+   * share {@code newKey}'s prefix before beta and differ from it exactly at beta, every key in the
+   * closed subtree range has the opposite beta value. There can be no false negative: no physical key
+   * can route to the new slot.
+   *
+   * <p>
+   * The candidate shape, sparse partials, child-reference identity/order, and both endpoint paths are
+   * validated before accepting the proof. A short key, equal/zero-padding-ambiguous key, prefix
+   * mismatch, mixed endpoint, closed/null/unsupported page, cycle, or excessive depth returns
+   * uncertainty and falls through to the ordinary shared-budget exact scan. The successful path is
+   * allocation-free and resolves at most two root-to-leaf paths, independent of index size.
+   * </p>
+   */
+  private long classifyWholeNodeOneSidedOnAddedBit(final HOTIndirectPage oldNode, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] newKey) {
+    final int[] oldBits = HOTIncrementalInsert.discriminativeBits(oldNode);
+    final int[] newBits = HOTIncrementalInsert.discriminativeBits(newNode);
+    if (!isExactWholeNodeSingleBitBranch(oldNode, newNode, newSlot, newKey, oldBits, newBits)) {
+      return packWholeNodeProof(WHOLE_NODE_PROOF_NOT_APPLICABLE, -1, EXTREME_RELATION_UNCERTAIN,
+          EXTREME_RELATION_UNCERTAIN);
+    }
+    final int beta = newBits[0];
+    final int firstRelation = extremeRelationToKeyAtBit(oldNode, false, newKey, beta);
+    final int lastRelation = extremeRelationToKeyAtBit(oldNode, true, newKey, beta);
+    final int status;
+    if (firstRelation == EXTREME_RELATION_OPPOSITE_AT_BETA && lastRelation == EXTREME_RELATION_OPPOSITE_AT_BETA) {
+      status = WHOLE_NODE_PROOF_OPPOSITE;
+    } else if (firstRelation == EXTREME_RELATION_SAME_SIDE_AT_BETA
+        || lastRelation == EXTREME_RELATION_SAME_SIDE_AT_BETA) {
+      status = WHOLE_NODE_PROOF_NOT_ONE_SIDED;
+    } else {
+      status = WHOLE_NODE_PROOF_UNCERTAIN;
+    }
+    return packWholeNodeProof(status, beta, firstRelation, lastRelation);
+  }
+
+  /** Package-private white-box seam for the bounded whole-node proof. */
+  final boolean wholeNodeOneSidedOnAddedBit(final HOTIndirectPage oldNode, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] newKey) {
+    return wholeNodeProofStatus(
+        classifyWholeNodeOneSidedOnAddedBit(oldNode, newNode, newSlot, newKey)) == WHOLE_NODE_PROOF_OPPOSITE;
+  }
+
+  /**
+   * Validate the exact flattened-BiNode encoding produced when one new bit above the complete old
+   * node separates {@code newKey} from every old child. No inferred child mapping is trusted.
+   */
+  private static boolean isExactWholeNodeSingleBitBranch(final HOTIndirectPage oldNode, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] newKey, final int[] oldBits, final int[] newBits) {
+    final int oldChildCount = oldNode.getNumChildren();
+    if (oldChildCount < 1 || oldChildCount >= HOTIndirectPage.MAX_NODE_ENTRIES
+        || newNode.getNumChildren() != oldChildCount + 1 || oldBits.length < 1 || oldBits.length >= Integer.SIZE
+        || newBits.length != oldBits.length + 1 || newBits[0] >= oldBits[0] || !hasStrictlyAscendingPartials(oldNode)
+        || !hasStrictlyAscendingPartials(newNode) || oldNode.getPartialKey(0) != 0 || newNode.getPartialKey(0) != 0
+        || !partialsFitDiscriminativeWidth(oldNode, oldBits) || !partialsFitDiscriminativeWidth(newNode, newBits)) {
+      return false;
+    }
+    for (int i = 0; i < oldBits.length; i++) {
+      if (newBits[i + 1] != oldBits[i]) {
+        return false;
+      }
+    }
+
+    final int beta = newBits[0];
+    final boolean newBitValue = HOTBulkBuilder.bitAt(newKey, beta);
+    final int betaMask = 1 << oldBits.length;
+    final int expectedNewSlot = newBitValue
+        ? oldChildCount
+        : 0;
+    if (newSlot != expectedNewSlot || newNode.findChildIndex(newKey) != newSlot
+        || newNode.getPartialKey(newSlot) != (newBitValue
+            ? betaMask
+            : 0)) {
+      return false;
+    }
+    final PageReference insertedReference = newNode.getChildReference(newSlot);
+    if (insertedReference == null) {
+      return false;
+    }
+    for (int oldSlot = 0; oldSlot < oldChildCount; oldSlot++) {
+      final int candidateSlot = oldSlot + (newBitValue
+          ? 0
+          : 1);
+      final PageReference oldReference = oldNode.getChildReference(oldSlot);
+      if (oldReference == null || newNode.getChildReference(candidateSlot) != oldReference
+          || insertedReference == oldReference) {
+        return false;
+      }
+      final int expectedPartial = newBitValue
+          ? oldNode.getPartialKey(oldSlot)
+          : betaMask | oldNode.getPartialKey(oldSlot);
+      if (newNode.getPartialKey(candidateSlot) != expectedPartial) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Relate one physical subtree extreme to {@code key} at {@code beta} without materializing the
+   * extreme key. A non-extreme/cyclic/deep/malformed path is uncertainty, never a proof.
+   */
+  private int extremeRelationToKeyAtBit(final Page root, final boolean last, final byte[] key, final int beta) {
+    return extremeRelationToKeyAtBit(root, last, key, beta, 0);
+  }
+
+  /**
+   * Variant whose {@code initialDepth} accounts for already-traversed containing nodes. This keeps
+   * child-local endpoint probes under the same root-to-leaf depth ceiling as the exact walker.
+   */
+  private int extremeRelationToKeyAtBit(final Page root, final boolean last, final byte[] key, final int beta,
+      final int initialDepth) {
+    if (beta < 0 || key.length <= (beta >>> 3)) {
+      return EXTREME_RELATION_UNCERTAIN;
+    }
+    Page page = root;
+    for (int depth = initialDepth; depth <= MAX_PATH_DEPTH; depth++) {
+      if (page == null || page.isClosed()) {
+        return EXTREME_RELATION_UNCERTAIN;
+      }
+      if (page instanceof HOTLeafPage leaf) {
+        final int entryCount = leaf.getEntryCount();
+        if (entryCount == 0) {
+          return EXTREME_RELATION_UNCERTAIN;
+        }
+        final int entryIndex = last
+            ? entryCount - 1
+            : 0;
+        if (leaf.getKeyLength(entryIndex) <= (beta >>> 3) || leaf.compareKeyWithBound(entryIndex, key) == 0) {
+          return EXTREME_RELATION_UNCERTAIN;
+        }
+        final int msdb;
+        try {
+          msdb = leaf.msdbWith(entryIndex, key);
+        } catch (IllegalStateException equalUnderZeroPadding) {
+          return EXTREME_RELATION_UNCERTAIN;
+        }
+        if (msdb < beta) {
+          return EXTREME_RELATION_UNCERTAIN;
+        }
+        return msdb == beta
+            ? EXTREME_RELATION_OPPOSITE_AT_BETA
+            : EXTREME_RELATION_SAME_SIDE_AT_BETA;
+      }
+      if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0 || depth == MAX_PATH_DEPTH) {
+        return EXTREME_RELATION_UNCERTAIN;
+      }
+      final int childSlot = last
+          ? indirect.getNumChildren() - 1
+          : 0;
+      final PageReference childReference = indirect.getChildReference(childSlot);
+      if (childReference == null) {
+        return EXTREME_RELATION_UNCERTAIN;
+      }
+      page = resolveHOTPageForTraversal(childReference);
+    }
+    return EXTREME_RELATION_UNCERTAIN;
+  }
+
+  static long packWholeNodeProof(final int status, final int beta, final int firstRelation, final int lastRelation) {
+    return (status & 0xFFL) | (Integer.toUnsignedLong(beta + 1) << 8) | ((firstRelation & 0xFFL) << 40)
+        | ((lastRelation & 0xFFL) << 48);
+  }
+
+  private static int wholeNodeProofStatus(final long proof) {
+    return (int) (proof & 0xFFL);
+  }
+
+  static int wholeNodeProofBeta(final long proof) {
+    return (int) ((proof >>> 8) & 0xFFFF_FFFFL) - 1;
+  }
+
+  private static int wholeNodeProofFirstRelation(final long proof) {
+    return (int) ((proof >>> 40) & 0xFFL);
+  }
+
+  private static int wholeNodeProofLastRelation(final long proof) {
+    return (int) ((proof >>> 48) & 0xFFL);
   }
 
   /**
@@ -2045,32 +2754,453 @@ public abstract class AbstractHOTIndexWriter<K> {
    * new key. Such a key would be silently re-routed to the new child without being migrated into it
    * (PEXT routing is equality-/most-specific-preferred), i.e. it would become a cross-leaf duplicate.
    * Resolves pages writer-side ({@link #resolveHOTPageForTraversal}) so it sees the in-progress (TIL)
-   * subtree. Short-circuits on the first captured key. O(subtree keys).
+   * subtree. Short-circuits on the first captured key. Before inspecting a key, an allocation-free
+   * endpoint proof discharges any retained child whose complete ordered range is on the opposite side
+   * of the candidate's one newly inserted discriminative bit. The remaining exact-scan source must
+   * fit one bounded HOT block; a larger or invalid source is a fail-closed transaction refusal rather
+   * than an unbounded foreground scan.
    */
-  private boolean existingKeyRoutesToSlot(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot,
+  final boolean existingKeyRoutesToSlot(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot,
       byte[] excludeKey) {
-    for (int i = 0; i < oldNode.getNumChildren(); i++) {
-      if (subtreeHasKeyRoutingToSlot(oldNode.getChildReference(i), newNode, newSlot, excludeKey, 0)) {
-        return true;
+    if (newSlot < 0 || newSlot >= newNode.getNumChildren()) {
+      throw refuseMutationTraversal("existing-key routing-to-new-slot", "invalid candidate slot " + newSlot);
+    }
+    final RebuildFootprint footprint = requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey);
+    // The preflight's fixed identity array is also the scan plan. Every relevant page was resolved
+    // exactly once above; scanning its leaf entries directly avoids a second tree walk/resolution
+    // pass and needs no per-mutation collection.
+    for (int pageIndex = 0; pageIndex < footprint.pages; pageIndex++) {
+      if (footprint.visitedPages[pageIndex] instanceof HOTLeafPage leaf) {
+        final int entryCount = leaf.getEntryCount();
+        for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
+          final byte[] key = leaf.getKey(entryIndex);
+          if (key == null) {
+            throw refuseMutationTraversal("existing-key routing-to-new-slot",
+                "unreadable key at leaf " + leaf.getPageKey() + " slot " + entryIndex);
+          }
+          if (!Arrays.equals(key, excludeKey) && newNode.findChildIndex(key) == newSlot) {
+            return true;
+          }
+        }
       }
     }
     return false;
   }
 
   /**
+   * Prove that the complete set of old child subtrees which the candidate partial can steal fits the
+   * mutation-traversal budget. The parent node itself is deliberately not charged: the subsequent
+   * scan never descends through it, and charging unrelated structure would consume budget without
+   * bounding any work the exact key scan performs.
+   *
+   * <p>
+   * The scratch is reset once for the whole candidate union, not once per child. Consequently a
+   * candidate with several possible source children still has one aggregate hard ceiling; it cannot
+   * multiply the budget by the node fanout.
+   * </p>
+   */
+  private RebuildFootprint requireBoundedExistingKeyRoutingTraversal(final HOTIndirectPage oldNode,
+      final HOTIndirectPage newNode, final int newSlot, final byte[] newKey) {
+    final int oldChildCount = oldNode.getNumChildren();
+    final int newChildCount = newNode.getNumChildren();
+    if (oldChildCount < 1 || newChildCount != oldChildCount + 1) {
+      throw refuseMutationTraversal("existing-key routing-to-new-slot",
+          "candidate child-count mismatch old=" + oldChildCount + " new=" + newChildCount);
+    }
+    final PageReference insertedReference = newNode.getChildReference(newSlot);
+    if (insertedReference == null) {
+      throw refuseMutationTraversal("existing-key routing-to-new-slot", "null inserted child reference");
+    }
+    // Every production branch-add primitive is pure: it retains the old references in order and
+    // inserts exactly one new reference. Validate that premise before using old-slot partials to
+    // prune; a future primitive that replaces/reorders children must provide its own mapping rather
+    // than silently inheriting this proof.
+    int oldSlot = 0;
+    for (int candidateSlot = 0; candidateSlot < newChildCount; candidateSlot++) {
+      if (candidateSlot == newSlot) {
+        continue;
+      }
+      if (newNode.getChildReference(candidateSlot) != oldNode.getChildReference(oldSlot)) {
+        throw refuseMutationTraversal("existing-key routing-to-new-slot",
+            "candidate does not preserve old child " + oldSlot + " at slot " + candidateSlot);
+      }
+      if (insertedReference == oldNode.getChildReference(oldSlot)) {
+        throw refuseMutationTraversal("existing-key routing-to-new-slot",
+            "inserted child aliases old child " + oldSlot);
+      }
+      oldSlot++;
+    }
+
+    final RebuildFootprint footprint = rebuildFootprintScratch;
+    footprint.reset();
+    final int[] oldBits = HOTIncrementalInsert.discriminativeBits(oldNode);
+    final int[] newBits = HOTIncrementalInsert.discriminativeBits(newNode);
+    final boolean partialOrderProven = hasStrictlyAscendingPartials(oldNode) && hasStrictlyAscendingPartials(newNode)
+        && oldNode.getPartialKey(0) == 0 && newNode.getPartialKey(0) == 0
+        && partialsFitDiscriminativeWidth(oldNode, oldBits) && partialsFitDiscriminativeWidth(newNode, newBits);
+    final int addedBitColumn = partialOrderProven
+        ? exactSingleAddedBitColumn(oldNode, newNode, newSlot, newKey, oldBits, newBits)
+        : -1;
+    final boolean sameMaskInsertionProven = partialOrderProven && addedBitColumn < 0
+        && exactSameMaskChildInsertion(oldNode, newNode, newSlot, newKey, oldBits, newBits);
+    int feasibleChildCount = 0;
+    for (int i = 0; i < oldChildCount; i++) {
+      if (partialOrderProven && !oldChildMayRouteToNewSlot(oldNode, i, oldBits, newNode, newSlot, newBits)) {
+        continue;
+      }
+      feasibleChildCount++;
+      final int childStartPages = footprint.pages;
+      final int childStartLeaves = footprint.leaves;
+      final int childStartEntries = footprint.entries;
+      // Preserve the traversal's negative-path hard cap even for the optional endpoint proof.
+      // Resolving a child after the exact-scan plan has filled the identity array would make the
+      // refusal path perform one more page read than the bounded walker permits.
+      if (footprint.pages >= MAX_BOUNDED_REBUILD_PAGES) {
+        footprint.reject(RebuildFootprintStatus.PAGE_LIMIT);
+        throw refuseMutationTraversal("existing-key routing-to-new-slot",
+            existingKeyRoutingRefusalDetail(footprint, feasibleChildCount, i, oldChildCount, newSlot, oldBits, newBits,
+                oldNode, newNode, childStartPages, childStartLeaves, childStartEntries));
+      }
+      final PageReference childReference = oldNode.getChildReference(i);
+      if (childReference == null) {
+        throw refuseMutationTraversal("existing-key routing-to-new-slot",
+            "null candidate child reference at slot " + i);
+      }
+      final Page child = resolveHOTPageForTraversal(childReference);
+      if (child == null) {
+        throw refuseMutationTraversal("existing-key routing-to-new-slot", "unresolvable candidate child at slot " + i);
+      }
+      if (addedBitColumn >= 0
+          && oldChildRangeOppositeOnAddedBit(child, i, newNode, newSlot, newKey, newBits, addedBitColumn)) {
+        // The candidate's retained child still owns every key in this physical range. Its two
+        // extrema differ from K exactly at beta; the existing valid subtree's inductively maintained
+        // I8/I12 range ordering therefore makes the complete child beta-opposite. Depending on K's
+        // beta value, either K's partial cannot match those keys or the retained child's beta-bearing
+        // partial shadows it. No entry scan is needed; an arbitrarily malformed interior is not a
+        // premise this local proof attempts to certify.
+        continue;
+      }
+      if (sameMaskInsertionProven
+          && oldChildRangeCannotMatchFreshPartial(child, i, newNode, newSlot, newKey, newBits)) {
+        // The candidate added a sparse combination over the existing mask. The fresh partial
+        // requires a one-bit absent from this retained partial, while both physical extrema prove
+        // the complete retained range has zero at that bit. It therefore cannot match the fresh
+        // combination, regardless of suffix bits, and needs no entry scan.
+        continue;
+      }
+      measureBoundedRebuildPage(child, traversalPageResolver, footprint, 0);
+      // Consumers splice against the candidate node, whose slots after the fresh insertion are
+      // shifted by one. Retain that physical owner coordinate alongside every planned page.
+      final int candidateOwnerSlot = i < newSlot
+          ? i
+          : i + 1;
+      for (int pageIndex = childStartPages; pageIndex < footprint.pages; pageIndex++) {
+        footprint.visitedPageOwnerSlots[pageIndex] = candidateOwnerSlot;
+      }
+      if (!footprint.withinBudget()) {
+        throw refuseMutationTraversal("existing-key routing-to-new-slot",
+            existingKeyRoutingRefusalDetail(footprint, feasibleChildCount, i, oldChildCount, newSlot, oldBits, newBits,
+                oldNode, newNode, childStartPages, childStartLeaves, childStartEntries));
+      }
+    }
+    return footprint;
+  }
+
+  /**
+   * Validate the exact structural shape in which {@code newNode} inserts one discriminative bit and
+   * one child while retaining every old child in order. Returns the inserted bit's column in
+   * {@code newBits}, or {@code -1} when any bit/partial/routing premise is uncertain.
+   *
+   * <p>
+   * This is intentionally stricter than merely observing {@code newBits.length == oldBits.length
+   * + 1}. Removing the inserted column from every retained candidate partial must reproduce the old
+   * partial byte-for-byte, and the inserted child's partial must encode {@code newKey}'s value at the
+   * new bit. Consequently the endpoint proof below cannot bless an unrelated or malformed branch-add
+   * primitive. The reference-preservation premise is validated by the caller before this method.
+   * </p>
+   */
+  private static int exactSingleAddedBitColumn(final HOTIndirectPage oldNode, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] newKey, final int[] oldBits, final int[] newBits) {
+    if (newBits.length != oldBits.length + 1 || newBits.length > Integer.SIZE || !strictlyAscendingBits(oldBits)
+        || !strictlyAscendingBits(newBits) || newNode.findChildIndex(newKey) != newSlot) {
+      return -1;
+    }
+
+    int addedColumn = -1;
+    int oldColumn = 0;
+    for (int newColumn = 0; newColumn < newBits.length; newColumn++) {
+      if (oldColumn < oldBits.length && newBits[newColumn] == oldBits[oldColumn]) {
+        oldColumn++;
+      } else if (addedColumn < 0) {
+        addedColumn = newColumn;
+      } else {
+        return -1;
+      }
+    }
+    if (addedColumn < 0 || oldColumn != oldBits.length) {
+      return -1;
+    }
+
+    final int addedBit = newBits[addedColumn];
+    final int packedBitIndex = newBits.length - 1 - addedColumn;
+    final int addedBitMask = 1 << packedBitIndex;
+    final boolean newKeyBit = HOTBulkBuilder.bitAt(newKey, addedBit);
+    if (((newNode.getPartialKey(newSlot) & addedBitMask) != 0) != newKeyBit) {
+      return -1;
+    }
+
+    for (int oldSlot = 0; oldSlot < oldNode.getNumChildren(); oldSlot++) {
+      final int candidateSlot = oldSlot < newSlot
+          ? oldSlot
+          : oldSlot + 1;
+      if (removePackedPartialBit(newNode.getPartialKey(candidateSlot),
+          packedBitIndex) != oldNode.getPartialKey(oldSlot)) {
+        return -1;
+      }
+    }
+    return addedColumn;
+  }
+
+  /**
+   * Validate a pure child/partial insertion over an unchanged discriminative-bit mask. This is the
+   * {@link HOTIncrementalInsert#addChildAtCombination} shape: every retained reference and partial
+   * stays in order and the new key routes to the one fresh slot. Reference preservation and unique
+   * insertion are validated by the caller before this method.
+   */
+  private static boolean exactSameMaskChildInsertion(final HOTIndirectPage oldNode, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] newKey, final int[] oldBits, final int[] newBits) {
+    if (oldBits.length > Integer.SIZE || !strictlyAscendingBits(oldBits) || !strictlyAscendingBits(newBits)
+        || !Arrays.equals(oldBits, newBits) || !hasStrictlyAscendingPartials(oldNode)
+        || !hasStrictlyAscendingPartials(newNode) || newNode.findChildIndex(newKey) != newSlot) {
+      return false;
+    }
+    final int freshPartial = newNode.getPartialKey(newSlot);
+    for (int oldSlot = 0; oldSlot < oldNode.getNumChildren(); oldSlot++) {
+      final int candidateSlot = oldSlot < newSlot
+          ? oldSlot
+          : oldSlot + 1;
+      final int oldPartial = oldNode.getPartialKey(oldSlot);
+      if (newNode.getPartialKey(candidateSlot) != oldPartial || freshPartial == oldPartial) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static boolean strictlyAscendingBits(final int[] bits) {
+    for (int i = 1; i < bits.length; i++) {
+      if (bits[i] <= bits[i - 1]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Reject malformed sparse partials that set bits outside the node's packed mask width. */
+  private static boolean partialsFitDiscriminativeWidth(final HOTIndirectPage node, final int[] bits) {
+    final int childCount = node.getNumChildren();
+    final int[] partials = node.getPartialKeysRef();
+    if (bits.length < 1 || bits.length > Integer.SIZE || partials == null || partials.length < childCount) {
+      return false;
+    }
+    final int validBits = bits.length == Integer.SIZE
+        ? -1
+        : (1 << bits.length) - 1;
+    for (int slot = 0; slot < childCount; slot++) {
+      if ((partials[slot] & ~validBits) != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Remove one zero-based-from-LSB bit and compact every more-significant packed bit down by one. */
+  private static int removePackedPartialBit(final int partial, final int packedBitIndex) {
+    final int lowerMask = packedBitIndex == 0
+        ? 0
+        : -1 >>> (Integer.SIZE - packedBitIndex);
+    final int upper = packedBitIndex == Integer.SIZE - 1
+        ? 0
+        : partial >>> (packedBitIndex + 1);
+    return (upper << packedBitIndex) | (partial & lowerMask);
+  }
+
+  /**
+   * Prove one retained old child's complete ordered key range is opposite {@code newKey} at the one
+   * newly inserted discriminative bit.
+   *
+   * <p>
+   * Both extrema must share K's prefix above beta and differ exactly at beta. Every key between them
+   * therefore has that same opposite beta value. The candidate partials were already proven to be the
+   * old partials with exactly beta inserted. For K(beta)=1, K's partial requires beta and cannot
+   * match this child. For K(beta)=0, the retained beta=1 partial must follow K's partial and wins the
+   * lookup's equality-/later-subset preference. Any ambiguity falls through to the bounded exact
+   * scan.
+   * </p>
+   */
+  private boolean oldChildRangeOppositeOnAddedBit(final Page child, final int oldSlot, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] newKey, final int[] newBits, final int addedBitColumn) {
+    final int addedBit = newBits[addedBitColumn];
+    if (extremeRelationToKeyAtBit(child, false, newKey, addedBit, 1) != EXTREME_RELATION_OPPOSITE_AT_BETA
+        || extremeRelationToKeyAtBit(child, true, newKey, addedBit, 1) != EXTREME_RELATION_OPPOSITE_AT_BETA) {
+      return false;
+    }
+
+    final int packedBitIndex = newBits.length - 1 - addedBitColumn;
+    final int addedBitMask = 1 << packedBitIndex;
+    final boolean newKeyBit = HOTBulkBuilder.bitAt(newKey, addedBit);
+    final int retainedSlot = oldSlot < newSlot
+        ? oldSlot
+        : oldSlot + 1;
+    final int retainedPartial = newNode.getPartialKey(retainedSlot);
+    final int freshPartial = newNode.getPartialKey(newSlot);
+    final boolean retainedBit = (retainedPartial & addedBitMask) != 0;
+    if (retainedBit == newKeyBit) {
+      return false;
+    }
+    // A sparse partial cannot encode a required zero. When K is on beta=0, correctness relies on the
+    // retained beta=1 partial shadowing K's less-specific partial: it must be a strict superset of
+    // the fresh partial and occupy a later slot under the lookup's later-subset preference.
+    return newKeyBit || (retainedSlot > newSlot && (freshPartial & ~retainedPartial) == 0);
+  }
+
+  /**
+   * Prove that one retained child cannot match a fresh sparse combination over the same bit mask. The
+   * proof deliberately probes only one bit, keeping work at two bounded extreme paths per feasible
+   * child. A required fresh bit absent from the retained partial is selected; when both physical
+   * extrema differ from {@code newKey} exactly there, global HOT range ordering proves every key in
+   * the child has zero at a bit the fresh partial requires to be one.
+   */
+  private boolean oldChildRangeCannotMatchFreshPartial(final Page child, final int oldSlot,
+      final HOTIndirectPage newNode, final int newSlot, final byte[] newKey, final int[] bits) {
+    final int retainedSlot = oldSlot < newSlot
+        ? oldSlot
+        : oldSlot + 1;
+    final int freshOnlyBits = newNode.getPartialKey(newSlot) & ~newNode.getPartialKey(retainedSlot);
+    if (freshOnlyBits == 0) {
+      return false;
+    }
+    final int packedBitIndex = Integer.SIZE - 1 - Integer.numberOfLeadingZeros(freshOnlyBits);
+    final int column = bits.length - 1 - packedBitIndex;
+    if (column < 0 || !HOTBulkBuilder.bitAt(newKey, bits[column])) {
+      return false;
+    }
+    final int beta = bits[column];
+    return extremeRelationToKeyAtBit(child, false, newKey, beta, 1) == EXTREME_RELATION_OPPOSITE_AT_BETA
+        && extremeRelationToKeyAtBit(child, true, newKey, beta, 1) == EXTREME_RELATION_OPPOSITE_AT_BETA;
+  }
+
+  /** Failure-path-only structural diagnostics; never includes an index key or value. */
+  private static String existingKeyRoutingRefusalDetail(final RebuildFootprint footprint, final int feasibleChildCount,
+      final int currentOldSlot, final int oldChildCount, final int newSlot, final int[] oldBits, final int[] newBits,
+      final HOTIndirectPage oldNode, final HOTIndirectPage newNode, final int childStartPages,
+      final int childStartLeaves, final int childStartEntries) {
+    return footprint.summary() + " feasibleChildren=" + feasibleChildCount + " currentOldSlot=" + currentOldSlot + "/"
+        + oldChildCount + " newSlot=" + newSlot + " oldDiscBits=" + oldBits.length + " newDiscBits=" + newBits.length
+        + " childStartPages=" + childStartPages + " childStartLeaves=" + childStartLeaves + " childStartEntries="
+        + childStartEntries + " oldBitPositions=" + Arrays.toString(oldBits) + " newBitPositions="
+        + Arrays.toString(newBits) + " oldPartials="
+        + Arrays.toString(Arrays.copyOf(oldNode.getPartialKeysRef(), oldNode.getNumChildren())) + " newPartials="
+        + Arrays.toString(Arrays.copyOf(newNode.getPartialKeysRef(), newNode.getNumChildren()));
+  }
+
+  /**
+   * Whether an existing key physically owned by {@code oldSlot} can possibly be selected by the
+   * freshly added {@code newSlot}. This is a zero-allocation sparse-routing feasibility filter; the
+   * surviving subtrees are still inspected key-for-key, so the final answer remains exact.
+   *
+   * <p>
+   * For every physical key under old slot {@code i} that candidate-routes to {@code newSlot}, two
+   * partials are subsets of its candidate-mask dense key: {@code i}'s old sparse partial (I5), after
+   * translating its columns by absolute discriminative-bit position, and the new slot's partial (the
+   * routing match being tested). Their union is therefore a set of mandatory 1-bits. If any candidate
+   * partial after {@code newSlot} is already a subset of that union, it matches every such dense key
+   * and shadows {@code newSlot}; likewise, if any translated old partial after {@code i} is already a
+   * subset, every such key would have routed to that later old slot and therefore cannot be
+   * physically owned by {@code i}. Either contradiction makes the child impossible as a source.
+   * Otherwise it remains conservatively feasible and is scanned. Equality preference needs no
+   * separate case once both partial arrays are proven strictly unsigned-ascending: an exact partial
+   * is a subset match, and no numerically later partial can be a subset of that exact dense key. Bits
+   * not proved mandatory are never guessed, and a mask translation that cannot map every old absolute
+   * bit fails open.
+   * </p>
+   */
+  private static boolean oldChildMayRouteToNewSlot(final HOTIndirectPage oldNode, final int oldSlot,
+      final int[] oldBits, final HOTIndirectPage newNode, final int newSlot, final int[] newBits) {
+    final long translatedOldPartial = translatePartialToCandidateMask(oldNode.getPartialKey(oldSlot), oldBits, newBits);
+    if (translatedOldPartial < 0) {
+      return true;
+    }
+    final int mandatoryBits = (int) translatedOldPartial | newNode.getPartialKey(newSlot);
+    for (int i = oldSlot + 1; i < oldNode.getNumChildren(); i++) {
+      final long translatedLaterPartial = translatePartialToCandidateMask(oldNode.getPartialKey(i), oldBits, newBits);
+      if (translatedLaterPartial < 0) {
+        return true;
+      }
+      if ((((int) translatedLaterPartial) & ~mandatoryBits) == 0) {
+        return false;
+      }
+    }
+    for (int i = newSlot + 1; i < newNode.getNumChildren(); i++) {
+      if ((newNode.getPartialKey(i) & ~mandatoryBits) == 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Translate an old sparse partial by absolute discriminative-bit position; {@code -1} is fail-open.
+   */
+  private static long translatePartialToCandidateMask(final int oldPartial, final int[] oldBits, final int[] newBits) {
+    int translatedOldPartial = 0;
+    int newColumn = 0;
+    for (int oldColumn = 0; oldColumn < oldBits.length; oldColumn++) {
+      final int absoluteBit = oldBits[oldColumn];
+      while (newColumn < newBits.length && newBits[newColumn] < absoluteBit) {
+        newColumn++;
+      }
+      if (newColumn >= newBits.length || newBits[newColumn] != absoluteBit) {
+        return -1;
+      }
+      if ((oldPartial & (1 << (oldBits.length - 1 - oldColumn))) != 0) {
+        translatedOldPartial |= 1 << (newBits.length - 1 - newColumn);
+      }
+      newColumn++;
+    }
+    return Integer.toUnsignedLong(translatedOldPartial);
+  }
+
+  /**
+   * The shadow proof relies on the same strict unsigned partial order as PEXT lookup invariant I7.
+   */
+  private static boolean hasStrictlyAscendingPartials(final HOTIndirectPage node) {
+    final int childCount = node.getNumChildren();
+    final int[] partials = node.getPartialKeysRef();
+    if (childCount < 1 || partials == null || partials.length < childCount) {
+      return false;
+    }
+    for (int i = 1; i < childCount; i++) {
+      if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Cheap single-node structural check covering the O(children)-class invariants that a combo-add /
-   * fold can break under multi-value leaves: I4 (smallest stored partial must be 0 — Binna's "first
-   * mask always zero"), I7 (stored partials strictly ascending), I8 (children ordered by ascending
-   * subtree first-key), and I12 (consecutive children's key RANGES must not interleave — first-key
-   * order alone misses a preceding sibling whose subtree spans past the next child's start, the shape
-   * every residual combo-fold heal turned out to be). Returns {@code true} on the first violation.
-   * The expensive I5 constancy walk is intentionally excluded here (the post-dispatch
-   * {@link #detectAndHeal} runs the full detector incl. I5); these are O(children) /
-   * O(children×height). Used as a pre-commit combo-add guard (the ordering complement to the
-   * routing-only {@link #branchAddStrandsExisting}, discharging via the I8-clean canonical
-   * {@link #rebuildSubtree}) and as the post-dispatch path probe
-   * ({@link #healStructuralViolationOnPath}). Sufficient as a single-node scan because a fold leaves
-   * every existing child's subtree untouched.
+   * fold can break under multi-value leaves: I3/I7 (stored partials unique and strictly ascending),
+   * I4 (smallest stored partial must be 0 — Binna's "first mask always zero"), I8 (children ordered
+   * by ascending subtree first-key), I11 (child discriminative bits below the parent), and I12
+   * (consecutive children's key RANGES must not interleave — first-key order alone misses a preceding
+   * sibling whose subtree spans past the next child's start). Returns {@code true} on the first
+   * violation. The expensive I5 constancy walk is intentionally excluded here; the bounded full
+   * detector covers it, while oversized scopes rely on the verified incremental primitives plus this
+   * mandatory local guard. These checks are O(children) / O(children×height). Used as a
+   * pre-publication combo-add guard (the ordering complement to the routing-only
+   * {@link #branchAddStrandsExisting}) and by the fail-closed post-publication validator. It is
+   * sufficient as a single-node scan because a fold leaves every existing child subtree untouched.
    */
   private boolean nodeStructurallyMalformed(HOTIndirectPage candidate) {
     final int n = candidate.getNumChildren();
@@ -2079,7 +3209,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       int minPartial = partials[0];
       for (int i = 1; i < n; i++) {
         if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
-          return true; // I7: partials not strictly ascending
+          return true; // I3/I7: strict ascent also proves uniqueness
         }
         if (Integer.compareUnsigned(partials[i], minPartial) < 0) {
           minPartial = partials[i];
@@ -2091,8 +3221,22 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     byte[] previousFirstKey = null;
     byte[] previousLastKey = null;
+    final int parentMostSignificantBit = candidate.getMostSignificantBitIndex();
     for (int i = 0; i < n; i++) {
       final PageReference childRef = candidate.getChildReference(i);
+      if (childRef == null) {
+        return true;
+      }
+      final Page childPage = resolveHOTPageForTraversal(childRef);
+      if (childPage == null) {
+        return true;
+      }
+      if (parentMostSignificantBit >= 0 && childPage instanceof HOTIndirectPage childIndirect) {
+        final int childMostSignificantBit = childIndirect.getMostSignificantBitIndex();
+        if (childMostSignificantBit >= 0 && childMostSignificantBit <= parentMostSignificantBit) {
+          return true; // I11: child bits must be strictly less significant than the parent's
+        }
+      }
       final byte[] firstKey = firstKeyOfSubtree(childRef);
       if (firstKey == null) {
         continue;
@@ -2123,18 +3267,53 @@ public abstract class AbstractHOTIndexWriter<K> {
    * bitValue}. Used by the BiNode-wrap stranding guards: wrapping a whole subtree on one side of
    * {@code beta} strands any key inside it that sits on the opposite ({@code bitValue}) side.
    */
-  private boolean subtreeHasKeyWithBit(@Nullable PageReference ref, int beta, int bitValue, byte[] excludeKey) {
+  final boolean subtreeHasKeyWithBit(@Nullable PageReference ref, int beta, int bitValue, byte[] excludeKey) {
+    if (beta < 0 || bitValue < 0 || bitValue > 1) {
+      throw refuseMutationTraversal("subtree beta-bit stranding", "invalid beta/bitValue " + beta + '/' + bitValue);
+    }
     if (ref == null) {
-      return false;
+      throw refuseMutationTraversal("subtree beta-bit stranding", "null root reference");
     }
     final Page page = resolveHOTPageForTraversal(ref);
+    if (page == null) {
+      throw refuseMutationTraversal("subtree beta-bit stranding", "unresolvable root reference");
+    }
+    // Both whole-subtree branch sites ask whether an old subtree contains K's value at beta. If
+    // its physical extrema share K's prefix above beta and differ exactly at beta, global HOT
+    // range ordering proves every key between them is on the opposite side. Two root-to-leaf
+    // probes therefore discharge arbitrarily large healthy subtrees without weakening the fixed
+    // exact-scan budget or turning a rare structural insert into a whole-index walk.
+    if (excludeKey != null && (beta >>> 3) < excludeKey.length && (HOTBulkBuilder.bitAt(excludeKey, beta)
+        ? 1
+        : 0) == bitValue
+        && extremeRelationToKeyAtBit(page, false, excludeKey, beta) == EXTREME_RELATION_OPPOSITE_AT_BETA
+        && extremeRelationToKeyAtBit(page, true, excludeKey, beta) == EXTREME_RELATION_OPPOSITE_AT_BETA) {
+      return false;
+    }
+    requireBoundedMutationTraversal(page, "subtree beta-bit stranding");
+    return subtreeHasKeyWithBitBounded(page, beta, bitValue, excludeKey, 0);
+  }
+
+  /** Recursive half of {@link #subtreeHasKeyWithBit}; its source was preflighted by the wrapper. */
+  private boolean subtreeHasKeyWithBitBounded(final Page page, final int beta, final int bitValue,
+      final byte[] excludeKey, final int depth) {
+    if (depth > MAX_PATH_DEPTH) {
+      throw refuseMutationTraversal("subtree beta-bit stranding", "depth exceeded " + MAX_PATH_DEPTH);
+    }
+    if (page.isClosed()) {
+      throw refuseMutationTraversal("subtree beta-bit stranding", "closed page during scan");
+    }
     if (page instanceof HOTLeafPage leaf) {
       final int n = leaf.getEntryCount();
       final int bytePos = beta / 8;
       final int mask = 1 << (7 - (beta % 8));
       for (int i = 0; i < n; i++) {
         final byte[] k = leaf.getKey(i);
-        if (k == null || Arrays.equals(k, excludeKey)) {
+        if (k == null) {
+          throw refuseMutationTraversal("subtree beta-bit stranding",
+              "unreadable key at leaf " + leaf.getPageKey() + " slot " + i);
+        }
+        if (Arrays.equals(k, excludeKey)) {
           continue;
         }
         final int bit = (bytePos < k.length) && ((k[bytePos] & mask) != 0)
@@ -2148,42 +3327,21 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     if (page instanceof HOTIndirectPage indirect) {
       for (int i = 0; i < indirect.getNumChildren(); i++) {
-        if (subtreeHasKeyWithBit(indirect.getChildReference(i), beta, bitValue, excludeKey)) {
-          return true;
+        final PageReference childReference = indirect.getChildReference(i);
+        if (childReference == null) {
+          throw refuseMutationTraversal("subtree beta-bit stranding", "null child reference during scan");
         }
-      }
-    }
-    return false;
-  }
-
-  /** Recursive helper for {@link #existingKeyRoutesToSlot}; short-circuits on the first match. */
-  private boolean subtreeHasKeyRoutingToSlot(@Nullable PageReference ref, HOTIndirectPage newNode, int newSlot,
-      byte[] excludeKey, int depth) {
-    if (ref == null || depth > MAX_PATH_DEPTH + 2) {
-      return false;
-    }
-    final Page page = resolveHOTPageForTraversal(ref);
-    if (page instanceof HOTLeafPage leaf) {
-      final int n = leaf.getEntryCount();
-      for (int i = 0; i < n; i++) {
-        final byte[] k = leaf.getKey(i);
-        if (k == null || Arrays.equals(k, excludeKey)) {
-          continue;
+        final Page child = resolveHOTPageForTraversal(childReference);
+        if (child == null) {
+          throw refuseMutationTraversal("subtree beta-bit stranding", "unresolvable child during scan");
         }
-        if (newNode.findChildIndex(k) == newSlot) {
+        if (subtreeHasKeyWithBitBounded(child, beta, bitValue, excludeKey, depth + 1)) {
           return true;
         }
       }
       return false;
     }
-    if (page instanceof HOTIndirectPage indirect) {
-      for (int i = 0; i < indirect.getNumChildren(); i++) {
-        if (subtreeHasKeyRoutingToSlot(indirect.getChildReference(i), newNode, newSlot, excludeKey, depth + 1)) {
-          return true;
-        }
-      }
-    }
-    return false;
+    throw refuseMutationTraversal("subtree beta-bit stranding", "unsupported page " + page.getClass().getName());
   }
 
   /**
@@ -2319,45 +3477,29 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong DIRECTION_ONE_LEAF_PAIR_SPLICE = new AtomicLong();
   /** Frontier splices whose minimal complete range contained three or more direct leaves. */
   public static final AtomicLong DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE = new AtomicLong();
+  /** Indirect complete frontiers wrapped with K after a two-endpoint opposite-side proof. */
+  public static final AtomicLong DIRECTION_ONE_OPPOSITE_FRONTIER_WRAP = new AtomicLong();
   /** C2 continuations performed inside a freshly split full-node half. */
   public static final AtomicLong FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT = new AtomicLong();
 
   /**
-   * Issue B outcome counters -- how often handleOffPathOverflow succeeds vs falls back to the
-   * caller's whole-index self-heal. Plan §4.3.
+   * Issue B outcome counters -- how often handleOffPathOverflow succeeds directly versus delegating
+   * pre-publication to the complete frontier. Plan §4.3.
    */
   public static final AtomicLong OFF_PATH_OVERFLOW_OK = new AtomicLong();
   public static final AtomicLong OFF_PATH_OVERFLOW_FALLBACK = new AtomicLong();
 
-  /**
-   * Stage 3c (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §12) -- how often the scoped
-   * {@link #rebuildSubtree} avoided a height-escalation by re-encoding an ancestor in place (one
-   * increment per ancestor refreshed). A high count means Stage 3c stopped a cascade that the
-   * original behaviour would have grown into a depth-0 whole rebuild.
-   */
-  public static final AtomicLong REBUILD_HEIGHT_ESCALATION_AVOIDED = new AtomicLong();
-  /**
-   * Stage 3c defensive arm -- the rebuilt slot's key range collides with a sibling's (the Direction-1
-   * shape: subset routing admitted a key the lex order does not), so the propagation falls back to a
-   * scoped rebuild at the ancestor's depth instead of an in-place re-encode. Stored partials are
-   * never touched by the propagation (Stage 5: a sparse partial is the slot's position in the block
-   * trie, invariant under content growth), so sibling ORDER is the only property a content change can
-   * break on the way up. Should stay near zero in practice.
-   */
-  public static final AtomicLong REBUILD_PROPAGATION_ORDER_FALLBACK = new AtomicLong();
-  /**
-   * Total invocations of {@link #rebuildSubtree} (any depth, any caller). With
-   * {@link #REBUILD_HEIGHT_ESCALATION_AVOIDED} reports both how often a rebuild occurred and how
-   * often Stage 3c's propagation re-encoded at least one ancestor.
-   */
-  public static final AtomicLong REBUILD_SUBTREE_CALLED = new AtomicLong();
-  public static final AtomicLong PROJECTION_REBUILD_SUBTREE_ATTEMPTED = new AtomicLong();
+  /** Ancestors re-encoded in place solely to refresh exact structural height. */
+  public static final AtomicLong STRUCTURAL_HEIGHT_REENCODE = new AtomicLong();
 
-  /**
-   * Bounded canonical rebuilds a PROJECTION index performed — attempts that passed the size gate.
-   * Telemetry for watching whether the rare fold states stay rare.
-   */
-  public static final AtomicLong PROJECTION_BOUNDED_REBUILD_ALLOWED = new AtomicLong();
+  /** Post-publication sibling-boundary failures missed by the mandatory preflight. Must stay zero. */
+  public static final AtomicLong STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE = new AtomicLong();
+
+  /** Mandatory stranding/routing scans refused before exceeding one bounded HOT block. */
+  public static final AtomicLong MUTATION_TRAVERSAL_REFUSED = new AtomicLong();
+
+  /** Opt-in diagnostic whole-tree walks skipped because their source exceeded the same hard bound. */
+  public static final AtomicLong DIAGNOSTIC_TRAVERSAL_SKIPPED = new AtomicLong();
 
 
   /**
@@ -2458,12 +3600,35 @@ public abstract class AbstractHOTIndexWriter<K> {
     } else {
       prevOrderOk = "skip";
     }
+    final int collisionSlot = findChildSlotByPartial(dStar, comboPartial);
+    String frontierShape = "<none>";
+    if (collisionSlot >= 0 && collisionSlot < affectedIdx) {
+      final HOTIncrementalInsert.ChildRange range =
+          HOTIncrementalInsert.minimalBiNodeRangeContaining(dStar, collisionSlot, affectedIdx);
+      final StringBuilder shape = new StringBuilder().append('[')
+                                                     .append(range.fromInclusive())
+                                                     .append(',')
+                                                     .append(range.toExclusive())
+                                                     .append("):");
+      for (int slot = range.fromInclusive(); slot < range.toExclusive(); slot++) {
+        final Page page = resolveHOTPageForTraversal(dStar.getChildReference(slot));
+        if (slot > range.fromInclusive()) {
+          shape.append(',');
+        }
+        shape.append(page instanceof HOTLeafPage leaf
+            ? "L" + leaf.getEntryCount()
+            : page instanceof HOTIndirectPage indirect
+                ? "Ih" + indirect.getHeight() + 'x' + indirect.getNumChildren()
+                : "?");
+      }
+      frontierShape = shape.toString();
+    }
 
-    System.err.println("[D1-FALLBACK " + site + "] K=" + hexKey + " (lenK=" + keySlice.length + ")" + " pathDepth="
-        + navResult.pathDepth() + " insertDepth=" + insertDepth + " dStar.children=" + n + " dStar.height="
-        + dStar.getHeight() + " affectedIdx=" + affectedIdx + " spine=" + spine + " beta=" + beta + " betaValue="
-        + betaValue + " comboPartial=0x" + Integer.toHexString(comboPartial) + " affected.fk=" + hexAffected + " (lenA="
-        + (affectedFirstKey == null
+    System.err.println("[D1-FALLBACK " + site + "] revision=" + storageEngineWriter.getRevisionNumber() + " K=" + hexKey
+        + " (lenK=" + keySlice.length + ")" + " pathDepth=" + navResult.pathDepth() + " insertDepth=" + insertDepth
+        + " dStar.children=" + n + " dStar.height=" + dStar.getHeight() + " affectedIdx=" + affectedIdx + " spine="
+        + spine + " beta=" + beta + " betaValue=" + betaValue + " comboPartial=0x" + Integer.toHexString(comboPartial)
+        + " affected.fk=" + hexAffected + " (lenA=" + (affectedFirstKey == null
             ? "n/a"
             : Integer.toString(affectedFirstKey.length))
         + ")" + " prev.fk=" + hexPrev + " (lenP=" + (prevFirstKey == null
@@ -2479,7 +3644,108 @@ public abstract class AbstractHOTIndexWriter<K> {
         + " affectedStored=0x" + Integer.toHexString(affectedStored) + " prevStored=" + (prevStored < 0
             ? "<none>"
             : "0x" + Integer.toHexString(prevStored))
-        + " class=" + carveClass + " prevOrderOk=" + prevOrderOk);
+        + " class=" + carveClass + " prevOrderOk=" + prevOrderOk + " frontier=" + frontierShape);
+  }
+
+  /** Failure-path-only shape dump for a malformed unpublished combo-add candidate. */
+  private void dumpMalformedComboAdd(final String site, final HOTIndirectPage oldNode, final HOTIndirectPage candidate,
+      final byte[] keySlice, final int beta) {
+    final int newSlot = candidate.findChildIndex(keySlice);
+    int badBoundary = -1;
+    String violation = "unknown";
+    byte[] previousFirst = null;
+    byte[] previousLast = null;
+    for (int slot = 0; slot < candidate.getNumChildren(); slot++) {
+      final PageReference childRef = candidate.getChildReference(slot);
+      final byte[] first = firstKeyOfSubtree(childRef);
+      if (first == null) {
+        badBoundary = slot;
+        violation = "unreadable";
+        break;
+      }
+      if (previousFirst != null && Arrays.compareUnsigned(previousFirst, first) >= 0) {
+        badBoundary = slot;
+        violation = "I8";
+        break;
+      }
+      if (previousLast != null && Arrays.compareUnsigned(previousLast, first) >= 0) {
+        badBoundary = slot;
+        violation = "I12";
+        break;
+      }
+      previousFirst = first;
+      previousLast = slot + 1 < candidate.getNumChildren()
+          ? lastKeyOfSubtree(childRef)
+          : null;
+    }
+    final HexFormat hex = HexFormat.of();
+    final String keyHex = diagnosticHex(keySlice, hex);
+    final String leftFirst = badBoundary > 0
+        ? diagnosticHex(firstKeyOfSubtree(candidate.getChildReference(badBoundary - 1)), hex)
+        : "<none>";
+    final String leftLast = badBoundary > 0
+        ? diagnosticHex(lastKeyOfSubtree(candidate.getChildReference(badBoundary - 1)), hex)
+        : "<none>";
+    final String rightFirst = badBoundary >= 0 && badBoundary < candidate.getNumChildren()
+        ? diagnosticHex(firstKeyOfSubtree(candidate.getChildReference(badBoundary)), hex)
+        : "<none>";
+    String frontierShape = "<none>";
+    if (badBoundary > 0 && newSlot >= 0 && badBoundary != newSlot) {
+      final int firstSlot = Math.min(badBoundary - 1, newSlot);
+      final int lastSlot = Math.max(badBoundary, newSlot);
+      final HOTIncrementalInsert.ChildRange range =
+          HOTIncrementalInsert.minimalBiNodeRangeContaining(candidate, firstSlot, lastSlot);
+      final StringBuilder shape = new StringBuilder().append('[')
+                                                     .append(range.fromInclusive())
+                                                     .append(',')
+                                                     .append(range.toExclusive())
+                                                     .append("):");
+      for (int slot = range.fromInclusive(); slot < range.toExclusive(); slot++) {
+        final Page page = resolveHOTPageForTraversal(candidate.getChildReference(slot));
+        if (slot > range.fromInclusive()) {
+          shape.append(',');
+        }
+        shape.append(page instanceof HOTLeafPage leaf
+            ? "L" + leaf.getEntryCount()
+            : page instanceof HOTIndirectPage indirect
+                ? "Ih" + indirect.getHeight() + 'x' + indirect.getNumChildren()
+                : "?");
+      }
+      frontierShape = shape.toString();
+    } else if (badBoundary > 0 && newSlot == badBoundary) {
+      final HOTIncrementalInsert.ChildRange range =
+          HOTIncrementalInsert.minimalBiNodeRangeContaining(candidate, badBoundary - 1, badBoundary);
+      final StringBuilder shape = new StringBuilder().append('[')
+                                                     .append(range.fromInclusive())
+                                                     .append(',')
+                                                     .append(range.toExclusive())
+                                                     .append("):");
+      for (int slot = range.fromInclusive(); slot < range.toExclusive(); slot++) {
+        final Page page = resolveHOTPageForTraversal(candidate.getChildReference(slot));
+        if (slot > range.fromInclusive()) {
+          shape.append(',');
+        }
+        shape.append(page instanceof HOTLeafPage leaf
+            ? "L" + leaf.getEntryCount()
+            : page instanceof HOTIndirectPage indirect
+                ? "Ih" + indirect.getHeight() + 'x' + indirect.getNumChildren()
+                : "?");
+      }
+      frontierShape = shape.toString();
+    }
+    System.err.println("[MALFORMED-COMBO " + site + "] revision=" + storageEngineWriter.getRevisionNumber() + " beta="
+        + beta + " K=" + keyHex + " oldBits=" + Arrays.toString(HOTIncrementalInsert.discriminativeBits(oldNode))
+        + " oldPartials=" + Arrays.toString(Arrays.copyOf(oldNode.getPartialKeysRef(), oldNode.getNumChildren()))
+        + " newBits=" + Arrays.toString(HOTIncrementalInsert.discriminativeBits(candidate)) + " newPartials="
+        + Arrays.toString(Arrays.copyOf(candidate.getPartialKeysRef(), candidate.getNumChildren())) + " newSlot="
+        + newSlot + " violation=" + violation + " boundary=" + badBoundary + " left.first=" + leftFirst + " left.last="
+        + leftLast + " right.first=" + rightFirst + " frontier=" + frontierShape);
+  }
+
+  private static String diagnosticHex(final byte @Nullable [] key, final HexFormat hex) {
+    return key == null
+        ? "null"
+        : hex.formatHex(key, 0, Math.min(key.length, 22));
   }
 
   /**
@@ -2514,10 +3780,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * 0's off-path-straddle canonicity finding.
    *
    * <p>
-   * Falls back ({@code return false}) when β is not in D(N), L's β-column is already 1 (not the
-   * off-path-straddle case), addChildAtCombination throws C2 collision, or any defensive failure.
-   * Caller then proceeds with standard integrate (which will throw and land in the self-heal
-   * whole-rebuild).
+   * Returns {@code false} before publication when β is not in D(N), L's β-column is already 1, a C2
+   * collision occurs, or a precondition is uncertain. The shared branch driver then uses the complete
+   * structural-frontier primitive.
    *
    * @return {@code true} if the off-path-overflow was handled incrementally
    */
@@ -2551,7 +3816,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
       // N is full. The N-full handler (handleOffPathOverflowFullN) operates incrementally at
       // every pathDepth. The historical `pathDepth < 2` guard was a workaround for the silent
-      // rebuildSubtree(insertDepth) path that escalated to depth 0 mid-revision -- producing
+      // legacy subtree reconstruction path that escalated to depth 0 mid-revision -- producing
       // a freshly canonical h=1 root that competed with the handler's h=1→h=2 growth and
       // surfaced as I1+I6 corruption at rev 9 of interleavedInsertDeleteMultiRev. Plan §12
       // Stage 3c (in-spine height/partial propagation) removed the escalation, eliminating
@@ -2562,29 +3827,69 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Step 1: slot-replace L → L₀ in N's children array (in-place on the CoW'd N).
     // The partial at slotOfL is unchanged -- it still has β-column-0, which matches
     // L₀'s β=0 keys. The follow-on addChildAtCombination snapshots the mutated children.
+    final PageReference originalLeafRef = navResult.leafRef();
     parentN.setChildReference(slotOfL, biNode.left());
 
-    // Step 2: add L₁ at comboPartial. addChildAtCombination throws on C2 collision (existing
-    // sibling at comboPartial).
+    // Step 2: add L₁ at comboPartial. The live CoW node is temporarily staged with L₀, so every
+    // construction failure must restore the original leaf before it can escape or fall back.
     final HOTIndirectPage newN;
     try {
       newN = HOTIncrementalInsert.addChildAtCombination(parentN, comboPartial, biNode.right(), parentN.getHeight(),
           storageEngineWriter.getRevisionNumber(), pageKeyAllocator);
-    } catch (IllegalArgumentException c2Collision) {
-      // C2: comboPartial collides with an existing c'. Direction-1-style sub-insert
-      // of L₁'s keys into c' is the future iteration; for now, restore N's slot and
-      // fall back to the caller's standard integrate path.
-      parentN.setChildReference(slotOfL, navResult.leafRef());
-      OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
-      return false;
+    } catch (final RuntimeException | Error constructionFailure) {
+      try {
+        parentN.setChildReference(slotOfL, originalLeafRef);
+      } catch (final RuntimeException | Error restoreFailure) {
+        addSuppressedSafely(constructionFailure, restoreFailure);
+        markTransactionRollbackOnly(constructionFailure);
+        closeFreshBiNode(biNode, constructionFailure);
+        throw constructionFailure;
+      }
+      if (constructionFailure instanceof IllegalArgumentException
+          && findChildSlotByPartial(parentN, comboPartial) >= 0) {
+        // C2: comboPartial collides with an existing c'. The unmodified caller still owns both
+        // split halves and may continue with its standard incremental integration.
+        OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
+        return false;
+      }
+      closeFreshBiNode(biNode, constructionFailure);
+      throw constructionFailure;
     }
 
     // Step 3: re-point N's reference at its parent + register fresh subtree.
-    navResult.pathRefs()[pathDepth - 1].setPage(newN);
-    lastDispatchHandler = "h:merge-integrate";
-    registerFreshSubtree(navResult.pathRefs()[pathDepth - 1]);
-    OFF_PATH_OVERFLOW_OK.incrementAndGet();
-    return true;
+    boolean published = false;
+    try {
+      navResult.pathRefs()[pathDepth - 1].setPage(newN);
+      published = true;
+      lastDispatchHandler = "h:merge-integrate";
+      final PageReference replacementRef = navResult.pathRefs()[pathDepth - 1];
+      registerFreshSubtree(replacementRef);
+      retireReplacedLeaf(originalLeafRef, replacementRef, TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
+      OFF_PATH_OVERFLOW_OK.incrementAndGet();
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+        closeFreshBiNode(biNode, failure);
+      } else {
+        try {
+          parentN.setChildReference(slotOfL, originalLeafRef);
+        } catch (final RuntimeException | Error restoreFailure) {
+          addSuppressedSafely(failure, restoreFailure);
+          markTransactionRollbackOnly(failure);
+        }
+        closeFreshBiNode(biNode, failure);
+      }
+      throw failure;
+    }
+  }
+
+  /** Retire the still-local portions of both halves of a failed incremental split. */
+  private void closeFreshBiNode(final HOTIncrementalInsert.BiNode biNode, final Throwable failure) {
+    closeUnregisteredFreshSubtree(biNode.left(), failure);
+    if (biNode.right() != biNode.left()) {
+      closeUnregisteredFreshSubtree(biNode.right(), failure);
+    }
   }
 
   /**
@@ -2617,66 +3922,30 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int pathDepth = navResult.pathDepth();
     final HOTIndirectPage parentN = navResult.pathNodes()[pathDepth - 1];
     final int revision = storageEngineWriter.getRevisionNumber();
-    final HOTIncrementalInsert.BiNode parentSplit;
-    try {
-      parentSplit = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(parentN, slotOfL, biNode.left(),
-          comboPartial, biNode.right(), revision, pageKeyAllocator);
-    } catch (IllegalArgumentException | IllegalStateException ex) {
-      // C2 collision or other structural mismatch -- fall back to caller's standard integrate.
+    if (findChildSlotByPartial(parentN, comboPartial) >= 0) {
+      // Verified C2: the would-be inserted partial already has a physical owner. No construction or
+      // allocation has started, so the caller may safely take its standard incremental path.
       OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
       return false;
     }
+    final HOTIncrementalInsert.BiNode parentSplit = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(
+        parentN, slotOfL, biNode.left(), comboPartial, biNode.right(), revision, pageKeyAllocator);
 
     final int currentDepth = pathDepth - 1;
-    final HOTIncrementalInsert.IntegrationResult result;
+    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
+        buildSpineRefs(navResult), navResult.pathChildIndices(), currentDepth, parentSplit, revision, pageKeyAllocator);
     try {
-      result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
-          navResult.pathChildIndices(), currentDepth, parentSplit, revision, pageKeyAllocator);
-    } catch (IllegalArgumentException | IllegalStateException ex) {
-      OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
-      return false;
-    }
-
-    lastDispatchHandler = "h:merge-offpath";
-    registerFreshSubtree(result.touchedRef());
-    if (Boolean.getBoolean("hot.diag.postHandlerValidate")) {
-      final List<HOTMalformedSubtreeDetector.MalformedSubtree> defects =
-          HOTMalformedSubtreeDetector.detect(navResult.pathRefs()[0], this::resolveHOTPageForTraversal);
-      final HashSet<String> seen = new HashSet<>(4096);
-      final ArrayList<String> duplicates = new ArrayList<>();
-      collectKeysForI1(navResult.pathRefs()[0].getPage(), seen, duplicates);
-      System.err.println("[POST-HANDLER-FULL-N] depth=" + pathDepth + " defects=" + defects + " duplicates="
-          + duplicates.size() + (duplicates.isEmpty()
-              ? ""
-              : " (first: " + duplicates.get(0) + ")"));
+      lastDispatchHandler = "h:merge-offpath";
+      registerFreshSubtree(result.touchedRef());
+      retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
+    } catch (final RuntimeException | Error failure) {
+      // integrate has already re-pointed its one touched spine reference.
+      markTransactionRollbackOnly(failure);
+      closeFreshBiNode(biNode, failure);
+      throw failure;
     }
     OFF_PATH_OVERFLOW_OK.incrementAndGet();
     return true;
-  }
-
-  /**
-   * Diagnostic helper — walk the subtree rooted at {@code page} and collect duplicate stored keys.
-   */
-  private void collectKeysForI1(Page page, HashSet<String> seen, ArrayList<String> duplicates) {
-    if (page instanceof HOTLeafPage leaf) {
-      final int count = leaf.getEntryCount();
-      for (int i = 0; i < count; i++) {
-        final String h = HexFormat.of().formatHex(leaf.getKey(i));
-        if (!seen.add(h)) {
-          duplicates.add(h);
-        }
-      }
-    } else if (page instanceof HOTIndirectPage indirect) {
-      for (int i = 0; i < indirect.getNumChildren(); i++) {
-        final PageReference ref = indirect.getChildReference(i);
-        if (ref == null)
-          continue;
-        final Page child = resolveHOTPageForTraversal(ref);
-        if (child != null) {
-          collectKeysForI1(child, seen, duplicates);
-        }
-      }
-    }
   }
 
   /**
@@ -2684,20 +3953,34 @@ public abstract class AbstractHOTIndexWriter<K> {
    * in; on bucket overflow defragments and retries once, then splits the leaf page and integrates the
    * resulting {@link HOTIncrementalInsert.BiNode} at the leaf's depth.
    */
-  private boolean mergeIntoLeaf(LeafNavigationResult navResult, byte[] keyBuf, int keyLen, byte[] valueBuf,
-      int valueLen, byte[] keySlice) {
+  private byte @Nullable [] mergeIntoLeaf(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen,
+      final byte[] valueBuf, final int valueLen) {
     final HOTLeafPage leaf = navResult.leaf();
+    // Posting indexes union NodeReferences for duplicate keys. A projection key identifies one
+    // physical slot whose payload is opaque bytes (including the zero-length tombstone), so a
+    // duplicate must replace the prior value byte-for-byte. Keep the projection slice exact once;
+    // callers normally already provide an exact array, so the hot path allocates nothing.
+    final byte[] projectionValue = indexType == IndexType.PROJECTION
+        ? valueLen == valueBuf.length
+            ? valueBuf
+            : Arrays.copyOf(valueBuf, valueLen)
+        : null;
     // Fast path: the entry fits the bucket. The leaf is mutated in place — already in the TIL.
-    // No indirect structure changes, so no structural self-heal is needed (return false).
-    // keySlice is already trimmed to the real key length, so passing it (length == keySlice.length)
-    // skips mergeWithNodeRefs's internal copyOf — one fewer per-insert allocation on the hot path.
-    if (leaf.mergeWithNodeRefs(keySlice, keySlice.length, valueBuf, valueLen)) {
-      return false;
+    // No indirect structure changes, so no structural validation scope is needed (return null).
+    // Both leaf APIs consume the valid key prefix directly. The serializer's spare buffer capacity
+    // never participates in ordering and no exact-size key array is created on this path.
+    if (indexType == IndexType.PROJECTION
+        ? leaf.putOrReplace(keyBuf, keyLen, projectionValue)
+        : leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+      return null;
     }
-    // The bucket is full. compact() repacks live entries without dropping tombstones (it is
-    // versioning-safe, unlike compactTombstones) — retry the merge once if it reclaimed space.
-    if (leaf.compact() > 0 && leaf.mergeWithNodeRefs(keySlice, keySlice.length, valueBuf, valueLen)) {
-      return false;
+    // The bucket is full. compact() only repacks the physically present entries; tombstones remain
+    // because removing them without also publishing a complete version boundary could resurrect an
+    // older value. Retry the merge once if the bounded, leaf-local repack reclaimed space.
+    if (leaf.compact() > 0 && (indexType == IndexType.PROJECTION
+        ? leaf.putOrReplace(keyBuf, keyLen, projectionValue)
+        : leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen))) {
+      return null;
     }
     // Genuine overflow: split the leaf page at its key-set MSDB and integrate the BiNode.
     if (!leaf.canSplit()) {
@@ -2706,32 +3989,43 @@ public abstract class AbstractHOTIndexWriter<K> {
               + indexType + ", entries=" + leaf.getEntryCount() + ", remaining=" + leaf.getRemainingSpace());
     }
     final int revision = storageEngineWriter.getRevisionNumber();
-    final byte[] valueSlice = valueLen == valueBuf.length
-        ? valueBuf
-        : Arrays.copyOf(valueBuf, valueLen);
+    final byte[] valueSlice = projectionValue != null
+        ? projectionValue
+        : valueLen == valueBuf.length
+            ? valueBuf
+            : Arrays.copyOf(valueBuf, valueLen);
+    final byte[] keySlice = exactKeyForStructuralMutation(keyBuf, keyLen);
     final HOTIncrementalInsert.BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
-    ensurePathChildrenLoaded(navResult.pathNodes());
+    boolean published = false;
+    try {
+      ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
-    // Issue B (plan §4.3): if β = msdb(L ∪ {K}) is already a disc bit of L's parent N,
-    // standard addEntry will reject. Apply the incremental off-path-overflow handler before
-    // calling integrate -- it slot-replaces L with L₀ and adds L₁ at comboPartial, sidestepping
-    // the rebuild-fallback over-partitioning observed in iterations 3/5/6/7/8.
-    if (handleOffPathOverflow(navResult, biNode, keySlice, valueSlice)) {
-      return true;
+      // Issue B (plan §4.3): if β = msdb(L ∪ {K}) is already a disc bit of L's parent N,
+      // standard addEntry will reject. Apply the incremental off-path-overflow handler before
+      // calling integrate -- it slot-replaces L with L₀ and adds L₁ at comboPartial, sidestepping
+      // the historical over-partitioning observed in iterations 3/5/6/7/8.
+      if (handleOffPathOverflow(navResult, biNode, keySlice, valueSlice)) {
+        return keySlice;
+      }
+
+      // Plan §12 Stage 3b: an exception escaping integrate after the clean preflight is a real
+      // bug. integrate allocates first and re-points exactly one spine reference as its final step.
+      final HOTIncrementalInsert.IntegrationResult result =
+          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+              navResult.pathDepth(), biNode, revision, pageKeyAllocator);
+      published = true;
+      lastDispatchHandler = "h:merge-offpath-fullN";
+      registerFreshSubtree(result.touchedRef());
+      retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
+      return keySlice;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+      }
+      closeFreshBiNode(biNode, failure);
+      throw failure;
     }
-
-    // Plan §12 Stage 3b: the structural-inconsistency self-heal arm (rebuildWholeIndex on
-    // IllegalArgument/IllegalStateException) is gone -- every overflow case is now handled
-    // incrementally by handleOffPathOverflow or its handleOffPathOverflowFullN variant. An
-    // exception escaping integrate at this point is a real bug, not a tolerable structural
-    // drift, so it propagates.
-    final HOTIncrementalInsert.IntegrationResult result =
-        HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-            navResult.pathDepth(), biNode, revision, pageKeyAllocator);
-    lastDispatchHandler = "h:merge-offpath-fullN";
-    registerFreshSubtree(result.touchedRef());
-    return true;
   }
 
   /**
@@ -2754,26 +4048,22 @@ public abstract class AbstractHOTIndexWriter<K> {
    * <li><b>add entry</b> — the affected subtree spans several children: the new key's leaf is folded
    * into {@code d*}'s block beside it ({@link HOTIncrementalInsert#addEntryWithInsertInfo}).</li>
    * </ul>
-   * The {@link #tryBranchIncremental} false return -- the I8-unsafe Direction 1 case where
-   * sub-inserting K would violate sibling ordering -- still falls back to a scoped
-   * {@link #rebuildSubtree} at the insert depth (now non-escalating per plan §12 Stage 3c).
+   * Every {@link #tryBranchIncremental} false return rejects an unpublished candidate and converges
+   * on the same complete structural-frontier splice.
    */
-  private boolean branchAboveLeaf(LeafNavigationResult navResult, HOTIncrementalInsert.DescentAnalysis analysis,
-      byte[] keySlice, byte[] valueBuf, int valueLen) {
+  private boolean branchAboveLeaf(final LeafNavigationResult navResult, final int mismatchBit, final int insertDepth,
+      final int affectedChildIndex, final byte[] keySlice, final byte[] valueBuf, final int valueLen) {
     final byte[] valueSlice = valueLen == valueBuf.length
         ? valueBuf
         : Arrays.copyOf(valueBuf, valueLen);
-    if (!tryBranchIncremental(navResult, analysis, keySlice, valueSlice)) {
-      // I8-unsafe Direction 1 (the only remaining false return from tryBranchIncremental).
-      // Recanonicalize, but scoped to the insert-depth subtree: the key branches inside it,
-      // so its ancestors are unaffected -- the rebuild stays bounded and Stage 3c's
-      // propagation handles ancestor height/partial refreshes without escalating.
-      pendingRebuildReason =
-          "trigger=branch-i8-unsafe insertDepth=" + analysis.insertDepth() + " pathDepth=" + navResult.pathDepth();
-      rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
-      return false; // rebuildSubtree output is canonical — no structural self-heal needed
+    if (!tryBranchIncremental(navResult, mismatchBit, insertDepth, affectedChildIndex, keySlice, valueSlice)) {
+      // Sparse routing and lexicographic placement disagree (Direction 1 / stranding / integration
+      // collision). Persistently split only the smallest complete structural frontier around those
+      // two positions, copy at most its one boundary leaf, and splice K there. This is the total
+      // incremental discharge: no subtree entry collection and no posting-payload rebuild.
+      spliceCompleteFrontierIncrementally(navResult, insertDepth, keySlice, valueSlice);
     }
-    return true; // incremental branch — verify the path structurally
+    return true; // incremental branch/frontier splice — verify the path structurally
   }
 
   /**
@@ -2783,22 +4073,20 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * @return {@code true} iff the key was inserted incrementally
    */
-  private boolean tryBranchIncremental(LeafNavigationResult navResult, HOTIncrementalInsert.DescentAnalysis analysis,
-      byte[] keySlice, byte[] valueSlice) {
+  private boolean tryBranchIncremental(final LeafNavigationResult navResult, final int beta, final int insertDepth,
+      final int affectedChildIndex, final byte[] keySlice, final byte[] valueSlice) {
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final PageReference[] pathRefs = navResult.pathRefs();
     final int[] childSlots = navResult.pathChildIndices();
     final int pathDepth = navResult.pathDepth();
-    final int beta = analysis.mismatchBit();
     final int betaValue = HOTBulkBuilder.bitAt(keySlice, beta)
         ? 1
         : 0;
     final int revision = storageEngineWriter.getRevisionNumber();
 
-    final int insertDepth = analysis.insertDepth();
     final HOTIndirectPage node = pathNodes[insertDepth];
     final HOTIncrementalInsert.InsertInfo info =
-        HOTIncrementalInsert.getInsertInformation(node, analysis.affectedChildIndex(), beta);
+        HOTIncrementalInsert.getInsertInformation(node, affectedChildIndex, beta);
     // beta colliding with an existing discriminative bit of d* means the approximate descent
     // misrouted the key across that bit (Binna's addEntry with DiscriminativeBitsRepresentation.insert
     // a no-op). The key branches off the affected subtree — which is one-sided on beta, since
@@ -2832,51 +4120,78 @@ public abstract class AbstractHOTIndexWriter<K> {
             ? 1 << (nodeDiscBits.length - 1 - betaColumn)
             : 0);
         final HOTLeafPage comboLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-        if (!comboLeaf.put(keySlice, valueSlice)) {
-          throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
-        }
+        putFreshSingleEntryOrThrow(comboLeaf, keySlice, valueSlice);
+        final HOTIndirectPage newNode;
         try {
-          final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(node, comboPartial,
-              swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
-          if (branchAddStrandsExisting(node, newNode, keySlice)) {
-            comboLeaf.close();
-            return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
+          newNode = HOTIncrementalInsert.addChildAtCombination(node, comboPartial, swizzle(comboLeaf), node.getHeight(),
+              revision, pageKeyAllocator);
+        } catch (final RuntimeException | Error constructionFailure) {
+          final int collisionSlot = findChildSlotByPartial(node, comboPartial);
+          if (!(constructionFailure instanceof IllegalArgumentException) || collisionSlot < 0) {
+            // addChildAtCombination owns the only C2 classification point. An exception without
+            // an actual partial collision is a violated construction precondition, not permission
+            // to enter Direction 1.
+            closeSpeculativeLeaf(comboLeaf, constructionFailure);
+            throw constructionFailure;
           }
-          if (nodeStructurallyMalformed(newNode)) {
-            comboLeaf.close();
-            BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
-            return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
-          }
-          pathRefs[insertDepth].setPage(newNode);
-          lastDispatchHandler = "h:combo-site1";
-          registerFreshSubtree(pathRefs[insertDepth]);
-          return true;
-        } catch (IllegalArgumentException c2Collision) {
           // C2 -- comboPartial coincides with an existing child of d*. Direction 1 sub-insert
           // into affected (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11) is routing-correct
           // by the descent tautology; the only remaining risk is I8 (range-scan ordering) when
           // K becomes affected's new firstKey and the trie has an MSDB-closure gap at some
           // ancestor's mask. Pre-check via isDirectionOneI8Safe; if safe, sub-insert; else
-          // fall back to a scoped rebuildSubtree at insertDepth (cheaper than the baseline's
-          // whole-index self-heal).
+          // try the bounded incremental frontier primitives below.
           comboLeaf.close();
-          if (isDirectionOneI8Safe(navResult, insertDepth, analysis.affectedChildIndex(), keySlice)) {
+          if (isDirectionOneI8Safe(navResult, insertDepth, affectedChildIndex, keySlice)) {
             lastDispatchHandler = "h:d1-subinsert";
             DIRECTION_ONE_SUBINSERT.incrementAndGet();
-            return subInsertAt(node.getChildReference(analysis.affectedChildIndex()), keySlice, keySlice.length,
-                valueSlice, valueSlice.length);
+            return subInsertAt(node.getChildReference(affectedChildIndex), keySlice, keySlice.length, valueSlice,
+                valueSlice.length);
           }
-          final int collisionSlot = findChildSlotByPartial(node, comboPartial);
-          if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot, analysis.affectedChildIndex(),
-              keySlice, valueSlice)) {
+          if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot, affectedChildIndex, keySlice,
+              valueSlice)) {
+            return true;
+          }
+          if (tryDirectionOneOppositeFrontierWrap(navResult, node, insertDepth, collisionSlot, affectedChildIndex, beta,
+              betaValue, keySlice, valueSlice)) {
             return true;
           }
           DIRECTION_ONE_FALLBACK.incrementAndGet();
           if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
-            dumpDirectionOneFallback("site1", navResult, analysis.affectedChildIndex(), analysis.insertDepth(), beta,
-                betaValue, comboPartial, keySlice);
+            dumpDirectionOneFallback("site1", navResult, affectedChildIndex, insertDepth, beta, betaValue, comboPartial,
+                keySlice);
           }
           return false;
+        }
+        boolean published = false;
+        try {
+          if (branchAddStrandsExisting(node, newNode, keySlice)) {
+            comboLeaf.close();
+            return dischargeStrandViaLeafFrontier(navResult, node, newNode, insertDepth, keySlice, valueSlice);
+          }
+          if (nodeStructurallyMalformed(newNode)) {
+            if (Boolean.getBoolean("hot.diag.branchFallback")) {
+              dumpMalformedComboAdd("site1", node, newNode, keySlice, beta);
+            }
+            if (trySpliceMalformedComboLeafFrontier(navResult, node, newNode, insertDepth, comboLeaf, keySlice)) {
+              return true;
+            }
+            comboLeaf.close();
+            BRANCH_COMPLETE_FRONTIER.incrementAndGet();
+            return false; // I8-unsafe combo-add -> complete structural frontier
+          }
+          pathRefs[insertDepth].setPage(newNode);
+          published = true;
+          lastDispatchHandler = "h:combo-site1";
+          registerFreshSubtree(pathRefs[insertDepth]);
+          return true;
+        } catch (final RuntimeException | Error failure) {
+          if (published) {
+            // setPage is the sole publication boundary. Nothing after it may be reclassified as
+            // a C2 construction collision or allowed to continue into another structural handler.
+            markTransactionRollbackOnly(failure);
+          }
+          closeSpeculativeLeaf(comboLeaf, failure);
+          throw failure;
         }
       }
     }
@@ -2892,32 +4207,51 @@ public abstract class AbstractHOTIndexWriter<K> {
         // the height bounded. Both BiNode children need fresh references — integrate may
         // re-point insertDepth's spine slot, and aliasing it would make a page its own child.
         final HOTLeafPage pullUpLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-        if (!pullUpLeaf.put(keySlice, valueSlice)) {
-          throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
-        }
+        putFreshSingleEntryOrThrow(pullUpLeaf, keySlice, valueSlice);
         if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, insertDepth, beta)) {
           pullUpLeaf.close();
           return false;
         }
         // Stranding guard: the whole node goes on beta's (1-betaValue) side. If its subtree holds
-        // a key with beta==betaValue, that key would strand under the pull-up leaf. Rebuild instead.
-        if (subtreeHasKeyWithBit(pathRefs[insertDepth], beta, betaValue, keySlice)) {
-          pullUpLeaf.close();
-          STRAND_FULL_FALLBACK.incrementAndGet();
-          return false; // BiNode-wrap strand (whole-subtree source): canonical rebuildSubtree
+        // a key with beta==betaValue, that key would strand under the pull-up leaf. Delegate instead.
+        try {
+          if (subtreeHasKeyWithBit(pathRefs[insertDepth], beta, betaValue, keySlice)) {
+            pullUpLeaf.close();
+            STRAND_COMPLETE_FRONTIER.incrementAndGet();
+            return false; // BiNode-wrap strand: complete structural frontier
+          }
+        } catch (MutationTraversalRefusal refusal) {
+          closeSpeculativeLeaf(pullUpLeaf, refusal);
+          throw refusal;
         }
-        final PageReference pullUpLeafRef = swizzle(pullUpLeaf);
-        final PageReference wrappedNodeRef = swizzle(node);
         final int biHeight = node.getHeight() + 1;
-        final HOTIncrementalInsert.BiNode biNode = betaValue == 1
-            ? new HOTIncrementalInsert.BiNode(beta, biHeight, wrappedNodeRef, pullUpLeafRef)
-            : new HOTIncrementalInsert.BiNode(beta, biHeight, pullUpLeafRef, wrappedNodeRef);
-        ensurePathChildrenLoaded(pathNodes);
-        final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
-            buildSpineRefs(navResult), childSlots, insertDepth, biNode, revision, pageKeyAllocator);
-        lastDispatchHandler = "h:integrate-existing-bit";
-        registerFreshSubtree(result.touchedRef());
-        return true;
+        final HOTIncrementalInsert.BiNode biNode;
+        try {
+          final PageReference pullUpLeafRef = swizzle(pullUpLeaf);
+          final PageReference wrappedNodeRef = swizzle(node);
+          biNode = betaValue == 1
+              ? new HOTIncrementalInsert.BiNode(beta, biHeight, wrappedNodeRef, pullUpLeafRef)
+              : new HOTIncrementalInsert.BiNode(beta, biHeight, pullUpLeafRef, wrappedNodeRef);
+        } catch (final RuntimeException | Error constructionFailure) {
+          closeSpeculativeLeaf(pullUpLeaf, constructionFailure);
+          throw constructionFailure;
+        }
+        boolean published = false;
+        try {
+          ensurePathChildrenLoaded(pathNodes, navResult.pathDepth());
+          final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
+              buildSpineRefs(navResult), childSlots, insertDepth, biNode, revision, pageKeyAllocator);
+          published = true;
+          lastDispatchHandler = "h:integrate-existing-bit";
+          registerFreshSubtree(result.touchedRef());
+          return true;
+        } catch (final RuntimeException | Error failure) {
+          if (published) {
+            markTransactionRollbackOnly(failure);
+          }
+          closeSpeculativeLeaf(pullUpLeaf, failure);
+          throw failure;
+        }
       }
       return branchSplitFullNode(navResult, info, node, insertDepth, beta, betaValue, keySlice, valueSlice);
     }
@@ -2942,31 +4276,21 @@ public abstract class AbstractHOTIndexWriter<K> {
             ? 1 << (childDiscBits.length - 1 - betaColAtChild)
             : 0);
         final HOTLeafPage comboLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-        if (!comboLeaf.put(keySlice, valueSlice)) {
-          throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
-        }
+        putFreshSingleEntryOrThrow(comboLeaf, keySlice, valueSlice);
+        final HOTIndirectPage newChild;
         try {
-          final HOTIndirectPage newChild = HOTIncrementalInsert.addChildAtCombination(child, comboPartial,
-              swizzle(comboLeaf), child.getHeight(), revision, pageKeyAllocator);
-          if (branchAddStrandsExisting(child, newChild, keySlice)) {
-            comboLeaf.close();
-            return dischargeStrandViaLeafRebuild(navResult, child, newChild, insertDepth + 1, keySlice, valueSlice);
+          newChild = HOTIncrementalInsert.addChildAtCombination(child, comboPartial, swizzle(comboLeaf),
+              child.getHeight(), revision, pageKeyAllocator);
+        } catch (final RuntimeException | Error constructionFailure) {
+          final int collisionSlot = findChildSlotByPartial(child, comboPartial);
+          if (!(constructionFailure instanceof IllegalArgumentException) || collisionSlot < 0) {
+            closeSpeculativeLeaf(comboLeaf, constructionFailure);
+            throw constructionFailure;
           }
-          if (nodeStructurallyMalformed(newChild)) {
-            comboLeaf.close();
-            BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
-            return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
-          }
-          pathRefs[insertDepth + 1].setPage(newChild);
-          lastDispatchHandler = "h:combo-site3";
-          registerFreshSubtree(pathRefs[insertDepth + 1]);
-          return true;
-        } catch (IllegalArgumentException collisionOrPrecondition) {
           // Site 3 C2 -- comboPartial collides with an existing child of the boundary node.
           // Apply Direction 1 at the boundary level: sub-insert K into the boundary child's
           // affected slot if I8-safe (the routing tautology holds at depth+1 just as at d*),
-          // else fall back to the caller's scoped rebuildSubtree
-          // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11 iteration 4).
+          // otherwise try the bounded incremental frontier primitives below.
           comboLeaf.close();
           if (isDirectionOneI8Safe(navResult, insertDepth + 1, childEntryIndex, keySlice)) {
             lastDispatchHandler = "h:d1-subinsert";
@@ -2974,9 +4298,12 @@ public abstract class AbstractHOTIndexWriter<K> {
             return subInsertAt(child.getChildReference(childEntryIndex), keySlice, keySlice.length, valueSlice,
                 valueSlice.length);
           }
-          final int collisionSlot = findChildSlotByPartial(child, comboPartial);
           if (tryDirectionOneLeafPairSplice(navResult, child, insertDepth + 1, collisionSlot, childEntryIndex, keySlice,
               valueSlice)) {
+            return true;
+          }
+          if (tryDirectionOneOppositeFrontierWrap(navResult, child, insertDepth + 1, collisionSlot, childEntryIndex,
+              beta, betaValue, keySlice, valueSlice)) {
             return true;
           }
           DIRECTION_ONE_FALLBACK.incrementAndGet();
@@ -2986,164 +4313,281 @@ public abstract class AbstractHOTIndexWriter<K> {
           }
           return false;
         }
+        boolean published = false;
+        try {
+          if (branchAddStrandsExisting(child, newChild, keySlice)) {
+            comboLeaf.close();
+            return dischargeStrandViaLeafFrontier(navResult, child, newChild, insertDepth + 1, keySlice, valueSlice);
+          }
+          if (nodeStructurallyMalformed(newChild)) {
+            if (trySpliceMalformedComboLeafFrontier(navResult, child, newChild, insertDepth + 1, comboLeaf, keySlice)) {
+              return true;
+            }
+            comboLeaf.close();
+            BRANCH_COMPLETE_FRONTIER.incrementAndGet();
+            return false; // I8-unsafe combo-add -> complete structural frontier
+          }
+          pathRefs[insertDepth + 1].setPage(newChild);
+          published = true;
+          lastDispatchHandler = "h:combo-site3";
+          registerFreshSubtree(pathRefs[insertDepth + 1]);
+          return true;
+        } catch (final RuntimeException | Error failure) {
+          if (published) {
+            markTransactionRollbackOnly(failure);
+          }
+          closeSpeculativeLeaf(comboLeaf, failure);
+          throw failure;
+        }
       }
     }
 
     // K's fresh single-entry leaf page — its own R(S)-subtree root.
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-    if (!keyLeaf.put(keySlice, valueSlice)) {
-      throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
-    }
-    final PageReference newLeafRef = swizzle(keyLeaf);
+    putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+    PageReference newLeafRef = null;
+    try {
+      newLeafRef = swizzle(keyLeaf);
 
-    if (singleEntry && leafEntry) {
-      // The affected subtree is the descended leaf page itself — pair it with K's leaf under a
-      // BiNode on beta and integrate at the leaf's depth. The leaf needs a fresh reference:
-      // integrate's materialize cases re-point the leaf's own spine slot, and aliasing it would
-      // make a page its own descendant (a cycle).
-      //
-      // Canonical-cut guard. Binna's BiNode pairing at beta IS the R(S) recursion step only when
-      // beta is the MSDB of the union {leaf ∪ K} — single-TID leaves satisfy that by
-      // construction, but a multi-value leaf buckets keys across bits the trie never
-      // discriminated, so its internal spread can reach a bit MORE significant than beta (beta
-      // is computed against the leaf's discriminated prefix, not its content). Two disqualifying
-      // shapes, both discharged by splitting the leaf at the union's own MSDB (the strand
-      // discharge — the same R(S) cut, taken at the right bit):
-      // (a) the leaf straddles beta itself (holds a key with beta==betaValue) — pairing would
-      // re-route that key to K's leaf without migrating it (cross-leaf dup);
-      // (b) the leaf's spread crosses a bit above beta — bit-constancy at beta still holds, yet
-      // the union's true MSDB lies inside the leaf, so pairing puts K lex-inside the leaf's
-      // range (13 of the 19 residual detector heals attributed here as I8/I12 at the
-      // integrated node before this guard existed).
-      final HOTLeafPage pairLeaf = navResult.leaf();
-      final byte[] pairLeafFirst = pairLeaf.getFirstKey();
-      final byte[] pairLeafLast = pairLeaf.getEntryCount() > 0
-          ? pairLeaf.getKey(pairLeaf.getEntryCount() - 1)
-          : null;
-      final boolean canonicalCut = pairLeafFirst != null && pairLeafLast != null
-          && HOTBulkBuilder.msdb(Arrays.compareUnsigned(keySlice, pairLeafFirst) < 0
-              ? keySlice
-              : pairLeafFirst,
-              Arrays.compareUnsigned(keySlice, pairLeafLast) > 0
-                  ? keySlice
-                  : pairLeafLast) == beta
-          && pairLeaf.isBitConstantAtAbsBit(beta) == 1 - betaValue;
-      if (!canonicalCut) {
-        keyLeaf.close();
-        if (strandDischargeSplitIntegrate(navResult, keySlice, valueSlice)) {
+      if (singleEntry && leafEntry) {
+        // The affected subtree is the descended leaf page itself — pair it with K's leaf under a
+        // BiNode on beta and integrate at the leaf's depth. The leaf needs a fresh reference:
+        // integrate's materialize cases re-point the leaf's own spine slot, and aliasing it would
+        // make a page its own descendant (a cycle).
+        //
+        // Canonical-cut guard. Binna's BiNode pairing at beta IS the R(S) recursion step only when
+        // beta is the MSDB of the union {leaf ∪ K} — single-TID leaves satisfy that by
+        // construction, but a multi-value leaf buckets keys across bits the trie never
+        // discriminated, so its internal spread can reach a bit MORE significant than beta (beta
+        // is computed against the leaf's discriminated prefix, not its content). Two disqualifying
+        // shapes, both discharged by splitting the leaf at the union's own MSDB (the strand
+        // discharge — the same R(S) cut, taken at the right bit):
+        // (a) the leaf straddles beta itself (holds a key with beta==betaValue) — pairing would
+        // re-route that key to K's leaf without migrating it (cross-leaf dup);
+        // (b) the leaf's spread crosses a bit above beta — bit-constancy at beta still holds, yet
+        // the union's true MSDB lies inside the leaf, so pairing puts K lex-inside the leaf's
+        // range (13 of the 19 residual detector heals attributed here as I8/I12 at the
+        // integrated node before this guard existed).
+        final HOTLeafPage pairLeaf = navResult.leaf();
+        final byte[] pairLeafFirst = pairLeaf.getFirstKey();
+        final byte[] pairLeafLast = pairLeaf.getEntryCount() > 0
+            ? pairLeaf.getKey(pairLeaf.getEntryCount() - 1)
+            : null;
+        final boolean canonicalCut = pairLeafFirst != null && pairLeafLast != null
+            && HOTBulkBuilder.msdb(Arrays.compareUnsigned(keySlice, pairLeafFirst) < 0
+                ? keySlice
+                : pairLeafFirst,
+                Arrays.compareUnsigned(keySlice, pairLeafLast) > 0
+                    ? keySlice
+                    : pairLeafLast) == beta
+            && pairLeaf.isBitConstantAtAbsBit(beta) == 1 - betaValue;
+        if (!canonicalCut) {
+          keyLeaf.close();
+          if (strandDischargeSplitIntegrate(navResult, keySlice, valueSlice)) {
+            return true;
+          }
+          return false; // total complete-frontier splice copies only the boundary leaf
+        }
+        if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, pathDepth, beta)) {
+          keyLeaf.close();
+          return false;
+        }
+        // Direction-1-dual pre-guard: the pair keeps the leaf's slot, so K becomes the slot's new
+        // minimum (betaValue == 0) or maximum (betaValue == 1). Subset routing brought K here, but
+        // subset routing does not imply lex position — if K falls outside the slot's boundary with
+        // its neighbour, the pairing would break I8/I12 (the shape the impossibility analysis
+        // proves no narrow primitive fixes). Detect it before splicing and delegate to the complete
+        // frontier instead of publishing a violation.
+        if (pathDepth > 0) {
+          final HOTIndirectPage pairParent = pathNodes[pathDepth - 1];
+          final int leafSlot = childSlots[pathDepth - 1];
+          if (betaValue == 0 && leafSlot > 0) {
+            final byte[] prevLast = lastKeyOfSubtree(pairParent.getChildReference(leafSlot - 1));
+            if (prevLast != null && Arrays.compareUnsigned(prevLast, keySlice) >= 0) {
+              keyLeaf.close();
+              return false; // K sorts at or below the previous sibling: complete frontier
+            }
+          } else if (betaValue == 1 && leafSlot + 1 < pairParent.getNumChildren()) {
+            final byte[] nextFirst = firstKeyOfSubtree(pairParent.getChildReference(leafSlot + 1));
+            if (nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) >= 0) {
+              keyLeaf.close();
+              return false; // K sorts at or above the next sibling: complete frontier
+            }
+          }
+        }
+        // A height-1 parent fold keeps the old leaf's logical identity live under the rebuilt parent;
+        // a copied PageReference satisfies integrate's no-wrapper-alias precondition without minting
+        // a second page identity or copying 64 KiB. Root and mixed-height/intermediate placement
+        // publish at the source reference itself, so sharing its handle there would make the child
+        // resolve to its containing pair root (a cycle). Those two shapes need an independent physical
+        // full-page copy with a fresh page key, after which the old source can be uniquely retired.
+        final boolean preserveSourceIdentity = pathDepth > 0 && pathNodes[pathDepth - 1].getHeight() == 1;
+        HOTLeafPage copiedSourceLeaf = null;
+        PageReference copiedSourceRef = null;
+        final PageReference leafRef;
+        final HOTIncrementalInsert.BiNode biNode;
+        try {
+          if (preserveSourceIdentity) {
+            leafRef = new PageReference(navResult.leafRef());
+            // The copy constructor deliberately drops a swizzle when a durable/TIL identity exists.
+            // integrate's fixed-fanout height accounting is resolver-free, so lend it the already
+            // guarded resident leaf; PageReference.getPage clears this pointer if its owner later
+            // retires the instance, while the shared handle remains the authoritative identity.
+            leafRef.setPage(navResult.leaf());
+          } else {
+            copiedSourceLeaf = navResult.leaf().copyAsFreshPage(pageKeyAllocator.getAsLong(), revision);
+            copiedSourceRef = swizzle(copiedSourceLeaf);
+            leafRef = copiedSourceRef;
+          }
+          biNode = betaValue == 1
+              ? new HOTIncrementalInsert.BiNode(beta, 1, leafRef, newLeafRef)
+              : new HOTIncrementalInsert.BiNode(beta, 1, newLeafRef, leafRef);
+        } catch (final RuntimeException | Error constructionFailure) {
+          if (copiedSourceLeaf != null) {
+            closeFreshLeafUnlessLogOwned(copiedSourceRef, copiedSourceLeaf, constructionFailure);
+          }
+          throw constructionFailure;
+        }
+        boolean published = false;
+        try {
+          ensurePathChildrenLoaded(pathNodes, navResult.pathDepth());
+          final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
+              buildSpineRefs(navResult), childSlots, pathDepth, biNode, revision, pageKeyAllocator);
+          published = true;
+          lastDispatchHandler = "h:pair-leaf";
+          registerFreshSubtree(result.touchedRef());
+          if (!preserveSourceIdentity) {
+            retireReplacedLeaf(navResult.leafRef(), result.touchedRef(),
+                TransactionIntentLog.RELEASE_SITE_BRANCH_LEAF_PAIR);
+          }
           return true;
-        }
-        lastDispatchHandler = "h:strand-pairleaf";
-        leafScopedRebuild(navResult, keySlice, valueSlice); // strandable keys are the descended leaf's
-        STRAND_LEAF_REBUILD.incrementAndGet();
-        return true;
-      }
-      if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, pathDepth, beta)) {
-        keyLeaf.close();
-        return false;
-      }
-      // Direction-1-dual pre-guard: the pair keeps the leaf's slot, so K becomes the slot's new
-      // minimum (betaValue == 0) or maximum (betaValue == 1). Subset routing brought K here, but
-      // subset routing does not imply lex position — if K falls outside the slot's boundary with
-      // its neighbour, the pairing would break I8/I12 (the shape the impossibility analysis
-      // proves no local primitive fixes). Detect it BEFORE splicing and take the canonical
-      // rebuild instead of manufacturing a violation for the detector to repair.
-      if (pathDepth > 0) {
-        final HOTIndirectPage pairParent = pathNodes[pathDepth - 1];
-        final int leafSlot = childSlots[pathDepth - 1];
-        if (betaValue == 0 && leafSlot > 0) {
-          final byte[] prevLast = lastKeyOfSubtree(pairParent.getChildReference(leafSlot - 1));
-          if (prevLast != null && Arrays.compareUnsigned(prevLast, keySlice) >= 0) {
-            keyLeaf.close();
-            return false; // K sorts at or below the previous sibling: canonical rebuildSubtree
+        } catch (final RuntimeException | Error failure) {
+          if (published) {
+            markTransactionRollbackOnly(failure);
           }
-        } else if (betaValue == 1 && leafSlot + 1 < pairParent.getNumChildren()) {
-          final byte[] nextFirst = firstKeyOfSubtree(pairParent.getChildReference(leafSlot + 1));
-          if (nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) >= 0) {
-            keyLeaf.close();
-            return false; // K sorts at or above the next sibling: canonical rebuildSubtree
+          closeFreshLeafUnlessLogOwned(newLeafRef, keyLeaf, failure);
+          if (copiedSourceLeaf != null) {
+            closeFreshLeafUnlessLogOwned(copiedSourceRef, copiedSourceLeaf, failure);
+          }
+          throw failure;
+        }
+      }
+
+      if (singleEntry) {
+        // Binna's "false positive": the single affected entry is a boundary node, not the leaf —
+        // the MSB-stack insert depth was one level too shallow. beta is more significant than every
+        // discriminative bit of that child, so K joins it as a new partition root.
+        final int childDepth = insertDepth + 1;
+        final HOTIndirectPage child = pathNodes[childDepth];
+        if (child.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
+          boolean published = false;
+          try {
+            final HOTIndirectPage newChild = HOTIncrementalInsert.addEntryWithInsertInfo(child, beta, betaValue, 0,
+                child.getNumChildren(), 0, newLeafRef, child.getHeight(), revision, pageKeyAllocator);
+            if (branchAddStrandsExisting(child, newChild, keySlice)) {
+              keyLeaf.close();
+              return dischargeStrandViaLeafFrontier(navResult, child, newChild, childDepth, keySlice, valueSlice);
+            }
+            if (nodeStructurallyMalformed(newChild)) {
+              if (trySpliceMalformedComboLeafFrontier(navResult, child, newChild, childDepth, keyLeaf, keySlice)) {
+                return true;
+              }
+              keyLeaf.close();
+              BRANCH_COMPLETE_FRONTIER.incrementAndGet();
+              return false; // I8-unsafe combo-add -> complete structural frontier
+            }
+            pathRefs[childDepth].setPage(newChild);
+            published = true;
+            lastDispatchHandler = "h:boundary-addentry";
+            registerFreshSubtree(pathRefs[childDepth]);
+            return true;
+          } catch (final RuntimeException | Error failure) {
+            if (published) {
+              markTransactionRollbackOnly(failure);
+            }
+            closeFreshLeafUnlessLogOwned(newLeafRef, keyLeaf, failure);
+            throw failure;
           }
         }
+        // The boundary node is full — wrap it whole under a BiNode on beta and integrate. It needs
+        // a fresh reference (integrate may re-point the boundary node's own spine slot).
+        if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, childDepth, beta)) {
+          keyLeaf.close();
+          return false;
+        }
+        // Stranding guard: the whole boundary child goes on beta's (1-betaValue) side; if its
+        // subtree holds a key with beta==betaValue, that key would strand. Delegate instead.
+        try {
+          if (subtreeHasKeyWithBit(pathRefs[childDepth], beta, betaValue, keySlice)) {
+            keyLeaf.close();
+            STRAND_COMPLETE_FRONTIER.incrementAndGet();
+            return false; // BiNode-wrap strand: complete structural frontier
+          }
+        } catch (MutationTraversalRefusal refusal) {
+          closeSpeculativeLeaf(keyLeaf, refusal);
+          throw refusal;
+        }
+        final PageReference childRef = swizzle(child);
+        final int biHeight = child.getHeight() + 1;
+        final HOTIncrementalInsert.BiNode biNode = betaValue == 1
+            ? new HOTIncrementalInsert.BiNode(beta, biHeight, childRef, newLeafRef)
+            : new HOTIncrementalInsert.BiNode(beta, biHeight, newLeafRef, childRef);
+        boolean published = false;
+        try {
+          ensurePathChildrenLoaded(pathNodes, navResult.pathDepth());
+          final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
+              buildSpineRefs(navResult), childSlots, childDepth, biNode, revision, pageKeyAllocator);
+          published = true;
+          lastDispatchHandler = "h:wrap-full";
+          registerFreshSubtree(result.touchedRef());
+          return true;
+        } catch (final RuntimeException | Error failure) {
+          if (published) {
+            markTransactionRollbackOnly(failure);
+          }
+          closeFreshLeafUnlessLogOwned(newLeafRef, keyLeaf, failure);
+          throw failure;
+        }
       }
-      final PageReference leafRef = swizzle(navResult.leaf());
-      final HOTIncrementalInsert.BiNode biNode = betaValue == 1
-          ? new HOTIncrementalInsert.BiNode(beta, 1, leafRef, newLeafRef)
-          : new HOTIncrementalInsert.BiNode(beta, 1, newLeafRef, leafRef);
-      ensurePathChildrenLoaded(pathNodes);
-      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
-          buildSpineRefs(navResult), childSlots, pathDepth, biNode, revision, pageKeyAllocator);
-      lastDispatchHandler = "h:pair-leaf";
-      registerFreshSubtree(result.touchedRef());
-      return true;
-    }
 
-    if (singleEntry) {
-      // Binna's "false positive": the single affected entry is a boundary node, not the leaf —
-      // the MSB-stack insert depth was one level too shallow. beta is more significant than every
-      // discriminative bit of that child, so K joins it as a new partition root.
-      final int childDepth = insertDepth + 1;
-      final HOTIndirectPage child = pathNodes[childDepth];
-      if (child.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
-        final HOTIndirectPage newChild = HOTIncrementalInsert.addEntryWithInsertInfo(child, beta, betaValue, 0,
-            child.getNumChildren(), 0, newLeafRef, child.getHeight(), revision, pageKeyAllocator);
-        if (branchAddStrandsExisting(child, newChild, keySlice)) {
+      // affectedCount > 1 — K's leaf is folded into d*'s block beside the affected subtree. beta
+      // becomes a new discriminative bit; the node keeps its height (a leaf child never raises it).
+      boolean published = false;
+      try {
+        final HOTIndirectPage newNode =
+            HOTIncrementalInsert.addEntryWithInsertInfo(node, beta, betaValue, info.firstAffected(),
+                info.affectedCount(), info.subtreePrefix(), newLeafRef, node.getHeight(), revision, pageKeyAllocator);
+        if (branchAddStrandsExisting(node, newNode, keySlice)) {
           keyLeaf.close();
-          return dischargeStrandViaLeafRebuild(navResult, child, newChild, childDepth, keySlice, valueSlice);
+          return dischargeStrandViaLeafFrontier(navResult, node, newNode, insertDepth, keySlice, valueSlice);
         }
-        if (nodeStructurallyMalformed(newChild)) {
+        if (nodeStructurallyMalformed(newNode)) {
+          if (trySpliceMalformedComboLeafFrontier(navResult, node, newNode, insertDepth, keyLeaf, keySlice)) {
+            return true;
+          }
           keyLeaf.close();
-          BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
-          return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
+          BRANCH_COMPLETE_FRONTIER.incrementAndGet();
+          return false; // I8-unsafe combo-add -> complete structural frontier
         }
-        pathRefs[childDepth].setPage(newChild);
-        lastDispatchHandler = "h:boundary-addentry";
-        registerFreshSubtree(pathRefs[childDepth]);
+        pathRefs[insertDepth].setPage(newNode);
+        published = true;
+        lastDispatchHandler = "h:fold-multi";
+        registerFreshSubtree(pathRefs[insertDepth]);
         return true;
+      } catch (final RuntimeException | Error failure) {
+        if (published) {
+          markTransactionRollbackOnly(failure);
+        }
+        closeFreshLeafUnlessLogOwned(newLeafRef, keyLeaf, failure);
+        throw failure;
       }
-      // The boundary node is full — wrap it whole under a BiNode on beta and integrate. It needs
-      // a fresh reference (integrate may re-point the boundary node's own spine slot).
-      if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, childDepth, beta)) {
-        keyLeaf.close();
-        return false;
-      }
-      // Stranding guard: the whole boundary child goes on beta's (1-betaValue) side; if its
-      // subtree holds a key with beta==betaValue, that key would strand. Rebuild instead.
-      if (subtreeHasKeyWithBit(pathRefs[childDepth], beta, betaValue, keySlice)) {
-        keyLeaf.close();
-        STRAND_FULL_FALLBACK.incrementAndGet();
-        return false; // BiNode-wrap strand (whole-subtree source): canonical rebuildSubtree
-      }
-      final PageReference childRef = swizzle(child);
-      final int biHeight = child.getHeight() + 1;
-      final HOTIncrementalInsert.BiNode biNode = betaValue == 1
-          ? new HOTIncrementalInsert.BiNode(beta, biHeight, childRef, newLeafRef)
-          : new HOTIncrementalInsert.BiNode(beta, biHeight, newLeafRef, childRef);
-      ensurePathChildrenLoaded(pathNodes);
-      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
-          buildSpineRefs(navResult), childSlots, childDepth, biNode, revision, pageKeyAllocator);
-      lastDispatchHandler = "h:wrap-full";
-      registerFreshSubtree(result.touchedRef());
-      return true;
+    } catch (final RuntimeException | Error failure) {
+      // Inner publication catches perform their own exact cleanup. This outer owner covers the
+      // allocation-to-handler seams (swizzle, endpoint/order guards and BiNode construction) that
+      // run before those catches; it retries only when no inner cleanup completed.
+      closeFreshLeafUnlessLogOwned(newLeafRef, keyLeaf, failure);
+      throw failure;
     }
-
-    // affectedCount > 1 — K's leaf is folded into d*'s block beside the affected subtree. beta
-    // becomes a new discriminative bit; the node keeps its height (a leaf child never raises it).
-    final HOTIndirectPage newNode =
-        HOTIncrementalInsert.addEntryWithInsertInfo(node, beta, betaValue, info.firstAffected(), info.affectedCount(),
-            info.subtreePrefix(), newLeafRef, node.getHeight(), revision, pageKeyAllocator);
-    if (branchAddStrandsExisting(node, newNode, keySlice)) {
-      keyLeaf.close();
-      return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
-    }
-    if (nodeStructurallyMalformed(newNode)) {
-      keyLeaf.close();
-      BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
-      return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
-    }
-    pathRefs[insertDepth].setPage(newNode);
-    lastDispatchHandler = "h:fold-multi";
-    registerFreshSubtree(pathRefs[insertDepth]);
-    return true;
   }
 
   /**
@@ -3159,23 +4603,31 @@ public abstract class AbstractHOTIndexWriter<K> {
       HOTIndirectPage node, int insertDepth, int beta, int betaValue, byte[] keySlice, byte[] valueSlice) {
     final int revision = storageEngineWriter.getRevisionNumber();
     // splitIndirectWithEntry returns a BiNode on node.MSB; pre-check the integrate cascade for an
-    // un-mergeable cross-level overlap and bail to the caller's scoped rebuild if found.
+    // un-mergeable cross-level overlap and delegate to the complete frontier if found.
     if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), insertDepth,
         node.getMostSignificantBitIndex())) {
       return false;
     }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-    if (!keyLeaf.put(keySlice, valueSlice)) {
-      throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
+    putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+    boolean published = false;
+    try {
+      ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
+      final HOTIncrementalInsert.BiNode biNode = HOTIncrementalInsert.splitIndirectWithEntry(node, info, beta,
+          betaValue, swizzle(keyLeaf), revision, pageKeyAllocator);
+      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
+          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, biNode, revision, pageKeyAllocator);
+      published = true;
+      lastDispatchHandler = "h:branch-integrate";
+      registerFreshSubtree(result.touchedRef());
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+      }
+      closeSpeculativeLeaf(keyLeaf, failure);
+      throw failure;
     }
-    ensurePathChildrenLoaded(navResult.pathNodes());
-    final HOTIncrementalInsert.BiNode biNode = HOTIncrementalInsert.splitIndirectWithEntry(node, info, beta, betaValue,
-        swizzle(keyLeaf), revision, pageKeyAllocator);
-    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, biNode, revision, pageKeyAllocator);
-    lastDispatchHandler = "h:branch-integrate";
-    registerFreshSubtree(result.touchedRef());
-    return true;
   }
 
   /**
@@ -3208,10 +4660,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@code addChildAtCombination} unconditionally — the β-survival dispatch is mandatory.
    *
    * <p>
-   * Out-of-scope corner cases (§6 C1 / C2) fall back to the existing rebuild — not yet
-   * probe-verified: C1 (1:31 lone-child half) and C2 ({@code comboPartial} collision = a descent
-   * imprecision). On either, this method returns {@code false} and the caller's scoped
-   * {@code rebuildSubtree} handles it (no regression vs. the prior {@code return false}).
+   * C1 (1:31 lone-child half) and C2 ({@code comboPartial} collision) return {@code false} before
+   * publication so the shared complete-frontier primitive handles them.
    *
    * @return {@code true} iff the key was inserted incrementally
    */
@@ -3219,17 +4669,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Pre-check whether {@link HOTIncrementalInsert#integrate}'s cascade — starting at
    * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
    * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
-   * integrate). Returns {@code false} to signal the caller should fall back to a scoped
-   * {@link #rebuildSubtree} instead of attempting the incremental integrate.
+   * integrate). Returns {@code false} before publication so the caller uses the complete frontier.
    *
    * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
    * throw. It checks {@link HOTIncrementalInsert#canMergeBiNodeAtExistingDiscBit} at every level
    * whose mask contains the running β. The β evolution exactly matches integrate's full-node cascade
    * (β becomes {@code parent.MSB} after a split). It does not model integrate's
-   * intermediate-placement short-circuit (a height comparison) — skipping it can only cause an
-   * occasional *unnecessary* rebuild (integrate would have succeeded via intermediate placement),
-   * never a missed crash, because integrate never folds at an intermediate level.
+   * intermediate-placement short-circuit (a height comparison) — skipping it can only choose the
+   * complete-frontier arm unnecessarily, never miss a crash, because integrate never folds at an
+   * intermediate level.
    *
    * @param pathNodes the spine, root-to-leaf
    * @param childSlots the child slot taken at each spine node
@@ -3260,46 +4709,45 @@ public abstract class AbstractHOTIndexWriter<K> {
       int beta, int betaValue, byte[] keySlice, byte[] valueSlice) {
     final int revision = storageEngineWriter.getRevisionNumber();
     // splitIndirect produces a BiNode on node.MSB; pre-check the integrate cascade for an
-    // un-mergeable cross-level overlap and bail to the caller's scoped rebuild if found.
+    // un-mergeable cross-level overlap and delegate to the complete frontier if found.
     if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), navResult.pathChildIndices(), insertDepth,
         node.getMostSignificantBitIndex())) {
       return false;
     }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-    if (!keyLeaf.put(keySlice, valueSlice)) {
-      throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
-    }
-    ensurePathChildrenLoaded(navResult.pathNodes());
-
-    // 1. Split the full node at its own MSB into BiNode(node.MSB, leftHalf, rightHalf).
-    final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, revision, pageKeyAllocator);
-
-    // 2. K routes by node.MSB into one half.
-    final int nodeMsb = node.getMostSignificantBitIndex();
-    final boolean kMsbBit = HOTBulkBuilder.bitAt(keySlice, nodeMsb);
-    final PageReference halfRef = kMsbBit
-        ? split.right()
-        : split.left();
-    if (!(halfRef.getPage() instanceof HOTIndirectPage half)) {
-      // C1 — K's half is a lone child (1:31 split, the half is the bare child reference).
-      // Not yet probe-verified; fall back to the caller's scoped rebuildSubtree.
-      keyLeaf.close();
-      return false;
-    }
-
-    // 3. In the half: dispatch on whether beta survived compressHalf.
-    final int[] halfDiscBits = HOTIncrementalInsert.discriminativeBits(half);
-    final int betaCol = Arrays.binarySearch(halfDiscBits, beta);
-    final int childIdx = half.findChildIndex(keySlice);
-    if (childIdx < 0) {
-      // Defensive — a canonical half's descent should always find a child.
-      keyLeaf.close();
-      return false;
-    }
-    final HOTIncrementalInsert.InsertInfo halfInfo = HOTIncrementalInsert.getInsertInformation(half, childIdx, beta);
-    final PageReference keyLeafRef = swizzle(keyLeaf);
-    final HOTIndirectPage foldedHalf;
+    putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+    boolean published = false;
     try {
+      ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
+
+      // 1. Split the full node at its own MSB into BiNode(node.MSB, leftHalf, rightHalf).
+      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, revision, pageKeyAllocator);
+
+      // 2. K routes by node.MSB into one half.
+      final int nodeMsb = node.getMostSignificantBitIndex();
+      final boolean kMsbBit = HOTBulkBuilder.bitAt(keySlice, nodeMsb);
+      final PageReference halfRef = kMsbBit
+          ? split.right()
+          : split.left();
+      if (!(halfRef.getPage() instanceof HOTIndirectPage half)) {
+        // C1 — K's half is a lone child (1:31 split, the half is the bare child reference).
+        // The half is not a compound frontier; let the shared complete-frontier arm place K.
+        keyLeaf.close();
+        return false;
+      }
+
+      // 3. In the half: dispatch on whether beta survived compressHalf.
+      final int[] halfDiscBits = HOTIncrementalInsert.discriminativeBits(half);
+      final int betaCol = Arrays.binarySearch(halfDiscBits, beta);
+      final int childIdx = half.findChildIndex(keySlice);
+      if (childIdx < 0) {
+        // Defensive — a canonical half's descent should always find a child.
+        keyLeaf.close();
+        return false;
+      }
+      final HOTIncrementalInsert.InsertInfo halfInfo = HOTIncrementalInsert.getInsertInformation(half, childIdx, beta);
+      final PageReference keyLeafRef = swizzle(keyLeaf);
+      final HOTIndirectPage foldedHalf;
       if (betaCol >= 0) {
         // beta survived as a disc bit of the half — still betaIsDiscBit for the half.
         final int comboPartial = halfInfo.subtreePrefix() | (betaValue == 1
@@ -3307,7 +4755,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             : 0);
         if (findChildSlotByPartial(half, comboPartial) >= 0) {
           // C2: the split did not make K a new combination. K belongs below the child selected by
-          // the half's own descent; finish that descent, then rebuild only the two freshly split
+          // the half's own descent; finish that descent, then recompress only the two freshly split
           // parent pages from their (now updated) child references. This is page-local structural
           // maintenance—not entry collection or a subtree rebuild.
           keyLeaf.close();
@@ -3323,33 +4771,39 @@ public abstract class AbstractHOTIndexWriter<K> {
             halfInfo.affectedCount(), halfInfo.subtreePrefix(), keyLeafRef, half.getHeight(), revision,
             pageKeyAllocator);
       }
-    } catch (IllegalArgumentException collisionOrPrecondition) {
-      // C2 — comboPartial collides with an existing child (the descent stopped one level too
-      // shallow), or another fold precondition fails. Not yet probe-verified; fall back to
-      // the caller's scoped rebuildSubtree.
-      keyLeaf.close();
-      return false;
-    }
-    // Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1): the fold added K's
-    // single-key leaf to the half; if an existing key in the half would now route to it, the half
-    // straddles the fold bit. Discard the (uncommitted) split and fall back to a canonical rebuild.
-    if (branchAddStrandsExisting(half, foldedHalf, keySlice)) {
-      keyLeaf.close();
-      return dischargeStrandViaLeafRebuild(navResult, half, foldedHalf, -1, keySlice, valueSlice);
-    }
-    if (nodeStructurallyMalformed(foldedHalf)) {
-      keyLeaf.close();
-      BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
-      return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
-    }
-    halfRef.setPage(foldedHalf);
+      // Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1): the fold added K's
+      // single-key leaf to the half; if an existing key in the half would now route to it, the half
+      // straddles the fold bit. Discard the uncommitted split and splice the canonical leaf frontier.
+      try {
+        if (branchAddStrandsExisting(half, foldedHalf, keySlice)) {
+          keyLeaf.close();
+          return dischargeStrandViaLeafFrontier(navResult, half, foldedHalf, -1, keySlice, valueSlice);
+        }
+      } catch (MutationTraversalRefusal refusal) {
+        closeSpeculativeLeaf(keyLeaf, refusal);
+        throw refusal;
+      }
+      if (nodeStructurallyMalformed(foldedHalf)) {
+        keyLeaf.close();
+        BRANCH_COMPLETE_FRONTIER.incrementAndGet();
+        return false; // I8-unsafe combo-add -> complete structural frontier
+      }
+      halfRef.setPage(foldedHalf);
 
-    // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
-    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, split, revision, pageKeyAllocator);
-    lastDispatchHandler = "h:combo-site2-fold";
-    registerFreshSubtree(result.touchedRef());
-    return true;
+      // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
+      final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
+          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, split, revision, pageKeyAllocator);
+      published = true;
+      lastDispatchHandler = "h:combo-site2-fold";
+      registerFreshSubtree(result.touchedRef());
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+      }
+      closeSpeculativeLeaf(keyLeaf, failure);
+      throw failure;
+    }
   }
 
   /** Complete a full-node C2 collision by descending into the selected child of the split half. */
@@ -3362,80 +4816,113 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false;
     }
 
-    if (!subInsertAt(half.getChildReference(affectedIdx), keySlice, keySlice.length, valueSlice, valueSlice.length)) {
-      return false;
-    }
+    boolean subInsertPublished = false;
+    try {
+      if (!subInsertAt(half.getChildReference(affectedIdx), keySlice, keySlice.length, valueSlice, valueSlice.length)) {
+        return false;
+      }
+      // subInsertAt CoWs/logs the selected child reference. From here onward a failure cannot fall
+      // back to another structural handler: the child already contains K even though the refreshed
+      // split parent may not yet have been integrated.
+      subInsertPublished = true;
 
-    // subInsertAt may have re-pointed (or grown) the affected child. Re-compress both halves from
-    // the original full node's now-current child references so their heights and masks describe the
-    // post-insert structure exactly. The first speculative split was never published or registered.
-    final HOTIncrementalInsert.BiNode refreshedSplit =
-        HOTIncrementalInsert.splitIndirect(originalNode, revision, pageKeyAllocator);
-    final HOTIncrementalInsert.IntegrationResult result =
-        HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-            insertDepth, refreshedSplit, revision, pageKeyAllocator);
-    lastDispatchHandler = "h:combo-site2-d1";
-    registerFreshSubtree(result.touchedRef());
-    DIRECTION_ONE_SUBINSERT.incrementAndGet();
-    FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.incrementAndGet();
-    return true;
+      // TIL.put clears ref.page. splitIndirect computes each compressed half's exact height from the
+      // resident child pages, so re-resolve this one fixed-fanout block before recompressing it. This
+      // is O(MAX_NODE_ENTRIES), never a subtree scan.
+      ensureNodeChildrenLoaded(originalNode);
+
+      // subInsertAt may have re-pointed (or grown) the affected child. Re-compress both halves from
+      // the original full node's now-current child references so their heights and masks describe the
+      // post-insert structure exactly. The first speculative split was never published or registered.
+      final HOTIncrementalInsert.BiNode refreshedSplit =
+          HOTIncrementalInsert.splitIndirect(originalNode, revision, pageKeyAllocator);
+      final HOTIncrementalInsert.IntegrationResult result =
+          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+              insertDepth, refreshedSplit, revision, pageKeyAllocator);
+      lastDispatchHandler = "h:combo-site2-d1";
+      registerFreshSubtree(result.touchedRef());
+      DIRECTION_ONE_SUBINSERT.incrementAndGet();
+      FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.incrementAndGet();
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (subInsertPublished) {
+        markTransactionRollbackOnly(failure);
+      }
+      throw failure;
+    }
   }
 
   /**
-   * Leaf-consolidation sweep — the thesis's underflow rule (§3.3.2) applied across the index. The
-   * incremental insert over-partitions: a faithful leaf split at the key-set MSDB is uneven and
-   * freezes a small half, a branch starts a single-entry leaf, and ascending workloads never re-route
-   * to those frozen leaves — so they drift to a fraction of capacity. This post-order walk merges
-   * every adjacent BiNode-paired leaf-child pair whose union still fits a page
-   * ({@link HOTIncrementalInsert#consolidateNodeLeaves}), packing the leaves back toward full.
+   * Apply the leaf-underflow rule to one fixed-fanout HOT block: the direct parent on the route just
+   * updated. This deliberately never descends into an indirect child. Consequently an ordinary put
+   * cannot turn maintenance into a whole-index walk, regardless of index size.
    *
    * <p>
-   * Copy-on-write: each visited indirect is CoW'd into the transaction-intent log
-   * ({@link #prepareIndirectPage}, idempotent), and a node whose leaves were merged is re-pointed and
-   * registered. A merge never changes a node's height (a leaf child carries height 0), so ancestors
-   * are structurally unaffected.
-   *
-   * <p>
-   * The child pages are swizzled onto their references before {@code consolidateNodeLeaves} runs: a
-   * page already flushed to the transaction-intent log has a {@code null} in-memory page on its
-   * reference, and the consolidation reads child pages through {@code getPage()}.
-   *
-   * <p>
-   * Every merged-away leaf across the whole sweep is collected and released in one batch — the
-   * transaction-intent log's sharing check is a full-log scan, so a per-leaf release would be
-   * quadratic in the transaction's entry count.
+   * Direct children are resolved only for this block and their temporary swizzles are cleared on
+   * exit. A changed parent is published once and every merged-away leaf is retired in one bounded
+   * batch. The pure consolidation primitive preserves the parent's height, key set, and range, so no
+   * ancestor rewrite is required.
+   * </p>
    */
-  private void consolidateSubtree(PageReference ref) {
-    final List<PageReference> orphanedLeaves = new ArrayList<>();
-    consolidateSubtree(ref, orphanedLeaves);
-    storageEngineWriter.getLog()
-                       .releaseOrphanedHOTLeaves(indexScope(), ref, orphanedLeaves,
-                           TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);
-  }
-
-  private void consolidateSubtree(PageReference ref, List<PageReference> orphanedLeaves) {
-    final Page page = resolveHOTPageForTraversal(ref);
-    if (!(page instanceof HOTIndirectPage indirect)) {
+  private void consolidateLeafParent(final LeafNavigationResult route) {
+    final int pathDepth = route.pathDepth();
+    if (pathDepth == 0) {
       return;
     }
-    final HOTIndirectPage cowed = prepareIndirectPage(ref, indirect);
-    for (int i = 0; i < cowed.getNumChildren(); i++) {
-      final PageReference childRef = cowed.getChildReference(i);
-      if (childRef.getPage() == null) {
+    final int parentDepth = pathDepth - 1;
+    final PageReference parentRef = route.pathRefs()[parentDepth];
+    final HOTIndirectPage parent = route.pathNodes()[parentDepth];
+    final int childCount = parent.getNumChildren();
+    final PageReference[] borrowedRefs = new PageReference[childCount];
+    final Page[] borrowedPages = new Page[childCount];
+    int borrowedCount = 0;
+    HOTIndirectPage freshConsolidated = null;
+    try {
+      // consolidateNodeLeaves considers only direct leaf/leaf pairs. Swizzle this one bounded block
+      // so it can distinguish those pairs without recursing into any indirect child.
+      for (int i = 0; i < childCount; i++) {
+        final PageReference childRef = parent.getChildReference(i);
+        if (childRef == null || childRef.getPage() != null) {
+          continue;
+        }
         final Page child = resolveHOTPageForTraversal(childRef);
         if (child != null) {
           childRef.setPage(child);
+          borrowedRefs[borrowedCount] = childRef;
+          borrowedPages[borrowedCount++] = child;
         }
       }
-      if (childRef.getPage() instanceof HOTIndirectPage) {
-        consolidateSubtree(childRef, orphanedLeaves);
+
+      final List<PageReference> orphanedLeaves = new ArrayList<>(HOTIndirectPage.MAX_NODE_ENTRIES);
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET,
+          storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator, orphanedLeaves);
+      if (consolidated == parent) {
+        return;
       }
-    }
-    final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(cowed, CONSOLIDATION_TARGET,
-        storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator, orphanedLeaves);
-    if (consolidated != cowed) {
-      ref.setPage(consolidated);
-      registerFreshSubtree(ref);
+      freshConsolidated = consolidated;
+      parentRef.setPage(consolidated);
+      lastDispatchHandler = "h:consolidate-local-parent";
+      registerFreshSubtree(parentRef);
+      storageEngineWriter.getLog()
+                         .releaseOrphanedHOTLeaves(indexScope(), parentRef, orphanedLeaves,
+                             TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);
+    } catch (final RuntimeException | Error failure) {
+      // Consolidation runs only after the primary dispatch has already mutated the index. Even a
+      // failure before this maintenance pass publishes its parent therefore leaves a transaction
+      // whose preceding put must not be committed as though the maintenance cadence completed.
+      markTransactionRollbackOnly(failure);
+      if (freshConsolidated != null) {
+        // The shared publication hook runs before post-order TIL registration. At that boundary the
+        // consolidated parent can already own one or more fresh off-heap replacement leaves, while
+        // its unchanged children remain durable/TIL-owned. Release exactly the still-local children;
+        // the identity guards also make this correct after a later partial-registration failure.
+        closeUnregisteredFreshChildren(freshConsolidated, 0, failure);
+      }
+      throw failure;
+    } finally {
+      for (int i = 0; i < borrowedCount; i++) {
+        borrowedRefs[i].clearPageIfSame(borrowedPages[i]);
+      }
     }
   }
 
@@ -3446,229 +4933,104 @@ public abstract class AbstractHOTIndexWriter<K> {
     return reference;
   }
 
-  /**
-   * Recanonicalize the subtree rooted at {@code pathNodes[depth]}: rebuild it as a canonical HOT
-   * holding every entry it currently contains plus {@code (keySlice, valueSlice)}, and re-point its
-   * spine slot. {@link HOTBulkBuilder} produces a compression of {@code R(S)} by construction
-   * (Theorem 1), so the result is invariant-clean and routing is exact again — this places a branched
-   * (misrouted) key correctly and heals any pre-existing inconsistency in the subtree.
-   *
-   * <p>
-   * Rebuilding the <em>insert-depth</em> subtree rather than the whole index bounds the work and the
-   * pages orphaned: the key branches strictly inside {@code pathNodes[depth]}, so its ancestors keep
-   * routing to it unchanged. The one ancestor-visible property is height — if the rebuilt subtree is
-   * taller than the old node, the ancestors' height accounting is stale, so the rebuild escalates one
-   * level shallower (terminating at the root, which has no ancestor).
-   *
-   * <p>
-   * The collected entries are explicitly sorted and de-duplicated before the build: a rebuild
-   * recanonicalizes a possibly-corrupt subtree, so it must not assume the trie's traversal order is
-   * already a valid (strictly ascending, distinct) {@link HOTBulkBuilder} input.
-   */
-  private void rebuildSubtree(LeafNavigationResult navResult, int depth, byte[] keySlice, byte[] valueSlice) {
-    if (indexType == IndexType.PROJECTION) {
-      PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
-    }
-    REBUILD_SUBTREE_CALLED.incrementAndGet();
-    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
-    final int safeDepth = Math.max(0, Math.min(depth, navResult.pathDepth() - 1));
-    final HOTIndirectPage subtreeRoot = pathNodes[safeDepth];
-
-    final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
-    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
-    collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
-    // Gate on the MEASURED size, after the read-only collection and before any mutation: the
-    // refusal exists to keep O(index) work out of a commit, and only the count says which this is.
-    requireSubtreeRebuildAllowed(collected.size(), subtreeRoot.getHeight());
-    collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
-    collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
-
-    // Collapse duplicate keys (a re-insert over an existing key) by OR-merging their values.
-    final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(collected.size());
-    for (final HOTBulkBuilder.Entry entry : collected) {
-      final int last = entries.size() - 1;
-      if (last >= 0 && Arrays.equals(entries.get(last).key(), entry.key())) {
-        final HOTBulkBuilder.Entry prev = entries.get(last);
-        entries.set(last,
-            new HOTBulkBuilder.Entry(prev.key(), HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value())));
-      } else {
-        entries.add(entry);
-      }
-    }
-
-    final HOTBulkBuilder.BuildResult built =
-        HOTBulkBuilder.build(entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
-    final Page rebuilt = built.rootPage();
-    reattachSegmentRefs(rebuilt, segmentRefs);
-    final PageReference subtreeRef = navResult.pathRefs()[safeDepth];
-    subtreeRef.setPage(rebuilt);
-    lastDispatchHandler = "h:rebuildSubtree";
-    registerFreshSubtree(subtreeRef);
-
-    // Plan §12 Stage 3c (A): propagate the rebuilt subtree's height + (if firstKey changed)
-    // sparse partial up the spine instead of escalating to a shallower rebuild. The original
-    // escalation cascaded to depth 0 on the leftmost-chain firings -- silently producing a
-    // freshly canonical whole index mid-revision -- which iter-19 pinned as the root cause of
-    // the rev-9 corruption that competes with iter-18's pathDepth==1 N-full Issue B handler.
-    // The in-place propagation is bounded by spine depth and avoids the depth-0 whole rebuild
-    // on every path tested. The defensive fallback on an I7 collision is the prior scoped
-    // rebuild at the ancestor's depth (still strictly shallower than the original cascade).
-    if (safeDepth > 0) {
-      propagateRebuildUpSpine(navResult, safeDepth, keySlice, valueSlice);
-    }
-
-    // HOTBulkBuilder.build produced an all-new subtree from the collected entries — every leaf
-    // page of the replaced subtree is now unreachable; release their off-heap slots in one batch
-    // instead of pinning the 64KB segments in the transaction-intent log until commit.
-    final List<PageReference> staleLeafRefs = new ArrayList<>();
-    collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
-    storageEngineWriter.getLog()
-                       .releaseOrphanedHOTLeaves(indexScope(), subtreeRef, staleLeafRefs,
-                           TransactionIntentLog.RELEASE_SITE_REBUILD_SUBTREE);
-  }
+  /** Per-{@code (invariant|handler)} tally for fail-closed post-publication validation failures. */
+  public static final ConcurrentHashMap<String, AtomicLong> STRUCTURAL_VALIDATION_TALLY = new ConcurrentHashMap<>();
 
   /**
-   * Heal attribution: per-{@code (invariant|dispatch handler)} tally of detector heals, keyed
-   * {@code "I5|h:merge-integrate"}-style. Only touched when a heal actually fires (rare by design),
-   * so the hot path pays nothing beyond the {@link #lastDispatchHandler} field store. This is the
-   * instrumentation that attributed 91% of all heals to the spine propagation's dense-partial
-   * recompute (plan doc, Stage 5) — kept so a future regression is attributable the same day it
-   * lands.
-   */
-  public static final ConcurrentHashMap<String, AtomicLong> HEAL_TALLY = new ConcurrentHashMap<>();
-
-  /**
-   * The structural handler that produced the tree state a subsequent heal repairs — the attribution
-   * key half of {@link #HEAL_TALLY}. Written as a constant-string field store at each dispatch site;
-   * read only when a heal fires.
+   * The structural handler that produced a validated tree state. Written as a constant-string field
+   * store at each dispatch site; read only when validation fails.
    */
   protected String lastDispatchHandler = "?";
 
-  /** Disable hook for the post-dispatch structural self-heal (default ON — correctness first). */
-  private static final boolean SELFHEAL_STRUCTURAL = !Boolean.getBoolean("hot.selfheal.structural.disable");
-  /**
-   * Post-dispatch structural self-heals: a structural fold (combo-add / integrate / off-path-
-   * overflow) left a node on the insert path malformed (I4/I7/I8/I12) and was discharged by a scoped
-   * canonical rebuild. Distinct from {@link #BRANCH_I8_UNSAFE_REBUILD} (the pre-commit combo-add
-   * guard) — this is the defense-in-depth backstop that covers the merge/integrate handlers too.
-   */
-  public static final AtomicLong STRUCTURAL_SELFHEAL_REBUILD = new AtomicLong();
+  /** Disable hook for post-dispatch invariant validation (default ON — correctness first). */
+  private static final boolean VALIDATE_STRUCTURAL_MUTATIONS = !Boolean.getBoolean("hot.validate.structural.disable");
 
   /**
-   * Times {@link #detectAndHeal} exhausted its round budget with defects still standing. Must stay
-   * zero; a non-zero value means an index was committed that the detector still considers malformed,
-   * and the accompanying ERROR log names the first offender.
+   * Full defense-in-depth detector passes skipped because their scope exceeded the universal bounded
+   * source footprint. The route-local mandatory guard still runs and every observed defect remains
+   * fail-closed.
    */
-  public static final AtomicLong SELFHEAL_UNRESOLVED = new AtomicLong();
+  public static final AtomicLong STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED = new AtomicLong();
 
   /**
-   * Defense-in-depth backstop after a structural change: walk {@code keySlice}'s <em>current</em>
-   * descent path from the root and, at the shallowest indirect that is structurally malformed
-   * (I4/I7/I8/I12 — {@link #nodeStructurallyMalformed}), discharge by a canonical scoped rebuild of
-   * that node's subtree ({@link #rebuildExistingSubtree}). Rebuilding the shallowest violator
-   * subsumes any malformed descendant (Binna Lemma 3). A fold can only malform nodes on the inserted
-   * key's path, so this O(height × children) walk is necessary and sufficient — and far cheaper than
-   * a from-root scan or the corruption-prone whole-index rebuild (Stage 3c).
+   * Published structural candidates rejected by the defense-in-depth validator. Must stay zero.
    */
-  private void healStructuralViolationOnPath(byte[] keySlice) {
-    PageReference cur = rootReference;
-    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
-      if (!(resolveHOTPageForTraversal(cur) instanceof HOTIndirectPage indirect)) {
-        return; // reached the leaf — nothing malformed
-      }
-      if (nodeStructurallyMalformed(indirect)) {
-        STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
-        pendingRebuildReason = "trigger=onpath-malformed depth=" + depth + " height=" + indirect.getHeight()
-            + " children=" + indirect.getNumChildren() + " atRoot=" + (cur == rootReference);
-        rebuildExistingSubtree(cur);
-        return;
-      }
-      final int childIndex = indirect.findChildIndex(keySlice);
-      if (childIndex < 0) {
-        return; // defensive: descent failed
-      }
-      cur = indirect.getChildReference(childIndex);
+  public static final AtomicLong STRUCTURAL_VALIDATION_FAILURE = new AtomicLong();
+
+  /**
+   * Validate the current key route after publication. This method never repairs: every structural
+   * candidate must have been proved before publication, so a violation poisons the transaction.
+   */
+  private void validatePublishedStructuralPath(byte[] keySlice) {
+    try {
+      PageReference cur = rootReference;
       if (cur == null) {
-        return;
+        throw new IllegalStateException("HOT structural path validation has no root reference");
       }
+      for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
+        final Page page = resolveHOTPageForTraversal(cur);
+        if (page instanceof HOTLeafPage) {
+          return; // the one valid terminus: the current route reached a live leaf
+        }
+        if (!(page instanceof HOTIndirectPage indirect)) {
+          throw new IllegalStateException(
+              "HOT structural path validation cannot resolve a HOT page at depth " + depth + " (refKey=" + cur.getKey()
+                  + ", logKey=" + cur.getLogKey() + ", generation=" + cur.getActiveTilGeneration() + ')');
+        }
+        if (nodeStructurallyMalformed(indirect)) {
+          STRUCTURAL_VALIDATION_FAILURE.incrementAndGet();
+          throw new IllegalStateException(
+              "HOT published structural path is malformed at page " + indirect.getPageKey());
+        }
+        final int childIndex = indirect.findChildIndex(keySlice);
+        if (childIndex < 0 || childIndex >= indirect.getNumChildren()) {
+          throw new IllegalStateException("HOT structural path validation has no valid child at depth " + depth
+              + " for indirect page " + indirect.getPageKey() + " (childIndex=" + childIndex + ')');
+        }
+        cur = indirect.getChildReference(childIndex);
+        if (cur == null) {
+          throw new IllegalStateException("HOT structural path validation found a null child " + childIndex
+              + " at depth " + depth + " on indirect page " + indirect.getPageKey());
+        }
+      }
+      throw new IllegalStateException("HOT structural path validation exceeded the maximum depth of " + MAX_PATH_DEPTH);
+    } catch (final RuntimeException | Error failure) {
+      // This guard is reached only after the dispatch has published the primary mutation. Any
+      // inability to prove the current ancestor route safe is therefore transaction-fatal.
+      markTransactionRollbackOnly(failure);
+      throw failure;
     }
   }
 
-  /**
-   * Canonical scoped rebuild of the <em>existing</em> subtree at {@code ref} from its current entries
-   * (no extra key — the inserted key is already present after dispatch). Mirrors
-   * {@link #rebuildSubtree} but reads the post-dispatch tree directly and re-points {@code ref} in
-   * place, so it can heal whatever a structural fold produced. {@link HOTBulkBuilder} output is
-   * invariant-clean by construction (Theorem 1).
-   */
-  private void rebuildExistingSubtree(PageReference ref) {
-    if (indexType == IndexType.PROJECTION) {
-      PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
-    }
-    final Page page = resolveHOTPageForTraversal(ref);
-    if (!(page instanceof HOTIndirectPage subtreeRoot)) {
-      return; // a leaf root has no indirect invariant
-    }
-    final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
-    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
-    collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
-    // Same measured gate as rebuildSubtree: the refusal is about SIZE, and only collection knows it.
-    requireSubtreeRebuildAllowed(collected.size(), subtreeRoot.getHeight());
-    collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
-    final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
-
-    final List<PageReference> staleLeafRefs = new ArrayList<>();
-    collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
-
-    final HOTBulkBuilder.BuildResult built =
-        HOTBulkBuilder.build(entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
-    reattachSegmentRefs(built.rootPage(), segmentRefs);
-    ref.setPage(built.rootPage());
-    registerFreshSubtree(ref);
-    storageEngineWriter.getLog()
-                       .releaseOrphanedHOTLeaves(indexScope(), ref, staleLeafRefs,
-                           TransactionIntentLog.RELEASE_SITE_REBUILD_EXISTING);
-  }
-
-  /**
-   * Strand-discharge observability. {@link #STRAND_LEAF_REBUILD} counts strands resolved by the
-   * surgical {@code O(one leaf + path)} {@link #leafScopedRebuild} (the on-path single-source-leaf
-   * case); {@link #STRAND_FULL_FALLBACK} counts strands that fall back to {@link #rebuildSubtree} at
-   * the insert depth (off-path / multi-leaf / BiNode-wrap source — the minimal correct scope when K
-   * and the strandable keys occupy different node slots).
-   */
-  public static final AtomicLong STRAND_LEAF_REBUILD = new AtomicLong();
+  /** Strand cases delegated to the complete structural-frontier primitive. */
+  public static final AtomicLong STRAND_COMPLETE_FRONTIER = new AtomicLong();
   /**
    * Strands discharged canonically: the descended leaf held keys on both sides of the branch bit, so
    * the union {@code leaf ∪ {K}} was split at its own key-set MSDB and the BiNode integrated at the
-   * leaf's depth — Binna's insert, leaving no straddled leaf behind (unlike the
-   * {@link #leafScopedRebuild} splice, which keeps the union in the leaf's slot and thereby
-   * re-attracts the strand guard on later inserts).
+   * leaf's depth — Binna's insert, leaving no straddled leaf behind.
    */
   public static final AtomicLong STRAND_SPLIT_INTEGRATE = new AtomicLong();
-  public static final AtomicLong STRAND_FULL_FALLBACK = new AtomicLong();
   /** Off-path strands discharged by the two-leaf migration ({@link #tryTwoLeafMigration}). */
   public static final AtomicLong STRAND_TWO_LEAF_MIGRATE = new AtomicLong();
   /**
-   * Branch combo-adds discharged by the canonical {@link #rebuildSubtree} because the partial-sorted
-   * new slot is structurally malformed ({@link #nodeStructurallyMalformed} — typically the I7≡I8
-   * first-key-order divergence under multi-value leaves). Bounded like the Direction-1 fallback; a
-   * runaway count signals a workload stressing off-path-bit reordering.
+   * Branch combo-adds delegated to the complete structural-frontier primitive because the direct
+   * candidate is structurally unsafe.
    */
-  public static final AtomicLong BRANCH_I8_UNSAFE_REBUILD = new AtomicLong();
+  public static final AtomicLong BRANCH_COMPLETE_FRONTIER = new AtomicLong();
+  /** Malformed combo-adds handled by a complete direct-leaf frontier splice. */
+  public static final AtomicLong BRANCH_LOCAL_LEAF_FRONTIER_SPLICE = new AtomicLong();
 
   /**
    * Surgical strand discharge ({@code O(one leaf + path)}). When a branch-add stranding guard fires
    * and <em>all</em> strandable keys are confined to the descended leaf {@code
-   * navResult.leaf()}, rebuild just that leaf together with the new key {@code K} into a canonical
+   * navResult.leaf()}, splice just that leaf together with the new key {@code K} into a canonical
    * mini-HOT ({@link HOTBulkBuilder}) and splice it into the leaf's slot, propagating height/partial
-   * up the spine. Returns {@code true} when so handled; {@code false} when the strand is not confined
-   * to the descended leaf (multi-leaf or off-path source — the rare case), leaving the caller to fall
-   * back to the canonical {@link #rebuildSubtree} at the insert depth.
+   * up the spine. Returns {@code true} when so handled; {@code false} delegates to the complete
+   * structural-frontier primitive.
    *
    * <p>
    * Correctness: K and the strandable keys all route (via {@code node.findChildIndex}) to the
-   * descended leaf's slot, so rebuilding {@code leaf ∪ {K}} and re-splicing there preserves routing
+   * descended leaf's slot, so canonicalizing {@code leaf ∪ {K}} in that frontier preserves routing
    * and re-discriminates them straddle-free (Fact R1). 99%+ of strands (empirically) hit this path.
    */
   /**
@@ -3678,12 +5040,6 @@ public abstract class AbstractHOTIndexWriter<K> {
    * MSDB into two complete R(S) halves (Fact R1), and the resulting BiNode integrates at the leaf's
    * depth exactly as a full-leaf overflow does. Both primitives are the merge path's — the single
    * most exercised pipeline in this writer.
-   *
-   * <p>
-   * Contrast with {@link #leafScopedRebuild}: that splice keeps the whole union in the leaf's slot,
-   * which routes correctly (the slot's sparse partial is untouched and every key subset-matches it)
-   * but leaves a leaf spanning a bit above its cut point — a shape the strand guard fires on again
-   * for every later key branching at that bit. The split removes the shape, so the guard goes quiet.
    *
    * <p>
    * The integrate cascade is pre-checked ({@link #canIntegrateBiNodeCleanly}) <em>before</em> the
@@ -3719,72 +5075,88 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int revision = storageEngineWriter.getRevisionNumber();
     final HOTIncrementalInsert.BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
-    ensurePathChildrenLoaded(navResult.pathNodes());
-    lastDispatchHandler = "h:strand-split-integrate";
-    final HOTIncrementalInsert.IntegrationResult result =
-        HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-            navResult.pathDepth(), biNode, revision, pageKeyAllocator);
-    registerFreshSubtree(result.touchedRef());
-    STRAND_SPLIT_INTEGRATE.incrementAndGet();
-    return true;
+    boolean published = false;
+    try {
+      ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
+      lastDispatchHandler = "h:strand-split-integrate";
+      final HOTIncrementalInsert.IntegrationResult result =
+          HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+              navResult.pathDepth(), biNode, revision, pageKeyAllocator);
+      published = true;
+      registerFreshSubtree(result.touchedRef());
+      retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_STRAND_SPLIT);
+      STRAND_SPLIT_INTEGRATE.incrementAndGet();
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+      }
+      closeFreshBiNode(biNode, failure);
+      throw failure;
+    }
   }
 
-  private boolean dischargeStrandViaLeafRebuild(LeafNavigationResult navResult, HOTIndirectPage oldNode,
+  private boolean dischargeStrandViaLeafFrontier(LeafNavigationResult navResult, HOTIndirectPage oldNode,
       HOTIndirectPage newNode, int nodeDepth, byte[] keySlice, byte[] valueSlice) {
     final int newSlot = newNode.findChildIndex(keySlice);
     if (newSlot < 0 || navResult.pathDepth() < 1) {
-      STRAND_FULL_FALLBACK.incrementAndGet();
+      STRAND_COMPLETE_FRONTIER.incrementAndGet();
       return false;
     }
+    // Reconstruct the exact bounded route-feasible old-page plan. It deliberately excludes the
+    // speculative fresh slot (which callers may already have closed) and every old child whose
+    // sparse routing cannot reach newSlot. Both discharge arms consume this same immutable plan.
+    final RebuildFootprint routingPlan = requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, keySlice);
     // (a) On-path: strandable keys confined to the descended leaf -> O(one leaf + path).
-    if (strandConfinedToLeaf(oldNode, newNode, newSlot, keySlice, navResult.leaf().getPageKey())) {
+    if (strandConfinedToLeaf(routingPlan, newNode, newSlot, keySlice, navResult.leaf().getPageKey())) {
       if (strandDischargeSplitIntegrate(navResult, keySlice, valueSlice)) {
         return true;
       }
-      lastDispatchHandler = "h:strand-leafrebuild-b";
-      leafScopedRebuild(navResult, keySlice, valueSlice);
-      STRAND_LEAF_REBUILD.incrementAndGet();
-      return true;
+      return false; // caller uses the total complete-frontier splice
     }
     // (b) Off-path: strandable keys in a single sibling leaf -> two-leaf migration (split that
-    // leaf, fold its matching keys + K into the new child), validated, else full rebuild.
-    if (tryTwoLeafMigration(navResult, newNode, newSlot, nodeDepth, keySlice, valueSlice)) {
+    // leaf, fold its matching keys + K into the new child), validated, else the complete frontier.
+    if (tryTwoLeafMigration(navResult, newNode, newSlot, nodeDepth, keySlice, valueSlice, routingPlan)) {
       STRAND_TWO_LEAF_MIGRATE.incrementAndGet();
       return true;
     }
-    STRAND_FULL_FALLBACK.incrementAndGet();
+    STRAND_COMPLETE_FRONTIER.incrementAndGet();
     return false;
   }
 
   /**
-   * Off-path strand discharge ({@code O(two leaves + node re-encode + path)}). When the strandable
-   * keys are confined to a <em>single sibling leaf</em> {@code L_src} (a different node slot than
-   * where K descended) and all share {@code densePK == comboPartial} exactly, migrate: build the new
+   * Off-path strand discharge ({@code O(two leaves + node re-encode + path)}). When every key the
+   * fresh slot would steal is confined to one direct sibling leaf {@code L_src}, build the fresh
    * child as {@code bulk-build(K ∪ strandable)}, replace {@code L_src} with
-   * {@code bulk-build(L_src \ strandable)}, re-encode {@code newNode} with recomputed partials, and —
-   * only if the result passes {@link HOTMalformedSubtreeDetector} — splice it at {@code nodeDepth}
-   * and propagate up the spine. Returns {@code false} (caller does the canonical full rebuild) when
-   * the source is not a single exact-densePK leaf, the rebuilt child overflows, or the candidate is
-   * malformed. The detector backstop makes this safe by construction: any I3/I4/I5/I7/I8/I11 defect
-   * triggers the fallback, and the end-to-end fuzz validates I1/I6.
+   * {@code bulk-build(L_src \ strandable)}, and re-encode the candidate in the same sparse parent
+   * coordinates. The route-feasible preflight plan excludes the closed speculative K leaf and every
+   * irrelevant sibling; it is reused here without a second tree traversal.
+   *
+   * <p>
+   * Before the sole path-reference publication, the method proves every migrated parent route, local
+   * I3/I4/I7/I8/I11/I12, and ancestor propagation. The bulk builder establishes the two fresh
+   * subtrees' internal invariants. Unsupported shapes return {@code false} with both fresh trees
+   * closed; unexpected pre-publication failures are cleaned and rethrown, while every failure after
+   * publication poisons the transaction and is rethrown. On success, the replaced source leaf is
+   * retired only after registration and spine propagation complete.
+   * </p>
    */
   private boolean tryTwoLeafMigration(LeafNavigationResult navResult, HOTIndirectPage newNode, int comboSlot,
-      int nodeDepth, byte[] keySlice, byte[] valueSlice) {
+      int nodeDepth, byte[] keySlice, byte[] valueSlice, RebuildFootprint routingPlan) {
     if (nodeDepth < 0 || nodeDepth >= navResult.pathDepth()) {
       return false; // node is not a spliceable path node
     }
     // Identify the unique source slot/leaf and collect the strandable keys; require a single
     // source leaf (so the migration touches exactly one sibling leaf). Strandable keys all have
     // comboPartial ⊆ densePK, so the new child is I5-clean; bulk-build discriminates the rest.
-    final List<byte[]> strandKeys = new ArrayList<>();
-    final long[] info = {-1L, -1L, 1L}; // {sourceSlot, sourceLeafPageKey, ok}
-    for (int i = 0; i < newNode.getNumChildren() && info[2] == 1L; i++) {
-      if (i == comboSlot) {
-        continue;
+    final long[] info = {-1L, -1L, 1L, 0L}; // {sourceSlot, sourceLeafPageKey, ok, strandCount}
+    for (int pageIndex = 0; pageIndex < routingPlan.pages && info[2] == 1L; pageIndex++) {
+      if (routingPlan.visitedPages[pageIndex] instanceof HOTLeafPage leaf) {
+        collectMigratableLeafKeys(leaf, newNode, comboSlot, keySlice, routingPlan.visitedPageOwnerSlots[pageIndex],
+            info);
       }
-      collectMigratableKeys(newNode.getChildReference(i), newNode, comboSlot, keySlice, i, strandKeys, info, 0);
     }
-    if (info[2] != 1L || strandKeys.isEmpty() || info[0] < 0) {
+    if (info[2] != 1L || info[3] == 0L || info[0] < 0) {
       return false; // not a single source leaf
     }
     final int sourceSlot = (int) info[0];
@@ -3793,81 +5165,745 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // Build the migrated child = bulk-build(K ∪ strandable). All keys have comboPartial ⊆ densePK,
     // so the child is I5-clean under newNode's mask; bulk-build discriminates them internally.
-    final List<HOTBulkBuilder.Entry> childEntries = new ArrayList<>(strandKeys.size() + 1);
+    final List<HOTBulkBuilder.Entry> childEntries = new ArrayList<>((int) info[3] + 1);
     childEntries.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
     final Page sourceLeafPage = resolveHOTPageForTraversal(newNode.getChildReference(sourceSlot));
     if (!(sourceLeafPage instanceof HOTLeafPage sourceLeaf) || sourceLeaf.getPageKey() != sourceLeafPageKey) {
       return false; // source slot is not the single source leaf
     }
-    final HashSet<String> strandSet = new HashSet<>(strandKeys.size() * 2);
-    for (final byte[] k : strandKeys) {
-      strandSet.add(HexFormat.of().formatHex(k));
-    }
-    // This two-leaf migration extracts keys/values only and discards the source leaf. Rather
-    // than route the side map across the two rebuilt leaves, decline: the caller's canonical
-    // {@link #rebuildSubtree} fallback carries segment refs (collect + reattach), so falling
-    // back is correct and this rare path stays simple.
-    if (sourceLeaf.segmentRefCount() > 0) {
-      return false;
+    // Capture the bounded source leaf's projection side map before building either replacement.
+    // The two fresh roots partition every source key, so the existing two-pass owner resolver can
+    // re-home every reference locally before publication. Declining this shape would send an
+    // otherwise two-leaf mutation into the wider complete-frontier arm solely because projection
+    // stores out-of-line segments.
+    final List<CapturedSegmentRef> sourceSegmentRefs = new ArrayList<>(sourceLeaf.segmentRefCount());
+    for (final long refKey : sourceLeaf.overflowPageRefKeysSorted()) {
+      sourceSegmentRefs.add(new CapturedSegmentRef(refKey, sourceLeaf.getPageReference(refKey)));
     }
     final List<HOTBulkBuilder.Entry> remaining = new ArrayList<>(sourceLeaf.getEntryCount());
     for (int i = 0; i < sourceLeaf.getEntryCount(); i++) {
       final byte[] k = sourceLeaf.getKey(i);
-      if (strandSet.contains(HexFormat.of().formatHex(k))) {
-        childEntries.add(new HOTBulkBuilder.Entry(k, sourceLeaf.getValue(i)));
+      if (k == null) {
+        throw refuseMutationTraversal("two-leaf strand source identification",
+            "unreadable key at source leaf " + sourceLeaf.getPageKey() + " slot " + i);
+      }
+      if (!Arrays.equals(k, keySlice) && newNode.findChildIndex(k) == comboSlot) {
+        childEntries.add(new HOTBulkBuilder.Entry(k, sourceLeaf.copyStoredValue(i)));
       } else {
-        remaining.add(new HOTBulkBuilder.Entry(k, sourceLeaf.getValue(i)));
+        if (newNode.findChildIndex(k) != sourceSlot) {
+          return false; // the replacement would leave a non-migrated key outside its physical owner
+        }
+        remaining.add(new HOTBulkBuilder.Entry(k, sourceLeaf.copyStoredValue(i)));
       }
     }
-    if (remaining.isEmpty()) {
-      return false; // source leaf would empty -> slot removal; rebuild
+    if (childEntries.size() != info[3] + 1 || remaining.isEmpty()) {
+      return false; // source-leaf removal needs the complete structural frontier
     }
     childEntries.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
     final List<HOTBulkBuilder.Entry> childDeduped = dedupMergeEntries(childEntries);
 
-    try {
-      final HOTBulkBuilder.BuildResult childBuilt =
-          HOTBulkBuilder.build(childDeduped, revision, indexType, pageKeyAllocator);
-      final HOTBulkBuilder.BuildResult srcBuilt =
-          HOTBulkBuilder.build(remaining, revision, indexType, pageKeyAllocator);
+    final PageReference oldSourceRef = newNode.getChildReference(sourceSlot);
+    if (oldSourceRef == null) {
+      throw refuseMutationTraversal("two-leaf strand source identification",
+          "null source reference at candidate slot " + sourceSlot);
+    }
 
-      // Re-encode newNode: same disc bits, children with comboSlot/sourceSlot replaced, partials
-      // recomputed from the children's first keys.
+    Page childRoot = null;
+    Page sourceRoot = null;
+    PageReference candidateRef = null;
+    boolean published = false;
+    try {
+      childRoot = HOTBulkBuilder.build(childDeduped, revision, indexType, pageKeyAllocator).rootPage();
+      sourceRoot = HOTBulkBuilder.build(remaining, revision, indexType, pageKeyAllocator).rootPage();
+
+      // Re-encode newNode with the same sparse coordinates. Only the fresh slot and the direct
+      // source-leaf slot change ownership; every other reference remains shared. Recompute height
+      // from the actual child roots because K plus a full source leaf can make the migrated child
+      // split even when the speculative K-only child was a leaf.
       final int n = newNode.getNumChildren();
       final PageReference[] children = new PageReference[n];
+      int maxChildHeight = 0;
       for (int i = 0; i < n; i++) {
-        children[i] = newNode.getChildReference(i);
+        final Page childPage;
+        if (i == comboSlot) {
+          childPage = childRoot;
+          children[i] = swizzle(childRoot);
+        } else if (i == sourceSlot) {
+          childPage = sourceRoot;
+          children[i] = swizzle(sourceRoot);
+        } else {
+          final PageReference childRef = newNode.getChildReference(i);
+          if (childRef == null) {
+            throw refuseMutationTraversal("two-leaf candidate invariant validation",
+                "null retained child reference at slot " + i);
+          }
+          childPage = resolveHOTPageForTraversal(childRef);
+          if (childPage == null || childPage.isClosed()) {
+            throw refuseMutationTraversal("two-leaf candidate invariant validation",
+                "unresolvable retained child at slot " + i);
+          }
+          children[i] = childRef;
+        }
+        final int childHeight = childPage instanceof HOTIndirectPage childIndirect
+            ? childIndirect.getHeight()
+            : 0;
+        maxChildHeight = Math.max(maxChildHeight, childHeight);
       }
-      children[comboSlot] = swizzle(childBuilt.rootPage());
-      children[sourceSlot] = swizzle(srcBuilt.rootPage());
+
       // Keep newNode's original SPARSE partials: the new children's keys still route by them
       // (comboPartial ⊆ migrated densePK; s_src.partial ⊆ remaining densePK). Recomputing from
       // firstKeys would yield dense PEXT values that break Binna's I4 (leftmost partial = 0).
       final int[] partials = newNode.getPartialKeysRef().clone();
       final int[] discBits = HOTIncrementalInsert.discriminativeBits(newNode);
-      final HOTIndirectPage candidate = HOTBulkBuilder.assembleIndirect(discBits, partials, children,
-          newNode.getHeight(), revision, pageKeyAllocator);
+      final HOTIndirectPage candidate =
+          HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
+      // From this point on candidateRef is the single cleanup owner for both replacement roots.
+      // registerFreshSubtree transfers those roots to the TIL one leaf at a time, so a later
+      // failure must stop at every child reference whose durable/log identity proves that transfer
+      // completed. Closing childRoot/sourceRoot directly after a partial registration would close
+      // a frame that the TIL already owns.
+      candidateRef = swizzle(candidate);
+      reattachSegmentRefs(candidate, sourceSegmentRefs);
+      final Consumer<HOTIndirectPage> afterReattachTestHook = twoLeafMigrationAfterReattachTestHook;
+      if (afterReattachTestHook != null) {
+        afterReattachTestHook.accept(candidate);
+      }
 
-      // Safety net: only commit if the candidate subtree is structurally clean; else full rebuild.
-      final PageReference candidateRef = swizzle(candidate);
-      // Safety net: an I8-unsafe off-path strand (the Class-1 firing Theorems 1-4 prove no
-      // localized primitive resolves) yields an I8/I7-malformed candidate here -> full rebuild.
-      if (!HOTMalformedSubtreeDetector.detect(candidateRef, this::resolveHOTPageForTraversal).isEmpty()) {
+      // The bulk-built replacements are canonical internally. Validate their exact parent routes,
+      // the candidate's local I3/I4/I7/I8/I11/I12 invariants, and the entire ancestor propagation
+      // before the sole publication boundary. This is O(two leaves + one node + path); it never
+      // traverses unrelated descendant subtrees or turns into a whole-node rebuild.
+      for (int i = 0; i < childDeduped.size(); i++) {
+        if (candidate.findChildIndex(childDeduped.get(i).key()) != comboSlot) {
+          closeFreshHOTSubtree(childRoot);
+          closeFreshHOTSubtree(sourceRoot);
+          return false;
+        }
+      }
+      if (!hasStrictlyAscendingPartials(candidate) || candidate.getPartialKey(0) != 0
+          || !partialsFitDiscriminativeWidth(candidate, discBits) || nodeStructurallyMalformed(candidate)
+          || !canPropagateIncrementalSplice(navResult, nodeDepth, candidateRef)) {
+        closeFreshHOTSubtree(childRoot);
+        closeFreshHOTSubtree(sourceRoot);
         return false;
       }
 
-      navResult.pathRefs()[nodeDepth].setPage(candidate);
-      lastDispatchHandler = "h:twoleaf-migrate";
-      registerFreshSubtree(navResult.pathRefs()[nodeDepth]);
-      if (nodeDepth > 0) {
-        propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
+      final PageReference pathRef = navResult.pathRefs()[nodeDepth];
+      pathRef.setPage(candidate);
+      published = true;
+      final Runnable afterPublicationTestHook = twoLeafMigrationAfterPublicationTestHook;
+      if (afterPublicationTestHook != null) {
+        afterPublicationTestHook.run();
       }
+      lastDispatchHandler = "h:twoleaf-migrate";
+      registerFreshSubtree(pathRef);
+      if (nodeDepth > 0) {
+        propagateStructuralSpliceUpSpine(navResult, nodeDepth, keySlice);
+      }
+      // A stale copy of the source reference must forward through the replacement subtree, which
+      // owns both partitions of its former key range. Release only after the candidate and spine are
+      // fully registered; a pre-publication failure leaves the original source untouched.
+      storageEngineWriter.getLog()
+                         .releaseOrphanedHOTLeaves(indexScope(), pathRef, List.of(oldSourceRef),
+                             TransactionIntentLog.RELEASE_SITE_TWO_LEAF_MIGRATION);
       return true;
-    } catch (RuntimeException defensiveFallback) {
-      // Any unexpected edge (build/assemble/propagate) -> the canonical full rebuild, which
-      // re-derives structure from the collected keys regardless of any partial migration state.
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+      }
+      if (candidateRef != null) {
+        closeUnregisteredFreshSubtree(candidateRef, failure);
+      } else {
+        // A builder/assembly failure happened before the two roots acquired their common owner.
+        // At this boundary neither root can have been published or registered.
+        closeFreshHOTSubtree(childRoot, failure);
+        if (sourceRoot != childRoot) {
+          closeFreshHOTSubtree(sourceRoot, failure);
+        }
+      }
+      // Never turn an unexpected builder/runtime fault into a fallback, and never continue after a
+      // publication failure. The latter has already poisoned the writer above.
+      throw failure;
+    }
+  }
+
+  /**
+   * Splice the only local malformation an otherwise valid combo-add can introduce: the fresh leaf's
+   * sparse-partial slot disagrees with its lexicographic boundary. The smallest complete flattened
+   * BiNode frontier containing that boundary is canonicalized from direct leaves only; no indirect
+   * source is scanned and no ancestor or root is reconstructed from entries.
+   */
+  private boolean trySpliceMalformedComboLeafFrontier(final LeafNavigationResult navResult,
+      final HOTIndirectPage oldNode, final HOTIndirectPage candidate, final int nodeDepth,
+      final HOTLeafPage insertedLeaf, final byte[] keySlice) {
+    final HOTIncrementalInsert.ChildRange frontier =
+        malformedComboLeafFrontier(oldNode, candidate, insertedLeaf, keySlice);
+    if (frontier == null) {
       return false;
     }
+    final boolean spliced =
+        tryCanonicalLeafFrontierSplice(navResult, candidate, nodeDepth, frontier, null, null, insertedLeaf, false);
+    if (spliced) {
+      BRANCH_LOCAL_LEAF_FRONTIER_SPLICE.incrementAndGet();
+    }
+    return spliced;
+  }
+
+  /** The two persistent halves of a subtree split immediately before an absent key. */
+  private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right) {
+  }
+
+  /** The direct-child interval which brackets a key's physical and sparse-routing positions. */
+  private record StructuralFrontier(int fromInclusive, int toExclusive) {
+    private int size() {
+      return toExclusive - fromInclusive;
+    }
+  }
+
+  /**
+   * Total branch slow path: insert {@code K} through the smallest complete structural frontier which
+   * contains both its sparse-routing slot and its lexicographic position.
+   *
+   * <p>
+   * The frontier is persistently split immediately before {@code K}. Every indirect split copies only
+   * one bounded child table and shares all untouched descendants. At most one physical leaf is
+   * copied, namely the leaf whose key range contains the insertion point. The two retained halves and
+   * a one-entry K leaf are joined into a canonical Patricia mini-root and the complete frontier is
+   * replaced atomically. No posting payload outside that boundary leaf is read or copied.
+   * </p>
+   *
+   * <p>
+   * If the candidate would move an outer ancestor boundary, it is discarded before publication and
+   * the operation is retried one level higher. Thus the sole {@link PageReference#setPage}
+   * publication is preceded by every deterministic routing/order/height check; after it, only
+   * registration and the already-preflighted height propagation remain.
+   * </p>
+   */
+  private void spliceCompleteFrontierIncrementally(final LeafNavigationResult navResult, final int initialDepth,
+      final byte[] keySlice, final byte[] valueSlice) {
+    final int deepest = Math.min(initialDepth, navResult.pathDepth() - 1);
+    for (int nodeDepth = deepest; nodeDepth >= 0; nodeDepth--) {
+      final HOTIndirectPage node = navResult.pathNodes()[nodeDepth];
+      ensureNodeChildrenLoaded(node);
+      final StructuralFrontier minimal = structuralFrontierForKey(node, keySlice);
+      if (trySpliceCompleteFrontier(navResult, node, nodeDepth, minimal, keySlice, valueSlice)) {
+        return;
+      }
+
+      // A complete sub-frontier can still be too narrow when its replacement changes a boundary
+      // discriminator shared with another direct child. Retry the whole bounded block before moving
+      // up the spine; this remains reference-only except for the same one boundary leaf.
+      if ((minimal.fromInclusive() != 0 || minimal.toExclusive() != node.getNumChildren()) && trySpliceCompleteFrontier(
+          navResult, node, nodeDepth, new StructuralFrontier(0, node.getNumChildren()), keySlice, valueSlice)) {
+        return;
+      }
+    }
+    throw new IllegalStateException(
+        "HOT could not construct an invariant-clean incremental frontier for an otherwise valid branch insert");
+  }
+
+  /** Build, validate and publish one exact complete-frontier candidate. */
+  private boolean trySpliceCompleteFrontier(final LeafNavigationResult navResult, final HOTIndirectPage node,
+      final int nodeDepth, final StructuralFrontier frontier, final byte[] keySlice, final byte[] valueSlice) {
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final List<PageReference> replacedLeafRefs = new ArrayList<>(1);
+    StructuralKeySplit split = null;
+    PageReference keyRef = null;
+    PageReference replacementRef = null;
+    PageReference candidateRef = null;
+    Page candidatePage = null;
+    PageReference publicationRef = null;
+    boolean published = false;
+    boolean registrationCompleted = false;
+    try {
+      final PageReference sourceRef = frontier.size() == 1
+          ? node.getChildReference(frontier.fromInclusive())
+          : HOTIncrementalInsert.compressChildRange(node, frontier.fromInclusive(), frontier.toExclusive(), revision,
+              pageKeyAllocator);
+      if (sourceRef == null) {
+        throw new IllegalStateException("HOT incremental frontier has a null source reference");
+      }
+
+      split = splitSubtreeBeforeKey(sourceRef, keySlice, replacedLeafRefs, 0);
+      final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+      putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+      keyRef = swizzle(keyLeaf);
+      replacementRef = joinOrderedAroundKey(split.left(), keyRef, split.right(), keySlice, revision);
+
+      if (frontier.size() == 1) {
+        candidateRef = replaceSingleChildAndReencode(node, frontier.fromInclusive(), replacementRef, revision);
+      } else {
+        candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node, frontier.fromInclusive(),
+            frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
+      }
+      candidatePage = candidateRef.getPage();
+      if (candidatePage == null || freshStructuralPagesMalformed(candidateRef, 0)
+          || !routedDescentContains(candidateRef, keySlice)
+          || !canPropagateIncrementalSplice(navResult, nodeDepth, candidateRef)) {
+        discardUnpublishedStructuralCandidateOrThrow(candidateRef);
+        return false;
+      }
+
+      publicationRef = navResult.pathRefs()[nodeDepth];
+      publicationRef.setPage(candidatePage);
+      published = true;
+      lastDispatchHandler = "h:complete-frontier-splice";
+      registerFreshSubtree(publicationRef);
+      registrationCompleted = true;
+      if (nodeDepth > 0) {
+        propagateStructuralSpliceUpSpine(navResult, nodeDepth, keySlice);
+      }
+      if (!replacedLeafRefs.isEmpty()) {
+        storageEngineWriter.getLog()
+                           .releaseOrphanedHOTLeaves(indexScope(), publicationRef, replacedLeafRefs,
+                               TransactionIntentLog.RELEASE_SITE_FRONTIER_SPLICE);
+      }
+      COMPLETE_STRUCTURAL_FRONTIER_SPLICE.incrementAndGet();
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+        closeLocallyOwnedFreshSubtree(publicationRef, candidatePage, registrationCompleted, failure);
+      } else if (candidateRef != null) {
+        closeUnregisteredFreshSubtree(candidateRef, failure);
+      } else if (replacementRef != null) {
+        closeUnregisteredFreshSubtree(replacementRef, failure);
+      } else {
+        if (split != null) {
+          closeUnregisteredFreshSubtree(split.left(), failure);
+          closeUnregisteredFreshSubtree(split.right(), failure);
+        }
+        closeUnregisteredFreshSubtree(keyRef, failure);
+      }
+      throw failure;
+    }
+  }
+
+  /** Completed insertions discharged by the persistent complete-frontier primitive. */
+  public static final AtomicLong COMPLETE_STRUCTURAL_FRONTIER_SPLICE = new AtomicLong();
+
+  /**
+   * Start with the smallest complete flattened-BiNode range containing both K's sparse-routing slot
+   * and its lexicographic insertion position. The two differ in the Direction-1 cases this total path
+   * exists to handle; treating the routed slot alone as the split boundary would merely repeat the
+   * failed approximate descent.
+   */
+  private StructuralFrontier structuralFrontierForKey(final HOTIndirectPage node, final byte[] keySlice) {
+    final int childCount = node.getNumChildren();
+    final int routedSlot = node.findChildIndex(keySlice);
+    if (childCount < 1 || routedSlot < 0 || routedSlot >= childCount) {
+      throw new IllegalStateException("HOT incremental frontier cannot resolve the key's sparse-routing slot");
+    }
+    final int lexicographicSlot = lexicographicBoundaryChild(node, keySlice);
+    if (routedSlot == lexicographicSlot) {
+      return new StructuralFrontier(routedSlot, routedSlot + 1);
+    }
+    final HOTIncrementalInsert.ChildRange complete = HOTIncrementalInsert.minimalBiNodeRangeContaining(node,
+        Math.min(routedSlot, lexicographicSlot), Math.max(routedSlot, lexicographicSlot));
+    return new StructuralFrontier(complete.fromInclusive(), complete.toExclusive());
+  }
+
+  /**
+   * Locate the one child whose ordered key range precedes or contains {@code keySlice}. Child ranges
+   * are disjoint and ascending (I8/I12), so binary search over their first keys touches only
+   * {@code O(log fanout)} extreme paths and never enumerates a posting payload.
+   */
+  private int lexicographicBoundaryChild(final HOTIndirectPage node, final byte[] keySlice) {
+    int low = 0;
+    int high = node.getNumChildren();
+    while (low < high) {
+      final int middle = (low + high) >>> 1;
+      final byte[] first = firstKeyOfSubtree(node.getChildReference(middle));
+      if (first == null) {
+        throw new IllegalStateException("HOT incremental frontier cannot resolve child " + middle + "'s first key");
+      }
+      if (Arrays.compareUnsigned(first, keySlice) <= 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low == 0
+        ? 0
+        : low - 1;
+  }
+
+  /**
+   * Persistent lexicographic split of a canonical subtree immediately before an absent key. Only the
+   * boundary path is copied; an interior boundary leaf is split into two fresh leaves.
+   */
+  private StructuralKeySplit splitSubtreeBeforeKey(final PageReference sourceRef, final byte[] keySlice,
+      final List<PageReference> replacedLeafRefs, final int depth) {
+    if (depth > MAX_PATH_DEPTH) {
+      throw new IllegalStateException("HOT persistent key split exceeded " + MAX_PATH_DEPTH + " levels");
+    }
+    final Page source = resolveHOTPageForTraversal(sourceRef);
+    if (source instanceof HOTLeafPage leaf) {
+      final int search = leaf.findEntry(keySlice);
+      if (search >= 0) {
+        throw new IllegalStateException(
+            "HOT incremental frontier found the supposedly absent key in leaf " + leaf.getPageKey());
+      }
+      final int insertionPoint = -search - 1;
+      if (insertionPoint == 0) {
+        return new StructuralKeySplit(null, sourceRef);
+      }
+      if (insertionPoint == leaf.getEntryCount()) {
+        return new StructuralKeySplit(sourceRef, null);
+      }
+
+      HOTLeafPage left = null;
+      HOTLeafPage right = null;
+      try {
+        left = copyLeafRange(leaf, 0, insertionPoint);
+        right = copyLeafRange(leaf, insertionPoint, leaf.getEntryCount());
+        rehomeSplitLeafSideReferences(leaf, left, right);
+        final StructuralKeySplit result = new StructuralKeySplit(swizzle(left), swizzle(right));
+        if (sourceRef.getKey() >= 0 || sourceRef.getLogKey() >= 0) {
+          replacedLeafRefs.add(sourceRef);
+        } else if (!leaf.isClosed()) {
+          // A frontier can consume an unregistered speculative leaf. That source has no durable/TIL
+          // owner and is no longer reachable from either persistent half.
+          leaf.close();
+        }
+        return result;
+      } catch (final RuntimeException | Error failure) {
+        if (left != null) {
+          closeSpeculativeLeafIfOpen(left, failure);
+        }
+        if (right != left) {
+          if (right != null) {
+            closeSpeculativeLeafIfOpen(right, failure);
+          }
+        }
+        throw failure;
+      }
+    }
+    if (!(source instanceof HOTIndirectPage indirect)) {
+      throw new IllegalStateException("HOT persistent key split encountered a non-HOT page");
+    }
+    ensureNodeChildrenLoaded(indirect);
+    final int childCount = indirect.getNumChildren();
+    // A complete-frontier splice is entered precisely when approximate sparse routing may disagree
+    // with physical order. Descend through the lexicographic boundary child, not findChildIndex(K),
+    // otherwise Direction 1 would recreate the same malformed placement at every wider frontier.
+    final int target = lexicographicBoundaryChild(indirect, keySlice);
+
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final StructuralKeySplit childSplit =
+        splitSubtreeBeforeKey(indirect.getChildReference(target), keySlice, replacedLeafRefs, depth + 1);
+    PageReference left = null;
+    PageReference right = null;
+    try {
+      left = HOTIncrementalInsert.compressChildSliceReplacing(indirect, 0, target + 1, target, childSplit.left(),
+          revision, pageKeyAllocator);
+      right = HOTIncrementalInsert.compressChildSliceReplacing(indirect, target, childCount, target, childSplit.right(),
+          revision, pageKeyAllocator);
+      return new StructuralKeySplit(left, right);
+    } catch (final RuntimeException | Error failure) {
+      closeUnregisteredFreshSubtree(left, failure);
+      closeUnregisteredFreshSubtree(right, failure);
+      closeUnregisteredFreshSubtree(childSplit.left(), failure);
+      closeUnregisteredFreshSubtree(childSplit.right(), failure);
+      throw failure;
+    }
+  }
+
+  /** Copy one non-empty contiguous range out of a leaf without changing any value bytes. */
+  private HOTLeafPage copyLeafRange(final HOTLeafPage source, final int fromInclusive, final int toExclusive) {
+    final HOTLeafPage copy =
+        new HOTLeafPage(pageKeyAllocator.getAsLong(), storageEngineWriter.getRevisionNumber(), indexType);
+    try {
+      for (int slot = fromInclusive; slot < toExclusive; slot++) {
+        final byte[] key = source.getKey(slot);
+        if (key == null || !copy.put(key, source.copyStoredValue(slot))) {
+          throw new IllegalStateException(
+              "HOT persistent key split could not copy source leaf " + source.getPageKey() + " slot " + slot);
+        }
+      }
+      return copy;
+    } catch (final RuntimeException | Error failure) {
+      closeSpeculativeLeafIfOpen(copy, failure);
+      throw failure;
+    }
+  }
+
+  /** Preserve projection side-map ownership when the one boundary leaf is split. */
+  private void rehomeSplitLeafSideReferences(final HOTLeafPage source, final HOTLeafPage left,
+      final HOTLeafPage right) {
+    if (source.segmentRefCount() == 0) {
+      return;
+    }
+    final byte[] ownerKey = new byte[Long.BYTES];
+    for (final long refKey : source.overflowPageRefKeysSorted()) {
+      final PageReference sideRef = source.getPageReference(refKey);
+      if (sideRef == null) {
+        throw new IllegalStateException("HOT boundary leaf side reference " + refKey + " has no owner reference");
+      }
+      PathKeySerializer.INSTANCE.serialize(HOTLeafPage.overflowPageRefOwnerSlot(refKey), ownerKey, 0);
+      final HOTLeafPage owner = left.findEntry(ownerKey) >= 0
+          ? left
+          : right.findEntry(ownerKey) >= 0
+              ? right
+              : null;
+      if (owner == null) {
+        throw new IllegalStateException("HOT boundary leaf split lost side-reference owner for refKey " + refKey);
+      }
+      owner.setPageReference(refKey, sideRef);
+    }
+  }
+
+  /** Join {@code <K}, {@code K}, {@code >K} as one canonical one- or two-bit HOT block. */
+  private PageReference joinOrderedAroundKey(final @Nullable PageReference left, final PageReference keyRef,
+      final @Nullable PageReference right, final byte[] keySlice, final int revision) {
+    final PageReference[] children = new PageReference[3];
+    final byte[][] first = new byte[3][];
+    final byte[][] last = new byte[3][];
+    int count = 0;
+    if (left != null) {
+      children[count] = left;
+      first[count] = requireNonNull(firstKeyOfSubtree(left), "left frontier first key");
+      last[count++] = requireNonNull(lastKeyOfSubtree(left), "left frontier last key");
+    }
+    children[count] = keyRef;
+    first[count] = keySlice;
+    last[count++] = keySlice;
+    if (right != null) {
+      children[count] = right;
+      first[count] = requireNonNull(firstKeyOfSubtree(right), "right frontier first key");
+      last[count++] = requireNonNull(lastKeyOfSubtree(right), "right frontier last key");
+    }
+    for (int i = 1; i < count; i++) {
+      if (Arrays.compareUnsigned(last[i - 1], first[i]) >= 0) {
+        throw new IllegalStateException("HOT incremental frontier inputs overlap at ordered child " + i);
+      }
+    }
+    if (count == 1) {
+      return keyRef;
+    }
+
+    final int rootBit = HOTBulkBuilder.msdb(first[0], last[count - 1]);
+    int split = 1;
+    while (split < count && !HOTBulkBuilder.bitAt(first[split], rootBit)) {
+      split++;
+    }
+    if (split == count) {
+      throw new IllegalStateException("HOT incremental frontier has no Patricia transition at bit " + rootBit);
+    }
+    for (int i = 0; i < split; i++) {
+      if (HOTBulkBuilder.bitAt(first[i], rootBit) || HOTBulkBuilder.bitAt(last[i], rootBit)) {
+        throw new IllegalStateException("HOT left frontier child straddles Patricia bit " + rootBit);
+      }
+    }
+    for (int i = split; i < count; i++) {
+      if (!HOTBulkBuilder.bitAt(first[i], rootBit) || !HOTBulkBuilder.bitAt(last[i], rootBit)) {
+        throw new IllegalStateException("HOT right frontier child straddles Patricia bit " + rootBit);
+      }
+    }
+
+    int maxChildHeight = 0;
+    for (int i = 0; i < count; i++) {
+      maxChildHeight = Math.max(maxChildHeight, structuralHeight(children[i]));
+    }
+    if (count == 2) {
+      return swizzle(HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision, rootBit, children[0],
+          children[1], maxChildHeight + 1));
+    }
+
+    final int nestedBit = split == 1
+        ? HOTBulkBuilder.msdb(first[1], last[2])
+        : HOTBulkBuilder.msdb(first[0], last[1]);
+    if (nestedBit <= rootBit) {
+      throw new IllegalStateException("HOT nested frontier bit " + nestedBit + " is not below root bit " + rootBit);
+    }
+    final int[] discBits = {rootBit, nestedBit};
+    final int[] partials = split == 1
+        ? new int[] {0, 2, 3}
+        : new int[] {0, 1, 2};
+    return swizzle(HOTBulkBuilder.assembleIndirect(discBits, partials, Arrays.copyOf(children, count),
+        maxChildHeight + 1, revision, pageKeyAllocator));
+  }
+
+  /** Re-encode one parent with a single child replacement, preserving its sparse coordinates. */
+  private PageReference replaceSingleChildAndReencode(final HOTIndirectPage node, final int childSlot,
+      final PageReference replacement, final int revision) {
+    final int childCount = node.getNumChildren();
+    final PageReference[] children = new PageReference[childCount];
+    int maxChildHeight = 0;
+    for (int slot = 0; slot < childCount; slot++) {
+      final PageReference child = slot == childSlot
+          ? replacement
+          : node.getChildReference(slot);
+      children[slot] = child;
+      maxChildHeight = Math.max(maxChildHeight, structuralHeight(child));
+    }
+    final HOTIndirectPage candidate = HOTBulkBuilder.assembleIndirect(HOTIncrementalInsert.discriminativeBits(node),
+        Arrays.copyOf(node.getPartialKeysRef(), childCount), children, maxChildHeight + 1, revision, pageKeyAllocator);
+    return swizzle(candidate);
+  }
+
+  private int structuralHeight(final PageReference reference) {
+    final Page page = resolveHOTPageForTraversal(reference);
+    if (page instanceof HOTIndirectPage indirect) {
+      return indirect.getHeight();
+    }
+    if (page instanceof HOTLeafPage) {
+      return 0;
+    }
+    throw new IllegalStateException("HOT structural candidate has an unresolvable/non-HOT child");
+  }
+
+  /** Validate only newly allocated structural pages; durable/TIL children are trusted unchanged. */
+  private boolean freshStructuralPagesMalformed(final PageReference reference, final int depth) {
+    if (depth > MAX_PATH_DEPTH) {
+      return true;
+    }
+    final Page page = resolveHOTPageForTraversal(reference);
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      return !(page instanceof HOTLeafPage);
+    }
+    if (nodeStructurallyMalformed(indirect)) {
+      return true;
+    }
+    for (int slot = 0; slot < indirect.getNumChildren(); slot++) {
+      final PageReference child = indirect.getChildReference(slot);
+      if (child == null) {
+        return true;
+      }
+      if (child.getKey() < 0 && child.getLogKey() < 0 && freshStructuralPagesMalformed(child, depth + 1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Exact lookup through the unpublished candidate; proves the new key's parent partials route. */
+  private boolean routedDescentContains(final PageReference root, final byte[] keySlice) {
+    PageReference current = root;
+    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
+      final Page page = resolveHOTPageForTraversal(current);
+      if (page instanceof HOTLeafPage leaf) {
+        return leaf.findEntry(keySlice) >= 0;
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) {
+        return false;
+      }
+      final int childSlot = indirect.findChildIndex(keySlice);
+      if (childSlot < 0 || childSlot >= indirect.getNumChildren()) {
+        return false;
+      }
+      current = indirect.getChildReference(childSlot);
+      if (current == null) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Close every locally owned leaf under a rejected candidate, preserving the first cleanup fault.
+   */
+  private void discardUnpublishedStructuralCandidateOrThrow(final @Nullable PageReference reference) {
+    final IllegalStateException cleanupCollector =
+        new IllegalStateException("HOT could not retire a rejected unpublished structural candidate");
+    closeUnregisteredFreshSubtree(reference, cleanupCollector);
+    final Throwable[] cleanupFailures = cleanupCollector.getSuppressed();
+    if (cleanupFailures.length == 0) {
+      return;
+    }
+    for (int index = 1; index < cleanupFailures.length; index++) {
+      addSuppressedSafely(cleanupFailures[0], cleanupFailures[index]);
+    }
+    if (cleanupFailures[0] instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    throw (Error) cleanupFailures[0];
+  }
+
+  /**
+   * Validate the exact old-to-candidate reference insertion and return the complete affected leaf
+   * frontier. Existing-node I8/I12 is an inductive premise; it is checked on this rare failure path
+   * before endpoint-local classification. Any unrelated or non-ordering violation fails closed.
+   */
+  private HOTIncrementalInsert.@Nullable ChildRange malformedComboLeafFrontier(final HOTIndirectPage oldNode,
+      final HOTIndirectPage candidate, final HOTLeafPage insertedLeaf, final byte[] keySlice) {
+    final int oldCount = oldNode.getNumChildren();
+    final int candidateCount = candidate.getNumChildren();
+    if (oldCount < 1 || candidateCount != oldCount + 1 || nodeStructurallyMalformed(oldNode)) {
+      return null;
+    }
+
+    int insertedSlot = -1;
+    int oldSlot = 0;
+    for (int candidateSlot = 0; candidateSlot < candidateCount; candidateSlot++) {
+      final PageReference candidateRef = candidate.getChildReference(candidateSlot);
+      if (candidateRef == null) {
+        return null;
+      }
+      final Page candidatePage = resolveHOTPageForTraversal(candidateRef);
+      if (candidatePage == insertedLeaf) {
+        if (insertedSlot >= 0) {
+          return null;
+        }
+        insertedSlot = candidateSlot;
+        continue;
+      }
+      if (oldSlot >= oldCount || candidateRef != oldNode.getChildReference(oldSlot++)) {
+        return null;
+      }
+    }
+    if (insertedSlot < 0 || oldSlot != oldCount || candidate.findChildIndex(keySlice) != insertedSlot
+        || insertedLeaf.getEntryCount() != 1 || !Arrays.equals(insertedLeaf.getFirstKey(), keySlice)
+        || !hasStrictlyAscendingPartials(candidate) || candidate.getPartialKey(0) != 0) {
+      return null;
+    }
+
+    final int parentMsb = candidate.getMostSignificantBitIndex();
+    int firstInvolved = insertedSlot;
+    int lastInvolved = insertedSlot;
+    int violations = 0;
+    byte[] previousFirst = null;
+    byte[] previousLast = null;
+    for (int slot = 0; slot < candidateCount; slot++) {
+      final PageReference childRef = candidate.getChildReference(slot);
+      final Page childPage = resolveHOTPageForTraversal(childRef);
+      if (childPage == null) {
+        return null;
+      }
+      if (parentMsb >= 0 && childPage instanceof HOTIndirectPage childIndirect
+          && childIndirect.getMostSignificantBitIndex() >= 0
+          && childIndirect.getMostSignificantBitIndex() <= parentMsb) {
+        return null;
+      }
+      final byte[] first = firstKeyOfSubtree(childRef);
+      if (first == null) {
+        return null;
+      }
+      if (previousFirst != null && previousLast == null) {
+        return null;
+      }
+      if (previousFirst != null
+          && (Arrays.compareUnsigned(previousFirst, first) >= 0 || Arrays.compareUnsigned(previousLast, first) >= 0)) {
+        if (slot != insertedSlot && slot - 1 != insertedSlot) {
+          return null;
+        }
+        firstInvolved = Math.min(firstInvolved, slot - 1);
+        lastInvolved = Math.max(lastInvolved, slot);
+        violations++;
+      }
+      previousFirst = first;
+      previousLast = slot + 1 < candidateCount
+          ? lastKeyOfSubtree(childRef)
+          : null;
+    }
+    if (violations == 0 || firstInvolved < 0 || lastInvolved >= candidateCount) {
+      return null;
+    }
+    final HOTIncrementalInsert.ChildRange frontier =
+        HOTIncrementalInsert.minimalBiNodeRangeContaining(candidate, firstInvolved, lastInvolved);
+    return frontier.size() >= 2 && frontier.size() <= HOTIndirectPage.MAX_NODE_ENTRIES
+        ? frontier
+        : null;
   }
 
   /**
@@ -3897,6 +5933,165 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (frontier.size() < 2 || frontier.size() > HOTIndirectPage.MAX_NODE_ENTRIES) {
       return false;
     }
+    return tryCanonicalLeafFrontierSplice(navResult, node, nodeDepth, frontier, keySlice, valueSlice, null, true);
+  }
+
+  /**
+   * Reference-only Direction-1 splice for a complete frontier containing indirect children. When both
+   * physical extrema differ from K exactly at beta, inductively maintained I8/I12 proves the entire
+   * closed frontier range lies on beta's opposite side. The frontier can therefore be extracted from
+   * one parent block, wrapped with K under a BiNode, and spliced back without reading or copying any
+   * descendant entry. Uncertain endpoints or malformed local structure fail closed and leave the
+   * source untouched.
+   */
+  private boolean tryDirectionOneOppositeFrontierWrap(final LeafNavigationResult navResult, final HOTIndirectPage node,
+      final int nodeDepth, final int collisionSlot, final int affectedSlot, final int beta, final int betaValue,
+      final byte[] keySlice, final byte[] valueSlice) {
+    final int childCount = node.getNumChildren();
+    final int[] nodeBits = HOTIncrementalInsert.discriminativeBits(node);
+    if (nodeDepth < 0 || nodeDepth >= navResult.pathDepth() || collisionSlot < 0 || affectedSlot != collisionSlot + 1
+        || affectedSlot >= childCount || nodeStructurallyMalformed(node) || node.getPartialKey(0) != 0
+        || !partialsFitDiscriminativeWidth(node, nodeBits)) {
+      return false;
+    }
+    // Both range compression primitives derive height from childRef.getPage(). Resolve this one
+    // fixed-fanout block before either is called; otherwise a durable/TIL-only indirect child is
+    // silently counted as a height-zero leaf and the candidate can be published stale-low.
+    ensureNodeChildrenLoaded(node);
+    final HOTIncrementalInsert.ChildRange frontier =
+        HOTIncrementalInsert.minimalBiNodeRangeContaining(node, collisionSlot, affectedSlot);
+    final PageReference firstRef = node.getChildReference(frontier.fromInclusive());
+    final PageReference lastRef = node.getChildReference(frontier.toExclusive() - 1);
+    final Page firstPage = resolveHOTPageForTraversal(firstRef);
+    final Page lastPage = resolveHOTPageForTraversal(lastRef);
+    if (firstPage == null || lastPage == null
+        || extremeRelationToKeyAtBit(firstPage, false, keySlice, beta, 1) != EXTREME_RELATION_OPPOSITE_AT_BETA
+        || extremeRelationToKeyAtBit(lastPage, true, keySlice, beta, 1) != EXTREME_RELATION_OPPOSITE_AT_BETA) {
+      return false;
+    }
+
+    final byte[] frontierFirst = firstKeyOfSubtree(firstRef);
+    final byte[] frontierLast = lastKeyOfSubtree(lastRef);
+    if (frontierFirst == null || frontierLast == null) {
+      return false;
+    }
+    final byte[] replacementFirst = betaValue == 0
+        ? keySlice
+        : frontierFirst;
+    final byte[] replacementLast = betaValue == 0
+        ? frontierLast
+        : keySlice;
+    if (frontier.fromInclusive() > 0) {
+      final byte[] previousLast = lastKeyOfSubtree(node.getChildReference(frontier.fromInclusive() - 1));
+      if (previousLast == null || Arrays.compareUnsigned(previousLast, replacementFirst) >= 0) {
+        return false;
+      }
+    }
+    if (frontier.toExclusive() < childCount) {
+      final byte[] nextFirst = firstKeyOfSubtree(node.getChildReference(frontier.toExclusive()));
+      if (nextFirst == null || Arrays.compareUnsigned(replacementLast, nextFirst) >= 0) {
+        return false;
+      }
+    }
+
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final PageReference rangeRef = HOTIncrementalInsert.compressChildRange(node, frontier.fromInclusive(),
+        frontier.toExclusive(), revision, pageKeyAllocator);
+    final Page rangePage = rangeRef.getPage();
+    if (rangePage == null || rangePage instanceof HOTIndirectPage rangeIndirect
+        && (rangeIndirect.getMostSignificantBitIndex() <= beta || nodeStructurallyMalformed(rangeIndirect))) {
+      return false;
+    }
+
+    final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+    putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+    final PageReference keyRef;
+    try {
+      keyRef = swizzle(keyLeaf);
+    } catch (final RuntimeException | Error constructionFailure) {
+      closeSpeculativeLeaf(keyLeaf, constructionFailure);
+      throw constructionFailure;
+    }
+    final int rangeHeight = rangePage instanceof HOTIndirectPage rangeIndirect
+        ? rangeIndirect.getHeight()
+        : 0;
+    final PageReference leftRef = betaValue == 0
+        ? keyRef
+        : rangeRef;
+    final PageReference rightRef = betaValue == 0
+        ? rangeRef
+        : keyRef;
+    HOTIndirectPage miniRoot = null;
+    Page candidateRoot = null;
+    PageReference publicationRef = null;
+    boolean published = false;
+    boolean registrationCompleted = false;
+    try {
+      miniRoot = HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision, beta, leftRef, rightRef,
+          rangeHeight + 1);
+      final PageReference replacementRef = swizzle(miniRoot);
+      final PageReference candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node,
+          frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
+      final Page candidatePage = candidateRef.getPage();
+      candidateRoot = candidatePage;
+      if (candidatePage == null || nodeStructurallyMalformed(miniRoot)) {
+        keyLeaf.close();
+        return false;
+      }
+      if (candidateRef != replacementRef) {
+        if (!(candidatePage instanceof HOTIndirectPage candidate)
+            || candidate.findChildIndex(keySlice) != frontier.fromInclusive()
+            || candidate.findChildIndex(frontierFirst) != frontier.fromInclusive()
+            || candidate.findChildIndex(frontierLast) != frontier.fromInclusive()
+            || nodeStructurallyMalformed(candidate)) {
+          keyLeaf.close();
+          return false;
+        }
+      }
+      if (!canPropagateIncrementalSplice(navResult, nodeDepth, candidateRef)) {
+        keyLeaf.close();
+        return false;
+      }
+
+      publicationRef = navResult.pathRefs()[nodeDepth];
+      publicationRef.setPage(candidatePage);
+      published = true;
+      lastDispatchHandler = "h:d1-opposite-frontier-wrap";
+      registerFreshSubtree(publicationRef);
+      registrationCompleted = true;
+      if (nodeDepth > 0) {
+        propagateStructuralSpliceUpSpine(navResult, nodeDepth, keySlice);
+      }
+      DIRECTION_ONE_OPPOSITE_FRONTIER_WRAP.incrementAndGet();
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        markTransactionRollbackOnly(failure);
+        closeLocallyOwnedFreshSubtree(publicationRef, candidateRoot, registrationCompleted, failure);
+      } else {
+        closeSpeculativeLeafIfOpen(keyLeaf, failure);
+      }
+      throw failure;
+    }
+  }
+
+  /**
+   * Canonicalize one complete direct-leaf frontier and publish the recompressed parent atomically.
+   * The source is bounded by one HOT block; indirect children are rejected rather than traversed. An
+   * optional extra entry supports Direction-1, while {@code disposableSourceLeaf} denotes an
+   * already-present speculative leaf owned by an unpublished combo candidate.
+   */
+  private boolean tryCanonicalLeafFrontierSplice(final LeafNavigationResult navResult, final HOTIndirectPage node,
+      final int nodeDepth, final HOTIncrementalInsert.ChildRange frontier, final byte @Nullable [] additionalKey,
+      final byte @Nullable [] additionalValue, final @Nullable HOTLeafPage disposableSourceLeaf,
+      final boolean directionOne) {
+    if ((additionalKey == null) != (additionalValue == null)) {
+      throw new IllegalArgumentException("additional frontier key and value must be both present or both absent");
+    }
+    if (additionalKey == null && disposableSourceLeaf == null) {
+      throw new IllegalArgumentException("a frontier splice needs either an added entry or a speculative source leaf");
+    }
+    final int numChildren = node.getNumChildren();
     // The recompression primitive derives the replacement parent's exact height without an I/O
     // callback. Swizzle this one bounded block first; these are cache pointers on writer-private
     // PageReferences, not a structural publication.
@@ -3914,7 +6109,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
     }
 
-    int entryCapacity = 1;
+    int entryCapacity = additionalKey == null
+        ? 0
+        : 1;
     int segmentRefCapacity = 0;
     final List<PageReference> orphanedLeafRefs = new ArrayList<>(frontier.size());
     for (int slot = frontier.fromInclusive(); slot < frontier.toExclusive(); slot++) {
@@ -3924,26 +6121,34 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       entryCapacity += leaf.getEntryCount();
       segmentRefCapacity += leaf.segmentRefCount();
-      orphanedLeafRefs.add(childRef);
+      if (leaf != disposableSourceLeaf) {
+        orphanedLeafRefs.add(childRef);
+      }
     }
     final List<HOTBulkBuilder.Entry> collected = new ArrayList<>(entryCapacity);
     final List<CapturedSegmentRef> segmentRefs = new ArrayList<>(segmentRefCapacity);
     for (int slot = frontier.fromInclusive(); slot < frontier.toExclusive(); slot++) {
-      collectSubtreeEntries(node.getChildReference(slot).getPage(), collected, segmentRefs);
+      collectLeafEntries((HOTLeafPage) node.getChildReference(slot).getPage(), collected, segmentRefs);
     }
-    collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
+    if (additionalKey != null) {
+      collected.add(new HOTBulkBuilder.Entry(additionalKey, additionalValue));
+    }
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
     final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
 
     final int revision = storageEngineWriter.getRevisionNumber();
     Page miniRoot = null;
+    Page candidateRoot = null;
+    PageReference publicationRef = null;
     boolean published = false;
+    boolean registrationCompleted = false;
     try {
       miniRoot = HOTBulkBuilder.build(entries, revision, indexType, pageKeyAllocator).rootPage();
       final PageReference replacementRef = swizzle(miniRoot);
       final PageReference candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node,
           frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
       final Page candidatePage = candidateRef.getPage();
+      candidateRoot = candidatePage;
       if (candidatePage == null) {
         closeFreshHOTSubtree(miniRoot);
         return false;
@@ -3990,51 +6195,52 @@ public abstract class AbstractHOTIndexWriter<K> {
       // fresh mini-HOT. Closing an unpublished mini-root merely clears those shared references; it
       // never retires their overflow pages. The path reference is the sole publication boundary.
       reattachSegmentRefs(miniRoot, segmentRefs);
-      navResult.pathRefs()[nodeDepth].setPage(candidatePage);
+      publicationRef = navResult.pathRefs()[nodeDepth];
+      publicationRef.setPage(candidatePage);
       published = true;
-      final Runnable afterPublicationTestHook = directionOneFrontierAfterPublicationTestHook;
-      if (afterPublicationTestHook != null) {
-        afterPublicationTestHook.run();
-      }
-      lastDispatchHandler = "h:d1-leaf-frontier-splice";
-      registerFreshSubtree(navResult.pathRefs()[nodeDepth]);
+      lastDispatchHandler = directionOne
+          ? "h:d1-leaf-frontier-splice"
+          : "h:combo-leaf-frontier-splice";
+      registerFreshSubtree(publicationRef);
+      registrationCompleted = true;
       if (nodeDepth > 0) {
-        propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
+        final byte[] propagationKey = additionalKey != null
+            ? additionalKey
+            : disposableSourceLeaf.getFirstKey();
+        propagateStructuralSpliceUpSpine(navResult, nodeDepth, propagationKey);
       }
       storageEngineWriter.getLog()
                          .releaseOrphanedHOTLeaves(indexScope(), navResult.pathRefs()[nodeDepth], orphanedLeafRefs,
                              TransactionIntentLog.RELEASE_SITE_FRONTIER_SPLICE);
-      DIRECTION_ONE_LEAF_FRONTIER_SPLICE.incrementAndGet();
-      if (frontier.size() == 2) {
+      if (disposableSourceLeaf != null) {
+        disposableSourceLeaf.close();
+      }
+      if (directionOne) {
+        DIRECTION_ONE_LEAF_FRONTIER_SPLICE.incrementAndGet();
+      }
+      if (directionOne && frontier.size() == 2) {
         DIRECTION_ONE_LEAF_PAIR_SPLICE.incrementAndGet();
-      } else {
+      } else if (directionOne) {
         DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.incrementAndGet();
       }
       return true;
     } catch (final RuntimeException | Error failure) {
       if (published) {
-        try {
-          storageEngineWriter.markTransactionRollbackOnly(failure);
-        } catch (final RuntimeException | Error poisonFailure) {
-          addSuppressedSafely(failure, poisonFailure);
+        markTransactionRollbackOnly(failure);
+        // The published candidate, rather than miniRoot alone, is the cleanup scope. It carries the
+        // exact references registration visited, so TIL/durable children remain owned while a hook
+        // failure before the first registration still releases every locally owned replacement.
+        closeLocallyOwnedFreshSubtree(publicationRef, candidateRoot, registrationCompleted, failure);
+        if (disposableSourceLeaf != null) {
+          closeSpeculativeLeafIfOpen(disposableSourceLeaf, failure);
         }
-        // The publication hook deliberately runs before TIL registration. A failure there leaves
-        // the fresh mini leaves reachable from a transaction that can only roll back, but not yet
-        // owned by the log. Release their off-heap frames here. The same cleanup is safe after a
-        // later registration/propagation failure: leaf close is idempotent and the poisoned graph
-        // can never be committed.
-        if (miniRoot != null) {
-          try {
-            closeFreshHOTSubtree(miniRoot);
-          } catch (final RuntimeException | Error cleanupFailure) {
-            addSuppressedSafely(failure, cleanupFailure);
-          }
-        }
-      } else if (miniRoot != null) {
-        try {
-          closeFreshHOTSubtree(miniRoot);
-        } catch (final RuntimeException | Error cleanupFailure) {
-          addSuppressedSafely(failure, cleanupFailure);
+      } else {
+        closeFreshHOTSubtree(miniRoot, failure);
+        // The caller transfers ownership of this already-speculative leaf for the duration of the
+        // frontier attempt. A normal false return preserves caller ownership; an exception cannot
+        // resume that caller, so this catch must retire it even before publication.
+        if (disposableSourceLeaf != null) {
+          closeSpeculativeLeafIfOpen(disposableSourceLeaf, failure);
         }
       }
       throw failure;
@@ -4055,59 +6261,132 @@ public abstract class AbstractHOTIndexWriter<K> {
     page.close();
   }
 
-  static void setDirectionOneFrontierAfterPublicationTestHook(final @Nullable Runnable hook) {
-    directionOneFrontierAfterPublicationTestHook = hook;
-  }
-
-  /**
-   * Collect strandable keys (route to {@code comboSlot}) under {@code ref}; gate single-source +
-   * exact.
-   */
-  private void collectMigratableKeys(@Nullable PageReference ref, HOTIndirectPage newNode, int comboSlot,
-      byte[] excludeKey, int slot, List<byte[]> out, long[] info, int depth) {
-    if (ref == null || depth > MAX_PATH_DEPTH + 2 || info[2] != 1L) {
+  /** Retire a provably unpublished fresh HOT without replacing the primary failure. */
+  private static void closeFreshHOTSubtree(final @Nullable Page page, final Throwable failure) {
+    if (page == null) {
       return;
     }
-    final Page page = resolveHOTPageForTraversal(ref);
-    if (page instanceof HOTLeafPage leaf) {
-      boolean leafHasStrand = false;
-      for (int i = 0; i < leaf.getEntryCount(); i++) {
-        final byte[] k = leaf.getKey(i);
-        if (k == null || Arrays.equals(k, excludeKey) || newNode.findChildIndex(k) != comboSlot) {
-          continue;
-        }
-        // Any key routing to comboSlot has comboPartial ⊆ densePK (I5-clean under node's mask);
-        // bulk-build discriminates their below-comboPartial differences into the new child.
-        leafHasStrand = true;
-        out.add(k);
-      }
-      if (leafHasStrand) {
-        if (info[0] >= 0 && (info[0] != slot || info[1] != leaf.getPageKey())) {
-          info[2] = 0L; // strandable keys span >1 slot or >1 leaf
-          return;
-        }
-        info[0] = slot;
-        info[1] = leaf.getPageKey();
-      }
-    } else if (page instanceof HOTIndirectPage indirect) {
-      for (int i = 0; i < indirect.getNumChildren() && info[2] == 1L; i++) {
-        collectMigratableKeys(indirect.getChildReference(i), newNode, comboSlot, excludeKey, slot, out, info,
-            depth + 1);
-      }
+    try {
+      closeFreshHOTSubtree(page);
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(failure, cleanupFailure);
     }
   }
 
   /**
-   * OR-merge duplicate keys in a sorted entry list (shared by the scoped/leaf/migration rebuilds).
+   * Retire only the still-local leaves of a fresh subtree after its publication reference was
+   * changed.
+   *
+   * <p>
+   * The publication reference is commonly an existing durable/TIL reference. Its key fields therefore
+   * cannot by themselves say whether they name the old page or the fresh replacement. Exact
+   * {@link PageContainer} identity is the ownership boundary. If the first complete
+   * {@link #registerFreshSubtree} call returned, the whole replacement has crossed that boundary; a
+   * later ancestor-registration failure must retain it even if an ownership probe itself is no longer
+   * conclusive (for example, an asynchronous flush already made the reference durable). During a
+   * failure inside the first post-order registration, the root has not transferred yet, so descend
+   * and close only child references which carry neither a durable nor a live log identity.
+   * </p>
    */
-  private static List<HOTBulkBuilder.Entry> dedupMergeEntries(List<HOTBulkBuilder.Entry> sorted) {
+  private void closeLocallyOwnedFreshSubtree(final @Nullable PageReference publicationRef,
+      final @Nullable Page freshRoot, final boolean registrationCompleted, final Throwable primaryFailure) {
+    if (freshRoot == null) {
+      return;
+    }
+    try {
+      if (registrationCompleted) {
+        return;
+      }
+      if (publicationRef != null && publicationRef.getLogKey() >= 0) {
+        final PageContainer owner;
+        try {
+          owner = requireNonNull(storageEngineWriter.getLog(), "transaction intent log").get(publicationRef);
+        } catch (final RuntimeException | Error ownershipFailure) {
+          // Ownership is uncertain. Retain rather than free a frame which may already be reachable
+          // from the TIL; the transaction is poisoned by every caller of this failure-only helper.
+          addSuppressedSafely(primaryFailure, ownershipFailure);
+          return;
+        }
+        if (containerOwnsPage(owner, freshRoot)) {
+          return;
+        }
+      }
+      closeLocallyOwnedFreshPage(freshRoot, primaryFailure);
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(primaryFailure, cleanupFailure);
+    }
+  }
+
+  /** Failure-only recursive half of {@link #closeLocallyOwnedFreshSubtree}. */
+  private void closeLocallyOwnedFreshPage(final Page page, final Throwable primaryFailure) {
+    if (page instanceof HOTIndirectPage indirect) {
+      closeUnregisteredFreshChildren(indirect, 0, primaryFailure);
+    } else if (!page.isClosed()) {
+      page.close();
+    }
+  }
+
+  static void setStructuralPublicationTestHook(final @Nullable Runnable hook) {
+    structuralPublicationTestHook = hook;
+  }
+
+  static void setTwoLeafMigrationAfterPublicationTestHook(final @Nullable Runnable hook) {
+    twoLeafMigrationAfterPublicationTestHook = hook;
+  }
+
+  static void setTwoLeafMigrationAfterReattachTestHook(final @Nullable Consumer<HOTIndirectPage> hook) {
+    twoLeafMigrationAfterReattachTestHook = hook;
+  }
+
+  /**
+   * Inspect one leaf from the already-bounded route-feasible scan plan. The plan carries the leaf's
+   * candidate-node owner slot, so finding strandable keys in two physical leaves or two owner slots
+   * rejects the two-leaf primitive without another tree walk.
+   */
+  private void collectMigratableLeafKeys(final HOTLeafPage leaf, final HOTIndirectPage newNode, final int comboSlot,
+      final byte[] excludeKey, final int ownerSlot, final long[] info) {
+    if (info[2] != 1L) {
+      return;
+    }
+    boolean leafHasStrand = false;
+    for (int i = 0; i < leaf.getEntryCount(); i++) {
+      final byte[] key = leaf.getKey(i);
+      if (key == null) {
+        throw refuseMutationTraversal("two-leaf strand source identification",
+            "unreadable key at leaf " + leaf.getPageKey() + " slot " + i);
+      }
+      if (Arrays.equals(key, excludeKey) || newNode.findChildIndex(key) != comboSlot) {
+        continue;
+      }
+      leafHasStrand = true;
+      info[3]++;
+    }
+    if (leafHasStrand) {
+      if (ownerSlot < 0 || info[0] >= 0 && (info[0] != ownerSlot || info[1] != leaf.getPageKey())) {
+        info[2] = 0L; // strandable keys span >1 candidate slot or >1 physical leaf
+      } else {
+        info[0] = ownerSlot;
+        info[1] = leaf.getPageKey();
+      }
+    }
+  }
+
+  /** Apply the index's value semantics while de-duplicating a bounded leaf-frontier input. */
+  private List<HOTBulkBuilder.Entry> dedupMergeEntries(final List<HOTBulkBuilder.Entry> sorted) {
     final List<HOTBulkBuilder.Entry> out = new ArrayList<>(sorted.size());
     for (final HOTBulkBuilder.Entry entry : sorted) {
       final int last = out.size() - 1;
       if (last >= 0 && Arrays.equals(out.get(last).key(), entry.key())) {
         final HOTBulkBuilder.Entry prev = out.get(last);
-        out.set(last,
-            new HOTBulkBuilder.Entry(prev.key(), HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value())));
+        // PATH/CAS/NAME values are NodeReferences bitmaps and duplicate inserts union their node
+        // sets. A PROJECTION key is a physical slot: its value is arbitrary descriptor/segment bytes
+        // (the zero-length value is a tombstone), so bitmap decoding is both semantically wrong and
+        // unsafe. Sort is stable and newly inserted (K,V) is appended after collected state; keeping
+        // the last duplicate therefore implements projection's last-write slot semantics byte-for-byte.
+        final byte[] mergedValue = indexType == IndexType.PROJECTION
+            ? entry.value()
+            : HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value());
+        out.set(last, new HOTBulkBuilder.Entry(prev.key(), mergedValue));
       } else {
         out.add(entry);
       }
@@ -4116,104 +6395,50 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Rebuild only {@code navResult.leaf()}'s entries together with {@code (keySlice, valueSlice)} into
-   * a canonical mini-HOT and splice it into the leaf's slot of {@code pathNodes[pathDepth-1]}, then
-   * propagate height/partial changes up the spine. {@code O(leaf entries + path depth)}.
-   */
-  private void leafScopedRebuild(LeafNavigationResult navResult, byte[] keySlice, byte[] valueSlice) {
-    final int pathDepth = navResult.pathDepth();
-    final HOTLeafPage oldLeaf = navResult.leaf();
-
-    final List<HOTBulkBuilder.Entry> collected = new ArrayList<>(oldLeaf.getEntryCount() + 1);
-    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
-    collectSubtreeEntries(oldLeaf, collected, segmentRefs); // preserves tombstone entries
-    collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
-    collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
-    final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(collected.size());
-    for (final HOTBulkBuilder.Entry entry : collected) { // OR-merge duplicate keys
-      final int last = entries.size() - 1;
-      if (last >= 0 && Arrays.equals(entries.get(last).key(), entry.key())) {
-        final HOTBulkBuilder.Entry prev = entries.get(last);
-        entries.set(last,
-            new HOTBulkBuilder.Entry(prev.key(), HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value())));
-      } else {
-        entries.add(entry);
-      }
-    }
-
-    final HOTBulkBuilder.BuildResult built =
-        HOTBulkBuilder.build(entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
-    final Page miniRoot = built.rootPage();
-    reattachSegmentRefs(miniRoot, segmentRefs);
-
-    if (pathDepth == 0) { // the leaf is the whole index root
-      navResult.leafRef().setPage(miniRoot);
-      lastDispatchHandler = "h:leafrebuild-root";
-      registerFreshSubtree(navResult.leafRef());
-      return;
-    }
-    final int leafSlot = navResult.pathChildIndices()[pathDepth - 1];
-    final HOTIndirectPage parent = navResult.pathNodes()[pathDepth - 1];
-    final PageReference oldLeafRef = navResult.leafRef();
-    final PageReference newRef = swizzle(miniRoot);
-    parent.setChildReference(leafSlot, newRef);
-    lastDispatchHandler = "h:leafrebuild-splice";
-    registerFreshSubtree(newRef);
-    // Reuse the scoped-rebuild spine propagation: treat the leaf level as rebuiltDepth=pathDepth so
-    // it refreshes the parent's height + the leaf-slot partial (and recurses on an I7 collision).
-    propagateRebuildUpSpine(navResult, pathDepth, keySlice, valueSlice);
-    storageEngineWriter.getLog()
-                       .releaseOrphanedHOTLeaves(indexScope(), newRef, List.of(oldLeafRef),
-                           TransactionIntentLog.RELEASE_SITE_LEAF_REBUILD_ROOT);
-  }
-
-  /**
    * Returns {@code true} iff at least one key under {@code oldNode} would strand to {@code newSlot}
    * on {@code newNode} and <em>every</em> such key lives in the leaf with page key {@code
-   * leafPageKey}. Used to gate {@link #leafScopedRebuild}.
+   * leafPageKey}. Used to gate the bounded leaf/frontier handlers.
    */
-  private boolean strandConfinedToLeaf(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot, byte[] excludeKey,
+  final boolean strandConfinedToLeaf(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot, byte[] excludeKey,
       long leafPageKey) {
-    final boolean[] state = {false, true}; // {found a strandable key, all so far confined}
-    for (int i = 0; i < oldNode.getNumChildren() && state[1]; i++) {
-      strandConfinedRec(oldNode.getChildReference(i), newNode, newSlot, excludeKey, leafPageKey, state, 0);
-    }
-    return state[0] && state[1];
+    // branchAddStrandsExisting has just run the same route-feasibility preflight. Re-run that
+    // allocation-free classifier here instead of walking the whole old node: the shared scratch is
+    // reset into an exact bounded scan plan containing only children which can route to newSlot.
+    final RebuildFootprint footprint = requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey);
+    return strandConfinedToLeaf(footprint, newNode, newSlot, excludeKey, leafPageKey);
   }
 
-  private void strandConfinedRec(@Nullable PageReference ref, HOTIndirectPage newNode, int newSlot, byte[] excludeKey,
-      long leafPageKey, boolean[] state, int depth) {
-    if (ref == null || depth > MAX_PATH_DEPTH + 2 || !state[1]) {
-      return;
-    }
-    final Page page = resolveHOTPageForTraversal(ref);
-    if (page instanceof HOTLeafPage leaf) {
-      final int n = leaf.getEntryCount();
-      for (int i = 0; i < n; i++) {
-        final byte[] k = leaf.getKey(i);
-        if (k == null || Arrays.equals(k, excludeKey)) {
+  private boolean strandConfinedToLeaf(final RebuildFootprint footprint, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] excludeKey, final long leafPageKey) {
+    boolean found = false;
+    for (int pageIndex = 0; pageIndex < footprint.pages; pageIndex++) {
+      if (!(footprint.visitedPages[pageIndex] instanceof HOTLeafPage leaf)) {
+        continue;
+      }
+      final int entryCount = leaf.getEntryCount();
+      for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
+        final byte[] key = leaf.getKey(entryIndex);
+        if (key == null) {
+          throw refuseMutationTraversal("strand confinement to descended leaf",
+              "unreadable key at leaf " + leaf.getPageKey() + " slot " + entryIndex);
+        }
+        if (Arrays.equals(key, excludeKey) || newNode.findChildIndex(key) != newSlot) {
           continue;
         }
-        if (newNode.findChildIndex(k) == newSlot) {
-          state[0] = true;
-          if (leaf.getPageKey() != leafPageKey) {
-            state[1] = false; // a strandable key lives elsewhere
-            return;
-          }
+        found = true;
+        if (leaf.getPageKey() != leafPageKey) {
+          return false;
         }
       }
-    } else if (page instanceof HOTIndirectPage indirect) {
-      for (int i = 0; i < indirect.getNumChildren() && state[1]; i++) {
-        strandConfinedRec(indirect.getChildReference(i), newNode, newSlot, excludeKey, leafPageKey, state, depth + 1);
-      }
     }
+    return found;
   }
 
   /**
-   * Preflight every deterministic condition {@link #propagateRebuildUpSpine} can encounter after an
-   * incremental splice. The live path still points at the old subtree, so this walk substitutes the
-   * candidate's exact key range and height in registers while resolving every unaffected sibling. No
-   * PageReference is changed and no page is allocated.
+   * Preflight every deterministic condition {@link #propagateStructuralSpliceUpSpine} can encounter
+   * after an incremental splice. The live path still points at the old subtree, so this walk
+   * substitutes the candidate's exact key range and height in registers while resolving every
+   * unaffected sibling. No PageReference is changed and no page is allocated.
    *
    * <p>
    * A {@code false} result leaves the caller free to discard the unpublished mini-HOT. Once this
@@ -4306,9 +6531,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Plan §12 Stage 3c (partials-verbatim since Stage 5) -- propagate a scoped
-   * {@link #rebuildSubtree}'s effects up the spine via in-place re-encoding. At each ancestor from
-   * {@code rebuiltDepth - 1} down to 0:
+   * Propagate one preflighted structural splice up the spine via in-place height re-encoding. At each
+   * ancestor from {@code rebuiltDepth - 1} down to 0:
    *
    * <ul>
    * <li>Recompute the ancestor's height as {@code 1 + max(child.height)} -- HOT heights are max-based
@@ -4317,13 +6541,11 @@ public abstract class AbstractHOTIndexWriter<K> {
    * <li>Keep every stored partial verbatim -- a sparse partial is the slot's position in the
    * ancestor's block trie (off-path bits zero by convention), invariant under content growth of the
    * subtree behind it. Recomputing it from the subtree's new first key stamps off-path bits and was
-   * the mass producer of I4/I5 heals (plan doc, Stage 5).</li>
+   * the historical mass producer of I4/I5 violations (plan doc, Stage 5).</li>
    * <li>Check the one property a content change can break: sibling key ORDER (I8/I12). Compare the
-   * rebuilt slot's extremes against its neighbours'; on a violation fall back to a scoped
-   * {@link #rebuildSubtree} at this ancestor's depth (the recursive call re-enters this propagation;
-   * the cascade is at most {@code rebuiltDepth} levels). The check runs at the immediate parent and
-   * continues upward only while the changed slot sits at its block's edge -- interior slots absorb
-   * the change locally.</li>
+   * rebuilt slot's extremes against its neighbours'. The mandatory preflight proves every boundary; a
+   * post-publication mismatch is transaction-fatal. The check continues upward only while the changed
+   * slot sits at its block's edge.</li>
    * <li>Stop early once neither the height nor an edge boundary can change further up.</li>
    * <li>On a height change re-encode the ancestor with the same children + disc bits + partials, just
    * an updated height. The ancestor's child references are shared with the prior version; only the
@@ -4331,12 +6553,23 @@ public abstract class AbstractHOTIndexWriter<K> {
    * </ul>
    *
    * <p>
-   * The propagation does not orphan any leaves -- only the originally rebuilt subtree's leaves are
-   * released by the caller. Re-encoded ancestors replace their TIL entries at the same
-   * {@link PageReference}, dropping the prior in-memory page.
+   * The propagation does not orphan any leaves. Re-encoded ancestors replace their TIL entries at the
+   * same {@link PageReference}, dropping the prior in-memory page.
    */
-  private void propagateRebuildUpSpine(LeafNavigationResult navResult, int rebuiltDepth, byte[] keySlice,
-      byte[] valueSlice) {
+  private void propagateStructuralSpliceUpSpine(LeafNavigationResult navResult, int rebuiltDepth, byte[] keySlice) {
+    try {
+      propagateStructuralSpliceAfterPublication(navResult, rebuiltDepth, keySlice);
+    } catch (final RuntimeException | Error failure) {
+      // Every caller has already published the rebuilt child/splice. Keep the poison boundary local
+      // so a new caller cannot accidentally turn an unresolved sibling or registration failure into
+      // a catchable fallback over a partially updated graph.
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
+  private void propagateStructuralSpliceAfterPublication(final LeafNavigationResult navResult, final int rebuiltDepth,
+      final byte[] keySlice) {
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final PageReference[] pathRefs = navResult.pathRefs();
     final int[] childSlots = navResult.pathChildIndices();
@@ -4352,7 +6585,15 @@ public abstract class AbstractHOTIndexWriter<K> {
       int maxChildHeight = 0;
       for (int i = 0; i < numChildren; i++) {
         final PageReference childRef = ancestor.getChildReference(i);
+        if (childRef == null) {
+          throw new IllegalStateException(
+              "HOT propagation cannot resolve null child " + i + " of ancestor " + ancestor.getPageKey());
+        }
         final Page childPage = resolveHOTPageForTraversal(childRef);
+        if (childPage == null) {
+          throw new IllegalStateException(
+              "HOT propagation cannot resolve child " + i + " of ancestor " + ancestor.getPageKey());
+        }
         final int h = childPage instanceof HOTIndirectPage hi
             ? hi.getHeight()
             : 0;
@@ -4371,36 +6612,44 @@ public abstract class AbstractHOTIndexWriter<K> {
       // shape recomputed the partial as densePK(new firstKey), which stamps the first key's
       // values at OFF-PATH mask bits into an encoding whose off-path bits must be zero
       // (Binna's sparse-path convention) — on this branch's attribution run that single line
-      // manufactured 1,151 I5 and 80 I4 violations per 36K-insert shred, ~91% of every
-      // self-heal the detector had to discharge.
+      // manufactured 1,151 I5 and 80 I4 violations per 36K-insert shred.
       //
       // What a content change CAN legitimately break is sibling ORDER (I8/I12): the rebuilt
       // subtree's minimum may have dropped below the previous sibling's maximum (the
       // Direction-1 shape) — subset routing admits keys the lex order does not. That is a
-      // boundary property, checked as such; a violation falls back to the canonical scoped
-      // rebuild at this ancestor's depth, the Theorem-4 discharge for genuine firings.
+      // boundary property preflighted before publication; observing it here is transaction-fatal.
       final boolean heightChanged = newAncestorHeight != ancestor.getHeight();
 
       if (boundaryRelevant) {
         final byte[] slotFirst = firstKeyOfSubtree(ancestor.getChildReference(rebuiltSlot));
-        final byte[] prevLast = rebuiltSlot > 0
-            ? lastKeyOfSubtree(ancestor.getChildReference(rebuiltSlot - 1))
-            : null;
-        final byte[] slotLast = rebuiltSlot + 1 < numChildren
-            ? lastKeyOfSubtree(ancestor.getChildReference(rebuiltSlot))
-            : null;
-        final byte[] nextFirst = rebuiltSlot + 1 < numChildren
-            ? firstKeyOfSubtree(ancestor.getChildReference(rebuiltSlot + 1))
-            : null;
-        final boolean leftViolated =
-            prevLast != null && slotFirst != null && Arrays.compareUnsigned(prevLast, slotFirst) >= 0;
-        final boolean rightViolated =
-            slotLast != null && nextFirst != null && Arrays.compareUnsigned(slotLast, nextFirst) >= 0;
+        if (slotFirst == null) {
+          throw new IllegalStateException(
+              "HOT propagation cannot resolve rebuilt slot minimum at ancestor " + ancestor.getPageKey());
+        }
+        byte[] prevLast = null;
+        if (rebuiltSlot > 0) {
+          prevLast = lastKeyOfSubtree(ancestor.getChildReference(rebuiltSlot - 1));
+          if (prevLast == null) {
+            throw new IllegalStateException(
+                "HOT propagation cannot resolve preceding sibling maximum at ancestor " + ancestor.getPageKey());
+          }
+        }
+        byte[] slotLast = null;
+        byte[] nextFirst = null;
+        if (rebuiltSlot + 1 < numChildren) {
+          slotLast = lastKeyOfSubtree(ancestor.getChildReference(rebuiltSlot));
+          nextFirst = firstKeyOfSubtree(ancestor.getChildReference(rebuiltSlot + 1));
+          if (slotLast == null || nextFirst == null) {
+            throw new IllegalStateException(
+                "HOT propagation cannot resolve rebuilt/next sibling boundary at ancestor " + ancestor.getPageKey());
+          }
+        }
+        final boolean leftViolated = prevLast != null && Arrays.compareUnsigned(prevLast, slotFirst) >= 0;
+        final boolean rightViolated = slotLast != null && Arrays.compareUnsigned(slotLast, nextFirst) >= 0;
         if (leftViolated || rightViolated) {
-          REBUILD_PROPAGATION_ORDER_FALLBACK.incrementAndGet();
-          pendingRebuildReason = "trigger=propagation-order-fallback ancestorDepth=" + ancestorDepth;
-          rebuildSubtree(navResult, ancestorDepth, keySlice, valueSlice);
-          return;
+          STRUCTURAL_PROPAGATION_PREFLIGHT_FAILURE.incrementAndGet();
+          throw new IllegalStateException("HOT structural splice crossed a sibling boundary after its successful "
+              + "pre-publication propagation proof at ancestor depth " + ancestorDepth);
         }
         // The slot's extremes can influence the NEXT ancestor's boundaries only while the
         // changed slot is the edge of this block (the subtree minimum propagates from slot 0,
@@ -4429,82 +6678,28 @@ public abstract class AbstractHOTIndexWriter<K> {
           HOTBulkBuilder.assembleIndirect(discBits, partials, children, newAncestorHeight, revision, pageKeyAllocator);
       pathRefs[ancestorDepth].setPage(rebuiltAncestor);
       registerFreshSubtree(pathRefs[ancestorDepth]);
-      REBUILD_HEIGHT_ESCALATION_AVOIDED.incrementAndGet();
+      STRUCTURAL_HEIGHT_REENCODE.incrementAndGet();
     }
   }
 
-  /**
-   * Depth-first gather of every reference pointing at a leaf page in {@code indirect}'s subtree. Used
-   * by {@link #rebuildSubtree} to release the off-heap slots of a subtree that a canonical rebuild
-   * replaced wholesale. Pages are resolved through the transaction-intent log so the walk sees
-   * in-transaction modifications.
-   */
-  private void collectSubtreeLeafRefs(HOTIndirectPage indirect, List<PageReference> out) {
-    for (int i = 0; i < indirect.getNumChildren(); i++) {
-      final PageReference childRef = indirect.getChildReference(i);
-      if (childRef == null) {
-        continue;
+  /** Copy the bounded direct-leaf frontier; this helper never descends an indirect subtree. */
+  private void collectLeafEntries(final HOTLeafPage leaf, final List<HOTBulkBuilder.Entry> out,
+      final List<CapturedSegmentRef> segmentRefsOut) {
+    for (final long refKey : leaf.overflowPageRefKeysSorted()) {
+      segmentRefsOut.add(new CapturedSegmentRef(refKey, leaf.getPageReference(refKey)));
+    }
+    final int count = leaf.getEntryCount();
+    for (int i = 0; i < count; i++) {
+      final byte[] key = leaf.getKey(i);
+      if (key == null) {
+        throw new IllegalStateException(
+            "HOT leaf-frontier splice cannot read leaf " + leaf.getPageKey() + " entry " + i);
       }
-      final Page child = resolveHOTPageForTraversal(childRef);
-      if (child instanceof HOTIndirectPage childIndirect) {
-        collectSubtreeLeafRefs(childIndirect, out);
-      } else if (child instanceof HOTLeafPage) {
-        out.add(childRef);
-      }
+      out.add(new HOTBulkBuilder.Entry(key, leaf.copyStoredValue(i)));
     }
   }
 
-  /**
-   * Depth-first gather of every {@code (key, value)} entry in {@code page}'s subtree into
-   * {@code out}. The traversal order follows the trie's child arrays, which equals key order only for
-   * a canonical trie — {@link #rebuildSubtree} sorts the result, so this method does not rely on it.
-   * Pages are resolved through the transaction-intent log so in-transaction modifications are seen.
-   */
-  private void collectSubtreeEntries(Page page, List<HOTBulkBuilder.Entry> out) {
-    collectSubtreeEntries(page, out, null);
-  }
-
-  /**
-   * Depth-first gather of every {@code (key, value)} entry — and, when {@code segmentRefsOut} is
-   * non-null, every segment-reference side-map entry — in {@code page}'s subtree.
-   *
-   * <p>
-   * A side map (projection index segment references,
-   * {@code docs/PROJECTION_INDEX_STORAGE_REDESIGN.md} §2.3) must ride whichever leaf holds its OWNING
-   * SLOT; a rebuild that reconstructs leaves from {@code (key, value)} pairs alone would silently
-   * orphan the committed segment pages. Callers that reattach — via {@link #reattachSegmentRefs}
-   * after the bulk build — pass a sink; callers that cannot pass {@code null} and keep the loud
-   * backstop, failing attributably instead of losing data.
-   */
-  private void collectSubtreeEntries(Page page, List<HOTBulkBuilder.Entry> out,
-      @Nullable List<CapturedSegmentRef> segmentRefsOut) {
-    if (page instanceof HOTLeafPage leaf) {
-      if (leaf.segmentRefCount() > 0) {
-        if (segmentRefsOut == null) {
-          throw new IllegalStateException(
-              "Subtree rebuild would drop " + leaf.segmentRefCount() + " segment reference(s) on leaf pageKey="
-                  + leaf.getPageKey() + " — this rebuild path is not instrumented for segment-ref routing.");
-        }
-        for (final long refKey : leaf.overflowPageRefKeysSorted()) {
-          segmentRefsOut.add(new CapturedSegmentRef(refKey, leaf.getPageReference(refKey)));
-        }
-      }
-      final int count = leaf.getEntryCount();
-      for (int i = 0; i < count; i++) {
-        out.add(new HOTBulkBuilder.Entry(leaf.getKey(i), leaf.getValue(i)));
-      }
-    } else if (page instanceof HOTIndirectPage indirect) {
-      for (int i = 0; i < indirect.getNumChildren(); i++) {
-        final Page child = resolveHOTPageForTraversal(indirect.getChildReference(i));
-        if (child == null) {
-          throw new SirixIOException("HOT: unresolvable child page during subtree rebuild");
-        }
-        collectSubtreeEntries(child, out, segmentRefsOut);
-      }
-    }
-  }
-
-  /** A side-map entry captured off a leaf that a rebuild is about to discard. */
+  /** A side-map entry captured off a leaf that a bounded frontier splice is about to replace. */
   private record CapturedSegmentRef(long refKey, PageReference reference) {
   }
 
@@ -4533,11 +6728,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       final CapturedSegmentRef captured = refs.get(i);
       if (captured.reference() == null) {
         throw new IllegalStateException(
-            "Segment-ref reattach after rebuild: refKey " + captured.refKey() + " has no PageReference");
+            "Segment-ref reattach after frontier splice: refKey " + captured.refKey() + " has no PageReference");
       }
       if (!uniqueRefKeys.add(captured.refKey())) {
-        throw new IllegalStateException("Segment-ref reattach after rebuild: duplicate refKey " + captured.refKey()
-            + " was captured from more than one source leaf");
+        throw new IllegalStateException("Segment-ref reattach after frontier splice: duplicate refKey "
+            + captured.refKey() + " was captured from more than one source leaf");
       }
       final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
       PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
@@ -4551,9 +6746,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         current = resolveHOTPageForTraversal(indirect.getChildReference(childIndex));
       }
       if (!(current instanceof HOTLeafPage leaf) || leaf.findEntry(ownerKey) < 0) {
-        throw new IllegalStateException(
-            "Segment-ref reattach after rebuild: owning slot " + ownerSlot + " (refKey=" + captured.refKey()
-                + ") not found in the rebuilt subtree" + " — the rebuild dropped an entry it collected.");
+        throw new IllegalStateException("Segment-ref reattach after frontier splice: owning slot " + ownerSlot
+            + " (refKey=" + captured.refKey() + ") not found in the replacement subtree — an entry was lost.");
       }
       owners[i] = leaf;
     }
@@ -4584,16 +6778,27 @@ public abstract class AbstractHOTIndexWriter<K> {
    * instead of {@code null}. Runs once per structural overflow (rare), never on the merge fast path;
    * a child already in memory is left untouched.
    */
-  private void ensurePathChildrenLoaded(HOTIndirectPage[] pathNodes) {
-    for (final HOTIndirectPage node : pathNodes) {
-      for (int i = 0; i < node.getNumChildren(); i++) {
-        final PageReference childRef = node.getChildReference(i);
-        if (childRef != null && childRef.getPage() == null) {
-          final Page child = resolveHOTPageForTraversal(childRef);
-          if (child != null) {
-            childRef.setPage(child);
-          }
+  private void ensurePathChildrenLoaded(final HOTIndirectPage[] pathNodes, final int pathDepth) {
+    for (int depth = 0; depth < pathDepth; depth++) {
+      ensureNodeChildrenLoaded(pathNodes[depth]);
+    }
+  }
+
+  /** Resolve one compound node's direct children for exact local height accounting. */
+  private void ensureNodeChildrenLoaded(final HOTIndirectPage node) {
+    for (int i = 0; i < node.getNumChildren(); i++) {
+      final PageReference childRef = node.getChildReference(i);
+      if (childRef == null) {
+        throw new IllegalStateException(
+            "HOT direct child " + i + " of page " + node.getPageKey() + " has no reference");
+      }
+      if (childRef.getPage() == null) {
+        final Page child = resolveHOTPageForTraversal(childRef);
+        if (child == null) {
+          throw new IllegalStateException(
+              "HOT cannot resolve direct child " + i + " of page " + node.getPageKey() + " for exact height");
         }
+        childRef.setPage(child);
       }
     }
   }
@@ -4611,8 +6816,33 @@ public abstract class AbstractHOTIndexWriter<K> {
    * merely re-used by reference.
    */
   private void registerFreshSubtree(PageReference touchedRef) {
-    selfHealScope = touchedRef; // root of the just-spliced subtree — scope for the self-heal
+    // Every structural mutation publishes exactly one touched reference before entering this
+    // registration choke point. Keeping the deterministic fault seam here tests the atomicity of
+    // the shared writer instead of depending on one rare repair shape to occur by chance.
+    final Runnable publicationTestHook = structuralPublicationTestHook;
+    if (publicationTestHook != null) {
+      publicationTestHook.run();
+    }
+    structuralValidationScope = touchedRef;
     registerFreshPage(touchedRef, true);
+  }
+
+  /**
+   * Retire the old leaf entry after a split/pair published at an ancestor reference. A root-leaf
+   * replacement reuses the source reference (or its shared TIL handle), so the ordinary
+   * {@link TransactionIntentLog#put} replacement path already retired it and no forwarding is needed.
+   * The TIL's identity owner index makes the remaining path O(1), independent of transaction size,
+   * and preserves a leaf instance that the replacement subtree deliberately reuses.
+   */
+  private void retireReplacedLeaf(final PageReference sourceRef, final PageReference replacementRef,
+      final int releaseSite) {
+    final PageReference.TransactionLogReference sourceIdentity = sourceRef.transactionLogReference();
+    if (sourceRef == replacementRef
+        || (sourceIdentity != null && sourceIdentity == replacementRef.transactionLogReference())) {
+      return;
+    }
+    requireNonNull(storageEngineWriter.getLog(), "transaction intent log").releaseOrphanedHOTLeaves(indexScope(),
+        replacementRef, List.of(sourceRef), releaseSite);
   }
 
   private void registerFreshPage(PageReference ref, boolean touched) {
@@ -4704,19 +6934,27 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Best-effort, allocation-free cleanup for a fresh subtree that registration has not visited. A
-   * disk key or log key marks a shared/TIL-owned boundary and is never crossed. Each recursive call
-   * absorbs its own cleanup failure so siblings are still examined.
+   * Best-effort cleanup for a fresh subtree that registration has not visited. A disk key is a
+   * durable shared boundary and a log key is a TIL-owned boundary. Each recursive call absorbs its
+   * own cleanup failure so siblings are still examined.
    */
-  private static void closeUnregisteredFreshSubtree(final @Nullable PageReference ref, final Throwable primaryFailure) {
+  private void closeUnregisteredFreshSubtree(final @Nullable PageReference ref, final Throwable primaryFailure) {
     try {
-      if (ref == null || ref.getLogKey() >= 0 || ref.getKey() >= 0) {
+      if (ref == null || ref.getKey() >= 0) {
         return;
       }
       final Page page = ref.getPage();
+      if (page == null) {
+        return;
+      }
+      if (ref.getLogKey() >= 0) {
+        // Unlike the reused publication root, structural builders never replace a shared child in
+        // place. Its live log identity is therefore already the exact ownership boundary.
+        return;
+      }
       if (page instanceof HOTIndirectPage indirect) {
         closeUnregisteredFreshChildren(indirect, 0, primaryFailure);
-      } else if (page instanceof HOTLeafPage leaf) {
+      } else if (page instanceof HOTLeafPage leaf && !leaf.isClosed()) {
         leaf.close();
       }
     } catch (final RuntimeException | Error cleanupFailure) {
@@ -4724,7 +6962,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  private static void closeUnregisteredFreshChildren(final HOTIndirectPage indirect, final int fromInclusive,
+  private void closeUnregisteredFreshChildren(final HOTIndirectPage indirect, final int fromInclusive,
       final Throwable primaryFailure) {
     final int numChildren;
     try {
@@ -4782,7 +7020,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
       return null; // Deleted entry
     }
-    return NodeReferencesSerializer.deserialize(valueBytes);
+    return NodeReferencesSerializer.deserializeChunk(valueBytes);
   }
 
   /**
@@ -4808,53 +7046,4 @@ public abstract class AbstractHOTIndexWriter<K> {
     lastSerializedValueLen = valueLen;
   }
 
-  /**
-   * Phase 7d — Populate the leaf's ancestor-owned bits from the path's ancestor disc bits. For each
-   * absolute bit position β captured by some ancestor's mask, query the leaf's β-constancy: if all
-   * existing keys agree, record β with the constant value. Mixed bits are NOT recorded (= leaf is
-   * already β-mixed and no further constraint can be added).
-   *
-   * <p>
-   * Called BEFORE strict merge so {@code mergeWithNodeRefsStrict} has the metadata to detect
-   * β-breaks. Idempotent: replaces any previous owned bits.
-   *
-   * <p>
-   * HFT-grade: at most O(pathDepth * pathMaskBits * leafEntries) per call. Single allocation per call
-   * (the owned-bits and values arrays).
-   */
-  protected void populateLeafOwnedBitsFromPath(final HOTLeafPage leaf, final HOTIndirectPage[] pathNodes,
-      final int pathDepth) {
-    if (leaf == null) {
-      return; // nothing to populate — the guard used to dereference the very null it tested
-    }
-    if (pathDepth <= 0) {
-      leaf.setAncestorOwnedBits(new int[0], new byte[0]);
-      return;
-    }
-    final int[] ancestorBits = trieWriter.collectAncestorDiscBits(pathNodes, pathDepth);
-    if (ancestorBits.length == 0) {
-      leaf.setAncestorOwnedBits(new int[0], new byte[0]);
-      return;
-    }
-    final int[] tempBits = new int[ancestorBits.length];
-    final byte[] tempValues = new byte[ancestorBits.length];
-    int n = 0;
-    for (final int beta : ancestorBits) {
-      final int v = leaf.isBitConstantAtAbsBit(beta);
-      if (v < 0)
-        continue; // β-mixed — cannot constrain
-      tempBits[n] = beta;
-      tempValues[n] = (byte) v;
-      n++;
-    }
-    if (n == ancestorBits.length) {
-      leaf.setAncestorOwnedBits(tempBits, tempValues);
-    } else {
-      final int[] finalBits = new int[n];
-      final byte[] finalValues = new byte[n];
-      System.arraycopy(tempBits, 0, finalBits, 0, n);
-      System.arraycopy(tempValues, 0, finalValues, 0, n);
-      leaf.setAncestorOwnedBits(finalBits, finalValues);
-    }
-  }
 }

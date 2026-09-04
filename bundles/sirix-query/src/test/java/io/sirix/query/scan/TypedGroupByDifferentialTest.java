@@ -6,7 +6,6 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.index.projection.ProjectionIndexCatalog;
-import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -49,11 +48,13 @@ public final class TypedGroupByDifferentialTest {
   private static final String[] CITIES = {"NYC", "LA", "SF"};
 
   private Path dbDir;
+  private boolean sparseProjectionReady;
 
   private static final String[] TIERS = {"gold", "silver", "bronze"};
 
   @BeforeEach
   void setUp() throws Exception {
+    sparseProjectionReady = false;
     dbDir = Files.createTempDirectory("sirix-typed-gb-");
     final Random rng = new Random(7);
     final StringBuilder sb = new StringBuilder(N * 128);
@@ -826,7 +827,16 @@ public final class TypedGroupByDifferentialTest {
 
   @Test
   void countDistinctOverSparseFieldViaProjection() throws Exception {
+    // A third of the records MISS `tier` and intern the "" default into their leaf dictionaries: the
+    // hashed dictionary union must count the present tiers and no phantom — and it, not the bounded
+    // content-based union or the row-wise group count, must be the route that answered.
+    final long servedBefore = SirixVectorizedExecutor.projectionCountDistinctServedCount();
+    final long unionBefore = SirixVectorizedExecutor.projectionCountDistinctDictUnionServedCount();
     assertDifferentialWithSparseProjection("count(for $u in " + SRC + " let $t := $u.tier group by $t return $t)");
+    assertEquals(servedBefore + 1, SirixVectorizedExecutor.projectionCountDistinctServedCount(),
+        "a correct answer is not route evidence: the projection count-distinct outcome counter must move");
+    assertEquals(unionBefore + 1, SirixVectorizedExecutor.projectionCountDistinctDictUnionServedCount(),
+        "…and the hashed dictionary union must be the implementation that produced it");
   }
 
   @Test
@@ -1146,7 +1156,6 @@ public final class TypedGroupByDifferentialTest {
               + "('long','long','long','long','long','long','long','double','boolean','string','string')) "
               + "return {\"revision\": sdb:commit($doc)}").evaluate(ctx);
     }
-    ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     numericResourceReady = true;
   }
@@ -1340,12 +1349,18 @@ public final class TypedGroupByDifferentialTest {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      // Creating the projection commits a new resource revision. Open the serving session only
+      // afterwards: a session opened before that separate transaction is revision-pinned to the
+      // old catalog and must not be used to construct the executor for the just-committed index.
+      ensureSparseProjection(chain, ctx);
       final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
       final var session = db.beginResourceSession(RES);
       SirixVectorizedExecutor exec = null;
       try {
-        installSparseWildcardProjection(session);
-        exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+        final int revision = session.getMostRecentRevisionNumber();
+        assertTrue(ProjectionIndexCatalog.hasProjections(session, session.getResourceConfig().getResource().toString(),
+            revision), "fresh serving session must observe the committed sparse projection catalog");
+        exec = new SirixVectorizedExecutor(session, revision);
         SequentialPipelineStrategy.setVectorizedExecutor(exec);
         final Sequence result = new Query(chain, query).execute(ctx);
         final StringWriter out = new StringWriter();
@@ -1361,38 +1376,19 @@ public final class TypedGroupByDifferentialTest {
     }
   }
 
-  /**
-   * Install an in-memory wildcard projection over the SPARSE/typed fields: tier (string, sparse),
-   * bonus (numeric, sparse), nully (string column fed nulls — must be flagged unrepresentable), mixed
-   * (string column fed numbers — likewise), plus the dense dept/age columns. Mirrors
-   * {@code ScaleBenchProjectionSetup}'s slow path without HOT persistence.
-   */
-  private static void installSparseWildcardProjection(final io.sirix.api.json.JsonResourceSession session) {
-    final var rootPath = io.brackit.query.util.path.Path.parse("/[]", io.brackit.query.util.path.PathParser.Type.JSON);
-    final java.util.List<io.brackit.query.util.path.Path<io.brackit.query.atomic.QNm>> fieldPaths = java.util.List.of(
-        io.brackit.query.util.path.Path.parse("/[]/dept", io.brackit.query.util.path.PathParser.Type.JSON),
-        io.brackit.query.util.path.Path.parse("/[]/tier", io.brackit.query.util.path.PathParser.Type.JSON),
-        io.brackit.query.util.path.Path.parse("/[]/bonus", io.brackit.query.util.path.PathParser.Type.JSON),
-        io.brackit.query.util.path.Path.parse("/[]/age", io.brackit.query.util.path.PathParser.Type.JSON),
-        io.brackit.query.util.path.Path.parse("/[]/nully", io.brackit.query.util.path.PathParser.Type.JSON),
-        io.brackit.query.util.path.Path.parse("/[]/mixed", io.brackit.query.util.path.PathParser.Type.JSON),
-        io.brackit.query.util.path.Path.parse("/[]/region", io.brackit.query.util.path.PathParser.Type.JSON));
-    final var def = io.sirix.index.IndexDefs.createProjectionIdxDef(rootPath, fieldPaths,
-        java.util.List.of(io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.LON,
-            io.brackit.query.jdm.Type.LON, io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
-            io.brackit.query.jdm.Type.STR),
-        7, io.sirix.index.IndexDef.DbType.JSON);
-    final java.util.List<byte[]> leaves = new java.util.ArrayList<>();
-    final io.sirix.index.projection.ProjectionIndexBuilder builder;
-    final int revision = session.getMostRecentRevisionNumber();
-    try (var rtx = session.beginNodeReadOnlyTrx(revision); var pathSummary = session.openPathSummary(revision)) {
-      builder = new io.sirix.index.projection.ProjectionIndexBuilder(def, pathSummary, leaves::add);
-      builder.build(rtx);
+  /** Persist the sparse/typed projection through the same catalogued lifecycle used in production. */
+  private void ensureSparseProjection(final SirixCompileChain chain, final SirixQueryContext ctx) {
+    if (sparseProjectionReady) {
+      return;
     }
-    io.sirix.index.projection.ProjectionIndexRegistry.installWildcard(
-        session.getResourceConfig().getResource().toString(),
-        new String[] {"dept", "tier", "bonus", "age", "nully", "mixed", "region"}, leaves,
-        builder.numericColumnNonIntegralFlags());
+    new Query(chain, """
+        let $doc := jn:doc('typed-gb-db','records.jn')
+        let $index := jn:create-projection-index($doc, '/[]',
+          ('/[]/dept','/[]/tier','/[]/bonus','/[]/age','/[]/nully','/[]/mixed','/[]/region'),
+          ('string','string','long','long','string','string','string'))
+        return {"revision": sdb:commit($doc)}
+        """).evaluate(ctx);
+    sparseProjectionReady = true;
   }
 
   private String runWithProjection(final String query) throws Exception {
@@ -1403,7 +1399,7 @@ public final class TypedGroupByDifferentialTest {
       final var session = db.beginResourceSession(RES);
       SirixVectorizedExecutor exec = null;
       try {
-        io.sirix.query.bench.ScaleBenchProjectionSetupAccess.installWildcard(session);
+        io.sirix.query.bench.ScaleBenchProjectionSetupAccess.ensureProjection(session);
         exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
         SequentialPipelineStrategy.setVectorizedExecutor(exec);
         final Sequence result = new Query(chain, query).execute(ctx);

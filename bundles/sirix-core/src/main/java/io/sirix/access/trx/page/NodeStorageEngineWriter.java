@@ -60,6 +60,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
 import io.sirix.access.DatabaseType;
@@ -68,11 +69,14 @@ import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
+import io.sirix.page.PageSectionDiag;
 import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -98,12 +102,15 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.LongConsumer;
+import java.util.function.LongFunction;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
@@ -175,6 +182,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * {@link NodeStorageEngineReader} instance.
    */
   private final NodeStorageEngineReader storageEngineReader;
+
+  /**
+   * The resolver DOCUMENT record pages encode their string values against, or {@code null}.
+   *
+   * <p>
+   * Installed once at load start and read on the page-creation path, because a page's string region
+   * is built at serialization from whatever resolver the page is carrying by then. Volatile because
+   * the installer runs on the load's thread and pages are created on the importer's workers.
+   * </p>
+   */
+  private volatile @Nullable GlobalStringDictionaries documentStringDictionaries;
+
+  /** Per-page resolver factory; when set it supersedes {@link #documentStringDictionaries}. */
+  private volatile @Nullable LongFunction<GlobalStringDictionaries> documentStringDictionaryFactory;
+
+  /** Told each encoded document leaf's key, so a segment-scoped dictionary knows when it may seal. */
+  private volatile @Nullable LongConsumer documentPageEncodedListener;
 
   /**
    * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
@@ -540,6 +564,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private long hftSnapshotKvlPages;
   private long hftSnapshotKvlAttemptedPages;
   private long hftSnapshotKvlPromotedPages;
+
+  /** KVL snapshot slots deferred one epoch for pending side-page carriers (never serialized). */
+  private long hftSnapshotKvlDeferredPages;
   private long hftMaxSnapshotKvlAttemptedPages;
   private long hftPermitAcquires;
   private long hftPermitWaitNanos;
@@ -841,7 +868,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     hftTelemetryPrinted = true;
     System.out.printf(
         "# HFT_ASYNC_FLUSH combinedEpochs=%d sideOnlyEpochs=%d kvlPages=%d "
-            + "kvlAttemptedPages=%d kvlPromotedPages=%d kvlAttemptedPagesMax=%d "
+            + "kvlAttemptedPages=%d kvlPromotedPages=%d kvlDeferredPages=%d kvlAttemptedPagesMax=%d "
             + "sidePages=%d sideBytes=%d peakActiveSideBytes=%d permitAcquires=%d "
             + "permitWaitTotalNs=%d permitWaitMaxNs=%d rotationPermitAcquires=%d "
             + "rotationPermitWaitTotalNs=%d rotationPermitWaitMaxNs=%d drainPermitAcquires=%d "
@@ -856,17 +883,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             + "pinnedTrieLiveMax=%d pinnedTrieHighWater=%d "
             + "serializeJoinWaitTotalNs=%d kvlAppendTotalNs=%d sideTotalNs=%d finalFlushTotalNs=%d%n",
         hftCombinedEpochs, hftSideOnlyEpochs, hftSnapshotKvlPages, hftSnapshotKvlAttemptedPages,
-        hftSnapshotKvlPromotedPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages, hftStagedSideBytes,
-        hftPeakActiveSideBytes, hftPermitAcquires, hftPermitWaitNanos, hftMaxPermitWaitNanos, hftRotationPermitAcquires,
-        hftRotationPermitWaitNanos, hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
-        hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos, hftSubmitWaitCount,
-        hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns, hftStartFlushCount, hftStartFlushNanos,
-        hftMaxStartFlushNanos, hftForegroundFlushCount, hftForegroundFlushNanos, hftMaxForegroundFlushNanos,
-        hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos, hftNativeReservoirCount, hftNativeReservoirBytes,
-        hftKvlFrameCachePages, hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
-        hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax,
-        hftPinnedTrieHighWater, hftSerializeJoinWaitNanosTotal, hftKvlAppendNanosTotal, hftSideNanosTotal,
-        hftFinalFlushNanosTotal);
+        hftSnapshotKvlPromotedPages, hftSnapshotKvlDeferredPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages,
+        hftStagedSideBytes, hftPeakActiveSideBytes, hftPermitAcquires, hftPermitWaitNanos, hftMaxPermitWaitNanos,
+        hftRotationPermitAcquires, hftRotationPermitWaitNanos, hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires,
+        hftDrainPermitWaitNanos, hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos,
+        hftSubmitWaitCount, hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns, hftStartFlushCount,
+        hftStartFlushNanos, hftMaxStartFlushNanos, hftForegroundFlushCount, hftForegroundFlushNanos,
+        hftMaxForegroundFlushNanos, hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos,
+        hftNativeReservoirCount, hftNativeReservoirBytes, hftKvlFrameCachePages, hftKvlFrameCacheBytes,
+        hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes, hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages,
+        hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax, hftPinnedTrieHighWater, hftSerializeJoinWaitNanosTotal,
+        hftKvlAppendNanosTotal, hftSideNanosTotal, hftFinalFlushNanosTotal);
     if (hftMaxWorkerEpochId != 0L) {
       System.out.printf(
           "# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
@@ -985,6 +1012,110 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  @SuppressWarnings("unchecked")
+  public <P extends Page> P prepareSecondaryIndexPage(final IndexType indexType) {
+    storageEngineReader.assertNotClosed();
+    assertTransactionWritable();
+    requireNonNull(indexType);
+
+    final PageReference reference = secondaryIndexPageReference(indexType);
+    final PageContainer existingContainer = log.get(reference);
+    if (existingContainer != null) {
+      final Page modified = existingContainer.getModified();
+      requireSecondaryIndexPageType(indexType, modified, "transaction-intent-log modified page");
+      if (indexType == IndexType.NAME) {
+        currentNamePage = (NamePage) modified;
+      }
+      return (P) modified;
+    }
+
+    // Resolve through the reader, never through this writer's typed getters: those getters route
+    // current-revision access back through this method to make accidental historical mutation
+    // impossible. The complete detached copy is constructed before the reference or TIL changes.
+    final Page historicalPage = loadSecondaryIndexPage(indexType);
+    requireSecondaryIndexPageType(indexType, historicalPage, "persisted page");
+    final Page privateCopy = copySecondaryIndexPage(indexType, historicalPage);
+    if (privateCopy == historicalPage) {
+      final IllegalStateException failure =
+          new IllegalStateException("Secondary-index CoW returned the historical " + indexType + " page instance");
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+
+    final PageContainer privateContainer = PageContainer.getInstance(privateCopy, privateCopy);
+    try {
+      // TransactionIntentLog.put mutates the reference before installing the slot. Any failure from
+      // this point is therefore ambiguous and permanently poisons the writer.
+      log.put(reference, privateContainer);
+      final PageContainer published = log.get(reference);
+      if (published != privateContainer) {
+        throw new IllegalStateException(
+            "Secondary-index CoW publication did not retain the exact " + indexType + " container");
+      }
+    } catch (final RuntimeException | Error failure) {
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+
+    if (indexType == IndexType.NAME) {
+      currentNamePage = (NamePage) privateCopy;
+    }
+    return (P) privateCopy;
+  }
+
+  private PageReference secondaryIndexPageReference(final IndexType indexType) {
+    return switch (indexType) {
+      case PATH -> newRevisionRootPage.getPathPageReference();
+      case CAS -> newRevisionRootPage.getCASPageReference();
+      case NAME -> newRevisionRootPage.getNamePageReference();
+      case PROJECTION -> newRevisionRootPage.getProjectionIndexPageReference();
+      case VALIDTIME -> newRevisionRootPage.getValidTimeIndexPageReference();
+      default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
+    };
+  }
+
+  private Page loadSecondaryIndexPage(final IndexType indexType) {
+    return switch (indexType) {
+      case PATH -> storageEngineReader.getPathPage(newRevisionRootPage);
+      case CAS -> storageEngineReader.getCASPage(newRevisionRootPage);
+      case NAME -> storageEngineReader.getNamePage(newRevisionRootPage);
+      case PROJECTION -> storageEngineReader.getProjectionIndexPage(newRevisionRootPage);
+      case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
+      default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
+    };
+  }
+
+  private static Page copySecondaryIndexPage(final IndexType indexType, final Page historicalPage) {
+    return switch (indexType) {
+      case PATH -> new PathPage((PathPage) historicalPage);
+      case CAS -> new CASPage((CASPage) historicalPage);
+      case NAME -> NamePage.copyForWrite((NamePage) historicalPage);
+      case PROJECTION -> new ProjectionIndexPage((ProjectionIndexPage) historicalPage);
+      case VALIDTIME -> new ValidTimeIndexPage((ValidTimeIndexPage) historicalPage);
+      default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
+    };
+  }
+
+  private void requireSecondaryIndexPageType(final IndexType indexType, final Page page, final String source) {
+    final boolean matches = switch (indexType) {
+      case PATH -> page instanceof PathPage;
+      case CAS -> page instanceof CASPage;
+      case NAME -> page instanceof NamePage;
+      case PROJECTION -> page instanceof ProjectionIndexPage;
+      case VALIDTIME -> page instanceof ValidTimeIndexPage;
+      default -> false;
+    };
+    if (!matches) {
+      final IllegalStateException failure = new IllegalStateException(source + " for " + indexType
+          + " has unexpected type " + (page == null
+              ? "null"
+              : page.getClass().getName()));
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
+  @Override
   public BytesOut<?> newBufferedBytesInstance() {
     // The previous buffer is finished the moment a new one is handed out, so recycle it instead of
     // dropping it: this ran once per COMMIT, allocating a fresh off-heap segment each time and
@@ -1018,6 +1149,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     storageEngineReader.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
     requireNonNull(indexType);
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineReader, indexType, index);
 
     final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
@@ -1056,7 +1188,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         && completePage instanceof KeyValueLeafPage kvlComplete) {
       final MemorySegment srcPage = kvlComplete.getSlottedPage();
       if (srcPage != null && PageLayout.isSlotPopulated(srcPage, recordOffset)
-          && PageLayout.getDirNodeKindId(srcPage, recordOffset) > 0) {
+          && PageLayout.getDirNodeKindId(srcPage, recordOffset) > 0
+          && !kvlComplete.isFusedOverflowDescriptor(recordOffset)) {
         kvlMod.copySlotFromPage(kvlComplete, recordOffset);
         record = writeSingletonBinder.bind(kvlMod, recordOffset, recordKey);
         if (record != null) {
@@ -1119,7 +1252,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
         // The binder owns the populated-slot check. Calling it directly avoids repeating the
         // bitmap probe which prepareRecordForModificationDocument historically performed first.
-        if (writeSingletonBinder != null) {
+        if (writeSingletonBinder != null && page.hasSlottedPageSlot(recordKey)) {
           final DataRecord record = writeSingletonBinder.bind(page, recordOffset, recordKey);
           if (record != null && record.getNodeKey() == recordKey) {
             return record;
@@ -1197,6 +1330,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public DataRecord createRecord(final DataRecord record, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
+    requireNonNull(indexType);
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineReader, indexType, index);
 
     // Allocate record key and increment record count.
     // For RECORD_TO_REVISIONS: Use the record's own nodeKey (document node key) for page allocation.
@@ -1226,14 +1361,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         final PathSummaryPage pathSummaryPage = storageEngineReader.getPathSummaryPage(newRevisionRootPage);
         yield pathSummaryPage.incrementAndGetMaxNodeKey(index);
       }
-      case CAS -> {
-        final CASPage casPage = storageEngineReader.getCASPage(newRevisionRootPage);
-        yield casPage.incrementAndGetMaxNodeKey(index);
-      }
-      case PATH -> {
-        final PathPage pathPage = storageEngineReader.getPathPage(newRevisionRootPage);
-        yield pathPage.incrementAndGetMaxNodeKey(index);
-      }
       case NAME -> {
         final NamePage namePage = currentNamePage();
         yield namePage.incrementAndGetMaxNodeKey(index);
@@ -1241,11 +1368,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case VECTOR -> {
         final VectorPage vectorPage = storageEngineReader.getVectorPage(newRevisionRootPage);
         yield vectorPage.incrementAndGetMaxNodeKey(index);
-      }
-      case VALIDTIME -> {
-        final io.sirix.page.ValidTimeIndexPage validTimePage =
-            storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
-        yield validTimePage.incrementAndGetMaxNodeKey(index);
       }
       default -> throw new IllegalStateException();
     };
@@ -1275,12 +1397,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void persistRecord(final DataRecord record, final IndexType indexType, final int index) {
-    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
-      return; // Bound write singleton — mutations already on heap
-    }
     storageEngineReader.assertNotClosed();
     requireNonNull(record);
     requireNonNull(indexType);
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineReader, indexType, index);
+    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
+      return; // Bound write singleton — mutations already on heap
+    }
 
     final long recordPageKey = storageEngineReader.pageKey(record.getNodeKey(), indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
@@ -1290,6 +1413,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public void removeRecord(final long recordKey, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
+    requireNonNull(indexType);
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineReader, indexType, index);
 
     final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
@@ -1409,6 +1534,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
     requireNonNull(indexType);
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineReader, indexType, index);
 
     // Calculate page.
     final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
@@ -1477,12 +1603,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * identity.
    */
   private NamePage currentNamePage() {
+    assertTransactionWritable();
     NamePage page = currentNamePage;
     if (page == null) {
-      page = storageEngineReader.getNamePage(newRevisionRootPage);
-      if (page == null) {
-        throw new IllegalStateException("The current revision has no NamePage");
-      }
+      page = prepareSecondaryIndexPage(IndexType.NAME);
       currentNamePage = page;
     }
     return page;
@@ -1501,6 +1625,42 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return revisionRoot == newRevisionRootPage
         ? currentNamePage()
         : storageEngineReader.getNamePage(revisionRoot);
+  }
+
+  @Override
+  public PathPage getPathPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.PATH)
+        : storageEngineReader.getPathPage(revisionRoot);
+  }
+
+  @Override
+  public CASPage getCASPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.CAS)
+        : storageEngineReader.getCASPage(revisionRoot);
+  }
+
+  @Override
+  public ProjectionIndexPage getProjectionIndexPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.PROJECTION)
+        : storageEngineReader.getProjectionIndexPage(revisionRoot);
+  }
+
+  @Override
+  public ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.VALIDTIME)
+        : storageEngineReader.getValidTimeIndexPage(revisionRoot);
   }
 
   @Override
@@ -2479,7 +2639,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return;
       }
       injectAsyncFlushFault("write");
-      final BytesOut<?> bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+      // One epoch per flush. It bounds how long a refusal mark is honoured (see
+      // MAX_SKIPPED_FLUSH_EPOCHS), and under the diagnostic it also separates a page encoded twice
+      // inside one flush from a page encoded again in every flush it survives.
+      flushEpoch++;
+      if (PageSectionDiag.ENABLED) {
+        PageSectionDiag.noteFlushEpoch();
+      }
+      final boolean ownsRetainedAppendBuffer = RETAIN_APPEND_BUFFER && appendBufferInUse.compareAndSet(false, true);
+      final BytesOut<?> bgBuffer;
+      if (ownsRetainedAppendBuffer) {
+        BytesOut<?> retained = retainedAppendBuffer;
+        if (retained == null) {
+          retained = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+          retainedAppendBuffer = retained;
+        }
+        // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
+        // be able to leave a prefix for this one to write out.
+        retained.clear();
+        bgBuffer = retained;
+      } else {
+        bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+      }
       final PageReference shadowRef = new PageReference();
       try {
         final ResourceConfiguration config = getResourceSession().getResourceConfig();
@@ -2541,15 +2722,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             try {
               int attemptedKvlPages = 0;
               int promotedKvlPages = 0;
+              int deferredKvlPages = 0;
               for (int i = base; i < end; i++) {
                 final KeyValueLeafPage serializationCopy = currentWindow[i - base];
                 if (HFT_TELEMETRY_ENABLED) {
                   final PageContainer snapshotContainer = log.getSnapshotEntry(i);
                   if (snapshotContainer != null && snapshotContainer.getModified() instanceof KeyValueLeafPage) {
                     attemptedKvlPages++;
-                    if (serializationCopy == null
-                        && log.getSnapshotDiskOffset(i) == TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL) {
-                      promotedKvlPages++;
+                    if (serializationCopy == null) {
+                      final long slotOffset = log.getSnapshotDiskOffset(i);
+                      if (slotOffset == TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL) {
+                        promotedKvlPages++;
+                      } else if (slotOffset == TransactionIntentLog.SNAPSHOT_RETRY_NEXT_EPOCH) {
+                        deferredKvlPages++;
+                      }
                     }
                   }
                 }
@@ -2572,6 +2758,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                     frameCache = false;
                   }
                   writeUncommittedPage(config, shadowRef, serializationCopy, bgBuffer);
+                  noteDocumentPageEncoded(serializationCopy);
                   if (HFT_TELEMETRY_ENABLED) {
                     // Count only KVL pages whose synchronous writer call consumed the encoded cache.
                     // This is the exact denominator for the two mutually-exclusive cache outcomes;
@@ -2604,6 +2791,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 // workers' hot path, and promotions cannot disappear from cache-coverage telemetry.
                 hftSnapshotKvlAttemptedPages += attemptedKvlPages;
                 hftSnapshotKvlPromotedPages += promotedKvlPages;
+                hftSnapshotKvlDeferredPages += deferredKvlPages;
                 attemptedKvlPagesInEpoch += attemptedKvlPages;
               }
             } finally {
@@ -2654,7 +2842,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         markAsyncFlushProgress();
         injectAsyncFlushFault("after-flush");
       } finally {
-        bgBuffer.close();
+        if (ownsRetainedAppendBuffer) {
+          // Keep the buffer, drop its contents, then publish the release. The volatile write is what
+          // hands the next owner a buffer it can see in full.
+          bgBuffer.clear();
+          appendBufferInUse.set(false);
+        } else {
+          bgBuffer.close();
+        }
       }
       if (asyncSnapshotIncludesLog) {
         log.markSnapshotFlushComplete();
@@ -3029,6 +3224,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   static boolean relocateSnapshotCacheToDisposableFrame(final KeyValueLeafPage page) {
     requireNonNull(page);
     final MemorySegment encoded = page.getCompressedSegment();
+    final int byteHandlerInputLength = page.getByteHandlerInputLength();
     final MemorySegment frame = page.getSlottedPage();
     if (encoded == null || frame == null || !frame.isNative() || frame.isReadOnly()
         || encoded.byteSize() > frame.byteSize()) {
@@ -3040,7 +3236,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // FileChannelWriter derives the persisted length from byteSize(), so publishing a
     // capacity-sized frame would append stale tail bytes. The cache's volatile store also publishes
     // the completed copy before the window slot is joined by the append owner.
-    page.setCompressedSegment(frame.asSlice(0, encoded.byteSize()).asReadOnly());
+    if (byteHandlerInputLength == KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH) {
+      page.setCompressedSegment(frame.asSlice(0, encoded.byteSize()).asReadOnly());
+    } else {
+      page.setCompressedSegment(frame.asSlice(0, encoded.byteSize()).asReadOnly(), byteHandlerInputLength);
+    }
     return true;
   }
 
@@ -3078,6 +3278,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   static boolean serializeDisposableSnapshotKeyValuePage(final ResourceConfiguration resourceConfig,
       final KeyValueLeafPage page) {
+    return serializeDisposableSnapshotKeyValuePage(resourceConfig, page, false);
+  }
+
+  /**
+   * @param carriersKnownResolved {@code true} when the caller has already classified every carrier
+   *        reference of an adopted, immutable page as durable, so the post-serialization reference
+   *        pass is provably redundant; {@code false} for any page that may gain carriers while it
+   *        serializes
+   */
+  static boolean serializeDisposableSnapshotKeyValuePage(final ResourceConfiguration resourceConfig,
+      final KeyValueLeafPage page, final boolean carriersKnownResolved) {
     requireNonNull(resourceConfig);
     requireNonNull(page);
     final boolean directIdentity = resourceConfig.byteHandlePipeline.isEmpty();
@@ -3089,7 +3300,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final var bytes = new PooledBytesOut(pooledSegment, identityCachePolicy);
       PageKind.KEYVALUELEAFPAGE.serializeDisposablePage(resourceConfig, bytes, page, SerializationType.DATA);
 
-      if (hasUnresolvedOverflowReferences(page)) {
+      if (!carriersKnownResolved && hasUnresolvedOverflowReferences(page)) {
+        if (PageSectionDiag.ENABLED) {
+          // The encode above ran in full and is about to be dropped: the leaf goes back to the live
+          // TIL and the write path encodes it again. Count the work, not the (absent) bytes.
+          PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_UNRESOLVED_OVERFLOW, pooledSegment.position());
+        }
         return false;
       }
       if (!directIdentity) {
@@ -3103,6 +3319,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final MemorySegment frame = page.getSlottedPage();
       if (encodedLength <= 0L || frame == null || !frame.isNative() || frame.isReadOnly()
           || encodedLength > frame.byteSize()) {
+        if (PageSectionDiag.ENABLED) {
+          PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_FRAME_TOO_SMALL, encodedLength);
+        }
         return false;
       }
 
@@ -3110,7 +3329,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // avoidable wrapper per page. The volatile cache store release-publishes the completed native
       // copy; the append owner additionally joins the window's CompletableFuture before reading it.
       MemorySegment.copy(pooledSegment.getCurrentSegment(), 0L, frame, 0L, encodedLength);
-      page.setCompressedSegment(frame.asSlice(0L, encodedLength).asReadOnly());
+      page.setCompressedSegment(frame.asSlice(0L, encodedLength).asReadOnly(), Math.toIntExact(encodedLength));
       return true;
     } finally {
       SerializationBufferPool.INSTANCE.release(pooledSegment);
@@ -3143,23 +3362,88 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           if (!(modified instanceof KeyValueLeafPage kvl)) {
             return;
           }
+          final KeyValueLeafPage.OverflowReferenceState carriers = kvl.overflowReferenceState();
+          if (carriers == KeyValueLeafPage.OverflowReferenceState.PENDING_SIDE_WRITES
+              && kvl.flushDeferrals() < MAX_KVL_FLUSH_DEFERRALS) {
+            // Every unresolved carrier of this leaf is a staged side page whose key the next
+            // cleanup publishes. Skip the serialization entirely and let cleanupSnapshot()
+            // re-promote the leaf for the next epoch — no deep copy, no encoded bytes discarded.
+            kvl.noteFlushDeferral();
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordSnapshotDeferral(kvl.getIndexType().getID());
+            }
+            log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_RETRY_NEXT_EPOCH);
+            return;
+          }
+          if (wasRefusedForUnresolvedCarriers(kvl)) {
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordMarkedArrival();
+            }
+            // An earlier epoch already encoded this leaf's records and had to drop every byte: the
+            // encode itself mints the carriers, and only the recursive final commit can key them.
+            // Promoting now reaches exactly that outcome without paying the encode a second time.
+            BulkAdoptionDiagnostics.kvlEncodeSkippedForUnresolvedCarriers();
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordSnapshotPromotion(kvl.getIndexType().getID());
+            }
+            log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
+            return;
+          }
           // Bulk-import ADOPTED pages are immutable post-adoption: serialize IN PLACE, skipping
           // the defensive copy (1.4 GB of memcpy per 1M rows on the flush lane). Every refusal
           // exit in the disposable serializer precedes the frame overwrite, so the promote path
           // still sees an untouched page.
           final boolean inPlace = kvl.isAdoptedImmutableForFlush();
+          // An adopted leaf materialized its records at adoption, so in-place serialization adds no
+          // carrier: the state classified above is final and the serializer's own reference pass
+          // can be skipped for it. Every other page may gain carriers WHILE serializing.
+          final boolean carriersKnownResolved = inPlace && carriers == KeyValueLeafPage.OverflowReferenceState.RESOLVED;
+          // NO trie-lane resolution here, deliberately. This runs inside serializeSnapshotWindowAsync's
+          // runAsync + parallel forEach, so many ForkJoinPool threads would enter a reader that is
+          // declared single-threaded, concurrently mutating currentPageGuard, a parse scratch buffer
+          // and the resolver's own maps -- guard-count corruption and torn parses, neither visible to
+          // a correctness witness. deepCopy()'s own refuseUnresolvedGlobalTags throws loudly on the
+          // exact state a front would have handled, so no front is strictly SAFER than a front here.
           final KeyValueLeafPage serializationCopy = inPlace
               ? kvl
               : kvl.deepCopy();
           try {
-            if (!serializeDisposableSnapshotKeyValuePage(config, serializationCopy)) {
+            if (!serializeDisposableSnapshotKeyValuePage(config, serializationCopy, carriersKnownResolved)) {
               // Overlong records still carrying NULL disk keys and identity encodings larger than
               // the disposable native frame cannot enter this window. Mark the slot so
               // cleanupSnapshot() promotes the ORIGINAL page into the live TIL, where recursive
               // final commit either resolves the overflow or serializes with an ordinary owned
               // cache. No borrowed pooled alias is ever published on this path.
+              final KeyValueLeafPage.OverflowReferenceState refusedState = serializationCopy.overflowReferenceState();
+              if (PageSectionDiag.ENABLED) {
+                PageSectionDiag.recordRefusalCarrierState(switch (refusedState) {
+                  case RESOLVED -> PageSectionDiag.REFUSAL_CARRIERS_RESOLVED;
+                  case PENDING_SIDE_WRITES -> PageSectionDiag.REFUSAL_CARRIERS_PENDING;
+                  case UNRESOLVED -> PageSectionDiag.REFUSAL_CARRIERS_UNRESOLVED;
+                });
+              }
+              if (refusedState == KeyValueLeafPage.OverflowReferenceState.UNRESOLVED) {
+                // Read the copy's reference map BEFORE closing it: this is the only moment the
+                // CAUSE of the refusal is observable, and it is the cause that predicts the next
+                // epoch. UNRESOLVED is the permanent one — a carrier that is neither durable nor
+                // staged can only be keyed by the recursive final commit. PENDING_SIDE_WRITES is
+                // deliberately NOT marked: those carriers gain keys one epoch later and the
+                // deferral arm above exists to let exactly those pages through. Nor does a
+                // frame-size refusal mark, since a later encode of the page can fit.
+                noteRefusedOverflowLeaf(serializationCopy);
+                BulkAdoptionDiagnostics.kvlEncodeDiscardedForUnresolvedCarriers();
+              }
               if (!inPlace) {
                 serializationCopy.close();
+              }
+              if (carriers == KeyValueLeafPage.OverflowReferenceState.PENDING_SIDE_WRITES) {
+                // Reached only past the deferral cap: the ordering that publishes staged carriers
+                // before re-promotion has failed. Pinning keeps the leaf correct; the counter makes
+                // the regression visible instead of letting the arena tell the story hours later.
+                BulkAdoptionDiagnostics.kvlPagePinnedAfterDeferralCap();
+              }
+              if (PageSectionDiag.ENABLED) {
+                PageSectionDiag.recordSnapshotPromotion(kvl.getIndexType().getID());
               }
               log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
               return;
@@ -3169,6 +3453,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             // closeWindowLeftovers — release its pooled segments before recording.
             if (!inPlace) {
               serializationCopy.close();
+            }
+            if (PageSectionDiag.ENABLED) {
+              PageSectionDiag.recordDiscardedEncode(PageSectionDiag.DISCARD_SERIALIZATION_FAILED, 0L);
             }
             throw t;
           }
@@ -3269,6 +3556,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     reAddPageIfFrozen(newRevisionRootPage.getCASPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getPathPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getProjectionIndexPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
   }
 
@@ -3296,6 +3584,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final var frozenModified = (KeyValueLeafPage) container.getModified();
     refuseAdoptedImmutablePage(frozenModified, "copy-on-write");
     final var frozenComplete = (KeyValueLeafPage) container.getComplete();
+    // No trie-lane resolution here either. This looks like the safe synchronous prepare path, and it
+    // is not one: it runs inside pageContainerCache.computeIfAbsent, so a dictionary walk from here
+    // would be a map compute wrapping further cache work -- the same shape that keeps resolution out
+    // of the record-page cache's loader. deepCopy()'s refusal covers it, loudly.
     final var cowModified = frozenModified.deepCopy();
     final var cowComplete = (frozenComplete == frozenModified)
         ? cowModified
@@ -3533,18 +3825,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       currentNamePage = null;
       storageEngineReader.closeCurrentPageGuard();
 
-      // Clear TransactionIntentLog - closes all modified pages
-      log.clear();
-
-      // Clear local cache (pages are already handled by log.clear())
-      pageContainerCache.clear();
-      documentRecordLocationCache.clear();
-
-      // Reset cache references since pages have been returned to pool
-      mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
-      secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
-      mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
-      clearMostRecentByIndexTypeSlots();
+      // Clear TransactionIntentLog - closes all modified pages. clear() drains the WHOLE log
+      // before rethrowing a retained page-close failure, so by the time it throws the memoized
+      // container slots below already reference closed, pooled pages — they must be reset on
+      // both exits (rollback and close guard their clears the same way), or a transaction that
+      // survives the rethrow keeps serving recycled frames out of its memo.
+      try {
+        log.clear();
+      } finally {
+        clearLocalContainerCaches();
+      }
 
       final long t5 = timing
           ? System.nanoTime()
@@ -4212,11 +4502,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     projectionDictionaryRecordMemo = null;
     projectionDictionaryRecordMemoBytes = 0L;
 
+    // The retained append buffer is off-heap and outlives every epoch by design, so this close is
+    // the one place it is released. awaitInFlightAsyncFlushOnly() below fences any owner first;
+    // releasing the flag as well keeps a post-close reuse from resurrecting a closed buffer.
+    final BytesOut<?> retainedBuffer = retainedAppendBuffer;
+    if (retainedBuffer != null) {
+      retainedAppendBuffer = null;
+      appendBufferInUse.set(true);
+    }
+
     Throwable asyncFailure = null;
     try {
       awaitInFlightAsyncFlushOnly();
     } catch (final Throwable t) {
       asyncFailure = t;
+    }
+    if (retainedBuffer != null) {
+      try {
+        retainedBuffer.close();
+      } catch (final RuntimeException releaseFailure) {
+        LOGGER.warn("Releasing the retained append buffer failed", releaseFailure);
+      }
     }
     if (asyncFlushWorkerRunning) {
       final Throwable unfencedFailure =
@@ -4523,8 +4829,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private PageContainer prepareRecordPage(final long recordPageKey, final int indexNumber, final IndexType indexType) {
     assert indexType != null;
-    // Traditional KEYED_TRIE path (bit-decomposed).
-    // HOT secondary indexes use dedicated HOT*IndexWriter/Reader implementations.
     final PageContainer container = prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
     refuseAdoptedImmutablePage(container.getModified(), "prepare-for-modification");
     return container;
@@ -4558,7 +4862,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Prepare record page using traditional bit-decomposed KEYED_TRIE.
+   * Prepare a record page in the bit-decomposed keyed trie.
    */
   private PageContainer prepareRecordPageViaKeyedTrie(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
@@ -4599,6 +4903,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         pageContainer = createFreshRecordPage(recordPageKey, indexType, getResourceSession().getResourceConfig(),
             storageEngineReader.getRevisionNumber());
+        if (indexType == IndexType.DOCUMENT) {
+          // Only DOCUMENT pages carry the projected columns' values, and only the MODIFIED half is
+          // ever written to — the complete twin starts empty and is replaced by the combine.
+          ((KeyValueLeafPage) pageContainer.getModified()).setGlobalStringDictionaries(
+              documentStringResolverFor(recordPageKey));
+        }
         appendLogRecord(reference, pageContainer);
         return pageContainer;
       } else {
@@ -4777,38 +5087,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
         final PathPage pathPage = getPathPage(actualRootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
-          yield null;
-        }
-        yield pathPage.getOrCreateReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = getCASPage(actualRootPage);
-        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
-          yield null;
-        }
-        yield casPage.getOrCreateReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = getNamePage(actualRootPage);
-        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
-          yield null;
-        }
-        yield namePage.getOrCreateReference(indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(databaseTypeOfSession(), indexNumber);
       }
       case PROJECTION -> {
         final var projPage = getProjectionIndexPage(actualRootPage);
-        if (projPage == null || indexNumber >= projPage.getReferencesCount()) {
-          yield null;
-        }
-        yield projPage.getOrCreateReference(indexNumber);
+        yield projPage == null
+            ? null
+            : projPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final var vtPage = getValidTimeIndexPage(actualRootPage);
-        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
-          yield null;
-        }
-        yield vtPage.getOrCreateReference(indexNumber);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
       }
       default -> null;
     };
@@ -4892,6 +5197,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey, final IndexType indexType, final int index) {
+    NodeStorageEngineReader.validateKeyedTrieRoute(storageEngineReader, indexType, index);
     final int revision = newRevisionRootPage.getRevision();
     PageContainer pc = getMostRecentPageContainer(indexType, recordPageKey, index, revision);
     if (pc == null) {
@@ -4985,36 +5291,305 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public void installDocumentStringDictionaries(final @Nullable GlobalStringDictionaries dictionaries) {
+    this.documentStringDictionaries = dictionaries;
+  }
+
+  @Override
+  public void installDocumentStringDictionaryFactory(final @Nullable LongFunction<GlobalStringDictionaries> factory) {
+    this.documentStringDictionaryFactory = factory;
+  }
+
+  @Override
+  public void installDocumentPageEncodedListener(final @Nullable LongConsumer listener) {
+    this.documentPageEncodedListener = listener;
+  }
+
+  /**
+   * Tell the listener a document leaf has been encoded. Called from the sequential pass that follows
+   * a flush window's join, which is the first moment the page's values are certainly minted — and
+   * only for a page that carried a resolver, because a page the lane never served belongs to no
+   * segment.
+   */
+  private void noteDocumentPageEncoded(final KeyValueLeafPage page) {
+    final LongConsumer listener = documentPageEncodedListener;
+    if (listener == null || page.getIndexType() != IndexType.DOCUMENT || page.globalStringDictionaries() == null) {
+      return;
+    }
+    listener.accept(page.getPageKey());
+  }
+
+  /**
+   * The resolver a document leaf must carry: the per-page factory's answer when one is installed,
+   * else the single resource-wide resolver.
+   *
+   * <p>
+   * Called where the page is CREATED, never from the flush lane. That is the whole point: a
+   * segment-scoped resolver has to be chosen while the writer still knows which page this is, because
+   * by encode time the writer has moved on and the page's own segment is no longer "the current" one.
+   * </p>
+   */
+  private @Nullable GlobalStringDictionaries documentStringResolverFor(final long recordPageKey) {
+    final LongFunction<GlobalStringDictionaries> factory = documentStringDictionaryFactory;
+    return factory == null
+        ? documentStringDictionaries
+        : factory.apply(recordPageKey);
+  }
+
+  @Override
   public void adoptDocumentLeafPage(final KeyValueLeafPage page) {
     storageEngineReader.assertNotClosed();
+    // Before the page reaches the flush lane, which is where its string region is built and where
+    // nothing can be handed to it any more. An adopted page is marked immutable-for-flush at the end
+    // of this method, so this is the last moment it can be told anything at all.
     final long recordPageKey = page.getPageKey();
-    final PageReference indexReference =
-        storageEngineReader.getPageReference(newRevisionRootPage, IndexType.DOCUMENT, -1);
-    // Walking the trie CoWs the indirect spine into the log exactly as an ordinary insert would.
-    final PageReference reference =
-        keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(IndexType.DOCUMENT), indexReference,
-            recordPageKey, -1, IndexType.DOCUMENT, newRevisionRootPage);
-    if (reference.getKey() != Constants.NULL_ID_LONG || log.get(reference) != null) {
-      throw new IllegalStateException(
-          "bulk adoption requires unwritten territory, but document page " + recordPageKey + " already exists");
+    page.setGlobalStringDictionaries(documentStringResolverFor(recordPageKey));
+    final ResourceConfiguration resourceConfiguration = getResourceSession().getResourceConfig();
+    // The builder's cold direct-write fallbacks are still heap snapshots in records[]. Serialize them
+    // NOW, on the adopting thread and BEFORE the trie is touched (a serialization failure then leaves
+    // no CoW'd parent behind): inline where the fused image fits, otherwise as canonical overflow
+    // carriers. Left to the flush lane they cost a defensive deep copy per epoch and, as carriers
+    // with no durable key, made the background flush decline the page into the pinned region until
+    // final commit — on a 100M-row load that kept every such page's frame resident and exhausted
+    // the arena at a few percent of the corpus.
+    // Ownership contract: until appendLogRecord succeeds the CALLER's page is nobody else's, so a
+    // failure before that point retires it here (frame freed now, or at the last guard release);
+    // from appendLogRecord on, the intent log owns it and rollback closes it.
+    final PageReference reference;
+    final KeyValueLeafPage completeTwin;
+    try {
+      page.materializePendingRecords(resourceConfiguration);
+      final PageReference indexReference =
+          storageEngineReader.getPageReference(newRevisionRootPage, IndexType.DOCUMENT, -1);
+      // Walking the trie CoWs the indirect spine into the log exactly as an ordinary insert would.
+      reference = keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(IndexType.DOCUMENT),
+          indexReference, recordPageKey, -1, IndexType.DOCUMENT, newRevisionRootPage);
+      if (reference.getKey() != Constants.NULL_ID_LONG || log.get(reference) != null) {
+        throw new IllegalStateException(
+            "bulk adoption requires unwritten territory, but document page " + recordPageKey + " already exists");
+      }
+      // Mirror createFreshRecordPage's container shape: empty COMPLETE twin + the built MODIFIED
+      // page — read-back, flush eligibility and commit all key off that structure.
+      completeTwin = new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT, resourceConfiguration,
+          storageEngineReader.getRevisionNumber(), null, null, false);
+    } catch (final RuntimeException | Error failure) {
+      page.retire();
+      throw failure;
     }
-    // Mirror createFreshRecordPage's container shape: empty COMPLETE twin + the built MODIFIED
-    // page — read-back, flush eligibility and commit all key off that structure.
-    final KeyValueLeafPage completeTwin = new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
-        getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(), null, null, false);
     appendLogRecord(reference, PageContainer.getInstance(completeTwin, page));
     storageEngineReader.invalidateMostRecentlyReadRecordPage(IndexType.DOCUMENT, -1);
-    // In-place flush eligibility: no heap records (overflow values need the copy+promote route).
-    boolean hasHeapRecords = false;
-    for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
-      if (page.getRecord(slot) != null) {
-        hasHeapRecords = true;
-        break;
+    // Every carrier the materialization installed is an immutable page: stage it in the bounded
+    // side-page append batch, so the epoch that flushes this leaf finds the carrier's key published
+    // (one epoch of deferral, see SNAPSHOT_RETRY_NEXT_EPOCH) instead of pinning the leaf.
+    stageLeafOverflowCarriers(page);
+    // Materialization consumed every heap record (it throws otherwise), so the page's frame, slots
+    // and reference-map structure never change again: the flush lane serializes it in place.
+    page.markAdoptedImmutableForFlush();
+  }
+
+  /**
+   * Test seam: {@code false} restores the pre-fix behaviour in which an adopted page's overflow
+   * carriers stay resident until final commit, so the background flush pins the page. Only
+   * {@code AdoptedOverflowCarrierStagingTest} flips it, to prove its guard is not vacuous.
+   */
+  static volatile boolean STAGE_ADOPTED_OVERFLOW_CARRIERS = true;
+
+  /** Whether a "carriers stay resident" warning was already logged in this JVM. */
+  private static final AtomicBoolean CARRIER_STAGING_WARNED = new AtomicBoolean();
+
+  /** Memo of {@link #carrierStagingSupported()}: 0 unknown, 1 supported, 2 unsupported. */
+  private byte carrierStagingSupport;
+
+  /**
+   * Whether this writer's backend can stage an immutable page before the root is published — the same
+   * two gates {@link #stageUncommittedOverflowPage} applies, evaluated once per writer so an
+   * unsupported configuration is announced instead of silently restoring the leaf-pinning route.
+   */
+  private boolean carrierStagingSupported() {
+    if (carrierStagingSupport == 0) {
+      final boolean reclaimable = storagePageReaderWriter.supportsReclaimableUncommittedWrites();
+      final boolean deterministicClose = SharedArenas.supportsDeterministicClose();
+      carrierStagingSupport = reclaimable && deterministicClose
+          ? (byte) 1
+          : (byte) 2;
+      if (carrierStagingSupport == 2 && CARRIER_STAGING_WARNED.compareAndSet(false, true)) {
+        LOGGER.warn("Adopted-page overflow carriers stay resident until final commit on this configuration: "
+            + (reclaimable
+                ? ""
+                : "the storage backend cannot reclaim uncommitted writes (storage type / sirix.commit.preallocated); ")
+            + (deterministicClose
+                ? ""
+                : "the arena strategy has no deterministic close (sirix.arena.strategy); ")
+            + "every bulk-adopted leaf holding such a carrier is pinned in the intent log for the life of its"
+            + " transaction, which bounds the load size by the arena");
       }
     }
-    if (!hasHeapRecords) {
-      page.markAdoptedImmutableForFlush();
+    return carrierStagingSupport == 1;
+  }
+
+  @Override
+  public void stageOverflowCarriersOfLiveLeaf(final KeyValueLeafPage page) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(page);
+    // The live leaf is mutable foreground state (its generation is current), so materializing here
+    // is the same kind of mutation the blit itself was. A survivor throws inside.
+    page.materializePendingRecords(getResourceSession().getResourceConfig());
+    stageLeafOverflowCarriers(page);
+  }
+
+  /**
+   * Stage every fresh, unresolved {@link OverflowPage} carrier of a leaf into the immutable side-page
+   * append batch. A carrier the backend declines (counted, announced once) or one larger than a whole
+   * batch stays resident, and the page takes the ordinary promote-and-pin route.
+   */
+  private void stageLeafOverflowCarriers(final KeyValueLeafPage page) {
+    final Map<Long, PageReference> references = page.getReferencesMap();
+    if (references.isEmpty()) {
+      return;
     }
+    final boolean staging = STAGE_ADOPTED_OVERFLOW_CARRIERS && carrierStagingSupported();
+    for (final PageReference reference : references.values()) {
+      if (reference.getKey() != Constants.NULL_ID_LONG || reference.hasPendingPageWrite()
+          || !(reference.getPage() instanceof OverflowPage carrier)) {
+        continue;
+      }
+      if (!staging) {
+        BulkAdoptionDiagnostics.carrierUnstaged();
+      } else if (carrier.dataLength() > MAX_STAGED_SIDE_PAGE_BYTES) {
+        BulkAdoptionDiagnostics.carrierOversized();
+      } else if (reference.getLogKey() != Constants.NULL_ID_INT || reference.transactionLogReference() != null) {
+        // The staging lane THROWS on a reference that already carries a log identity. The page is in
+        // the live log by now, so a throw here would poison the transaction for a carrier that can
+        // still take the resident route: count it and move on.
+        BulkAdoptionDiagnostics.carrierRefused();
+      } else if (stageUncommittedOverflowPage(reference)) {
+        BulkAdoptionDiagnostics.carrierStaged();
+      } else {
+        BulkAdoptionDiagnostics.carrierRefused();
+      }
+    }
+  }
+
+  /**
+   * Epochs a leaf may be skipped for pending carriers before the flush lane stops waiting and lets
+   * the ordinary promote-and-pin path take it. A carrier staged before an epoch's snapshot is in that
+   * epoch's side batch and is published by the cleanup that re-promotes the leaf, so exactly ONE
+   * deferral is reachable; the second is slack against a future ordering regression, after which the
+   * cap turns the regression into a pin (counted by {@link #kvlPagesPinnedAfterDeferralCap()}) rather
+   * than an unbounded retry. Package-private and non-final for the test's cap-zero arm.
+   */
+  static int MAX_KVL_FLUSH_DEFERRALS = 2;
+
+  /**
+   * Whether the flush lane declines to re-encode a leaf whose previous pre-serialization minted
+   * overflow carriers with no durable key.
+   *
+   * <p>
+   * Such an encode is unpublishable by construction: {@code addReferences} discovers the overlong
+   * records DURING the encode, so the carrier keys are assigned only by the recursive final commit,
+   * and the copy is dropped the moment the encode finishes. The leaf is then promoted into the live
+   * intent log — where the next epoch finds it and encodes it again. The refusal is a property of the
+   * page's records, and records are only added to a leaf inside a flush window, never removed, so the
+   * second encode is guaranteed to end the same way as the first. Declining it reaches the identical
+   * outcome (promote to the intent log, write at the final commit) without the body staging, region
+   * build and codec pass — and without the deep copy that feeds them.
+   * </p>
+   *
+   * <p>
+   * Kill switch {@code -Dsirix.flush.skipRefusedOverflowLeaves=false} restores the unconditional
+   * re-encode. Non-final and package-private so a test can drive both arms in one JVM, exactly as
+   * {@link #MAX_KVL_FLUSH_DEFERRALS} is; production reads it once per snapshot entry, never per
+   * record.
+   * </p>
+   */
+  static boolean skipRefusedOverflowLeaves =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.flush.skipRefusedOverflowLeaves"));
+
+  /**
+   * How many flush epochs a refusal may be honoured for before the leaf is offered to the encoder
+   * again.
+   *
+   * <p>
+   * The two ways of being wrong are not symmetric, and neither is unsafe. Encoding a leaf that would
+   * have been refused costs one encode — today's behaviour. Skipping a leaf that could now be written
+   * defers it to the recursive final commit, which is the SAME outcome the refusal it stands in for
+   * produces; but a mark that never expired would make that deferral unbounded, and an unbounded
+   * deferral is how intent-log residency turns into an exhausted arena. This bound makes the
+   * divergence from unmodified behaviour finite by construction rather than by argument: a leaf can
+   * be excluded from the async flush for at most this many epochs, after which it is encoded and
+   * either flushes or refuses again. At 64 the safety valve costs about 1.6 % of the encodes the
+   * lever removes.
+   * </p>
+   *
+   * <p>
+   * Package-private and non-final for the test's bound-zero arm, exactly as
+   * {@link #MAX_KVL_FLUSH_DEFERRALS} is.
+   * </p>
+   */
+  static int MAX_SKIPPED_FLUSH_EPOCHS = 64;
+
+  /**
+   * Flush epochs this writer has begun. Incremented by the flush driver before each snapshot epoch
+   * and read by its serializer workers, hence {@code volatile}; it feeds only the refusal table's
+   * expiry, so a missed increment costs at most one deferred encode.
+   */
+  private volatile long flushEpoch;
+
+  /**
+   * Whether the sole append owner reuses one off-heap append buffer across flush epochs instead of
+   * allocating a {@link Writer#FLUSH_SIZE} buffer per epoch.
+   *
+   * <p>
+   * The allocation profile put 0.40 GB per 1M-row load on this one statement — a fresh buffer for
+   * every epoch, on a lane that by construction has exactly ONE owner at a time. Kill switch
+   * {@code -Dsirix.flush.retainAppendBuffer=false} restores the per-epoch allocation.
+   * </p>
+   */
+  private static final boolean RETAIN_APPEND_BUFFER =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.flush.retainAppendBuffer"));
+
+  /**
+   * The reused append buffer. Written and read by whichever thread wins {@link #appendBufferInUse},
+   * whose CAS/release pair is the happens-before edge; {@code volatile} so that edge is explicit
+   * rather than inferred.
+   */
+  private volatile @Nullable BytesOut<?> retainedAppendBuffer;
+
+  /**
+   * Guards {@link #retainedAppendBuffer} against an overlapping flush. The admission control should
+   * make one impossible, so this never contends — but reuse must be an OPTIMISATION that cannot
+   * corrupt an append if that assumption ever weakens, and a loser simply allocates its own buffer
+   * exactly as before.
+   */
+  private final AtomicBoolean appendBufferInUse = new AtomicBoolean();
+
+  /**
+   * Leaf identities whose pre-serialization minted overflow carriers only the recursive final commit
+   * can key. Always allocated so the kill switch can be flipped inside one JVM.
+   */
+  private final RefusedOverflowLeafTable refusedOverflowLeaves =
+      new RefusedOverflowLeafTable(RefusedOverflowLeafTable.DEFAULT_SLOTS);
+
+  /**
+   * Remember that this leaf's content pre-serializes into carriers the background flush cannot key.
+   *
+   * @param page the refused snapshot copy — it carries the same identity as the live leaf
+   */
+  private void noteRefusedOverflowLeaf(final KeyValueLeafPage page) {
+    if (skipRefusedOverflowLeaves) {
+      refusedOverflowLeaves.note(page.getPageKey(), page.getIndexType().getID(), flushEpoch);
+    }
+  }
+
+  /**
+   * Whether an earlier epoch already proved this leaf's encode unpublishable.
+   *
+   * @param page the live leaf the flush lane is about to pre-serialize
+   * @return {@code true} when the encode is known to end in a discard
+   */
+  private boolean wasRefusedForUnresolvedCarriers(final KeyValueLeafPage page) {
+    return skipRefusedOverflowLeaves && refusedOverflowLeaves.shouldSkip(page.getPageKey(), page.getIndexType().getID(),
+        flushEpoch, MAX_SKIPPED_FLUSH_EPOCHS);
   }
 
   @Override

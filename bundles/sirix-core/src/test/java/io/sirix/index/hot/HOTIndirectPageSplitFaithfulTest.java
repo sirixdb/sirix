@@ -3,6 +3,7 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTIncrementalInsert.BiNode;
 import io.sirix.index.hot.HOTMalformedSubtreeDetector.MalformedSubtree;
@@ -390,6 +391,118 @@ final class HOTIndirectPageSplitFaithfulTest {
   // ======================================================================
   // mergeBiNodePairedLeaves — incremental leaf consolidation (inverse of a leaf split).
   // ======================================================================
+
+  @Test
+  @DisplayName("repeated consolidation retires unpublished intermediates and reports only original leaves")
+  void repeatedConsolidationOwnsIntermediateLeaves() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final ConsolidationChain chain = consolidationChain(allocator, IndexType.CAS);
+    final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    final List<PageReference> dropped = new ArrayList<>();
+
+    final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(chain.parent, 4, 2, IndexType.CAS,
+        allocator::getAndIncrement, dropped);
+    try {
+      assertEquals(2, consolidated.getNumChildren(), "the three-leaf left chain must collapse twice");
+      assertEquals(List.of(chain.references[0], chain.references[1], chain.references[2]), dropped,
+          "only original/loggable leaves may be handed to TransactionIntentLog retirement");
+      assertEquals(liveBefore + 1, frameAllocator.liveSlotCount(frameClass),
+          "only the final replacement may remain live; the first unpublished merge must be closed");
+      assertEquals(collectKeys(chain.parent), collectKeys(consolidated));
+      assertClean(swizzle(consolidated), "repeated consolidation ownership");
+    } finally {
+      closeAll(chain.parent, consolidated);
+    }
+  }
+
+  @Test
+  @DisplayName("a later consolidation allocation failure retires every unpublished replacement")
+  void repeatedConsolidationFailureClosesIntermediates() {
+    final AtomicLong fixtureAllocator = new AtomicLong(1);
+    final ConsolidationChain chain = consolidationChain(fixtureAllocator, IndexType.CAS);
+    final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    final AtomicLong allocationCalls = new AtomicLong();
+    final IllegalStateException sentinel = new IllegalStateException("injected second-merge parent allocation");
+    final List<PageReference> dropped = new ArrayList<>();
+
+    try {
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> HOTIncrementalInsert.consolidateNodeLeaves(chain.parent, 4, 2, IndexType.CAS, () -> {
+            final long call = allocationCalls.incrementAndGet();
+            if (call == 4) {
+              throw sentinel;
+            }
+            return 10_000 + call;
+          }, dropped));
+
+      assertSame(sentinel, failure);
+      assertEquals(4, allocationCalls.get(), "the fault must occur after building the first merged leaf");
+      assertTrue(dropped.isEmpty(), "a failed pure consolidation must not transfer source ownership");
+      assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+          "the first intermediate and the second in-flight leaf must both be retired");
+    } finally {
+      closeAll(chain.parent);
+    }
+  }
+
+  @Test
+  @DisplayName("projection side references make a leaf pair ineligible for consolidation")
+  void consolidationPreservesProjectionSideReferencesBySkippingPair() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final ConsolidationChain chain = consolidationChain(allocator, IndexType.PROJECTION);
+    final PageReference segmentReference = new PageReference();
+    final long segmentKey = HOTLeafPage.overflowPageRefKey(0L, 0);
+    chain.leaves[0].setPageReference(segmentKey, segmentReference);
+    final List<PageReference> dropped = new ArrayList<>();
+
+    try {
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(chain.parent, 4, 2,
+          IndexType.PROJECTION, allocator::getAndIncrement, dropped);
+
+      assertSame(chain.parent, consolidated,
+          "key/value-only consolidation must not consume a projection leaf with side references");
+      assertTrue(dropped.isEmpty(), "the caller must have no projection leaves to retire");
+      assertEquals(1, chain.leaves[0].segmentRefCount());
+      assertSame(segmentReference, chain.leaves[0].getPageReference(segmentKey));
+    } finally {
+      closeAll(chain.parent);
+    }
+  }
+
+  @Test
+  @DisplayName("projection consolidation preserves a zero-length opaque value without mutating its source")
+  void projectionConsolidationPreservesZeroLengthValue() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final HOTLeafPage[] leaves = {projectionLeaf(allocator, new byte[] {0x00}, new byte[0]),
+        projectionLeaf(allocator, new byte[] {0x20}, new byte[] {(byte) 0xA5}),
+        projectionLeaf(allocator, new byte[] {0x40}, new byte[] {0x12, 0x34}),
+        projectionLeaf(allocator, new byte[] {(byte) 0x80}, new byte[] {(byte) 0xFF})};
+    final PageReference[] references = {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]), swizzle(leaves[3])};
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        references, 1, 1, allocator::getAndIncrement);
+    final List<PageReference> dropped = new ArrayList<>();
+    HOTIndirectPage consolidated = null;
+
+    try {
+      consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, 4, 2, IndexType.PROJECTION,
+          allocator::getAndIncrement, dropped);
+
+      assertEquals(2, consolidated.getNumChildren(), "the mergeable projection chain must consolidate");
+      assertArrayEquals(new byte[0], valueFor(consolidated, new byte[] {0x00}));
+      assertArrayEquals(new byte[] {(byte) 0xA5}, valueFor(consolidated, new byte[] {0x20}));
+      assertEquals(1, leaves[0].getEntryCount(), "pure consolidation must not mutate the source leaf");
+      assertEquals(0, HOTLeafPage.refLength(leaves[0].valueRef(0)),
+          "the source's zero-length value must remain intact");
+      assertEquals(List.of(references[0], references[1], references[2]), dropped,
+          "only original leaves may transfer to transaction-log retirement");
+    } finally {
+      closeAll(parent, consolidated);
+    }
+  }
 
   @Test
   @DisplayName("mergeBiNodePairedLeaves collapses two adjacent leaves — clean, key-set-preserving")
@@ -791,15 +904,58 @@ final class HOTIndirectPageSplitFaithfulTest {
   }
 
   private static HOTLeafPage leaf(final AtomicLong allocator, final byte[] key) {
-    final HOTLeafPage leaf = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
+    return leaf(allocator, key, IndexType.CAS);
+  }
+
+  private static HOTLeafPage leaf(final AtomicLong allocator, final byte[] key, final IndexType indexType) {
+    final HOTLeafPage leaf = new HOTLeafPage(allocator.getAndIncrement(), 1, indexType);
     assertTrue(leaf.put(key, VALUE));
     return leaf;
+  }
+
+  private static HOTLeafPage projectionLeaf(final AtomicLong allocator, final byte[] key, final byte[] value) {
+    final HOTLeafPage leaf = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.PROJECTION);
+    assertTrue(leaf.put(key, value));
+    return leaf;
+  }
+
+  private static ConsolidationChain consolidationChain(final AtomicLong allocator, final IndexType indexType) {
+    final HOTLeafPage[] leaves =
+        {leaf(allocator, new byte[] {0x00}, indexType), leaf(allocator, new byte[] {0x20}, indexType),
+            leaf(allocator, new byte[] {0x40}, indexType), leaf(allocator, new byte[] {(byte) 0x80}, indexType)};
+    final PageReference[] references = {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]), swizzle(leaves[3])};
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        references, 1, 1, allocator::getAndIncrement);
+    return new ConsolidationChain(parent, leaves, references);
+  }
+
+  private record ConsolidationChain(HOTIndirectPage parent, HOTLeafPage[] leaves, PageReference[] references) {
   }
 
   private static TreeSet<String> collectKeys(final Page page) {
     final TreeSet<String> keys = new TreeSet<>();
     collectKeysInto(page, keys);
     return keys;
+  }
+
+  private static byte[] valueFor(final Page root, final byte[] key) {
+    Page page = root;
+    while (page instanceof HOTIndirectPage indirect) {
+      final int childIndex = indirect.findChildIndex(key);
+      assertTrue(childIndex >= 0, "projection key must route through the consolidated trie");
+      page = indirect.getChildReference(childIndex).getPage();
+    }
+    assertTrue(page instanceof HOTLeafPage, "projection key must route to a leaf");
+    final HOTLeafPage leaf = (HOTLeafPage) page;
+    final int entryIndex = leaf.findEntry(key);
+    assertTrue(entryIndex >= 0, "projection key must survive consolidation");
+    final long valueRef = leaf.valueRef(entryIndex);
+    final int valueLength = HOTLeafPage.refLength(valueRef);
+    final byte[] value = new byte[valueLength];
+    if (valueLength > 0) {
+      leaf.copyRefInto(valueRef, 0, value, 0, valueLength);
+    }
+    return value;
   }
 
   private static void collectKeysInto(final Page page, final TreeSet<String> out) {

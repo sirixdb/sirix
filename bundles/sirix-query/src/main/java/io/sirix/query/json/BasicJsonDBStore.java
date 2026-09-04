@@ -14,6 +14,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.access.trx.node.json.ParallelBulkJsonImporter;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -32,6 +33,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -605,6 +608,39 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createWithJackson(collName, resourceName, parser, null, ldjson);
   }
 
+  /**
+   * Create a resource through the general parallel bulk importer, maintaining {@code projection} in
+   * the same pass. The caller owns and closes {@code input}.
+   */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final InputStream input,
+      final ProjectionSpec projection) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), requireNonNull(projection));
+  }
+
+  /** Parallel bulk creation without a projection. The caller owns and closes {@code input}. */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final InputStream input) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), null);
+  }
+
+  /** Reader twin of {@link #createParallel(String, String, InputStream, ProjectionSpec)}. */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final Reader input,
+      final ProjectionSpec projection) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), requireNonNull(projection));
+  }
+
+  /** Parallel reader creation without a projection. The caller owns and closes {@code input}. */
+  public JsonDBCollection createParallel(final String collName, final String resourceName, final Reader input) {
+    requireNonNull(input);
+    return createCollectionWithLoader(collName, resourceName, wtx -> ParallelBulkJsonImporter.assemble(wtx, input),
+        new ArrayObject(new QNm[0], new Sequence[0]), null);
+  }
+
   private JsonDBCollection createWithJackson(final String collName, final String resourceName, final JsonParser parser,
       final @Nullable ProjectionSpec projection, final boolean ldjson) {
     requireNonNull(parser);
@@ -660,6 +696,25 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
 
       final var resourceOptions = createResource(options, database, resourceName);
+
+      // Generic pre-import hook: a runner named by -Dsirix.import.prepassRunner is invoked against
+      // the freshly created, still-EMPTY resource, before any index definition is catalogued and
+      // before the loader's first record. Preparation that must be durable ahead of the shred —
+      // e.g. committing resource-wide dictionaries a load-time projection build then reads through —
+      // has no other seam: the store owns creation and the loader owns the first data transaction.
+      // Reflection keeps the runner (typically tool- or harness-side) off this bundle's compile
+      // path. Failures propagate, because a half-prepared resource must not be loaded as if it were
+      // unprepared.
+      final String prepassRunner = System.getProperty("sirix.import.prepassRunner");
+      if (prepassRunner != null) {
+        try {
+          Class.forName(prepassRunner)
+               .getMethod("run", Database.class, String.class)
+               .invoke(null, database, resourceName);
+        } catch (final ReflectiveOperationException e) {
+          throw new DocumentException(e);
+        }
+      }
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);

@@ -22,6 +22,7 @@
 package io.sirix.service.json.shredder;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.InsertOperations;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
@@ -40,12 +41,13 @@ import io.sirix.diff.JsonDiffSidecar;
 import io.sirix.node.NodeKind;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
+import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
@@ -204,12 +206,20 @@ public final class JsonResourceCopy implements Callable<Void> {
                                  .getResource()
                                  .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                  .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json");
-          final JsonObject sidecar;
+          JsonObject sidecar;
           try {
             sidecar = JsonDiffSidecar.read(updateOperationsFile, readResourceSession.getResourceConfig().getName(),
                 revision - 1, revision, readResourceSession.getResourceConfig().areDeweyIDsStored);
-          } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+          } catch (final IOException | RuntimeException e) {
+            // A sidecar written before the integrity envelope (or damaged since) must not abort a
+            // copy whose earlier revisions are ALREADY committed — that leaves a partial copy.
+            // The sidecar only caches the diff: recompute it from the two source revisions.
+            final Path resourcePath = readResourceSession.getResourceConfig().getResource();
+            final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
+            sidecar = JsonParser
+                                .parseString(new BasicJsonDiff(databaseName).generateDiff(readResourceSession,
+                                    revision - 1, revision))
+                                .getAsJsonObject();
           }
 
           for (final var diffsElement : sidecar.getAsJsonArray("diffs")) {

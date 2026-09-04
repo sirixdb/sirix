@@ -10,9 +10,14 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.pax.GlobalStringDictionaries;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
+import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
+
+import java.util.function.LongConsumer;
+import java.util.function.LongFunction;
 
 import java.time.Instant;
 
@@ -158,6 +163,94 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param page a fully built page for a contiguous pre-reserved key range
    */
   default void adoptDocumentLeafPage(KeyValueLeafPage page) {
+    throw new UnsupportedOperationException("bulk page adoption is not supported by this writer");
+  }
+
+  /**
+   * Hand this writer the resolver its DOCUMENT record pages encode their string values against.
+   *
+   * <p>
+   * The trie lane's write half. A record page's string region is built at SERIALIZATION time, from
+   * the heap, on the flush lane — so the resolver has to be on the page before it gets there, and the
+   * only component that sees every page as it is created is this writer.
+   * </p>
+   *
+   * <p>
+   * <b>The resolver must be safe to call from many threads at once.</b> Region building runs inside
+   * the async snapshot window's parallel {@code forEach}, so {@code idOf} is invoked concurrently.
+   * {@code TrieLaneWriteDictionaries} is the intended implementation and is thread-confined for
+   * exactly this reason; a resolver that walks the trie through a reader must never be installed
+   * here.
+   * </p>
+   *
+   * <p>
+   * A no-op default rather than a throw, unlike the bulk-adoption seams above: every writer must
+   * tolerate being told about a lane it does not implement, because the caller is a load-time
+   * installer that cannot know which writer it got.
+   * </p>
+   *
+   * @param dictionaries the resolver, or {@code null} to encode every tag as bytes
+   */
+  default void installDocumentStringDictionaries(@Nullable GlobalStringDictionaries dictionaries) {
+    // No-op: a writer without the trie lane simply keeps its bytes.
+  }
+
+  /**
+   * Install a PER-PAGE resolver factory, consulted with each document leaf's record-page key.
+   *
+   * <p>
+   * {@link #installDocumentStringDictionaries} hands ONE resolver to every page, which is right for a
+   * resource-wide dictionary and wrong for a segment-scoped one: there the dictionary a page belongs
+   * to is a property of the page, and a resolver answering "the segment being filled" would mint a
+   * late-flushed page's ids into the wrong one — a coherent wrong answer no downstream check can
+   * catch (see {@code SegmentScopedDictionaries}). The factory is therefore consulted where the page
+   * is created, on the writer side, in key order, and the view it returns travels with the page.
+   * </p>
+   *
+   * <p>
+   * When set it takes precedence over the single resolver; {@code null} restores it. A writer that
+   * does not implement the lane ignores both.
+   * </p>
+   *
+   * @param factory record-page key to that page's resolver, or {@code null} to use the single one
+   */
+  default void installDocumentStringDictionaryFactory(@Nullable LongFunction<GlobalStringDictionaries> factory) {
+    // No-op: a writer without the trie lane simply keeps its bytes.
+  }
+
+  /**
+   * Install a listener told each document leaf's record-page key once that page has been ENCODED.
+   *
+   * <p>
+   * A segment-scoped dictionary may only be written when every page of its segment has minted its
+   * values, and that moment is not the writer passing the segment's last row — pages are encoded on
+   * the async flush pool, so one can still be queued while the writer fills a later segment. This is
+   * the only signal that says a page's values are certainly in: it fires after the flush window
+   * carrying the page has been joined.
+   * </p>
+   *
+   * <p>
+   * Fires ONLY for pages that were given a resolver, so a page the lane never served cannot be
+   * counted against a segment. A missed notification is safe — the segment simply seals at commit
+   * instead of during the load — but a spurious one is not, which is why the filter is here rather
+   * than in the listener.
+   * </p>
+   *
+   * @param listener record-page keys of encoded document leaves, or {@code null} to stop listening
+   */
+  default void installDocumentPageEncodedListener(@Nullable LongConsumer listener) {
+    // No-op: a writer without the trie lane has nothing to seal.
+  }
+
+  /**
+   * Serialize the heap records a bulk merge left on a LIVE log leaf (the prologue page the importer
+   * blits into rather than adopts) and stage every resulting overflow carrier as an immutable side
+   * page, exactly as {@link #adoptDocumentLeafPage} does for an adopted leaf — so the background
+   * flush defers the leaf one epoch instead of pinning it until final commit.
+   *
+   * @param page a leaf already owned by this writer's transaction intent log
+   */
+  default void stageOverflowCarriersOfLiveLeaf(KeyValueLeafPage page) {
     throw new UnsupportedOperationException("bulk page adoption is not supported by this writer");
   }
 
@@ -352,6 +445,24 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Implementations must report the original structural cause.
    */
   void assertTransactionWritable();
+
+  /**
+   * Resolve the current revision's transaction-private secondary-index container page.
+   *
+   * <p>
+   * The first call for an exact revision-root slot fully copies the persisted page before it is
+   * published to the transaction-intent log. Later calls return that same modified page. This is the
+   * only supported mutation gateway for the PATH, CAS, NAME, PROJECTION, and VALIDTIME container
+   * pages; callers must never mutate a page obtained from the underlying reader.
+   * </p>
+   *
+   * @param indexType one of PATH, CAS, NAME, PROJECTION, or VALIDTIME
+   * @param <P> the concrete container-page type selected by {@code indexType}
+   * @return the transaction-private page which may be mutated by this writer
+   * @throws IllegalArgumentException if {@code indexType} is not a secondary HOT index type
+   * @throws IllegalStateException if the revision-root slot or TIL entry has the wrong page type
+   */
+  <P extends Page> P prepareSecondaryIndexPage(IndexType indexType);
 
   /**
    * Allocate a record key and resolve the KVL page for direct-to-heap creation. After this call, read

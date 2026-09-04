@@ -289,9 +289,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   static int autoCommitNodeCountThreshold(final int maxNodeCount, final AfterCommitState afterCommitState) {
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     requireNonNull(afterCommitState);
-    return afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-        ? Math.min(maxNodeCount, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT)
-        : maxNodeCount;
+    if (afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      return maxNodeCount;
+    }
+    // The async-flush epoch is a MEMORY bound on the intent log, not a commit cadence: it stays
+    // armed even when the caller requested no count-based auto-commit (maxNodeCount == 0, the
+    // beginNodeTrx(AfterCommitState) overload) — otherwise the log grows unbounded for the whole
+    // import and its pages cannot be evicted before the final commit.
+    return maxNodeCount == 0
+        ? AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT
+        : Math.min(maxNodeCount, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT);
   }
 
   protected abstract W self();
@@ -871,10 +878,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
   private boolean shouldRotateIntermediateEpoch() {
-    return maxNodeCount > 0 && compoundOperationDepth == 0
-        && (modificationCount >= autoCommitNodeCountThreshold
-            || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-                && storageEngineWriter.isAsyncFlushLogBoundaryReached()));
+    if (compoundOperationDepth != 0) {
+      return false;
+    }
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      // Storage-epoch bounds arm regardless of maxNodeCount: they bound intent-log memory,
+      // which grows whether or not the caller asked for count-based auto-commit.
+      return modificationCount >= autoCommitNodeCountThreshold || storageEngineWriter.isAsyncFlushLogBoundaryReached();
+    }
+    return maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold;
   }
 
   /**
@@ -963,7 +975,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     updateOperationsUnordered.clear();
     updateOperationsOrdered.clear();
 
-    reInstantiateIndexes();
+    reInstantiateIndexes(true);
 
     // Re-read the current node from the new page transaction.
     // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
@@ -988,7 +1000,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   protected abstract NF reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter);
 
-  private void reInstantiateIndexes() {
+  private void reInstantiateIndexes(final boolean preserveCurrentDefinitions) {
     // Get a new path summary instance.
     if (buildPathSummary) {
       pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
@@ -1000,11 +1012,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // writer / path summary — re-adding without clearing would either
     // duplicate listeners or (for listener types that dedup per definition)
     // keep a stale, possibly spent listener in place of a fresh one.
-    final var indexDefs = indexController.getIndexes().getIndexDefs();
+    final var indexDefs = preserveCurrentDefinitions
+        ? indexController.getIndexes().getIndexDefs()
+        : null;
     indexController =
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     indexController.clearChangeListeners();
-    indexController.createIndexListeners(indexDefs, self());
+    indexController.createIndexListeners(preserveCurrentDefinitions
+        ? indexDefs
+        : indexController.getIndexes().getIndexDefs(), self());
 
     nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);
   }
@@ -1063,7 +1079,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
       nodeHashing.setBulkInsert(isBulkInsert);
 
-      reInstantiateIndexes();
+      reInstantiateIndexes(false);
 
       rollbackOnlyCause = null;
 
@@ -1129,7 +1145,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
       // New index instances.
-      reInstantiateIndexes();
+      reInstantiateIndexes(false);
 
       // Discard update-operation tuples recorded against the reverted-from revision.
       updateOperationsUnordered.clear();

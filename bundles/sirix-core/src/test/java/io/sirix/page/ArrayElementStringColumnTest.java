@@ -176,9 +176,11 @@ final class ArrayElementStringColumnTest {
           if (regions == null) {
             continue;
           }
-          final StringRegion.Header header = regions.stringHeaderInto(new StringRegion.Header());
-          if (header != null && header.parentDictSize > 0) {
-            return header;
+          try (regions) {
+            final StringRegion.Header header = regions.stringHeaderInto(new StringRegion.Header());
+            if (header != null && header.parentDictSize > 0) {
+              return header;
+            }
           }
         }
       }

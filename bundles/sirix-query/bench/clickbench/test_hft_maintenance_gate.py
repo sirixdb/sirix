@@ -86,6 +86,7 @@ def maintenance_log(
             global_dict="auto",
             auto_commit_nodes=16_384,
             async_flush_node_cap=0,
+            importer="ordinary-maintenance",
             expected_rows=rows,
         ),
         g1_region_line(),
@@ -226,6 +227,7 @@ class MaintenanceGateTest(unittest.TestCase):
     def test_mode_specific_cap_and_canonical_region_are_required(self) -> None:
         cases = (
             ("asyncFlushNodeCap=0", "asyncFlushNodeCap=16384", "asyncFlushNodeCap"),
+            ("importer=ordinary-maintenance", "importer=parallel-bulk", "importer"),
             (
                 f"g1RegionSizeBytes={4 * MIB}",
                 f"g1RegionSizeBytes={2 * MIB}",

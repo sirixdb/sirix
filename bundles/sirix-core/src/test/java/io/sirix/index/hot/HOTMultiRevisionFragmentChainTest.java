@@ -16,12 +16,8 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.cas.CASIndexListenerFactory;
-import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -37,36 +33,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Multi-revision fragment-chain regression test for the HOT leaf-page CoW path.
  *
- * <p>Verifies that under the default SLIDING_SNAPSHOT versioning, an index entry written in
- * revision N remains visible at every later revision provided no explicit deletion has been
- * applied. This is the surface area that the original {@code HOTLeafPageCowTest} suite missed:
- * round-tripping a single fragment through the wire format does not exercise the writer-side
- * fragment chain that the reader walks at next-revision read time.</p>
+ * <p>
+ * Verifies that under the default SLIDING_SNAPSHOT versioning, an index entry written in revision N
+ * remains visible at every later revision provided no explicit deletion has been applied. This is
+ * the surface area that the original {@code HOTLeafPageCowTest} suite missed: round-tripping a
+ * single fragment through the wire format does not exercise the writer-side fragment chain that the
+ * reader walks at next-revision read time.
+ * </p>
  *
- * <p>Five revisions on a NAME index, each adding one new key. After commit N, the latest read
- * must see all keys ever inserted up to N — the HOT writer must record the prior on-disk fragment
- * key on the leaf reference's {@code pageFragments} so the reader's
- * {@code combineHOTLeafPages} chain reconstruction sees the full set.</p>
+ * <p>
+ * Five revisions on a NAME index, each adding one new key. After commit N, the latest read must see
+ * all keys ever inserted up to N — the HOT writer must record the prior on-disk fragment key on the
+ * leaf reference's {@code pageFragments} so the reader's {@code combineHOTLeafPages} chain
+ * reconstruction sees the full set.
+ * </p>
  */
 @DisplayName("HOT Multi-Revision Fragment Chain Regression")
 final class HOTMultiRevisionFragmentChainTest {
-
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   @BeforeEach
   void setUp() {
@@ -81,8 +64,6 @@ final class HOTMultiRevisionFragmentChainTest {
   @Test
   @DisplayName("name index across 5 revisions: every key persists through chain reconstruction")
   void nameIndexMultiRevisionPersistsAllKeys() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
 
@@ -91,8 +72,7 @@ final class HOTMultiRevisionFragmentChainTest {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"name\":\"alpha\",\"keyA\":1}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"name\":\"alpha\",\"keyA\":1}]}"));
       trx.commit();
     }
 
@@ -116,8 +96,6 @@ final class HOTMultiRevisionFragmentChainTest {
   @Test
   @DisplayName("CAS index across 5 revisions: cumulative value distribution is correct at HEAD")
   void casIndexMultiRevisionCumulative() {
-    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef casIndexDef;
 
@@ -125,11 +103,9 @@ final class HOTMultiRevisionFragmentChainTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var path = parse("/orders/[]/status", PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(path), 0,
-          IndexDef.DbType.JSON);
+      casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(path), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"orders\":[{\"id\":1,\"status\":\"new\"}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"orders\":[{\"id\":1,\"status\":\"new\"}]}"));
       trx.commit();
     }
 
@@ -151,8 +127,6 @@ final class HOTMultiRevisionFragmentChainTest {
   @Test
   @DisplayName("read at every intermediate revision sees the cumulative-up-to-that-revision view")
   void readAtIntermediateRevisionsIsCumulative() {
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled for this regression");
-
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
     final int[] revisions = new int[4];
@@ -162,8 +136,7 @@ final class HOTMultiRevisionFragmentChainTest {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"name\":\"alpha\"}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"name\":\"alpha\"}]}"));
       trx.commit();
       revisions[0] = trx.getResourceSession().getMostRecentRevisionNumber();
     }
@@ -193,8 +166,7 @@ final class HOTMultiRevisionFragmentChainTest {
     }
   }
 
-  private static void appendItemAndCommit(
-      final Database<JsonResourceSession> database, final String json) {
+  private static void appendItemAndCommit(final Database<JsonResourceSession> database, final String json) {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       trx.moveToDocumentRoot();
@@ -206,24 +178,20 @@ final class HOTMultiRevisionFragmentChainTest {
     }
   }
 
-  private static void appendOrderAndCommit(
-      final Database<JsonResourceSession> database, final int id, final String status) {
+  private static void appendOrderAndCommit(final Database<JsonResourceSession> database, final int id,
+      final String status) {
     final String json = String.format("{\"id\":%d,\"status\":\"%s\"}", id, status);
     appendItemAndCommit(database, json);
   }
 
-  private static void assertNameKeyCount(
-      final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic, final IndexDef nameIndexDef,
-      final String name, final long expected) {
-    assertNameKeyCount(rtx, ic, nameIndexDef, name, expected,
-        "expected " + expected + " '" + name + "' keys");
+  private static void assertNameKeyCount(final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic,
+      final IndexDef nameIndexDef, final String name, final long expected) {
+    assertNameKeyCount(rtx, ic, nameIndexDef, name, expected, "expected " + expected + " '" + name + "' keys");
   }
 
-  private static void assertNameKeyCount(
-      final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic, final IndexDef nameIndexDef,
-      final String name, final long expected, final String message) {
-    final var iter = ic.openNameIndex(rtx.getStorageEngineReader(), nameIndexDef,
-        ic.createNameFilter(Set.of(name)));
+  private static void assertNameKeyCount(final NodeReadOnlyTrx rtx, final IndexController<?, ?> ic,
+      final IndexDef nameIndexDef, final String name, final long expected, final String message) {
+    final var iter = ic.openNameIndex(rtx.getStorageEngineReader(), nameIndexDef, ic.createNameFilter(Set.of(name)));
     if (expected == 0) {
       if (!iter.hasNext()) {
         return;
@@ -235,12 +203,10 @@ final class HOTMultiRevisionFragmentChainTest {
     assertEquals(expected, iter.next().getNodeKeys().getLongCardinality(), message);
   }
 
-  private static void assertStatusCardinality(
-      final JsonNodeReadOnlyTrx rtx, final IndexController<?, ?> ic, final IndexDef casIndexDef,
-      final String status, final long expected) {
+  private static void assertStatusCardinality(final JsonNodeReadOnlyTrx rtx, final IndexController<?, ?> ic,
+      final IndexDef casIndexDef, final String status, final long expected) {
     final var iter = ic.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
-        ic.createCASFilter(Set.of("/orders/[]/status"), new Str(status), SearchMode.EQUAL,
-            new JsonPCRCollector(rtx)));
+        ic.createCASFilter(Set.of("/orders/[]/status"), new Str(status), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
     if (expected == 0) {
       if (!iter.hasNext()) {
         return;

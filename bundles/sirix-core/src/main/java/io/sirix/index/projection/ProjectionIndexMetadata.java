@@ -38,15 +38,16 @@ import java.util.Objects;
  * only) and a commit rewrites only the fence chunks it actually changed.
  *
  * <p>
- * The <b>stale</b> flag is the fail-closed marker used by abandoned builds and legacy listeners
- * that cannot maintain a live snapshot. Ordinary update-time maintenance never installs it. The
- * live leaf count is cross-checked with the fence/order header, whose explicit physical order
- * prevents recycled holes or unrelated higher physical ids from being interpreted as live.
+ * The <b>stale</b> flag is the fail-closed marker used when the virgin-tree initializer cannot
+ * finish. Ordinary update-time maintenance never installs it: live trees are maintained only by the
+ * incremental change listener. The live leaf count is cross-checked with the fence/order header,
+ * whose explicit physical order prevents recycled holes or unrelated higher physical ids from being
+ * interpreted as live.
  *
  * <p>
- * {@link #parse} returns {@code null} for payloads without the magic, so hydrate paths can probe
- * slot 0 and fall back to metadata-less handling for stores written by the bench setups (which
- * persist leaves only).
+ * {@link #parse} returns {@code null} for payloads without the magic or with an unsupported
+ * version. Production hydrate paths treat that result as unusable; there is no metadata-less
+ * persisted projection format.
  */
 public final class ProjectionIndexMetadata {
 
@@ -88,11 +89,11 @@ public final class ProjectionIndexMetadata {
      * The indexed record set changed and the projection has resource-wide value dictionaries, which
      * commit-time maintenance cannot extend: it holds no dictionary writer, so it can neither mint an
      * id for a new value nor rewrite every leaf to a per-leaf encoding without paying O(corpus) on a
-     * single commit. Refusing keeps the store CONSISTENT; {@code jn:create-projection-index} rebuilds
-     * it.
+     * single commit. This is a reserved historical wire reason; current dictionary maintenance extends
+     * the persistent keyed trie incrementally and never emits it.
      */
     GLOBAL_DICTIONARY_NOT_MAINTAINABLE,
-    /** Both the incremental patch and the full rebuild failed — the corruption valve. */
+    /** Reserved wire value from the retired rebuild fallback; current maintenance never emits it. */
     MAINTENANCE_FAILED,
     /** Leaf descriptors disagreed with this metadata about a column's encoding. */
     KIND_INCONSISTENT_STORE,
@@ -104,21 +105,16 @@ public final class ProjectionIndexMetadata {
      */
     GLOBAL_DICTIONARY_BUDGET_EXCEEDED,
     /**
-     * NOT PRODUCED BY ANYTHING YET — reserved for task #52.
+     * Reserved wire value. Current maintenance never schedules or performs a whole-index rebuild.
      *
      * <p>
-     * A projection that needs a full rebuild but must not pay for it inside the committing transaction.
-     * Today a refused incremental patch calls {@code rebuildFully()} on the commit thread,
-     * re-extracting every record of the resource: unbounded by corpus size, reached from its refusal
-     * sites, and on a large resource a multi-minute commit. The fix is to record the need HERE, let the
-     * commit finish, and rebuild on request or in the background.
+     * A future implementation could use this value to request an explicit external repair without
+     * paying O(corpus) on the committing thread. It must not become an implicit second mutation path.
      * </p>
      *
      * <p>
-     * Declared now so #52 need not change this wire format later — it is one of the eight values the
-     * flag bits can carry, and adding it costs nothing while renumbering would cost a migration. It
-     * differs semantically from every value above: those mean "retired until someone acts", this one
-     * means "still wanted, known incomplete".
+     * It remains declared because the ordinal is a wire value and renumbering later entries would be
+     * unsafe. No current writer emits it.
      * </p>
      */
     REBUILD_PENDING;
@@ -135,12 +131,12 @@ public final class ProjectionIndexMetadata {
     public String remedy() {
       return switch (this) {
         case GLOBAL_DICTIONARY_BUDGET_EXCEEDED ->
-          "Either give the loader an expected-row-count hint, so the election declines the oversized"
+          "Give the loader an expected-row-count hint, so the election declines the oversized"
               + " column up front and the rest of the projection still builds, or raise"
-              + " -Dsirix.projection.globalDict.budgetBytes; then rebuild with"
-              + " jn:create-projection-index($doc, '<root-path>', '<fields>').";
-        default -> "Rebuild the projection with jn:create-projection-index($doc, '<root-path>', '<fields>')"
-            + " — the same call that created it; it re-elects encodings from the current data.";
+              + " -Dsirix.projection.globalDict.budgetBytes. Then drop the stale definition, commit,"
+              + " and call jn:create-projection-index again; the replacement receives a new tree id.";
+        default -> "Drop the unusable projection definition, commit, and call"
+            + " jn:create-projection-index again; the replacement receives a new tree id.";
       };
     }
   }
@@ -198,16 +194,51 @@ public final class ProjectionIndexMetadata {
    */
   private final long[] valueDictionaryHeaderKeys;
 
+  /**
+   * Where a SEGMENT-scoped dictionary lives: the sealed anchor for one {@code (segment, column)}
+   * pair.
+   *
+   * <p>
+   * A page written under a segment-scoped dictionary records its SEGMENT as its anchor, because at
+   * page-encode time that segment's dictionary has not been written and has no storage key yet. This
+   * is the table that closes the gap, and it is the read side's only route from a page's anchor to a
+   * dictionary. The sealed count travels with the key so the reader's "the dictionary must hold at
+   * least what the page recorded" rule costs no dictionary read.
+   * </p>
+   *
+   * @param segment the segment the pages name
+   * @param column the projected column
+   * @param headerKey the dictionary this segment's values were sealed under, always positive
+   * @param sealedEntryCount entries it held when sealed
+   */
+  public record SegmentAnchor(long segment, int column, long headerKey, int sealedEntryCount) {
+  }
+
+  /**
+   * Segment-scoped dictionary anchors, or {@code null} when this projection has none — which is every
+   * projection that is not using segment-scoped dictionaries, including every one written before they
+   * existed.
+   *
+   * <p>
+   * Written as a SECOND trailing section, after the per-column dictionary anchors. {@link #parse}
+   * treats it as absent when the payload ends at the first section, so a database written before this
+   * section existed still reads; a payload that carries it cannot be read by a build that predates
+   * it, because the parse deliberately refuses trailing bytes it does not understand rather than
+   * interpreting shifted fields.
+   * </p>
+   */
+  private final SegmentAnchor[] segmentAnchors;
+
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null, null);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null, null, null);
   }
 
   /** As above, carrying the index-wide {@link #setValueRowCounts}. */
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
       final Map<Integer, Map<String, Long>> setValueRowCounts) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts, null,
         null);
   }
 
@@ -216,12 +247,22 @@ public final class ProjectionIndexMetadata {
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
       final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
     this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
-        valueDictionaryHeaderKeys);
+        valueDictionaryHeaderKeys, null);
+  }
+
+  /** As above, additionally carrying SEGMENT-scoped dictionary anchors. */
+  public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys,
+      final SegmentAnchor[] segmentAnchors) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
+        valueDictionaryHeaderKeys, segmentAnchors);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
-      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys,
+      final SegmentAnchor @org.jspecify.annotations.Nullable [] segmentAnchors) {
     Objects.requireNonNull(rootPath);
     Objects.requireNonNull(fieldPaths);
     Objects.requireNonNull(fieldNames);
@@ -230,6 +271,10 @@ public final class ProjectionIndexMetadata {
     this.valueDictionaryHeaderKeys = valueDictionaryHeaderKeys == null
         ? null
         : valueDictionaryHeaderKeys.clone();
+    this.segmentAnchors = segmentAnchors == null || segmentAnchors.length == 0
+        ? null
+        : segmentAnchors.clone();
+    validateSegmentAnchors(this.segmentAnchors, columnKinds.length);
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
@@ -290,7 +335,7 @@ public final class ProjectionIndexMetadata {
   public static ProjectionIndexMetadata staleTombstone(final StaleReason reason) {
     Objects.requireNonNull(reason, "reason");
     final byte flags = (byte) (FLAG_STALE | (reason.ordinal() << STALE_REASON_SHIFT));
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, flags, null, null, null);
   }
 
   /**
@@ -443,8 +488,52 @@ public final class ProjectionIndexMetadata {
 
   /** Whether two column kinds describe the same declared column, ignoring the dictionary choice. */
   private static boolean sameDeclaredShape(final byte persisted, final byte derived) {
-    return persisted == derived || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
-        && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
+    if (persisted == derived || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+        && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT)) {
+      return true;
+    }
+    // The temporal kinds' kill switch is a DEPLOYMENT choice, not a shape change: a store built with
+    // -Dsirix.projection.temporalKinds=false holds the declared column as a per-leaf string column,
+    // and a later reader with the switch back on derives the temporal kind from the same declaration.
+    // Rejecting that pairing would make the switch a one-way door — the store would hydrate only under
+    // the flag it happened to be built with. Serving reads the STORE's kind, so such a column simply
+    // keeps taking the string route it was built for.
+    return ProjectionIndexRowGroupPage.isTemporalKind(derived)
+        && persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+  }
+
+  /**
+   * A segment anchor must name a real column, a positive header key and a non-negative count, and no
+   * {@code (segment, column)} pair may appear twice: two anchors for one pair would let a page
+   * resolve against whichever the reader happened to index last.
+   */
+  private static void validateSegmentAnchors(final SegmentAnchor @org.jspecify.annotations.Nullable [] anchors,
+      final int columns) {
+    if (anchors == null) {
+      return;
+    }
+    final java.util.Set<Long> seen = new java.util.HashSet<>(anchors.length * 2);
+    for (final SegmentAnchor anchor : anchors) {
+      Objects.requireNonNull(anchor, "a segment anchor must not be null");
+      if (anchor.segment() < 0 || anchor.column() < 0 || anchor.column() >= columns || anchor.headerKey() <= 0
+          || anchor.sealedEntryCount() < 0) {
+        throw new IllegalArgumentException("invalid segment dictionary anchor " + anchor);
+      }
+      if (!seen.add((anchor.segment() << 20) | anchor.column())) {
+        throw new IllegalArgumentException(
+            "segment " + anchor.segment() + " column " + anchor.column() + " is anchored twice");
+      }
+    }
+  }
+
+  /**
+   * Segment-scoped dictionary anchors, or {@code null} when this projection has none. A copy: the
+   * table is part of the persisted shape and callers must not be able to edit it in place.
+   */
+  public SegmentAnchor @org.jspecify.annotations.Nullable [] segmentAnchors() {
+    return segmentAnchors == null
+        ? null
+        : segmentAnchors.clone();
   }
 
   public byte[] serialize() {
@@ -463,6 +552,7 @@ public final class ProjectionIndexMetadata {
     }
     writeSetValueRowCounts(out);
     writeValueDictionaryHeaderKeys(out);
+    writeSegmentAnchors(out);
     return out.toByteArray();
   }
 
@@ -528,8 +618,7 @@ public final class ProjectionIndexMetadata {
       final int[] pos = {4};
       final byte version = payload[pos[0]++];
       if (version != VERSION) {
-        // Older/newer wire format — treated like "no metadata" so callers decline instead of
-        // misparsing bytes at shifted offsets.
+        // Unsupported format version: callers decline instead of interpreting shifted fields.
         return null;
       }
       final byte flags = payload[pos[0]++];
@@ -611,12 +700,34 @@ public final class ProjectionIndexMetadata {
           dictionaryKeys[column] = headerKey;
         }
       }
+      // The SEGMENT anchor section is OPTIONAL: a payload that ends here was written by a build (or a
+      // projection) without segment-scoped dictionaries, and must keep reading. Anything else past it
+      // is still refused rather than interpreted as shifted fields.
+      SegmentAnchor[] anchors = null;
+      if (pos[0] != payload.length) {
+        final int anchorCount = getIntLE(payload, pos[0]);
+        pos[0] += 4;
+        if (anchorCount <= 0) {
+          throw new IllegalStateException("Projection metadata declares " + anchorCount + " segment anchors");
+        }
+        anchors = new SegmentAnchor[anchorCount];
+        for (int i = 0; i < anchorCount; i++) {
+          final long segment = getLongLE(payload, pos[0]);
+          pos[0] += 8;
+          final int column = getShortU(payload, pos);
+          final long headerKey = getLongLE(payload, pos[0]);
+          pos[0] += 8;
+          final int sealedEntryCount = getIntLE(payload, pos[0]);
+          pos[0] += 4;
+          anchors[i] = new SegmentAnchor(segment, column, headerKey, sealedEntryCount);
+        }
+      }
       if (pos[0] != payload.length) {
         throw new IllegalStateException(
-            "Projection metadata has " + (payload.length - pos[0]) + " byte(s) past the value dictionary section");
+            "Projection metadata has " + (payload.length - pos[0]) + " byte(s) past its trailing sections");
       }
       return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts,
-          dictionaryKeys);
+          dictionaryKeys, anchors);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }
@@ -678,6 +789,24 @@ public final class ProjectionIndexMetadata {
         putShortU(out, c);
         putLongLE(out, valueDictionaryHeaderKeys[c]);
       }
+    }
+  }
+
+  /**
+   * The SECOND trailing section, written only when the projection has segment anchors — so a
+   * projection without them serializes byte-for-byte as before and stays readable by a build that
+   * predates this section.
+   */
+  private void writeSegmentAnchors(final ByteArrayOutputStream out) {
+    if (segmentAnchors == null) {
+      return;
+    }
+    putIntLE(out, segmentAnchors.length);
+    for (final SegmentAnchor anchor : segmentAnchors) {
+      putLongLE(out, anchor.segment());
+      putShortU(out, anchor.column());
+      putLongLE(out, anchor.headerKey());
+      putIntLE(out, anchor.sealedEntryCount());
     }
   }
 

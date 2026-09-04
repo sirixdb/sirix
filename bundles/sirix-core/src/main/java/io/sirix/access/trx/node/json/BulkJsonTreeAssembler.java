@@ -301,7 +301,7 @@ public final class BulkJsonTreeAssembler {
         case BulkJsonScanner.EVENT_BEGIN_ARRAY -> openContainer(false);
         case BulkJsonScanner.EVENT_NAME -> pendingName = scanner.name();
         case BulkJsonScanner.EVENT_STRING -> leafString(scanner.stringUtf8(), scanner.stringUtf8Length());
-        case BulkJsonScanner.EVENT_NUMBER -> leafNumber(scanner.number());
+        case BulkJsonScanner.EVENT_NUMBER -> leafNumber();
         case BulkJsonScanner.EVENT_TRUE -> leafBoolean(true);
         case BulkJsonScanner.EVENT_FALSE -> leafBoolean(false);
         case BulkJsonScanner.EVENT_NULL -> leafNull();
@@ -453,6 +453,49 @@ public final class BulkJsonTreeAssembler {
       pathSummaryWriter.recordValue(pcr, utf8, utf8Length, nodeKey);
     } else if (pathStatsBatch != null) {
       pathStatsBatch.recordString(pcr, utf8, utf8Length, nodeKey);
+    }
+  }
+
+  private void leafNumber() throws IOException {
+    final int numberType = scanner.numberType();
+    switch (numberType) {
+      case BulkJsonScanner.NUMBER_TYPE_INT -> leafIntegralNumber(scanner.integralNumberValue(), true);
+      case BulkJsonScanner.NUMBER_TYPE_LONG -> leafIntegralNumber(scanner.integralNumberValue(), false);
+      case BulkJsonScanner.NUMBER_TYPE_FALLBACK -> leafNumber(scanner.number());
+      default -> throw new IllegalStateException("unknown scanner number type " + numberType);
+    }
+  }
+
+  private void leafIntegralNumber(final long value, final boolean intValue) throws IOException {
+    // Snapshot value/type before predictedLeafRightSibling() peeks the next token into the scanner's
+    // scratch lane. Current and scratch are separate, but keeping only locals makes that lifetime
+    // boundary explicit and prevents a future scanner refactor from aliasing adjacent numbers.
+    final long primitiveValue = value;
+    final boolean primitiveIsInt = intValue;
+    final long pcr;
+    final long nodeKey;
+    if (levelKind[depth] == LEVEL_OBJECT) {
+      final String name = takePendingName();
+      pcr = resolveFieldPcr(name);
+      final long rightSibKey = predictedLeafRightSibling();
+      nodeKey = assertMinted(primitiveIsInt
+          ? sink.createObjectNamedNumberNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, pcr, name,
+              (int) primitiveValue)
+          : sink.createObjectNamedNumberNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, pcr, name,
+              primitiveValue));
+    } else {
+      pcr = levelContentPcr[depth];
+      final long rightSibKey = predictedLeafRightSibling();
+      nodeKey = assertMinted(primitiveIsInt
+          ? sink.createNumberNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, (int) primitiveValue,
+              pcr)
+          : sink.createNumberNode(levelContainerKey[depth], levelLastChild[depth], rightSibKey, primitiveValue, pcr));
+    }
+    recordChildInParent(nodeKey);
+    if (statsToSummary) {
+      pathSummaryWriter.recordValue(pcr, primitiveValue, nodeKey);
+    } else if (pathStatsBatch != null) {
+      pathStatsBatch.recordLong(pcr, primitiveValue, nodeKey);
     }
   }
 

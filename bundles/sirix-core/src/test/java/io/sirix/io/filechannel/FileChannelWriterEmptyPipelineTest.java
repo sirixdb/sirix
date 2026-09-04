@@ -2,9 +2,20 @@ package io.sirix.io.filechannel;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.same;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -17,6 +28,9 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.DeflateCompressor;
+import io.sirix.io.file.StorageProfile;
+import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesOut;
@@ -36,8 +50,14 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.MockedStatic;
 
 final class FileChannelWriterEmptyPipelineTest {
 
@@ -146,6 +166,359 @@ final class FileChannelWriterEmptyPipelineTest {
   }
 
   @Test
+  void preSerializedKeyValueLeafBypassesThePagePersister(@TempDir final Path tempDir) throws IOException {
+    assertPreSerializedKeyValueLeafBypassesThePagePersister(emptyPipelineConfig(tempDir), tempDir);
+  }
+
+  @Test
+  void preSerializedKeyValueLeafBypassesThePagePersisterForANonEmptyPipeline(@TempDir final Path tempDir)
+      throws IOException {
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("encoded-pipeline-writer")
+                             .storageType(StorageType.FILE_CHANNEL)
+                             .byteHandlerPipeline(new ByteHandlerPipeline(new DeflateCompressor()))
+                             .build();
+    config.resourcePath = tempDir;
+    assertPreSerializedKeyValueLeafBypassesThePagePersister(config, tempDir);
+  }
+
+  private static void assertPreSerializedKeyValueLeafBypassesThePagePersister(final ResourceConfiguration config,
+      final Path tempDir) throws IOException {
+    assertPreSerializedKeyValueLeafBypassesThePagePersister(config, tempDir,
+        KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH);
+  }
+
+  private static void assertPreSerializedKeyValueLeafBypassesThePagePersister(final ResourceConfiguration config,
+      final Path tempDir, final int byteHandlerInputLength) throws IOException {
+    final byte[] cachedBytes = patternedBytes(257, 73);
+    final MemorySegment cachedSegment = MemorySegment.ofArray(cachedBytes).asReadOnly();
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    when(page.getCompressedSegment()).thenReturn(cachedSegment);
+    when(page.getByteHandlerInputLength()).thenReturn(byteHandlerInputLength);
+    final PagePersister pagePersister = mock(PagePersister.class);
+    final FileChannelReader reader = mock(FileChannelReader.class);
+    final Path dataPath = tempDir.resolve("cached-data");
+    final Path revisionsPath = tempDir.resolve("cached-revisions");
+
+    try (
+        FileChannel data =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannel revisions = FileChannel.open(revisionsPath, StandardOpenOption.CREATE, StandardOpenOption.READ,
+            StandardOpenOption.WRITE);
+        FileChannel beacon =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannelWriter writer = new FileChannelWriter(data, revisions, beacon, SerializationType.DATA, pagePersister,
+            Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader, false, false, revisionsPath, 0L, 0L);
+        BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer()) {
+      final PageReference reference = new PageReference();
+
+      writer.write(config, reference, page, appendBuffer);
+
+      verifyNoInteractions(pagePersister);
+      assertBufferedFrame(appendBuffer.toByteArray(), 0, cachedBytes);
+      assertEquals(PageHasher.computeLong(cachedBytes), reference.getHashAsLong());
+    }
+  }
+
+  @Test
+  void cachedRawLengthReachesStorageProfileWithoutReserialization(@TempDir final Path tempDir) throws IOException {
+    try (MockedStatic<StorageProfile> profile = mockStatic(StorageProfile.class)) {
+      profile.when(StorageProfile::isEnabled).thenReturn(true);
+
+      assertPreSerializedKeyValueLeafBypassesThePagePersister(emptyPipelineConfig(tempDir), tempDir, 513);
+
+      profile.verify(() -> StorageProfile.record("KeyValueLeafPage", 513, 257));
+    }
+  }
+
+  @Test
+  void unknownRawLengthUsesIdentityFallbackOnlyForAnEmptyPipeline(@TempDir final Path tempDir) throws IOException {
+    try (MockedStatic<StorageProfile> profile = mockStatic(StorageProfile.class)) {
+      profile.when(StorageProfile::isEnabled).thenReturn(true);
+
+      assertPreSerializedKeyValueLeafBypassesThePagePersister(emptyPipelineConfig(tempDir), tempDir,
+          KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH);
+
+      profile.verify(() -> StorageProfile.record("KeyValueLeafPage", 257, 257));
+    }
+  }
+
+  @Test
+  void unknownRawLengthIsExplicitForANonEmptyPipeline(@TempDir final Path tempDir) throws IOException {
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("unknown-raw-pipeline-writer")
+                             .storageType(StorageType.FILE_CHANNEL)
+                             .byteHandlerPipeline(new ByteHandlerPipeline(new DeflateCompressor()))
+                             .build();
+    config.resourcePath = tempDir;
+    try (MockedStatic<StorageProfile> profile = mockStatic(StorageProfile.class)) {
+      profile.when(StorageProfile::isEnabled).thenReturn(true);
+
+      assertPreSerializedKeyValueLeafBypassesThePagePersister(config, tempDir,
+          KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH);
+
+      profile.verify(() -> StorageProfile.recordUnknownRaw("KeyValueLeafPage", 257));
+    }
+  }
+
+  @Test
+  void legacyBytesCacheStillTraversesThePagePersister(@TempDir final Path tempDir) throws IOException {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final byte[] cachedBytes = patternedBytes(193, 41);
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    doReturn(Bytes.wrapForWrite(cachedBytes)).when(page).getBytes();
+    final PagePersister pagePersister = mock(PagePersister.class);
+    final FileChannelReader reader = mock(FileChannelReader.class);
+    final Path dataPath = tempDir.resolve("legacy-cache-data");
+    final Path revisionsPath = tempDir.resolve("legacy-cache-revisions");
+
+    try (
+        FileChannel data =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannel revisions = FileChannel.open(revisionsPath, StandardOpenOption.CREATE, StandardOpenOption.READ,
+            StandardOpenOption.WRITE);
+        FileChannel beacon =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannelWriter writer = new FileChannelWriter(data, revisions, beacon, SerializationType.DATA, pagePersister,
+            Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader, false, false, revisionsPath, 0L, 0L);
+        BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer()) {
+      writer.write(config, new PageReference(), page, appendBuffer);
+
+      verify(pagePersister).serializePage(eq(config), any(), same(page), eq(SerializationType.DATA));
+      assertBufferedFrame(appendBuffer.toByteArray(), 0, cachedBytes);
+    }
+  }
+
+  @Test
+  void closedUncachedKeyValueLeafFailsBeforeSerialization(@TempDir final Path tempDir) throws IOException {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    when(page.isClosed()).thenAnswer(_ -> {
+      assertTrue(Thread.holdsLock(page), "closed state must be checked while the page monitor excludes close()");
+      return true;
+    });
+    when(page.getCompressedSegment()).thenReturn(null);
+    when(page.getBytes()).thenReturn(null);
+    final PagePersister pagePersister = mock(PagePersister.class);
+    final FileChannelReader reader = mock(FileChannelReader.class);
+    final Path dataPath = tempDir.resolve("closed-uncached-data");
+    final Path revisionsPath = tempDir.resolve("closed-uncached-revisions");
+
+    try (
+        FileChannel data =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannel revisions = FileChannel.open(revisionsPath, StandardOpenOption.CREATE, StandardOpenOption.READ,
+            StandardOpenOption.WRITE);
+        FileChannel beacon =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannelWriter writer = new FileChannelWriter(data, revisions, beacon, SerializationType.DATA, pagePersister,
+            Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader, false, false, revisionsPath, 0L, 0L);
+        BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer()) {
+      appendBuffer.writeByte((byte) 0x5a);
+
+      assertThrows(IllegalStateException.class, () -> writer.write(config, new PageReference(), page, appendBuffer));
+      verifyNoInteractions(pagePersister);
+      assertArrayEquals(new byte[] {(byte) 0x5a}, appendBuffer.toByteArray(),
+          "a closed uncached page must be rejected before alignment, serialization, hashing, or copying");
+    }
+  }
+
+  @Test
+  void keyValueLeafCannotCloseWhileItsUncachedBodyIsSerializedAndCopied(@TempDir final Path tempDir) throws Exception {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final KeyValueLeafPage page = new KeyValueLeafPage(71L, 1, IndexType.DOCUMENT, config, false,
+        config.recordPersister, new ConcurrentHashMap<>(), null, null, -1);
+    final byte[] serializedBody = patternedBytes(257, 83);
+    final PagePersister pagePersister = mock(PagePersister.class);
+    final FileChannelReader reader = mock(FileChannelReader.class);
+    final CountDownLatch closeAttemptStarted = new CountDownLatch(1);
+    final CompletableFuture<Void> closeCompleted = new CompletableFuture<>();
+    final Thread closer = new Thread(() -> {
+      closeAttemptStarted.countDown();
+      try {
+        page.close();
+        closeCompleted.complete(null);
+      } catch (final Throwable throwable) {
+        closeCompleted.completeExceptionally(throwable);
+      }
+    }, "kvl-close-during-write");
+    doAnswer(invocation -> {
+      assertTrue(Thread.holdsLock(page), "the page monitor must cover PagePersister serialization");
+      closer.start();
+      assertTrue(closeAttemptStarted.await(5, TimeUnit.SECONDS), "the close attempt did not start");
+      assertEventuallyBlocked(closer);
+      assertFalse(page.isClosed(), "close must not set CLOSED_BIT while serialization owns the page monitor");
+      final BytesOut<?> sink = invocation.getArgument(1);
+      sink.write(serializedBody);
+      return null;
+    }).when(pagePersister).serializePage(eq(config), any(), same(page), eq(SerializationType.DATA));
+    final Path dataPath = tempDir.resolve("close-race-data");
+    final Path revisionsPath = tempDir.resolve("close-race-revisions");
+
+    try (
+        FileChannel data =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannel revisions = FileChannel.open(revisionsPath, StandardOpenOption.CREATE, StandardOpenOption.READ,
+            StandardOpenOption.WRITE);
+        FileChannel beacon =
+            FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        FileChannelWriter writer = new FileChannelWriter(data, revisions, beacon, SerializationType.DATA, pagePersister,
+            Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader, false, false, revisionsPath, 0L, 0L);
+        BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer()) {
+      appendBuffer.writeByte((byte) 0x5a);
+      final PageReference reference = new PageReference();
+
+      try {
+        writer.write(config, reference, page, appendBuffer);
+        closeCompleted.get(5, TimeUnit.SECONDS);
+        closer.join(5_000L);
+
+        assertFalse(closer.isAlive(), "close must complete after the writer releases the page monitor");
+        assertTrue(page.isClosed());
+        final byte[] bufferedFrame = appendBuffer.toByteArray();
+        assertArrayEquals(serializedBody,
+            Arrays.copyOfRange(bufferedFrame, bufferedFrame.length - serializedBody.length, bufferedFrame.length));
+        assertEquals(PageHasher.computeLong(serializedBody), reference.getHashAsLong());
+        verify(pagePersister).serializePage(eq(config), any(), same(page), eq(SerializationType.DATA));
+      } finally {
+        if (closer.getState() != Thread.State.NEW) {
+          closer.join(5_000L);
+        }
+        if (!page.isClosed()) {
+          page.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void closedPreSerializedKeyValueLeafFailsBeforeMutatingTheAppendBuffer(@TempDir final Path tempDir) {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final MemorySegment closedSegment;
+    try (Arena arena = Arena.ofConfined()) {
+      closedSegment = arena.allocate(32).asReadOnly();
+    }
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    when(page.getCompressedSegment()).thenReturn(closedSegment);
+    final FileChannelStorage storage = createStorage(config);
+
+    try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
+      appendBuffer.writeByte((byte) 0x5a);
+
+      assertThrows(IllegalStateException.class, () -> writer.write(config, new PageReference(), page, appendBuffer));
+      assertEquals(1L, appendBuffer.writePosition(), "a rejected cache must not leave alignment padding behind");
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void changedKeyValueLeafCacheIsRejectedBeforeHashingOrCopying(@TempDir final Path tempDir) {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    final AtomicInteger cacheReads = new AtomicInteger();
+    final FileChannelStorage storage = createStorage(config);
+
+    try (Arena arena = Arena.ofShared()) {
+      final MemorySegment oldFrame = arena.allocate(64);
+      oldFrame.fill((byte) 0x3c);
+      final MemorySegment staleCache = oldFrame.asSlice(0, 32).asReadOnly();
+      final MemorySegment replacementCache = arena.allocate(32).asReadOnly();
+      when(page.getCompressedSegment()).thenAnswer(_ -> {
+        if (cacheReads.getAndIncrement() == 0) {
+          return staleCache;
+        }
+        assertTrue(Thread.holdsLock(page), "the cache identity must be revalidated under the page monitor");
+        return replacementCache;
+      });
+      when(page.getSlottedPage()).thenReturn(oldFrame);
+
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
+        appendBuffer.writeByte((byte) 0x5a);
+
+        assertThrows(IllegalStateException.class, () -> writer.write(config, new PageReference(), page, appendBuffer));
+        assertTrue(staleCache.scope().isAlive(), "the stale address remains live and could already have been reused");
+        assertEquals(2, cacheReads.get(), "the writer must acquire and then revalidate the cache exactly once");
+        verify(page, never()).getSlottedPage();
+        assertArrayEquals(new byte[] {(byte) 0x5a}, appendBuffer.toByteArray(),
+            "a stale cache must be rejected before its frame header or payload is appended");
+      }
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void closedKeyValueLeafWithPublishedCacheIsRejectedBeforeHashingOrCopying(@TempDir final Path tempDir) {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+    final FileChannelStorage storage = createStorage(config);
+
+    try (Arena arena = Arena.ofShared()) {
+      final MemorySegment oldFrame = arena.allocate(64);
+      oldFrame.fill((byte) 0x6d);
+      final MemorySegment stillPublishedCache = oldFrame.asSlice(0, 32).asReadOnly();
+      when(page.getCompressedSegment()).thenReturn(stillPublishedCache);
+      when(page.isClosed()).thenAnswer(_ -> {
+        assertTrue(Thread.holdsLock(page), "closed state must be checked under the page monitor");
+        return true;
+      });
+      when(page.getSlottedPage()).thenReturn(oldFrame);
+
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
+        appendBuffer.writeByte((byte) 0x5a);
+
+        assertThrows(IllegalStateException.class, () -> writer.write(config, new PageReference(), page, appendBuffer));
+        assertTrue(stillPublishedCache.scope().isAlive(),
+            "close may set CLOSED_BIT before clearing or releasing the still-accessible cache");
+        verify(page).isClosed();
+        verify(page, never()).getSlottedPage();
+        assertArrayEquals(new byte[] {(byte) 0x5a}, appendBuffer.toByteArray(),
+            "a closed page must be rejected before alignment, frame header, or payload bytes are appended");
+      }
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void wrongThreadPreSerializedKeyValueLeafFailsBeforeMutatingTheAppendBuffer(@TempDir final Path tempDir)
+      throws Exception {
+    final CompletableFuture<MemorySegment> publishedSegment = new CompletableFuture<>();
+    final CountDownLatch releaseOwner = new CountDownLatch(1);
+    final Thread owner = new Thread(() -> {
+      try (Arena arena = Arena.ofConfined()) {
+        publishedSegment.complete(arena.allocate(32).asReadOnly());
+        releaseOwner.await();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        publishedSegment.completeExceptionally(e);
+      } catch (final Throwable throwable) {
+        publishedSegment.completeExceptionally(throwable);
+      }
+    }, "confined-page-cache-owner");
+    owner.start();
+
+    try {
+      final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+      final KeyValueLeafPage page = mock(KeyValueLeafPage.class);
+      when(page.getCompressedSegment()).thenReturn(publishedSegment.get(5, TimeUnit.SECONDS));
+      final FileChannelStorage storage = createStorage(config);
+      try (BytesOut<?> appendBuffer = Bytes.elasticOffHeapByteBuffer(); Writer writer = storage.createWriter()) {
+        appendBuffer.writeByte((byte) 0x5a);
+
+        assertThrows(WrongThreadException.class, () -> writer.write(config, new PageReference(), page, appendBuffer));
+        assertEquals(1L, appendBuffer.writePosition(), "a rejected cache must not leave alignment padding behind");
+      } finally {
+        storage.close();
+      }
+    } finally {
+      releaseOwner.countDown();
+      owner.join();
+    }
+  }
+
+  @Test
   void failedSerializationCannotLeakItsScratchPrefixIntoTheNextPage(@TempDir final Path tempDir) {
     final ResourceConfiguration config = emptyPipelineConfig(tempDir);
     final byte[] validPayload = patternedBytes(211, 29);
@@ -169,6 +542,15 @@ final class FileChannelWriterEmptyPipelineTest {
     } finally {
       storage.close();
     }
+  }
+
+  private static void assertEventuallyBlocked(final Thread thread) throws InterruptedException {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (thread.isAlive() && thread.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+      Thread.sleep(1L);
+    }
+    assertEquals(Thread.State.BLOCKED, thread.getState(),
+        "close must block on the KVL monitor until serialization, hashing, and copying finish");
   }
 
   private static ResourceConfiguration emptyPipelineConfig(final Path resourcePath) {

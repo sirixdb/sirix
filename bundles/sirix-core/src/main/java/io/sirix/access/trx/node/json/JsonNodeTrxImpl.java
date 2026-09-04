@@ -1246,6 +1246,14 @@ final class JsonNodeTrxImpl extends
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
   }
 
+  void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey, final int numericValue) {
+    notifyPrimitiveNumberIndexChange(node, pathNodeKey, numericValue, true);
+  }
+
+  void bulkNotifyInsert(final ImmutableNode node, final long pathNodeKey, final long numericValue) {
+    notifyPrimitiveNumberIndexChange(node, pathNodeKey, numericValue, false);
+  }
+
   void bulkAccountRecord(final int mutations) {
     bulkAccountMutations(mutations);
   }
@@ -3437,6 +3445,28 @@ final class JsonNodeTrxImpl extends
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
       final long pathNodeKey) {
+    notifyPrimitiveIndexChange(type, node, pathNodeKey, null, false);
+  }
+
+  private void notifyPrimitiveNumberIndexChange(final ImmutableNode node, final long pathNodeKey,
+      final long numericValue, final boolean intValue) {
+    if (!indexController.hasAnyPrimitiveIndex()) {
+      return;
+    }
+    final NodeKind kind = node.getKind();
+    if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NAMED_NUMBER) {
+      throw new IllegalArgumentException("primitive numeric notification requires a number node, got " + kind);
+    }
+    final Str value = indexController.hasCASIndex() || indexController.hasValidTimeIndex()
+        ? new Str(intValue
+            ? Integer.toString((int) numericValue)
+            : Long.toString(numericValue))
+        : null;
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey, value, true);
+  }
+
+  private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
+      final long pathNodeKey, final @Nullable Str suppliedValue, final boolean valueSupplied) {
     if (!indexController.hasAnyPrimitiveIndex()) {
       return;
     }
@@ -3467,33 +3497,35 @@ final class JsonNodeTrxImpl extends
 
     final Str value;
     if (needValue) {
-      value = switch (kind) {
-        case STRING_VALUE -> node instanceof ValueNode valueNode
-            ? new Str(valueNode.getValue())
-            : null;
-        case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
-            ? (boolNode.getValue()
-                ? STR_TRUE
-                : STR_FALSE)
-            : null;
-        case NUMBER_VALUE -> node instanceof NumberNode numberNode
-            ? new Str(String.valueOf(numberNode.getValue()))
-            : null;
-        // Fused OBJECT_NAMED_* — value is inline on the fused record.
-        case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
-            ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
-            : null;
-        case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
-            ? (namedBool.getValue()
-                ? STR_TRUE
-                : STR_FALSE)
-            : null;
-        case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
-            ? new Str(String.valueOf(namedNum.getValue()))
-            : null;
-        case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> null;
-        default -> null;
-      };
+      value = valueSupplied
+          ? suppliedValue
+          : switch (kind) {
+            case STRING_VALUE -> node instanceof ValueNode valueNode
+                ? new Str(valueNode.getValue())
+                : null;
+            case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
+                ? (boolNode.getValue()
+                    ? STR_TRUE
+                    : STR_FALSE)
+                : null;
+            case NUMBER_VALUE -> node instanceof NumberNode numberNode
+                ? new Str(String.valueOf(numberNode.getValue()))
+                : null;
+            // Fused OBJECT_NAMED_* — value is inline on the fused record.
+            case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
+                ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
+                : null;
+            case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
+                ? (namedBool.getValue()
+                    ? STR_TRUE
+                    : STR_FALSE)
+                : null;
+            case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
+                ? new Str(String.valueOf(namedNum.getValue()))
+                : null;
+            case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> null;
+            default -> null;
+          };
     } else {
       value = null;
     }
@@ -3691,6 +3723,8 @@ final class JsonNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean renameStarted = false;
     try {
       final NodeKind currentKind = getKind();
       if (!currentKind.playsObjectKeyRole()) {
@@ -3700,7 +3734,21 @@ final class JsonNodeTrxImpl extends
 
       final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
       final NameNode nameNode = (NameNode) node;
+      final QNm renamed = new QNm(key);
+      if (renamed.equals(nodeReadOnlyTrx.getName())) {
+        // No-op rename: nothing changes, so no listener may observe a structural episode —
+        // notifying here would (correctly) reject the call during an append-only bulk load.
+        return this;
+      }
       final long oldHash = node.computeHash(bytes);
+
+      // A rename rewrites this node's path class and, for container kinds, its descendants' —
+      // wholesale class surgery the per-node DELETE/INSERT bracketing below cannot re-attribute
+      // (a renamed record-set root exits the set with no per-row notification at all). Bracket
+      // it like a subtree move: listeners snapshot record attribution before, diff after, and
+      // an append-only bulk-load build rejects the surgery up front.
+      pendingStructuralChange = nameNode.getNodeKey();
+      indexController.notifyBeforeStructuralChange(pendingStructuralChange);
 
       // De-index under the OLD name/path BEFORE the rename: a rename changes the node's name (and,
       // for non-shared path classes, its pathNodeKey), so NAME/CAS index entries keyed by the old
@@ -3708,6 +3756,9 @@ final class JsonNodeTrxImpl extends
       // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
       // DELETE/INSERT bracketing of setStringValueFused.
       final long oldPathNodeKey = nameNode.getPathNodeKey();
+      // The rollback-only latch arms at the first statement a failed rename would need to
+      // unwind — the DELETE de-index. Everything above leaves no half-applied state.
+      renameStarted = true;
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
 
       // Fused NamePage entries live in the OBJECT_KEY namespace, so remove+create always uses OBJECT_KEY.
@@ -3718,7 +3769,6 @@ final class JsonNodeTrxImpl extends
 
       final int newNameKey = storageEngineWriter.createNameKey(key, nameNamespaceKind);
 
-      final QNm renamed = new QNm(key);
       nameNode.setLocalNameKey(newNameKey);
       nameNode.setName(renamed);
       nameNode.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
@@ -3762,6 +3812,8 @@ final class JsonNodeTrxImpl extends
 
       // Re-index under the NEW name/path (see the DELETE above).
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
+      indexController.notifyAfterStructuralChange(pendingStructuralChange);
+      pendingStructuralChange = -1L;
 
       final long updatedNodeKey = ((Node) node).getNodeKey();
       adaptUpdateOperationsForUpdate(((ImmutableJsonNode) node).getDeweyID(), updatedNodeKey);
@@ -3771,6 +3823,14 @@ final class JsonNodeTrxImpl extends
       }
 
       return this;
+    } catch (final RuntimeException | Error failure) {
+      if (renameStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -4020,11 +4080,12 @@ final class JsonNodeTrxImpl extends
     node.setPreviousRevision(node.getLastModifiedRevisionNumber());
     node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
-    // setRawValue may have resize-unbound a bound flyweight — re-acquire the current
-    // singleton so the rest of the update path sees the rebound record.
+    // Persist before re-acquiring. If the encoded record crossed the inline ceiling,
+    // setRawValue deliberately unbound it and queued an overflow snapshot. Re-acquiring first
+    // would return that pre-revision snapshot and overwrite this update's revision metadata.
+    persistUpdatedRecord(node);
     node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     nodeReadOnlyTrx.setCurrentNode(node);
-    persistUpdatedRecord(node);
     nodeHashing.adaptHashedWithUpdate(oldHash);
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
@@ -4058,10 +4119,10 @@ final class JsonNodeTrxImpl extends
     node.setPreviousRevision(node.getLastModifiedRevisionNumber());
     node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
-    // Re-acquire in case setValue resize-unbound the flyweight.
+    // Persist before re-acquiring; see setStringValueFused for the inline-to-overflow case.
+    persistUpdatedRecord(node);
     node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     nodeReadOnlyTrx.setCurrentNode(node);
-    persistUpdatedRecord(node);
     nodeHashing.adaptHashedWithUpdate(oldHash);
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
@@ -4097,10 +4158,10 @@ final class JsonNodeTrxImpl extends
     node.setPreviousRevision(node.getLastModifiedRevisionNumber());
     node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
-    // Re-acquire in case setValue resize-unbound the flyweight.
+    // Persist before re-acquiring; see setStringValueFused for the inline-to-overflow case.
+    persistUpdatedRecord(node);
     node = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     nodeReadOnlyTrx.setCurrentNode(node);
-    persistUpdatedRecord(node);
     nodeHashing.adaptHashedWithUpdate(oldHash);
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);

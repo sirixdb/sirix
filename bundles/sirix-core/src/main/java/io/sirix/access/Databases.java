@@ -579,7 +579,6 @@ public final class Databases {
       // the default is larger now and, unlike before, overridable for long histories.
       int maxRevisionRootPageCache =
           getSystemPropertyInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
-      int maxRBTreeNodeCache = 50_000;
       int maxNamesCacheSize = 500;
       int maxPathSummaryCacheSize = 20;
 
@@ -600,13 +599,11 @@ public final class Databases {
           System.getProperty(PROP_REVISION_ROOT_CACHE_ENTRIES) != null
               ? " (user-configured)"
               : " (default)");
-      logger.info("  - RBTreeNodeCache size: {} (fixed)", maxRBTreeNodeCache);
       logger.info("  - NamesCache size: {} (fixed)", maxNamesCacheSize);
       logger.info("  - PathSummaryCache size: {} (fixed)", maxPathSummaryCacheSize);
 
-      GLOBAL_BUFFER_MANAGER =
-          new BufferManagerImpl(maxPageCacheBytes, maxRecordPageCacheBytes, maxRecordPageFragmentCacheBytes,
-              maxRevisionRootPageCache, maxRBTreeNodeCache, maxNamesCacheSize, maxPathSummaryCacheSize);
+      GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(maxPageCacheBytes, maxRecordPageCacheBytes,
+          maxRecordPageFragmentCacheBytes, maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize);
 
       // Initialize global epoch tracker (large slot count for all databases/resources)
       GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());
@@ -776,7 +773,6 @@ public final class Databases {
     // Fixed sizes (same as default initialization)
     int maxRevisionRootPageCache =
         getSystemPropertyInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
-    int maxRBTreeNodeCache = 50_000;
     int maxNamesCacheSize = 500;
     int maxPathSummaryCacheSize = 20;
 
@@ -787,7 +783,7 @@ public final class Databases {
     logger.info("  - PageCache: {} bytes ({} MB)", pageCacheBytes, pageCacheBytes / (1024 * 1024));
 
     GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(pageCacheBytes, recordPageCacheBytes, recordPageFragmentCacheBytes,
-        maxRevisionRootPageCache, maxRBTreeNodeCache, maxNamesCacheSize, maxPathSummaryCacheSize);
+        maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize);
 
     // Initialize global epoch tracker
     if (GLOBAL_EPOCH_TRACKER == null) {

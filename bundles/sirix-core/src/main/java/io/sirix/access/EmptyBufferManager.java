@@ -4,13 +4,14 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
 import io.sirix.cache.HOTLookupCache;
+import io.sirix.cache.GlobalDictionaryRecordCacheKey;
+import io.sirix.node.interfaces.DataRecord;
+import io.sirix.cache.GlobalVerdictCacheKey;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PathSummaryCacheKey;
 import io.sirix.cache.PathSummaryData;
-import io.sirix.cache.RBIndexKey;
 import io.sirix.cache.RevisionRootPageCacheKey;
 import io.sirix.index.name.Names;
-import io.sirix.node.interfaces.Node;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
@@ -30,11 +31,17 @@ public final class EmptyBufferManager implements BufferManager {
   private static final EmptyCache<RevisionRootPageCacheKey, RevisionRootPage> REVISION_ROOT_PAGE_CACHE =
       new EmptyCache<>();
 
-  private static final EmptyCache<RBIndexKey, Node> INDEX_CACHE = new EmptyCache<>();
-
   private static final HOTLookupCache HOT_LOOKUP_CACHE = HOTLookupCache.disabled();
 
   private static final EmptyCache<NamesCacheKey, Names> NAMES_CACHE = new EmptyCache<>();
+
+  private static final EmptyCache<GlobalVerdictCacheKey, long[]> GLOBAL_VERDICT_CACHE = new EmptyCache<>();
+
+  private static final EmptyCache<GlobalDictionaryRecordCacheKey, DataRecord> GLOBAL_DICT_RECORD_CACHE =
+      new EmptyCache<>();
+
+  private static final EmptyCache<GlobalDictionaryRecordCacheKey, Boolean> GLOBAL_DICT_WARM_MARKERS =
+      new EmptyCache<>();
 
   private static final EmptyCache<PathSummaryCacheKey, PathSummaryData> PATH_SUMMARY_CACHE = new EmptyCache<>();
 
@@ -71,11 +78,6 @@ public final class EmptyBufferManager implements BufferManager {
   }
 
   @Override
-  public Cache<RBIndexKey, Node> getIndexCache() {
-    return INDEX_CACHE;
-  }
-
-  @Override
   public HOTLookupCache getHOTLookupCache() {
     return HOT_LOOKUP_CACHE;
   }
@@ -83,6 +85,21 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<NamesCacheKey, Names> getNamesCache() {
     return NAMES_CACHE;
+  }
+
+  @Override
+  public Cache<GlobalVerdictCacheKey, long[]> getGlobalVerdictCache() {
+    return GLOBAL_VERDICT_CACHE;
+  }
+
+  @Override
+  public Cache<GlobalDictionaryRecordCacheKey, DataRecord> getGlobalDictionaryRecordCache() {
+    return GLOBAL_DICT_RECORD_CACHE;
+  }
+
+  @Override
+  public Cache<GlobalDictionaryRecordCacheKey, Boolean> getGlobalDictionaryWarmMarkers() {
+    return GLOBAL_DICT_WARM_MARKERS;
   }
 
   @Override

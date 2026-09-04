@@ -1050,13 +1050,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void anOverBudgetColumnRoutesToTheWholeLeafKernelInsteadOfDecliningIntoTheSlicedArm() throws IOException {
+  public void anOverBudgetColumnServesThroughWindowedSlicesInsteadOfDecliningOrFailing() throws IOException {
     // A whole-column slice fill declines through the store's budget door. Kind-sliceability knows
-    // nothing about that budget, so a planner gating on kind alone selects the sliced arm, the fill
-    // then throws, and the exception lands in the group route's fail-soft catch — which increments
-    // GROUP_AGG_FAILED (documented to mean a defect or corruption) and drops the query to the
-    // GENERIC pipeline, the slowest route there is. The route must be chosen on VIABILITY, so an
-    // over-budget column goes to the whole-leaf byte kernel, still served from the projection.
+    // nothing about that budget, so a planner that resolved resident arrays on kind alone would
+    // throw inside the arm, land in the group route's fail-soft catch — GROUP_AGG_FAILED, documented
+    // to mean a defect or corruption — and drop the query to the GENERIC pipeline. The route is
+    // decided by KIND and residency by FIT: an over-budget column keeps the sliced kernels, fed
+    // per-sub-chunk WINDOWED slices by every worker (the 100M fat-column shape), served from the
+    // projection with no failure signal. The pre-lever contract (whole-leaf byte kernel) is gone.
     query("""
           jn:store('json-path1','budgetgroupstr.jn','[
             {"dept": "Eng",   "age": 30, "city": "Berlin"},
@@ -1106,13 +1107,16 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
         final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        final long windowedBefore = SirixVectorizedExecutor.groupWindowedSlicesCount();
         final long failedBefore = SirixVectorizedExecutor.groupAggFailedCount();
         final String served = evaluateQuery(chain, ctx, topKQuery);
         Assertions.assertEquals(generic, served, "the answer must not change with the fill budget");
         Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
-            "an over-budget column must still be SERVED from the projection, by the whole-leaf kernel");
-        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
-            "the sliced arm cannot serve a column whose fill the store refuses");
+            "an over-budget column must still be SERVED from the projection");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the sliced string arm must serve the refused column through windowed slices");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupWindowedSlicesCount() - windowedBefore,
+            "the windowed-slice route must have engaged exactly once");
         Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggFailedCount() - failedBefore,
             "routing into a fill that declines raises a false defect signal");
       } finally {
@@ -2348,7 +2352,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void anOverBudgetPredicateColumnDeclinesQuietlyInsteadOfCountingAsCorruption() throws IOException {
+  public void anOverBudgetPredicateColumnServesWindowedInsteadOfCountingAsCorruption() throws IOException {
     // A CONTAINS literal cannot be bloom-pruned (fingerprints hash whole values), so the predicate
     // column takes the UNMASKED door and the store prices it against the fill budget. That decline
     // used to land in the group arm's generic RuntimeException handler, whose own comment says an
@@ -2435,11 +2439,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // scan over projection leaves — not on the generic navigational pipeline. Returning null
         // here would leave both of these flat and walk every record instead.
         Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
-            "the query must still be SERVED from the projection, by the whole-leaf arm");
-        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
-            "the sliced arm cannot serve a column whose fill the store refuses");
+            "the query must still be SERVED from the projection");
+        // KIND versus FIT: the refused residency feeds the sliced kernels windowed slices instead of
+        // sending the query to the whole-leaf arm (the pre-lever contract asserted sliced == 0 here).
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the sliced arm serves the refused column through windowed slices");
         Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggregateDeclinedCount() - declinedBefore,
-            "a decline that re-routes successfully must not count as a route decline");
+            "a refused residency is a routing decision, not a route decline");
       } finally {
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(priorBudget);
         SequentialPipelineStrategy.setVectorizedExecutor(null);

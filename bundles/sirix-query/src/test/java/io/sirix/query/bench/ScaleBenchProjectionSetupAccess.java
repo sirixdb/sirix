@@ -2,12 +2,11 @@ package io.sirix.query.bench;
 
 import io.sirix.api.json.JsonResourceSession;
 
-/** Test bridge: exposes the package-private wildcard projection installer. */
+/** Test bridge: exposes the package-private production projection setup. */
 public final class ScaleBenchProjectionSetupAccess {
-  private ScaleBenchProjectionSetupAccess() {
-  }
+  private ScaleBenchProjectionSetupAccess() {}
 
-  public static int installWildcard(final JsonResourceSession session) {
-    return ScaleBenchProjectionSetup.installWildcard(session);
+  public static int ensureProjection(final JsonResourceSession session) {
+    return ScaleBenchProjectionSetup.ensureProjection(session);
   }
 }

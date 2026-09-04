@@ -12,6 +12,8 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.SirixDeweyID;
@@ -101,6 +103,55 @@ public final class ProjectionBulkLoad {
       new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
 
   /** The record-fed builder; owns the current leaf, the dictionary sample and the dictionaries. */
+  private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionBulkLoad.class);
+
+  /**
+   * OFF by default, opt in with {@code -Dsirix.projection.trieLane=true}.
+   *
+   * <p>
+   * <b>Default flipped 2026-09-01 because the lane writes DOCUMENT pages that cannot be read
+   * back.</b> The 1M gate's converted arm fails a subtree serialization with
+   * {@code AssertionError: Type not known} out of {@code deserializeNumber} — a fused NUMBER record's
+   * payload type byte is wrong — while the four arms without the lane serialize byte-identically. It
+   * reproduces with derived elision off too, so it is the lane's own path, and it appears a few pages
+   * in rather than on the first page.
+   * </p>
+   *
+   * <p>
+   * On by default was a footgun in its own right: the lane engages for any load that binds prebuilt
+   * dictionaries, which is the configuration the pre-pass route exists to create. Nothing opts INTO
+   * corruption by accident now.
+   * </p>
+   *
+   * <p>
+   * The switch gates BEHAVIOUR only. Every decoder still reads a converted page, so a database
+   * written by an earlier run stays readable to the extent it ever was.
+   * </p>
+   */
+  private static final boolean TRIE_LANE_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.projection.trieLane", "false"));
+
+  /**
+   * The trie lane's encode-side resolver for this load, or {@code null} when the lane is not bound.
+   */
+  private volatile @Nullable TrieLaneWriteDictionaries trieLaneWriteDictionaries;
+
+  /** The segment-scoped dictionary lane, or {@code null} when that lane is switched off. */
+  private volatile @Nullable SegmentDictionaryLane segmentDictionaryLane;
+
+  /**
+   * The writer the lane was installed on, so ABORT can uninstall it too.
+   *
+   * <p>
+   * {@code abort()} takes no writer argument, and the listener calls it DURING the load on a
+   * dictionary-budget breach — the load then keeps running and keeps flushing record pages. Without
+   * this reference the writer would keep handing the released resolver to every page it creates, so
+   * the in-flight gate would be guarding an open-ended stream of calls instead of a closing window.
+   * Held only to uninstall; nothing reads it for anything else.
+   * </p>
+   */
+  private volatile @Nullable StorageEngineWriter trieLaneWriter;
+
   private final ProjectionIndexBuilder builder;
 
   /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
@@ -234,7 +285,7 @@ public final class ProjectionBulkLoad {
         setSummaries.append(leaf);
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
+          ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
       checkedPublisher.publish(currentStorage, physicalSlot, encoded);
       fenceWriter.append(currentStorage, leaf.firstRecordKey(), leaf.lastRecordKey());
@@ -282,6 +333,129 @@ public final class ProjectionBulkLoad {
         DEFAULT_ROW_GROUP_PUBLISHER);
   }
 
+  /**
+   * Bind the trie lane for this load: the record pages and the projection leaves name ONE dictionary
+   * per column.
+   *
+   * <p>
+   * The dictionaries were committed by the pre-import pre-pass into the still-empty resource, so the
+   * revision to read them at is the most recent COMMITTED one — this load's own revision is not
+   * committed yet, and the encode-side probes run on flush threads that must see a fixed structure.
+   * </p>
+   *
+   * <p>
+   * Silent when no prebuilt anchors are configured, which is every load that is not using the lane:
+   * the writer keeps a null resolver and every page stores bytes, exactly as before. A FAILURE to
+   * bind, on the other hand, is not silent — a configured anchor that cannot be read means the pages
+   * would name a dictionary no reader can resolve, and that must stop the load rather than quietly
+   * produce an unconverted one, since the load's whole point in that configuration is the conversion.
+   * </p>
+   */
+  private void bindTrieLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    if (!TRIE_LANE_ENABLED) {
+      // The lane's ONE kill switch, and it exists so an A/B can isolate it. The prebuilt dictionaries
+      // this binds against are also consumed by the projection index's own build, which converts its
+      // leaves independently and is a large storage effect in its own right -- so a "prebuilt on"
+      // arm moves two levers at once, and without this switch neither can be attributed. It gates
+      // BEHAVIOUR only: pages simply keep their bytes, and every decoder still reads a converted
+      // page written by an earlier run.
+      return;
+    }
+    final TrieLaneWriteDictionaries dictionaries = TrieLaneWriteDictionaries.bindConfigured(
+        storageEngineWriter.getResourceSession(),
+        storageEngineWriter.getResourceSession().getMostRecentRevisionNumber(), indexDef.getProjectionFields().size());
+    if (dictionaries == null) {
+      return;
+    }
+    this.trieLaneWriteDictionaries = dictionaries;
+    this.trieLaneWriter = storageEngineWriter;
+    builder.setTrieLaneWriteDictionaries(dictionaries);
+    storageEngineWriter.installDocumentStringDictionaries(dictionaries);
+  }
+
+  /** Stop handing segment views to new pages; the lane's state dies with the load. */
+  private void releaseSegmentLane(final @Nullable StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (lane == null) {
+      return;
+    }
+    segmentDictionaryLane = null;
+    lane.release(storageEngineWriter);
+  }
+
+  /**
+   * Arm the SEGMENT-scoped dictionary lane, the alternative to the trie lane that needs no pre-pass:
+   * a segment's dictionary is minted as its pages are encoded and sealed when they are all done.
+   * Silent when the lane is switched off, which is every load that has not asked for it.
+   */
+  private void bindSegmentLane(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final SegmentDictionaryLane lane =
+        SegmentDictionaryLane.bind(storageEngineWriter, indexDef.getProjectionFields().size());
+    if (lane == null) {
+      return;
+    }
+    this.segmentDictionaryLane = lane;
+    this.trieLaneWriter = storageEngineWriter;
+    builder.setSegmentScopedDictionaries(lane.dictionaries());
+  }
+
+  /**
+   * Release the trie lane's per-thread snapshot readers.
+   *
+   * <p>
+   * Called from the load's terminal paths only. By then the flush executor has drained, which is the
+   * one moment at which no flush thread can still be inside a probe.
+   * </p>
+   */
+  private void releaseTrieLane(final StorageEngineWriter storageEngineWriter) {
+    final TrieLaneWriteDictionaries dictionaries = trieLaneWriteDictionaries;
+    if (dictionaries == null) {
+      return;
+    }
+    trieLaneWriteDictionaries = null;
+    trieLaneWriter = null;
+    if (storageEngineWriter != null) {
+      // Stop handing the resolver to NEW pages first, then DRAIN, then close. That order is the
+      // whole safety argument: a page created after this line carries no resolver and converts
+      // nothing, and awaitPendingAsyncFlush returns only once every page already in flight has been
+      // serialized -- which is the last moment any flush thread can be inside a probe.
+      //
+      // On the ABORT path there is no drain to wait for -- the listener aborts mid-load and the
+      // import keeps flushing -- which is why uninstalling FIRST matters there: it stops new pages
+      // getting the resolver, so the resolver's own in-flight gate has a closing window to wait out
+      // rather than an open-ended stream.
+      //
+      // A loud guarantee beats a counted degrade, but the counter stays as the check on this claim:
+      // if the drain is not what I think it is, closedProbeCount comes back non-zero and the
+      // converted arm's gate fails with a number instead of quietly under-converting the pages that
+      // flushed late. Best-effort inside a finally -- a failure to drain must not mask the failure
+      // that brought us here, and the close below has to happen either way.
+      storageEngineWriter.installDocumentStringDictionaries(null);
+      try {
+        storageEngineWriter.awaitPendingAsyncFlush();
+      } catch (final RuntimeException drainFailure) {
+        LOGGER.warn("trie lane: draining the async flush before releasing the encode-side readers failed; "
+            + "closedProbeCount is the check on whether that mattered", drainFailure);
+      }
+    }
+    // stdout as well as the log, and deliberately: these counters ARE the gate's evidence -- the
+    // converted arm asserts absent == 0 and afterClose == 0 -- and a load run with the root logger at
+    // ERROR would otherwise report a conversion that left no trace of whether it happened. The
+    // pre-pass hook's own [prepass-hook] lines set the precedent for load-time gate output.
+    System.out.printf("[trie-lane] %s%n", dictionaries.describeCounters());
+    LOGGER.info("{}", dictionaries.describeCounters());
+    if (dictionaries.closedProbeCount() > 0) {
+      // Should be unreachable after the drain above. Logged rather than thrown because by here the
+      // pages are already written and refusing changes nothing -- but it is the signal that the
+      // lane under-converted and that the arm's storage number is not the lever's number.
+      LOGGER.warn(
+          "trie lane: {} probes arrived AFTER the lane was released, so late-flushed pages kept "
+              + "their bytes; this arm under-converted and its size is not comparable",
+          dictionaries.closedProbeCount());
+    }
+    dictionaries.close();
+  }
+
   /** Internal publication-injected form used by focused storage-failure coverage. */
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter, final long expectedRows,
@@ -306,16 +480,23 @@ public final class ProjectionBulkLoad {
       throw new IllegalStateException(
           "A projection bulk load is already active for " + key + " — finish or abort it before starting another");
     }
+    boolean persistentMutationStarted = false;
     try {
       final ProjectionIndexHOTStorage storage =
           ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
-      // begin() is an explicit full build boundary. Clear every prior positive storage slot and
-      // sparse negative record locator before publishing the fail-closed tombstone for the load.
-      storage.resetTree();
+      // The load-time builder is legal only as a virgin-tree initializer. Existing definitions have
+      // exactly one update path: incremental listener maintenance.
+      storage.requireVirginTreeForInitialBuild();
+      persistentMutationStarted = true;
       ProjectionStructuralOrderDirectory.open(storage).seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
+      load.bindTrieLane(storageEngineWriter, indexDef);
+      load.bindSegmentLane(storageEngineWriter, indexDef);
       return load;
     } catch (final Throwable failure) {
+      if (persistentMutationStarted) {
+        poisonOwningTransaction(storageEngineWriter, failure);
+      }
       // The registry entry is already visible. A failure to establish the tombstone must retire it
       // before escaping, or a retry sees a phantom "already loading" build with no fail-closed slot.
       load.poisonAfterFailure(failure);
@@ -348,6 +529,43 @@ public final class ProjectionBulkLoad {
    * Drop the load without finishing it; slot 0 keeps the tombstone, so readers stay on the generic
    * path.
    */
+  /**
+   * Mid-feed abandonment: the unconditional operator notice (same sentence shape as the listener's
+   * drain-lane arm, for the same reason — a silent degradation reads as a healthy load), then
+   * {@link #abort()}. Subsequent feed calls no-op via {@link #isFinished()}.
+   */
+  /**
+   * Test seam: {@code false} restores the pre-fix coordinator-lane behaviour in which a dictionary
+   * budget breach propagated out of the feed and poisoned the whole load. Only
+   * {@code CoordinatorFeedBudgetAbandonTest} flips it.
+   */
+  static volatile boolean ABANDON_ON_FEED_BUDGET_BREACH = true;
+
+  private synchronized void abandonDuringFeed(final GlobalDictionaryBudgetExceededException tooBig,
+      final StorageEngineWriter storageEngineWriter) {
+    if (finished) {
+      return;
+    }
+    final String breach = tooBig.breachingTerm() == null
+        ? "declined an unsafe allocation over " + tooBig.entryCount() + " distinct values (" + tooBig.retainedBytes()
+            + " B retained): " + tooBig.admissionDetail()
+        : "needed " + tooBig.breachingBytes() + " B (" + tooBig.breachingTerm() + ") over " + tooBig.entryCount()
+            + " distinct values, past its " + tooBig.budgetBytes() + " B budget (" + tooBig.retainedBytes()
+            + " B retained)";
+    System.err.println("[proj] PROJECTION ABANDONED during the load: index " + indexDef.getID() + ", column "
+        + tooBig.column() + " " + breach + ". The load completes; the projection is STALE and every query will take"
+        + " the generic pipeline. After the load, drop and commit this stale definition before creating a"
+        + " replacement in a new projection tree.");
+    abort();
+    // Same tombstone the listener lane leaves: the machine-readable reason rides the write
+    // transaction (invisible until commit, gone on rollback) so an operator or a guard can tell
+    // "abandoned for its dictionary budget" from an unspecified failure. Never overwritten later; a
+    // replacement goes under a fresh tree id.
+    new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID()).putBlob(0,
+        ProjectionIndexMetadata.staleTombstone(ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED)
+                               .serialize());
+  }
+
   public synchronized void abort() {
     if (finished) {
       return;
@@ -356,6 +574,11 @@ public final class ProjectionBulkLoad {
     // a resumable build after publication failed, and repeated listener cleanup is a no-op.
     finished = true;
     ACTIVE.remove(key, this);
+    // The lane's per-thread snapshot readers are a resource; an aborted load must free them exactly
+    // as it frees the bloom chunks and the summaries. The writer reference is not available here, so
+    // only the readers are closed -- the writer's own resolver field dies with the writer.
+    releaseTrieLane(trieLaneWriter);
+    releaseSegmentLane(trieLaneWriter);
     try {
       bloomChunks.release();
     } finally {
@@ -433,6 +656,11 @@ public final class ProjectionBulkLoad {
     return builder.newChunkBatch(pathSummary, expectedRows, recordSetKey);
   }
 
+  /** Maximum rows whose row-indexed arrays stay at or below the 256 KiB HFT payload ceiling. */
+  public int maxHftChunkRows() {
+    return ProjectionChunkRowBatch.maxHftChunkRows(builder.columnKinds().length);
+  }
+
   /**
    * Append one worker-extracted row, in document order — the coordinator-fed replacement for the
    * {@link #observeRecord}/{@link #drain} pair: the row's values come from the batch instead of a
@@ -444,6 +672,9 @@ public final class ProjectionBulkLoad {
   public void appendCoordinatorRow(final StorageEngineWriter storageEngineWriter, final ProjectionChunkRowBatch batch,
       final int row, final long recordKey, final long containerKey, final long documentRootKey) {
     if (finished) {
+      return; // abandoned mid-load — the load continues, the projection does not
+    }
+    if (finished) {
       throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " was fed record "
           + recordKey + " after its load-time build was finished.");
     }
@@ -452,6 +683,7 @@ public final class ProjectionBulkLoad {
           + " is coordinator-fed in document order, which is append-only: record " + recordKey
           + " arrived after record " + lastClosedRecordKey + " had already been appended.");
     }
+    boolean persistentMutationStarted = false;
     try {
       coordinatorFeed = true;
       ProjectionStructuralOrderDirectory.Accessor directory = feedDirectory;
@@ -463,6 +695,7 @@ public final class ProjectionBulkLoad {
         this.feedDirectory = directory;
         builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       }
+      persistentMutationStarted = true;
       final SirixDeweyID orderLabel =
           directory.fullLabelForInOrderAppend(recordKey, containerKey, documentRootKey, feedLastRecordLocal);
       builder.appendBatchRow(batch, row, recordKey, orderLabel);
@@ -470,7 +703,24 @@ public final class ProjectionBulkLoad {
       lastClosedRecordKey = recordKey;
       diagObserved++;
       diagClosed++;
+    } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+      // The ONE recoverable failure of this feed: a resource-wide dictionary hit its allocation
+      // bound. The probe front refuses BEFORE mutating, so the build state is consistent — and the
+      // designed outcome (the exception says it itself) is to abandon the PROJECTION and let the
+      // LOAD complete on the generic pipeline. The listener's drain lane already does exactly this;
+      // without this arm the coordinator feed lane poisoned the whole transaction instead, which is
+      // how a 100M AUTO load died at 674k distinct URL values with exit 1.
+      if (!ABANDON_ON_FEED_BUDGET_BREACH) {
+        // Test seam: the pre-fix behaviour, so the regression test can prove this arm is what keeps
+        // the load alive.
+        poisonAfterFailure(tooBig);
+        throw tooBig;
+      }
+      abandonDuringFeed(tooBig, storageEngineWriter);
     } catch (final Throwable failure) {
+      if (persistentMutationStarted) {
+        poisonOwningTransaction(storageEngineWriter, failure);
+      }
       poisonAfterFailure(failure);
       throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(failure);
     }
@@ -606,9 +856,7 @@ public final class ProjectionBulkLoad {
       }
       if (cleanupFailure != null) {
         if (primaryFailure != null) {
-          if (cleanupFailure != primaryFailure) {
-            primaryFailure.addSuppressed(cleanupFailure);
-          }
+          addSuppressedSafely(primaryFailure, cleanupFailure);
         } else {
           poisonAfterFailure(cleanupFailure);
           throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(cleanupFailure);
@@ -622,9 +870,28 @@ public final class ProjectionBulkLoad {
     try {
       abort();
     } catch (final Throwable cleanupFailure) {
-      if (cleanupFailure != primaryFailure) {
-        primaryFailure.addSuppressed(cleanupFailure);
-      }
+      addSuppressedSafely(primaryFailure, cleanupFailure);
+    }
+  }
+
+  /** Prevent a caller from committing a partially published multi-slot operation. */
+  private static void poisonOwningTransaction(final StorageEngineWriter storageEngineWriter,
+      final Throwable primaryFailure) {
+    try {
+      storageEngineWriter.markTransactionRollbackOnly(primaryFailure);
+    } catch (final RuntimeException | Error poisonFailure) {
+      addSuppressedSafely(primaryFailure, poisonFailure);
+    }
+  }
+
+  private static void addSuppressedSafely(final Throwable primaryFailure, final Throwable secondaryFailure) {
+    if (primaryFailure == secondaryFailure) {
+      return;
+    }
+    try {
+      primaryFailure.addSuppressed(secondaryFailure);
+    } catch (final RuntimeException | Error ignored) {
+      // Preserve the authoritative publication failure even when cleanup runs under VM pressure.
     }
   }
 
@@ -667,13 +934,18 @@ public final class ProjectionBulkLoad {
       final byte[] columnKinds = builder.columnKinds();
       bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       final long[] valueDictionaryHeaderKeys = builder.flushStreamingDictionaryGeneration(storageEngineWriter);
-      fenceWriter.finish(storage, 0);
-      // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
-      // the new leaf count to tombstone.
-      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), 0,
+      fenceWriter.finish(storage);
+      // A bulk load owns the virgin sub-tree it created itself; publication never replaces prior units.
+      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(),
           buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+      sealSegmentDictionaries(storageEngineWriter);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
+      // Before every other release, because it is the one that reports: the probe/hit/absent counters
+      // are the lane's only evidence of what it actually did, and the converted-arm gate asserts
+      // absent == 0. A finish that failed still frees the snapshot readers.
+      releaseTrieLane(storageEngineWriter);
+      releaseSegmentLane(storageEngineWriter);
       try {
         bloomChunks.release();
       } finally {
@@ -690,6 +962,42 @@ public final class ProjectionBulkLoad {
         }
       }
     }
+  }
+
+  /**
+   * Seal every segment dictionary and record where each went, then republish slot 0 with the anchor
+   * table. A no-op when the lane is off.
+   *
+   * <p>
+   * Runs AFTER {@code finishPersistWithStreamingFences} has written slot 0, and rewrites it — the
+   * same shape {@code ProjectionRankPass} uses when it turns a column global after the fact. It
+   * cannot run before: the anchors do not exist until the dictionaries are written, and the
+   * dictionaries cannot be written until every page has been encoded. The flush pool is fenced first,
+   * because {@code SegmentSealController.drain} refuses while a page is still encoding — sealing then
+   * would drop the values that page is about to mint.
+   * </p>
+   */
+  private void sealSegmentDictionaries(final StorageEngineWriter storageEngineWriter) {
+    final SegmentDictionaryLane lane = segmentDictionaryLane;
+    if (lane == null) {
+      return;
+    }
+    storageEngineWriter.awaitPendingAsyncFlush();
+    final ProjectionIndexMetadata.SegmentAnchor[] anchors = lane.sealAll(storageEngineWriter);
+    if (anchors.length == 0) {
+      return;
+    }
+    final byte[] blob = storage.getBlob(0L);
+    final ProjectionIndexMetadata metadata = blob == null
+        ? null
+        : ProjectionIndexMetadata.parse(blob);
+    if (metadata == null) {
+      throw new IllegalStateException("segment dictionary lane cannot anchor: slot 0 holds no readable metadata");
+    }
+    final ProjectionIndexMetadata next = new ProjectionIndexMetadata(metadata.rootPath(), metadata.fieldPaths(),
+        metadata.fieldNames(), metadata.columnKinds(), metadata.rowGroupCount(), metadata.buildRevision(),
+        metadata.setValueRowCounts(), metadata.valueDictionaryHeaderKeys(), anchors);
+    storage.putBlob(0L, next.serialize());
   }
 
   /** Rows appended so far — test and diagnostic observability. */

@@ -6,10 +6,6 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
-import jdk.incubator.vector.LongVector;
-import jdk.incubator.vector.VectorMask;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 
 import java.util.Arrays;
 
@@ -53,14 +49,13 @@ import java.util.Arrays;
  * stream holders.
  *
  * <p>
- * <b>Compare/fold arms are Vector API, walks stay scalar — a measured verdict.</b>
- * {@code ProjectionFoldKernelBenchmark} (512-bit species) put the scalar compare-to-bitmask loop at
- * ~4.1&nbsp;ns/row on dense words against ~0.21 for the lane-compare kernel, and the masked vector
- * fold ahead of the ntz walk above ~8 surviving bits per word; the walk keeps winning on
- * nearly-empty words. Dispatch encodes exactly those crossovers
- * ({@link ProjectionVectorKernels#COMPARE_WALK_MAX_BITS},
- * {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS}); the presence/mask word combining stays
- * bit-parallel on plain longs, where the same profile showed nothing to reclaim.
+ * <b>Compare arms are Vector API, the folds are scalar.</b> {@code ProjectionFoldKernelBenchmark}
+ * (512-bit species) put the scalar compare-to-bitmask loop at ~4.1&nbsp;ns/row on dense words
+ * against ~0.21 for the lane-compare kernel, and dispatch keeps that crossover
+ * ({@link ProjectionVectorKernels#COMPARE_WALK_MAX_BITS}). The FOLD arms were Vector API too until
+ * a 100M allocation profile showed their masked lanewise call running the Java fallback inside this
+ * kernel's compile (see {@link #foldMaskedBlock}); they now sum dense blocks straight off the
+ * packed bits and fold the rest with plain scalar accumulators.
  */
 public final class ProjectionColumnSegmentFoldScan {
 
@@ -138,6 +133,18 @@ public final class ProjectionColumnSegmentFoldScan {
       return ProjectionIndexRowGroupCodec.getLongLE(seg, boolBase + (w << 3));
     }
 
+    /**
+     * Wrapped sum of {@code count} values from value {@code valueStart} straight off the packed bits —
+     * {@code count · base + Σ packed}; exact whenever the true total fits a long, which the caller's
+     * zone-map pre-flight guarantees.
+     */
+    long sumBlock(final int valueStart, final int count) {
+      final int byteOff = valuesBase + (width == 64
+          ? valueStart << 3
+          : (valueStart >>> 3) * width);
+      return base * count + ProjectionIndexRowGroupCodec.sumPacked(seg, byteOff, count, width);
+    }
+
     /** Unpack {@code count} values of the block starting at value {@code valueStart}. */
     void unpackBlock(final int valueStart, final int count, final long[] out) {
       final int byteOff = valuesBase + (width == 64
@@ -174,9 +181,12 @@ public final class ProjectionColumnSegmentFoldScan {
         return false;
       }
     }
-    // The aggregate must be a NUMERIC column, checked by KIND: columnSliceable now also admits
-    // string and boolean columns, and a fold over their bytes would misparse them as numbers.
-    if (aggColOrNegative >= 0 && !ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(aggColOrNegative))) {
+    // The aggregate must be a NUMERIC or TEMPORAL column, checked by KIND: columnSliceable now also
+    // admits string and boolean columns, and a fold over their bytes would misparse them as numbers.
+    // A temporal column folds for its extrema (its epoch orders as the text does); the caller is what
+    // keeps a sum off it.
+    if (aggColOrNegative >= 0 && !ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(aggColOrNegative))
+        && !ProjectionIndexRowGroupPage.isTemporalKind(store.columnKind(aggColOrNegative))) {
       return false;
     }
     final Stream probe = new Stream();
@@ -310,8 +320,11 @@ public final class ProjectionColumnSegmentFoldScan {
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int numericColumn, final long[] acc, final int fromRowGroup, final int toRowGroup,
       final ColumnSegmentFetcher fetcher, final int aggMask) {
-    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    // Admitted for its ORDER, like the sliced fold: min/max over an epoch is exactly the extremum of
+    // the text, while a SUM over one is not an answer any caller asks for (and requireSumFitsLong
+    // below still refuses one it cannot compute).
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final byte[][][] predBytes = resolvePredicateBytes(store, predicates, fetcher);
     final boolean[] predNumeric = predicateNumeric(store, predicates);
@@ -433,16 +446,26 @@ public final class ProjectionColumnSegmentFoldScan {
    * count.
    *
    * <p>
-   * The scalar accumulators live in locals and the vector accumulators in registers across the whole
-   * block, reducing to {@code acc} exactly once at the end; long addition wraps associatively and
-   * min/max are order-insensitive, so lane order cannot change the result — every arm is bit-exact
-   * with every other.
+   * <b>Scalar on purpose — a measured verdict (100M, q2-shaped {@code sum(x)} over two columns).</b>
+   * The previous arms folded through the Vector API: {@code vsum.add(fromArray(..))} on dense words
+   * and {@code add(v, m)} / {@code lanewise(MIN, v, m)} on partial ones. Inside this kernel's C2
+   * compile the MASKED lanewise call was a virtual call that never intrinsified — every call
+   * allocated a {@code long[]} and a {@code Long256Vector} through the Java fallback, and its
+   * presence in the compilation unit dragged the DENSE add down the same path: the async-profiler
+   * allocation profile of a hot try was 100&nbsp;% {@code LongVector.add → lanewiseTemplate}, the
+   * fold ran at 10-15&nbsp;ns/value per thread, and each try paid 1-3 young GCs for a kernel that
+   * "allocates nothing". Dropping the masked arm alone halved the query with byte-identical answers.
+   * What stays is code C2 compiles the same way every time: the dense block (every row survives —
+   * every block of an unpredicated aggregate over a NOT NULL column) sums STRAIGHT from the packed
+   * bits ({@link ProjectionIndexRowGroupCodec#sumPacked}) without writing the scratch at all, dense
+   * words fold with independent scalar accumulators, and partial words walk their set bits.
+   * {@link ProjectionVectorKernels} keeps the compare kernels, whose lane compares have no masked
+   * virtual call in them.
    */
   private static void foldMaskedBlock(final long[] maskWords, final Stream aggStream, final Scratch s,
       final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
       final int rowCount, final long[] acc, final int aggMask) {
-    // Dispatched once per block, never per row: each arm is then a single fixed loop shape the JIT
-    // can vectorise without a per-word test on the mask.
+    // Dispatched once per block, never per row: each arm is then a single fixed loop shape.
     if ((aggMask & AGG_EXTREMA) == 0) {
       foldMaskedBlockSum(maskWords, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount, acc);
     } else if ((aggMask & AGG_EXTREMA) == AGG_EXTREMA) {
@@ -454,88 +477,88 @@ public final class ProjectionColumnSegmentFoldScan {
   }
 
   /**
+   * Whether every one of the block's {@code rows} rows survives both the mask and the aggregate
+   * column's presence — the shape that lets the fold skip the scratch entirely. A tail word is dense
+   * when exactly its {@code rows & 63} low bits are set, so the last block of a leaf qualifies too.
+   */
+  private static boolean blockDense(final long[] maskWords, final Stream aggStream, final int rows, final int words,
+      final int wordBase, final int presWords, final int rowCount) {
+    for (int w = 0; w < words; w++) {
+      final long expect = ProjectionIndexRowGroupCodec.expectedFullWord(w, words, rows);
+      if ((maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount)) != expect) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * One extremum, not two.
    *
    * <p>
    * {@code min(x)} and {@code max(x)} are separate queries and arrive as separate calls, so the full
-   * fold was computing an extremum nobody asked for on each of them — and on this ISA an extremum is
-   * the expensive part, not a free lane op. The {@code wantMin} branch sits outside both loops, so
-   * each call still presents the JIT one fixed loop shape.
-   *
-   * <p>
-   * Blending the unselected lanes to the identity and reducing UNMASKED was tried here and is a
-   * pessimisation: two blends plus two emulated unmasked reductions measured 13.2-17.3 ns/row against
-   * 6.8-11.4 for the masked lanewise form. The masked op stays.
+   * fold was computing an extremum nobody asked for on each of them. The {@code wantMin} branch sits
+   * outside the loops, so each call still presents the JIT one fixed loop shape per arm.
    */
   private static void foldMaskedBlockOneExtremum(final long[] maskWords, final Stream aggStream, final Scratch s,
       final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
       final int rowCount, final long[] acc, final boolean wantMin) {
-    final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
-    final int lanes = ProjectionVectorKernels.LANES;
     long count = acc[0];
     long sum = acc[1];
     long ext = wantMin
         ? acc[2]
         : acc[3];
-    LongVector vsum = LongVector.zero(species);
-    LongVector vext = LongVector.broadcast(species, wantMin
-        ? Long.MAX_VALUE
-        : Long.MIN_VALUE);
-    boolean unpacked = false;
-    for (int w = 0; w < words; w++) {
-      long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
-      if (word == 0L) {
-        continue;
+    final long[] vals = s.aggVals;
+    if (blockDense(maskWords, aggStream, rows, words, wordBase, presWords, rowCount)) {
+      aggStream.unpackBlock(blockStart, rows, vals);
+      count += rows;
+      sum += sumDense(vals, 0, rows);
+      final long e = wantMin
+          ? minDense(vals, 0, rows)
+          : maxDense(vals, 0, rows);
+      if (wantMin
+          ? e < ext
+          : e > ext) {
+        ext = e;
       }
-      if (!unpacked) {
-        aggStream.unpackBlock(blockStart, rows, s.aggVals);
-        unpacked = true;
-      }
-      final int rowBase = w << 6;
-      if (word == -1L) {
-        for (int k = 0; k < 64; k += lanes) {
-          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
-          vsum = vsum.add(v);
-          vext = wantMin
-              ? vext.min(v)
-              : vext.max(v);
+    } else {
+      boolean unpacked = false;
+      for (int w = 0; w < words; w++) {
+        long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
+        if (word == 0L) {
+          continue;
         }
-        count += 64;
-        continue;
-      }
-      if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
-        for (int k = 0; k < 64; k += lanes) {
-          final VectorMask<Long> m = ProjectionVectorKernels.laneMask(word >>> k);
-          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
-          vsum = vsum.add(v, m);
-          vext = vext.lanewise(wantMin
-              ? VectorOperators.MIN
-              : VectorOperators.MAX, v, m);
+        if (!unpacked) {
+          aggStream.unpackBlock(blockStart, rows, vals);
+          unpacked = true;
         }
-        count += Long.bitCount(word);
-        continue;
-      }
-      while (word != 0L) {
-        final int bit = Long.numberOfTrailingZeros(word);
-        word &= word - 1L;
-        final long v = s.aggVals[rowBase + bit];
-        count++;
-        sum += v;
-        if (wantMin
-            ? v < ext
-            : v > ext) {
-          ext = v;
+        final int rowBase = w << 6;
+        if (word == -1L) {
+          count += 64;
+          sum += sumDense(vals, rowBase, 64);
+          final long e = wantMin
+              ? minDense(vals, rowBase, 64)
+              : maxDense(vals, rowBase, 64);
+          if (wantMin
+              ? e < ext
+              : e > ext) {
+            ext = e;
+          }
+          continue;
+        }
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final long v = vals[rowBase + bit];
+          count++;
+          sum += v;
+          if (wantMin
+              ? v < ext
+              : v > ext) {
+            ext = v;
+          }
         }
       }
-    }
-    sum += vsum.reduceLanes(VectorOperators.ADD);
-    final long lane = vext.reduceLanes(wantMin
-        ? VectorOperators.MIN
-        : VectorOperators.MAX);
-    if (wantMin
-        ? lane < ext
-        : lane > ext) {
-      ext = lane;
     }
     acc[0] = count;
     acc[1] = sum;
@@ -547,22 +570,20 @@ public final class ProjectionColumnSegmentFoldScan {
 
   /**
    * Count and sum only, leaving {@code acc[2]} and {@code acc[3]} untouched at the caller's
-   * identities.
-   *
-   * <p>
-   * Structurally identical to {@link #foldMaskedBlockFull} — same unpack-once guard, same three
-   * density arms — with the two extremum reductions removed. That is the whole optimisation: a masked
-   * lane add is one instruction, a masked 64-bit min or max is an emulation on any ISA without
-   * AVX-512, and {@code count}/{@code sum}/{@code avg} queries never needed them.
+   * identities. A dense block never touches the scratch: its total comes straight off the packed
+   * bits.
    */
   private static void foldMaskedBlockSum(final long[] maskWords, final Stream aggStream, final Scratch s,
       final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
       final int rowCount, final long[] acc) {
-    final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
-    final int lanes = ProjectionVectorKernels.LANES;
     long count = acc[0];
     long sum = acc[1];
-    LongVector vsum = LongVector.zero(species);
+    if (blockDense(maskWords, aggStream, rows, words, wordBase, presWords, rowCount)) {
+      acc[0] = count + rows;
+      acc[1] = sum + aggStream.sumBlock(blockStart, rows);
+      return;
+    }
+    final long[] vals = s.aggVals;
     boolean unpacked = false;
     for (int w = 0; w < words; w++) {
       long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
@@ -570,33 +591,22 @@ public final class ProjectionColumnSegmentFoldScan {
         continue;
       }
       if (!unpacked) {
-        aggStream.unpackBlock(blockStart, rows, s.aggVals);
+        aggStream.unpackBlock(blockStart, rows, vals);
         unpacked = true;
       }
       final int rowBase = w << 6;
       if (word == -1L) {
-        for (int k = 0; k < 64; k += lanes) {
-          vsum = vsum.add(LongVector.fromArray(species, s.aggVals, rowBase + k));
-        }
         count += 64;
-        continue;
-      }
-      if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
-        for (int k = 0; k < 64; k += lanes) {
-          final VectorMask<Long> m = ProjectionVectorKernels.laneMask(word >>> k);
-          vsum = vsum.add(LongVector.fromArray(species, s.aggVals, rowBase + k), m);
-        }
-        count += Long.bitCount(word);
+        sum += sumDense(vals, rowBase, 64);
         continue;
       }
       while (word != 0L) {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
         count++;
-        sum += s.aggVals[rowBase + bit];
+        sum += vals[rowBase + bit];
       }
     }
-    sum += vsum.reduceLanes(VectorOperators.ADD);
     acc[0] = count;
     acc[1] = sum;
   }
@@ -604,77 +614,111 @@ public final class ProjectionColumnSegmentFoldScan {
   private static void foldMaskedBlockFull(final long[] maskWords, final Stream aggStream, final Scratch s,
       final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
       final int rowCount, final long[] acc) {
-    final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
-    final int lanes = ProjectionVectorKernels.LANES;
     long count = acc[0];
     long sum = acc[1];
     long min = acc[2];
     long max = acc[3];
-    LongVector vsum = LongVector.zero(species);
-    LongVector vmin = LongVector.broadcast(species, Long.MAX_VALUE);
-    LongVector vmax = LongVector.broadcast(species, Long.MIN_VALUE);
-    boolean unpacked = false;
-    for (int w = 0; w < words; w++) {
-      long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
-      if (word == 0L) {
-        continue;
-      }
-      if (!unpacked) {
-        // Unpack the aggregate block only once a bit actually survives the mask AND —
-        // fully filtered/absent blocks never touch the packed values at all.
-        aggStream.unpackBlock(blockStart, rows, s.aggVals);
-        unpacked = true;
-      }
-      final int rowBase = w << 6;
-      // The scratch is a fixed {@value #BLOCK_VALUES}-slot array, so full-width lane loads
-      // stay in bounds on tail words; stale lanes beyond the unpacked rows are masked off
-      // (a tail word can never be dense — fillAllTrue and the presence tail zero its top bits).
-      if (word == -1L) {
-        for (int k = 0; k < 64; k += lanes) {
-          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
-          vsum = vsum.add(v);
-          vmin = vmin.min(v);
-          vmax = vmax.max(v);
+    final long[] vals = s.aggVals;
+    if (blockDense(maskWords, aggStream, rows, words, wordBase, presWords, rowCount)) {
+      aggStream.unpackBlock(blockStart, rows, vals);
+      count += rows;
+      sum += sumDense(vals, 0, rows);
+      min = Math.min(min, minDense(vals, 0, rows));
+      max = Math.max(max, maxDense(vals, 0, rows));
+    } else {
+      boolean unpacked = false;
+      for (int w = 0; w < words; w++) {
+        long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
+        if (word == 0L) {
+          continue;
         }
-        count += 64;
-        continue;
-      }
-      if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
-        for (int k = 0; k < 64; k += lanes) {
-          final VectorMask<Long> m = ProjectionVectorKernels.laneMask(word >>> k);
-          final LongVector v = LongVector.fromArray(species, s.aggVals, rowBase + k);
-          vsum = vsum.add(v, m);
-          vmin = vmin.lanewise(VectorOperators.MIN, v, m);
-          vmax = vmax.lanewise(VectorOperators.MAX, v, m);
+        if (!unpacked) {
+          // Unpack the aggregate block only once a bit actually survives the mask AND —
+          // fully filtered/absent blocks never touch the packed values at all.
+          aggStream.unpackBlock(blockStart, rows, vals);
+          unpacked = true;
         }
-        count += Long.bitCount(word);
-        continue;
-      }
-      while (word != 0L) {
-        final int bit = Long.numberOfTrailingZeros(word);
-        word &= word - 1L;
-        final long v = s.aggVals[rowBase + bit];
-        count++;
-        sum += v;
-        if (v < min)
-          min = v;
-        if (v > max)
-          max = v;
+        final int rowBase = w << 6;
+        if (word == -1L) {
+          count += 64;
+          sum += sumDense(vals, rowBase, 64);
+          min = Math.min(min, minDense(vals, rowBase, 64));
+          max = Math.max(max, maxDense(vals, rowBase, 64));
+          continue;
+        }
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final long v = vals[rowBase + bit];
+          count++;
+          sum += v;
+          if (v < min)
+            min = v;
+          if (v > max)
+            max = v;
+        }
       }
     }
-    // Untouched vector accumulators reduce to the fold identities (0, MAX_VALUE, MIN_VALUE),
-    // so the merge below is unconditional.
-    sum += vsum.reduceLanes(VectorOperators.ADD);
-    final long laneMin = vmin.reduceLanes(VectorOperators.MIN);
-    if (laneMin < min)
-      min = laneMin;
-    final long laneMax = vmax.reduceLanes(VectorOperators.MAX);
-    if (laneMax > max)
-      max = laneMax;
     acc[0] = count;
     acc[1] = sum;
     acc[2] = min;
     acc[3] = max;
+  }
+
+  /**
+   * Wrapped sum of {@code n} unpacked values with four independent accumulators — one add per value
+   * with no cross-iteration chain, which C2 keeps in registers (and may superword) without any
+   * intrinsic it can silently decline. {@code n} is a multiple of 4 for every caller except a leaf's
+   * tail block, which the scalar remainder covers.
+   */
+  private static long sumDense(final long[] vals, final int from, final int n) {
+    long s0 = 0L;
+    long s1 = 0L;
+    long s2 = 0L;
+    long s3 = 0L;
+    final int end4 = from + (n & ~3);
+    int i = from;
+    for (; i < end4; i += 4) {
+      s0 += vals[i];
+      s1 += vals[i + 1];
+      s2 += vals[i + 2];
+      s3 += vals[i + 3];
+    }
+    final int end = from + n;
+    for (; i < end; i++) {
+      s0 += vals[i];
+    }
+    return s0 + s1 + s2 + s3;
+  }
+
+  private static long minDense(final long[] vals, final int from, final int n) {
+    long m0 = Long.MAX_VALUE;
+    long m1 = Long.MAX_VALUE;
+    final int end2 = from + (n & ~1);
+    int i = from;
+    for (; i < end2; i += 2) {
+      m0 = Math.min(m0, vals[i]);
+      m1 = Math.min(m1, vals[i + 1]);
+    }
+    if (i < from + n) {
+      m0 = Math.min(m0, vals[i]);
+    }
+    return Math.min(m0, m1);
+  }
+
+  private static long maxDense(final long[] vals, final int from, final int n) {
+    long m0 = Long.MIN_VALUE;
+    long m1 = Long.MIN_VALUE;
+    final int end2 = from + (n & ~1);
+    int i = from;
+    for (; i < end2; i += 2) {
+      m0 = Math.max(m0, vals[i]);
+      m1 = Math.max(m1, vals[i + 1]);
+    }
+    if (i < from + n) {
+      m0 = Math.max(m0, vals[i]);
+    }
+    return Math.max(m0, m1);
   }
 
   // ==================== predicate-tree kernels (P5b stage 6) ====================
@@ -754,8 +798,11 @@ public final class ProjectionColumnSegmentFoldScan {
   public static void treeAggregateNumeric(final ProjectionColumnStore store, final PredicateTree tree,
       final int numericColumn, final long[] acc, final int fromRowGroup, final int toRowGroup,
       final ColumnSegmentFetcher fetcher, final int aggMask) {
-    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    // Admitted for its ORDER, like the sliced fold: min/max over an epoch is exactly the extremum of
+    // the text, while a SUM over one is not an answer any caller asks for (and requireSumFitsLong
+    // below still refuses one it cannot compute).
+    if (!ProjectionIndexRowGroupPage.isOrderedLongKind(store.columnKind(numericColumn))) {
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG or a temporal kind");
     }
     final ColumnPredicate[] leaves = tree.leaves;
     final byte[][][] leafBytes = resolvePredicateBytes(store, leaves, fetcher);

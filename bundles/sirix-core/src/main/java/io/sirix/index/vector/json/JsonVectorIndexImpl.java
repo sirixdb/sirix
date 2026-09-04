@@ -46,13 +46,16 @@ import io.sirix.index.vector.ops.VectorDistanceType;
 /**
  * JSON implementation of the {@link VectorIndex} interface.
  *
- * <p>Manages the lifecycle of HNSW-based vector indexes within a JSON resource:
- * creating the index tree, inserting vectors, and performing k-NN searches.</p>
+ * <p>
+ * Manages the lifecycle of HNSW-based vector indexes within a JSON resource: creating the index
+ * tree, inserting vectors, and performing k-NN searches.
+ * </p>
  *
- * <p>Each method creates the necessary {@link PageBackedVectorStore} or
- * {@link ReadOnlyPageBackedVectorStore} on the fly. For high-frequency insert
- * workloads, callers should batch inserts within a single transaction to amortize
- * store/graph initialization costs.</p>
+ * <p>
+ * Each method creates the necessary {@link PageBackedVectorStore} or
+ * {@link ReadOnlyPageBackedVectorStore} on the fly. For high-frequency insert workloads, callers
+ * should batch inserts within a single transaction to amortize store/graph initialization costs.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -60,13 +63,12 @@ public final class JsonVectorIndexImpl implements VectorIndex {
 
   /**
    * The metadata node is always at key 1 (key 0 is the document root created by
-   * {@code PageUtils.createTree}).
+   * {@code PageUtils.createKeyedTrie}).
    */
   private static final long METADATA_NODE_KEY = 1L;
 
   @Override
-  public void createIndex(final StorageEngineWriter writer, final IndexDef indexDef,
-      final DatabaseType databaseType) {
+  public void createIndex(final StorageEngineWriter writer, final IndexDef indexDef, final DatabaseType databaseType) {
     if (writer == null) {
       throw new IllegalArgumentException("writer must not be null");
     }
@@ -81,14 +83,13 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     final int dimension = indexDef.getDimension();
     final String distanceType = indexDef.getDistanceType();
 
-    final PageBackedVectorStore store = new PageBackedVectorStore(
-        writer, indexNumber, dimension, distanceType);
+    final PageBackedVectorStore store = new PageBackedVectorStore(writer, indexNumber, dimension, distanceType);
     store.initializeIndex(databaseType, writer.getRevisionToRepresent());
   }
 
   @Override
-  public void insertVector(final StorageEngineWriter writer, final IndexDef indexDef,
-      final long documentNodeKey, final float[] vector) {
+  public void insertVector(final StorageEngineWriter writer, final IndexDef indexDef, final long documentNodeKey,
+      final float[] vector) {
     if (writer == null) {
       throw new IllegalArgumentException("writer must not be null");
     }
@@ -103,8 +104,7 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     }
     if (vector.length != indexDef.getDimension()) {
       throw new IllegalArgumentException(
-          "vector dimension mismatch: expected " + indexDef.getDimension()
-              + ", got " + vector.length);
+          "vector dimension mismatch: expected " + indexDef.getDimension() + ", got " + vector.length);
     }
     PageBackedVectorStore.validateVector(vector, indexDef.getDimension());
 
@@ -113,16 +113,15 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     final String distanceType = indexDef.getDistanceType();
 
     // Create the store and load existing metadata.
-    final PageBackedVectorStore store = new PageBackedVectorStore(
-        writer, indexNumber, dimension, distanceType);
+    final PageBackedVectorStore store = new PageBackedVectorStore(writer, indexNumber, dimension, distanceType);
     store.loadMetadata(METADATA_NODE_KEY);
 
     // Build HNSW params from the IndexDef configuration.
     final VectorDistanceType distType = VectorDistanceType.valueOf(distanceType);
     final HnswParams params = HnswParams.builder(dimension, distType)
-        .m(indexDef.getHnswM())
-        .efConstruction(indexDef.getHnswEfConstruction())
-        .build();
+                                        .m(indexDef.getHnswM())
+                                        .efConstruction(indexDef.getHnswEfConstruction())
+                                        .build();
 
     // Create the graph with the store.
     final HnswGraph graph = new HnswGraph(store, params);
@@ -138,8 +137,7 @@ public final class JsonVectorIndexImpl implements VectorIndex {
   }
 
   @Override
-  public void deleteVector(final StorageEngineWriter writer, final IndexDef indexDef,
-      final long hnswNodeKey) {
+  public void deleteVector(final StorageEngineWriter writer, final IndexDef indexDef, final long hnswNodeKey) {
     if (writer == null) {
       throw new IllegalArgumentException("writer must not be null");
     }
@@ -154,21 +152,20 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     final int dimension = indexDef.getDimension();
     final String distanceType = indexDef.getDistanceType();
 
-    final PageBackedVectorStore store = new PageBackedVectorStore(
-        writer, indexNumber, dimension, distanceType);
+    final PageBackedVectorStore store = new PageBackedVectorStore(writer, indexNumber, dimension, distanceType);
     store.loadMetadata(METADATA_NODE_KEY);
     store.markDeleted(hnswNodeKey);
   }
 
   @Override
-  public VectorSearchResult searchKnn(final StorageEngineReader reader, final IndexDef indexDef,
-      final float[] query, final int k) {
+  public VectorSearchResult searchKnn(final StorageEngineReader reader, final IndexDef indexDef, final float[] query,
+      final int k) {
     return searchKnn(reader, indexDef, query, k, indexDef.getHnswEfSearch());
   }
 
   @Override
-  public VectorSearchResult searchKnn(final StorageEngineReader reader, final IndexDef indexDef,
-      final float[] query, final int k, final int efSearch) {
+  public VectorSearchResult searchKnn(final StorageEngineReader reader, final IndexDef indexDef, final float[] query,
+      final int k, final int efSearch) {
     if (reader == null) {
       throw new IllegalArgumentException("reader must not be null");
     }
@@ -189,16 +186,15 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     }
     if (query.length != indexDef.getDimension()) {
       throw new IllegalArgumentException(
-          "query dimension mismatch: expected " + indexDef.getDimension()
-              + ", got " + query.length);
+          "query dimension mismatch: expected " + indexDef.getDimension() + ", got " + query.length);
     }
     PageBackedVectorStore.validateVector(query, indexDef.getDimension());
 
     final int indexNumber = indexDef.getID();
 
     // Create read-only store with metadata eagerly loaded.
-    final ReadOnlyPageBackedVectorStore roStore = new ReadOnlyPageBackedVectorStore(
-        reader, indexNumber, METADATA_NODE_KEY);
+    final ReadOnlyPageBackedVectorStore roStore =
+        new ReadOnlyPageBackedVectorStore(reader, indexNumber, METADATA_NODE_KEY);
 
     // If the graph is empty, return an empty result.
     if (roStore.getEntryPointKey() == -1) {
@@ -210,10 +206,10 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     final String distanceType = indexDef.getDistanceType();
     final VectorDistanceType distType = VectorDistanceType.valueOf(distanceType);
     final HnswParams params = HnswParams.builder(dimension, distType)
-        .m(indexDef.getHnswM())
-        .efConstruction(indexDef.getHnswEfConstruction())
-        .efSearch(efSearch)
-        .build();
+                                        .m(indexDef.getHnswM())
+                                        .efConstruction(indexDef.getHnswEfConstruction())
+                                        .efSearch(efSearch)
+                                        .build();
 
     // Create graph for navigation (read-only — no inserts).
     final HnswGraph graph = new HnswGraph(roStore, params);

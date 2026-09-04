@@ -7,6 +7,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
+import io.sirix.page.interfaces.Page;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import org.jspecify.annotations.Nullable;
@@ -130,6 +131,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public void assertTransactionWritable() {
     delegate().assertTransactionWritable();
+  }
+
+  @Override
+  public <P extends Page> P prepareSecondaryIndexPage(final IndexType indexType) {
+    return delegate().prepareSecondaryIndexPage(indexType);
   }
 
   @Override

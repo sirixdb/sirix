@@ -134,12 +134,31 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   private KeyValueLeafPage ownerPage;
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
 
+  /** Raw UTF-8 payload stored in the inline record. */
+  public static final byte PAYLOAD_FLAG_RAW = 0;
+
+  /** FSST-encoded payload stored in the inline record. */
+  public static final byte PAYLOAD_FLAG_FSST = 1;
+
+  /**
+   * The inline record carries only the fused field metadata; the authoritative record, including its
+   * value, lives in the same-key {@code OverflowPage} reference.
+   *
+   * <p>
+   * This third state is deliberately explicit. Treating an overflow descriptor as an empty raw string
+   * would let column sketches and direct-slot readers manufacture false negatives.
+   * </p>
+   */
+  public static final byte PAYLOAD_FLAG_OVERFLOW = 2;
+
   /**
    * Upper bound on the serialized size of everything except the string payload: kind byte +
    * {@link #FIELD_COUNT}-byte offset table + seven delta varints (≤ 9 bytes each) + 8-byte hash +
    * compressed flag + payload-length varint. Used by {@link #estimateSerializedSize()}.
    */
   private static final int SERIALIZED_METADATA_UPPER_BOUND = 80;
+
+  private static final byte[] EMPTY_PAYLOAD = new byte[0];
 
   public ObjectNamedStringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
@@ -279,7 +298,14 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     final MemorySegmentBytesIn bytesIn = new MemorySegmentBytesIn(page);
     bytesIn.position(payloadStart);
     final byte flag = bytesIn.readByte();
-    this.isCompressed = flag == 1;
+    if (flag == PAYLOAD_FLAG_OVERFLOW) {
+      throw new IllegalStateException("Overflow descriptor for node " + nodeKey
+          + " was bound as an inline value instead of resolving its OverflowPage");
+    }
+    if (flag != PAYLOAD_FLAG_RAW && flag != PAYLOAD_FLAG_FSST) {
+      throw new IllegalStateException("Corrupted fused string payload flag " + flag + " for node " + nodeKey);
+    }
+    this.isCompressed = flag == PAYLOAD_FLAG_FSST;
     final int length = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = new byte[length];
     bytesIn.read(this.value);
@@ -313,7 +339,14 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     final int payloadFieldOff =
         page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long payloadStart = dataRegionStart + payloadFieldOff;
-    final boolean compressed = page.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+    final byte flag = page.get(ValueLayout.JAVA_BYTE, payloadStart);
+    if (flag == PAYLOAD_FLAG_OVERFLOW) {
+      return FusedStringCursor.UNAVAILABLE;
+    }
+    if (flag != PAYLOAD_FLAG_RAW && flag != PAYLOAD_FLAG_FSST) {
+      throw new IllegalStateException("Corrupted fused string payload flag " + flag + " for node " + nodeKey);
+    }
+    final boolean compressed = flag == PAYLOAD_FLAG_FSST;
     final long lengthOffset = payloadStart + 1;
     final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lengthOffset);
     if (length < 0) {
@@ -452,13 +485,25 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
         ? rawValue
         : new byte[0];
     return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, nameKey,
-        pathNodeKey, prevRev, lastModRev, hash, val, 0, val.length, isCompressed);
+        pathNodeKey, prevRev, lastModRev, hash, val, 0, val.length, isCompressed
+            ? PAYLOAD_FLAG_FSST
+            : PAYLOAD_FLAG_RAW);
   }
 
   public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
       final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
       final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final byte[] rawValue,
       final int rawOff, final int rawLen, final boolean isCompressed) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, nameKey,
+        pathNodeKey, prevRev, lastModRev, hash, rawValue, rawOff, rawLen, isCompressed
+            ? PAYLOAD_FLAG_FSST
+            : PAYLOAD_FLAG_RAW);
+  }
+
+  private static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final byte[] rawValue,
+      final int rawOff, final int rawLen, final byte payloadFlag) {
     long pos = offset;
 
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_NAMED_STRING.getId());
@@ -495,9 +540,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     pos += Long.BYTES;
 
     heapOffsets[NodeFieldLayout.OBJNAMEDSTR_PAYLOAD] = (int) (pos - dataStart);
-    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed
-        ? (byte) 1
-        : (byte) 0);
+    target.set(ValueLayout.JAVA_BYTE, pos, payloadFlag);
     pos++;
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawLen);
     if (rawLen > 0) {
@@ -523,6 +566,24 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
         nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value, isCompressed);
   }
 
+  /**
+   * Serialize only the fixed-size, scan-visible metadata for an out-of-line fused string record. The
+   * returned bytes are a normal flyweight slot whose payload flag requires readers to resolve the
+   * same-key overflow reference; they are never a user-visible empty string.
+   */
+  public int serializeOverflowDescriptorToHeap(final MemorySegment target, final long offset) {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, EMPTY_PAYLOAD, 0, 0, PAYLOAD_FLAG_OVERFLOW);
+  }
+
+  /** Conservative upper bound for {@link #serializeOverflowDescriptorToHeap}. */
+  public int estimateOverflowDescriptorSize() {
+    return SERIALIZED_METADATA_UPPER_BOUND;
+  }
+
   @Override
   protected int heapOffsetFieldCount() {
     return FIELD_COUNT;
@@ -539,7 +600,30 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     final int payloadLen = value != null
         ? value.length
         : 0;
-    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
+    return estimateSerializedSize(payloadLen);
+  }
+
+  static int estimateSerializedSize(final int payloadLength) {
+    return FlyweightNode.saturatingSerializedSize((long) SERIALIZED_METADATA_UPPER_BOUND + payloadLength);
+  }
+
+  /**
+   * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset table
+   * + seven varints of one byte each + 8-byte hash + payload flag + one-byte payload-length varint.
+   * The floor of the wire {@code writeNewRecord} emits, as the upper bound above is its ceiling — a
+   * record can serialize below the ceiling but never below this.
+   */
+  private static final int SERIALIZED_METADATA_LOWER_BOUND = 1 + FIELD_COUNT + 7 + Long.BYTES + 1 + 1;
+
+  @Override
+  public int estimateSerializedSizeLowerBound() {
+    if (!valueParsed) {
+      parseValueField();
+    }
+    final int payloadLen = value != null
+        ? value.length
+        : 0;
+    return FlyweightNode.saturatingSerializedSize((long) SERIALIZED_METADATA_LOWER_BOUND + payloadLen);
   }
 
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
@@ -930,6 +1014,8 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
       final int slot = this.slotIndex;
       unbind();
       this.value = value;
+      this.isCompressed = false;
+      this.fsstSymbolTable = null;
       this.decodedValue = null;
       this.valueParsed = true;
       owner.resizeRecord(this, nk, slot);
@@ -938,6 +1024,8 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     if (page != null)
       unbind();
     this.value = value;
+    this.isCompressed = false;
+    this.fsstSymbolTable = null;
     this.decodedValue = null;
     this.valueParsed = true;
   }
@@ -1120,7 +1208,14 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     }
     BytesIn<?> bytesIn = createBytesIn(valueOffset);
     final byte flag = bytesIn.readByte();
-    this.isCompressed = flag == 1;
+    if (flag == PAYLOAD_FLAG_OVERFLOW) {
+      throw new IllegalStateException(
+          "Overflow descriptor for node " + nodeKey + " reached the generic value parser without its OverflowPage");
+    }
+    if (flag != PAYLOAD_FLAG_RAW && flag != PAYLOAD_FLAG_FSST) {
+      throw new IllegalStateException("Corrupted fused string payload flag " + flag + " for node " + nodeKey);
+    }
+    this.isCompressed = flag == PAYLOAD_FLAG_FSST;
     final int length = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = new byte[length];
     bytesIn.read(this.value);
@@ -1153,7 +1248,9 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
           hashFunction, getDeweyIDAsBytes() != null
               ? getDeweyIDAsBytes().clone()
               : null,
-          isCompressed, fsstSymbolTable);
+          isCompressed, fsstSymbolTable != null
+              ? fsstSymbolTable.clone()
+              : null);
     }
     if (!metadataParsed) {
       parseMetadataFields();
@@ -1168,7 +1265,9 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
         hashFunction, getDeweyIDAsBytes() != null
             ? getDeweyIDAsBytes().clone()
             : null,
-        isCompressed, fsstSymbolTable);
+        isCompressed, fsstSymbolTable != null
+            ? fsstSymbolTable.clone()
+            : null);
   }
 
   @Override

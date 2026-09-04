@@ -1,59 +1,34 @@
 package io.sirix.index.path;
 
 import io.sirix.access.trx.node.IndexController;
-import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.hot.HOTLongIndexWriter;
 import io.sirix.index.path.summary.PathSummaryReader;
-import io.sirix.index.redblacktree.RBTreeReader.MoveCursor;
-import io.sirix.index.redblacktree.RBTreeWriter;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 
-import java.util.Optional;
 import java.util.Set;
 
-/**
- * Listener for PATH index changes.
- * 
- * <p>
- * Supports both traditional RBTree and high-performance HOT index backends.
- * </p>
- */
+import static java.util.Objects.requireNonNull;
+
+/** Listener for incremental persistent HOT PATH index changes. */
 public final class PathIndexListener {
 
-  private final @Nullable RBTreeWriter<Long, NodeReferences> rbTreeWriter;
-  private final @Nullable HOTLongIndexWriter hotWriter;
+  private final HOTLongIndexWriter hotWriter;
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
-  private final boolean useHOT;
+  private @Nullable LongSet resolvedPCRs;
+  private long maxKnownPCR = -1L;
 
-  /**
-   * Constructor with RBTree writer (legacy path).
-   */
-  public PathIndexListener(final Set<Path<QNm>> paths, final PathSummaryReader pathSummaryReader,
-      final RBTreeWriter<Long, NodeReferences> indexWriter) {
-    this.rbTreeWriter = indexWriter;
-    this.hotWriter = null;
-    this.pathSummaryReader = pathSummaryReader;
-    this.paths = paths;
-    this.useHOT = false;
-  }
-
-  /**
-   * Constructor with HOT writer (high-performance path).
-   */
   public PathIndexListener(final Set<Path<QNm>> paths, final PathSummaryReader pathSummaryReader,
       final HOTLongIndexWriter hotWriter) {
-    this.rbTreeWriter = null;
-    this.hotWriter = hotWriter;
-    this.pathSummaryReader = pathSummaryReader;
-    this.paths = paths;
-    this.useHOT = true;
+    this.hotWriter = requireNonNull(hotWriter);
+    this.pathSummaryReader = requireNonNull(pathSummaryReader);
+    this.paths = requireNonNull(paths);
   }
 
   /**
@@ -70,30 +45,18 @@ public final class PathIndexListener {
   }
 
   public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey) {
-    pathSummaryReader.moveTo(pathNodeKey);
     try {
-      // If paths is empty, index ALL paths (same logic as PathIndexBuilder)
-      final boolean shouldProcess = paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey);
+      final boolean shouldProcess = matchesIndexedPath(pathNodeKey);
 
       switch (type) {
         case INSERT -> {
           if (shouldProcess) {
-            if (useHOT) {
-              handleInsertHOT(nodeKey, pathNodeKey);
-            } else {
-              handleInsertRBTree(nodeKey, pathNodeKey);
-            }
+            handleInsert(nodeKey, pathNodeKey);
           }
         }
         case DELETE -> {
           if (shouldProcess) {
-            if (useHOT) {
-              assert hotWriter != null;
-              hotWriter.remove(pathNodeKey, nodeKey);
-            } else {
-              assert rbTreeWriter != null;
-              rbTreeWriter.remove(pathNodeKey, nodeKey);
-            }
+            hotWriter.remove(pathNodeKey, nodeKey);
           }
         }
         default -> {
@@ -104,35 +67,33 @@ public final class PathIndexListener {
     }
   }
 
-  private void handleInsertRBTree(final long nodeKey, final long pathNodeKey) {
-    assert rbTreeWriter != null;
-    final Optional<NodeReferences> textReferences = rbTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
-    if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(nodeKey, new NodeReferences(textReferences.get().getNodeKeys()), pathNodeKey);
-    } else {
-      setNodeReferencesRBTree(nodeKey, new NodeReferences(), pathNodeKey);
+  /** Resolve configured paths once, refreshing only when a newly minted PCR can change the answer. */
+  private boolean matchesIndexedPath(final long pathNodeKey) throws PathException {
+    if (paths.isEmpty()) {
+      return true;
     }
+    LongSet pcrs = resolvedPCRs;
+    if (pcrs == null || pathNodeKey > maxKnownPCR) {
+      pcrs = pathSummaryReader.getPCRsForPaths(paths);
+      resolvedPCRs = pcrs;
+      maxKnownPCR = Math.max(pathNodeKey, pathSummaryReader.getMaxNodeKey());
+    }
+    return pcrs.contains(pathNodeKey);
   }
 
   /**
-   * Add {@code nodeKey} to {@code pathNodeKey}'s posting list in the HOT backend.
+   * Add {@code nodeKey} to {@code pathNodeKey}'s posting list.
    *
    * <p>
-   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
+   * A slot write OR-merges the incoming bitmap into the stored one, so the references already
    * recorded for {@code pathNodeKey} need neither be read back nor re-inserted — doing so cost one
    * range scan plus one full trie descent per already-stored node key, and every node under an
    * indexed path shares a single PATH key, so that grew with the whole index.
    * </p>
    */
-  private void handleInsertHOT(final long nodeKey, final long pathNodeKey) {
-    assert hotWriter != null;
-    // HOT writer uses primitive long - no boxing!
+  private void handleInsert(final long nodeKey, final long pathNodeKey) {
+    // The writer uses primitive longs: no key or posting-reference boxing on this path.
     hotWriter.indexNodeKey(pathNodeKey, nodeKey);
-  }
-
-  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final long pathNodeKey) {
-    assert rbTreeWriter != null;
-    rbTreeWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);
   }
 
 }

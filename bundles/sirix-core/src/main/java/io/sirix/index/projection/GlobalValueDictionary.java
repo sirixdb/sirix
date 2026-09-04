@@ -7,7 +7,17 @@ import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.HashAccesses;
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.TransactionIntentLog;
+import io.sirix.node.ValueDictionaryBlockIndexNode;
+import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
+import io.sirix.node.ValueDictionaryValueBlockNode;
+import io.sirix.node.ValueDictionaryValueBucketNode;
+import io.sirix.cache.Cache;
+import io.sirix.cache.GlobalDictionaryRecordCacheKey;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
 import io.sirix.settings.Constants;
@@ -15,6 +25,7 @@ import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -75,9 +86,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <h2>Cost model</h2>
  *
- * Every method here is a per-LITERAL or per-WINNER cost, never per-row. Rows carry ids and are
- * compared as integers; the only things that cross into this class are the literals a predicate
- * mentions and the values of the groups a query actually returns.
+ * Ordinary materialising methods here are a per-LITERAL or per-WINNER cost. The explicitly created
+ * {@link ReadView} is the exception for operators that must interpret global ids while scanning: it
+ * binds the header and name page to one revision and exposes allocation-free comparisons and the
+ * two admitted substring transforms. It never exposes or copies an entry's byte array.
  */
 public final class GlobalValueDictionary {
 
@@ -98,8 +110,1020 @@ public final class GlobalValueDictionary {
    */
   public static final int ID_UNKNOWN = -1;
 
+  private static final int READ_VIEW_CACHE_SIZE = 256;
+
+  /**
+   * Reverse BUCKETS a read view retains, each covering 256 consecutive ids.
+   *
+   * <p>
+   * A read-only transaction's dictionary record memo is a no-op, so a probe that walks from the
+   * reverse root materialises three radix nodes plus the bucket before it reaches the entry — five
+   * record decodes for one id. Retaining the bucket collapses that to one decode per id for any scan
+   * with locality. Sixteen buckets span 4096 consecutive ids and cost sixteen references, so this is
+   * bounded by the VIEW, never by the dictionary's cardinality.
+   */
+  private static final int READ_VIEW_BUCKET_CACHE_SIZE = 16;
+
+  /**
+   * FLOOR for both per-view tables: the smallest they may be, and what they are when the resident
+   * budget is off. Named as a floor rather than a size because it is no longer either table's actual
+   * length -- {@link #READ_VIEW_BLOCK_SLOTS} decides that from the budget.
+   */
+  private static final int READ_VIEW_TABLE_FLOOR = 16;
+
+  /**
+   * Byte budget for one view's resident decoded blocks; {@code 0} keeps the fixed 16-slot table.
+   *
+   * <p>
+   * RESIDENCY BY FIT, never unconditional. A decoded block is up to
+   * {@link ValueDictionaryValueBlockNode#MAX_BLOCK_BYTES}, so the budget divided by that bound gives
+   * the number of slots the view may hold, and the table being DIRECT-MAPPED is what makes the budget
+   * a real bound rather than a hope — a slot holds at most one block, so resident bytes can never
+   * exceed slots times the bound, and a collision simply re-decodes through the path that already
+   * exists. There is no eviction policy to get wrong because there is no eviction: the map
+   * overwrites, and being wrong about what to keep costs a decode, never an answer.
+   * </p>
+   *
+   * <p>
+   * <b>DEFAULT OFF, because the shared record cache superseded it.</b> Sized from a budget this was
+   * worth 24.0 us -> 0.42 us on a random point read, measured at the knee of 2,048 slots. Then
+   * {@code BufferManager#getGlobalDictionaryRecordCache} began retaining decoded records ACROSS
+   * transactions, which serves the same misses from one place instead of once per view — and with it
+   * present the per-view table is worth 381 ns against 312 ns on the same point read, and nothing at
+   * all on the 43-query leg (cold 6.786 against 6.744, hot 1.288 against 1.302, min of three legs
+   * each, where the spread WITHIN each configuration is larger than the difference between them). A
+   * per-view budget is also the wrong shape at scale: it is claimed once per view, so ten views would
+   * claim it ten times for one dictionary, where the shared cache claims it once.
+   *
+   * <p>
+   * The knob stays because the arithmetic behind it is still true where no shared cache is available.
+   * Set it to a byte budget to restore the sized table; the budget divided by
+   * {@link ValueDictionaryValueBlockNode#MAX_BLOCK_BYTES} gives the slot count, and the table being
+   * DIRECT-MAPPED is what makes it a bound rather than a hope.
+   * </p>
+   */
+  private static final long READ_VIEW_RESIDENT_BLOCK_BYTES =
+      Long.getLong("sirix.projection.globalDict.residentBlockBytes", 0L);
+
+  /** Slots the budget affords, rounded DOWN to a power of two so the index stays a mask. */
+  private static final int READ_VIEW_BLOCK_SLOTS = blockSlotsForBudget(READ_VIEW_RESIDENT_BLOCK_BYTES);
+
+  /**
+   * Reverse-bucket slots, matched to the block slots.
+   *
+   * <p>
+   * The two caches sit in series on a point read — a bucket must be resolved to learn which block
+   * covers an id — so sizing only the blocks moves the cost rather than removing it. Measured: with
+   * 2048 block slots and the bucket table left at 16, a random read fell from 23.9 us to 1.7 us and
+   * STOPPED there, because every read still decoded its bucket. A bucket record is far smaller than a
+   * block (it holds references, not values), so matching the counts costs a small fraction of the
+   * block budget and is not metered separately.
+   * </p>
+   */
+  private static final int READ_VIEW_BUCKET_SLOTS = Math.max(READ_VIEW_BUCKET_CACHE_SIZE, READ_VIEW_BLOCK_SLOTS);
+
+  static {
+    // Both tables index with `x & (SLOTS - 1)`, which is a modulo only for a power of two. A later
+    // edit to the sizing arithmetic that produced, say, 3000 slots would not fail -- it would
+    // silently mask into a fraction of the table and surface only as unexplained latency. The
+    // constraint is cheap to state and impossible to notice once broken.
+    if (Integer.bitCount(READ_VIEW_BLOCK_SLOTS) != 1 || Integer.bitCount(READ_VIEW_BUCKET_SLOTS) != 1
+        || Integer.bitCount(READ_VIEW_CACHE_SIZE) != 1) {
+      throw new ExceptionInInitializerError("read-view table sizes must be powers of two, got blocks="
+          + READ_VIEW_BLOCK_SLOTS + " buckets=" + READ_VIEW_BUCKET_SLOTS + " slices=" + READ_VIEW_CACHE_SIZE);
+    }
+  }
+
+
+  /** Ceiling on what one view's tables may hold, whatever the property says. */
+  private static final long MAX_RESIDENT_BLOCK_BYTES = 512L << 20;
+
+  private static int blockSlotsForBudget(final long budgetBytes) {
+    if (budgetBytes <= 0L) {
+      return READ_VIEW_TABLE_FLOOR;
+    }
+    final long affordable = budgetBytes / ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES;
+    if (affordable <= READ_VIEW_TABLE_FLOOR) {
+      return READ_VIEW_TABLE_FLOOR;
+    }
+    // Highest power of two not exceeding what the budget affords, under TWO caps. The first
+    // bounds the array of references; the second bounds the RESIDENT BYTES those slots may
+    // come to hold, which the first does not -- 1<<20 slots of 64 KiB blocks is 64 GiB, so a
+    // mistyped property could make an absurd footprint legal while every individual bound
+    // looked reasonable.
+    final long byBytes = MAX_RESIDENT_BLOCK_BYTES / ValueDictionaryValueBlockNode.MAX_BLOCK_BYTES;
+    final long capped = Math.min(Math.min(affordable, 1L << 20), byBytes);
+    return Integer.highestOneBit((int) capped);
+  }
+
   private GlobalValueDictionary() {
     throw new AssertionError("no instances");
+  }
+
+  /**
+   * Open a bounded reverse-dictionary view tied to the reader's current revision.
+   *
+   * <p>
+   * The fixed direct-mapped caches retain immutable entry-node and reverse-bucket references only —
+   * never a value, so the view's footprint is fixed whatever the dictionary's cardinality. A hot-loop
+   * HIT performs neither a radix traversal nor an allocation. A MISS resolves through a retained
+   * bucket when one is held, which removes the three radix-node decodes a walk from the root would
+   * repeat for all 256 ids the bucket covers; it still decodes the entry record itself, so a miss is
+   * NOT allocation-free. The view refuses an incomplete/unknown dictionary up front and checks the
+   * revision before every operation, so it can never reinterpret a row id against another revision's
+   * dictionary.
+   * </p>
+   *
+   * @param headerNodeKey dictionary header key recorded by the projection column
+   * @param reader reader positioned at the revision that owns the projection rows
+   * @return a readable view, or {@code null} when the dictionary is absent, incomplete, or changed
+   *         revision while the view was being opened
+   */
+  public static @Nullable ReadView readView(final long headerNodeKey, final StorageEngineReader reader) {
+    Objects.requireNonNull(reader, "reader must not be null");
+    final int revision = reader.getRevisionNumber();
+    final ValueDictionaryHeaderNode header = header(headerNodeKey, reader);
+    if (header == null || !header.isDirectoryComplete()) {
+      return null;
+    }
+    final DatabaseType databaseType = databaseTypeOf(reader);
+    final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
+    if (reader.getRevisionNumber() != revision) {
+      return null;
+    }
+    return new ReadView(headerNodeKey, header.getReverseRootKey(), header.getEntryCount(), revision, namePage,
+        databaseType, reader, header.getBlockIndexKey(), header.isFullyOrdered());
+  }
+
+  /** Ids per separator-array entry; one reverse bucket, so the partition needs no spill handling. */
+  private static final int VALUES_PER_INDEXED_RANGE = ValueDictionaryValueBucketNode.VALUES_PER_BUCKET;
+
+  private static final byte[] EMPTY_SEPARATOR = new byte[0];
+
+  /**
+   * One lane's share of a SPLIT verdict sweep: the bucket range the lane owns, the slice it fills,
+   * and the merge that folds that slice back into the whole-dictionary bitset.
+   *
+   * <h2>Why the arithmetic lives here and nowhere else</h2>
+   *
+   * <p>
+   * Three numbers decide whether a split sweep is lossless: how long the slice is, which global
+   * verdict word its element zero stands for, and how far the merge may write. They are related by
+   * the id/bucket/word aliasing {@link ReadView#fillStringOpVerdict} documents — bucket {@code b}
+   * owns ids {@code 256b+1 .. 256b+256} and therefore words {@code 4b .. 4b+4}, the last of which is
+   * bucket {@code b+1}'s first — so getting any one of them wrong drops a row SILENTLY, at one id in
+   * 256, on the path whose whole job is to decide which rows match. A second copy of the three is how
+   * a caller and its regression test agree with each other while both drift from the sweep; every
+   * caller therefore splits through this type instead of recomputing it.
+   * </p>
+   *
+   * <p>
+   * A lane owns its slice outright, which is what makes the parallel sweep safe: lanes OR-ing into
+   * one shared array would lose one another's bits in the boundary word they share.
+   * </p>
+   */
+  public static final class VerdictSlice {
+
+    private static final long[] NO_WORDS = new long[0];
+
+    private final int bucketLo;
+    private final int bucketHi;
+    private final int wordBase;
+    private final long[] words;
+
+    private VerdictSlice(final int bucketLo, final int bucketHi) {
+      this.bucketLo = bucketLo;
+      this.bucketHi = bucketHi;
+      this.wordBase = bucketLo << 2;
+      this.words = bucketLo >= bucketHi
+          ? NO_WORDS
+          : new long[((bucketHi - bucketLo) << 2) + 1];
+    }
+
+    /**
+     * Lane {@code lane} of {@code lanes} over {@code buckets} buckets — an even split by bucket, so
+     * that no two lanes ever fill the same bucket and every bucket is filled by one.
+     *
+     * @param buckets {@link ReadView#verdictBucketCount()}
+     * @param lane the lane, {@code 0 <= lane < lanes}
+     * @param lanes number of lanes the sweep is split into, at least one
+     * @return the lane's share, possibly {@linkplain #isEmpty() empty} when there are more lanes than
+     *         buckets
+     * @throws IllegalArgumentException if {@code buckets} is negative, {@code lanes} is not positive,
+     *         or {@code lane} is not a lane of {@code lanes}
+     */
+    public static VerdictSlice forLane(final int buckets, final int lane, final int lanes) {
+      if (buckets < 0) {
+        throw new IllegalArgumentException("buckets must not be negative: " + buckets);
+      }
+      if (lanes <= 0) {
+        throw new IllegalArgumentException("lanes must be positive: " + lanes);
+      }
+      if (lane < 0 || lane >= lanes) {
+        throw new IllegalArgumentException("lane " + lane + " is not one of " + lanes + " lanes");
+      }
+      // The multiply is done in long space: buckets * lane overflows an int at ~46k buckets a side,
+      // which a 100M-row dictionary passes, and an overflowed bound would hand a lane a range that
+      // silently excludes buckets no other lane covers.
+      final int lo = (int) ((long) buckets * lane / lanes);
+      final int hi = (int) ((long) buckets * (lane + 1) / lanes);
+      return new VerdictSlice(lo, hi);
+    }
+
+    /** First bucket of the lane, inclusive. */
+    public int bucketLo() {
+      return bucketLo;
+    }
+
+    /** Last bucket of the lane, exclusive. */
+    public int bucketHi() {
+      return bucketHi;
+    }
+
+    /** Whether the lane owns no bucket at all, in which case filling and merging are no-ops. */
+    public boolean isEmpty() {
+      return bucketLo >= bucketHi;
+    }
+
+    /**
+     * Evaluate {@code op} against this lane's buckets into the lane-owned slice.
+     *
+     * <p>
+     * {@code view} may be — and for a parallel sweep MUST be — a view of the lane's own, since a view's
+     * slice caches are single-threaded. It must be a view of the same revision and entry count the
+     * split was sized from; a caller crossing views is responsible for checking that.
+     * </p>
+     *
+     * @param view the dictionary view the lane reads through
+     * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
+     * @param literalUtf8 the literal, UTF-8 encoded
+     */
+    public void fill(final ReadView view, final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
+      Objects.requireNonNull(view, "view must not be null");
+      if (isEmpty()) {
+        return;
+      }
+      view.fillStringOpVerdict(op, literalUtf8, bucketLo, bucketHi, words, wordBase);
+    }
+
+    /**
+     * OR this lane's slice into the whole-dictionary verdict.
+     *
+     * <p>
+     * The write is clamped to what {@code verdict} addresses: the last bucket's slice covers the
+     * boundary word of a bucket that does not exist, and the final bucket is partial whenever the entry
+     * count is not a multiple of 256, so the tail of the last lane's slice legitimately describes ids
+     * past the dictionary. Those words are zero — no id set them — so clamping drops nothing.
+     * </p>
+     *
+     * @param verdict the whole-dictionary bitset, sized as {@link ReadView#newVerdict()} sizes it
+     * @throws NullPointerException if {@code verdict} is null
+     */
+    public void mergeInto(final long[] verdict) {
+      Objects.requireNonNull(verdict, "verdict must not be null");
+      if (isEmpty()) {
+        return;
+      }
+      final int limit = Math.min(words.length, verdict.length - wordBase);
+      for (int w = 0; w < limit; w++) {
+        verdict[wordBase + w] |= words[w];
+      }
+    }
+  }
+
+  /** Revision-bound, fixed-memory reverse-dictionary access for scan kernels. */
+  public static final class ReadView {
+
+    private final long headerNodeKey;
+    private final long reverseRootKey;
+    private final int entryCount;
+    private final int revision;
+    private final NamePage namePage;
+    private final DatabaseType databaseType;
+    private final StorageEngineReader reader;
+    /**
+     * Per-id SLICE cache: the backing array a value lives in, plus its offset and length. No entry node
+     * and no copied {@code byte[]} — a scan compares far more values than it emits, so a wrapper or a
+     * copy per compared id is precisely the per-row garbage the packed layout removes.
+     */
+    private final int[] cachedIds = new int[READ_VIEW_CACHE_SIZE];
+    private final byte[][] cachedBacking = new byte[READ_VIEW_CACHE_SIZE][];
+    private final int[] cachedOffsets = new int[READ_VIEW_CACHE_SIZE];
+    private final int[] cachedLengths = new int[READ_VIEW_CACHE_SIZE];
+    /**
+     * SPILL lane, same slot indexing. A spilled value stays behind its record rather than having its
+     * array handed out: a record owns its bytes, and exposing them to keep one cache uniform would
+     * trade the node's immutability for a convenience. Exactly one of {@code cachedBacking[slot]} and
+     * {@code cachedSpills[slot]} is non-null for a resolved slot.
+     */
+    private final ValueDictionaryEntryNode[] cachedSpills = new ValueDictionaryEntryNode[READ_VIEW_CACHE_SIZE];
+    /** Direct-mapped reverse-bucket retention; {@code -1} marks an unused slot. */
+    private int @Nullable [] cachedBuckets;
+    private ValueDictionaryValueBucketNode @Nullable [] cachedBucketNodes;
+    /**
+     * Direct-mapped retention of decoded SUB-BLOCKS, keyed by record key. A block is up to 64 KiB and
+     * packs many consecutive ids, so decoding one per probe dominated the miss path; holding a few
+     * costs a fixed number of references and no per-id state.
+     */
+    private long @Nullable [] cachedBlockKeys;
+    private ValueDictionaryValueBlockNode @Nullable [] cachedBlocks;
+    /**
+     * Separator array over the ordered prefix, loaded ONCE per view and then kept. It is the whole
+     * point of the structure: without it a binary-search probe decodes one block per step, with it one
+     * block per probe, and re-reading it per probe would give back exactly what it saves.
+     */
+    private final long blockIndexKey;
+
+    private @Nullable ValueDictionaryBlockIndexNode blockIndex;
+
+    private boolean blockIndexLoaded;
+
+    private int @Nullable [] transformedIds;
+    private int @Nullable [] transformedStarts;
+    private int @Nullable [] transformedLengths;
+    private byte @Nullable [] transformedModes;
+    private long @Nullable [] transformedValues;
+
+    /**
+     * Whether EVERY id is in collation order of its value — {@code orderedPrefixCount == entryCount} on
+     * the header, the single test an ordering arm may make. While it holds, id order IS value order, so
+     * id comparisons answer string comparisons with no dictionary touch at all.
+     */
+    private final boolean fullyOrdered;
+
+    private ReadView(final long headerNodeKey, final long reverseRootKey, final int entryCount, final int revision,
+        final NamePage namePage, final DatabaseType databaseType, final StorageEngineReader reader,
+        final long blockIndexKey, final boolean fullyOrdered) {
+      this.blockIndexKey = blockIndexKey;
+      this.fullyOrdered = fullyOrdered;
+      this.headerNodeKey = headerNodeKey;
+      this.reverseRootKey = reverseRootKey;
+      this.entryCount = entryCount;
+      this.revision = revision;
+      this.namePage = namePage;
+      this.databaseType = databaseType;
+      this.reader = reader;
+    }
+
+    /**
+     * Whether id order IS collation order for every entry — the one test an ordering arm may make
+     * before it compares ids as numbers ({@link #compareIds} does so itself; a plan that bounds leaves
+     * by the ids in their descriptors must ask first).
+     */
+    public boolean fullyOrdered() {
+      return fullyOrdered;
+    }
+
+    /** Dictionary header key this view was opened for. */
+    public long headerNodeKey() {
+      return headerNodeKey;
+    }
+
+    /** Resource revision whose dictionary roots and pages this view retains. */
+    public int revision() {
+      return revision;
+    }
+
+    /** Number of ids readable in this revision. */
+    public int entryCount() {
+      return entryCount;
+    }
+
+    /**
+     * Per-id string lengths for the whole dictionary, indexed by id (slot 0 unused).
+     *
+     * <p>
+     * Mode {@code STRING_LENGTH_UTF8_BYTES} is each value's stored byte length;
+     * {@code STRING_LENGTH_CODE_POINTS} counts non-continuation bytes — the same derivations the
+     * per-leaf dictionary kernels apply per entry, lifted to once per distinct value per query. The
+     * returned table is immutable by convention and safe to share across scan workers.
+     */
+    public int[] lengthTable(final byte lengthMode) {
+      final int[] table = new int[entryCount + 1];
+      fillLengthTable(lengthMode, 1, entryCount, table);
+      return table;
+    }
+
+    /**
+     * Fill {@code table[fromId..toId]} with the per-id string lengths of this view, in the given mode —
+     * the id-range half of {@link #lengthTable(byte)}, so callers holding one view PER WORKER can
+     * derive one table over disjoint id ranges in parallel (the view's slice caches are
+     * single-threaded; the table's disjoint ranges need no coordination). Ids are walked in order, so
+     * every block of the range is decoded once.
+     *
+     * @param lengthMode {@link ProjectionIndexByteScan#STRING_LENGTH_UTF8_BYTES} or
+     *        {@link ProjectionIndexByteScan#STRING_LENGTH_CODE_POINTS}
+     * @param fromId first id to derive, at least 1
+     * @param toId last id to derive, inclusive, at most {@link #entryCount()}
+     * @param table the table indexed by id, at least {@code toId + 1} long
+     */
+    public void fillLengthTable(final byte lengthMode, final int fromId, final int toId, final int[] table) {
+      if (lengthMode != ProjectionIndexByteScan.STRING_LENGTH_CODE_POINTS
+          && lengthMode != ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+        throw new IllegalArgumentException("not a string length mode: " + lengthMode);
+      }
+      if (fromId < 1 || toId > entryCount || toId >= table.length) {
+        throw new IllegalArgumentException(
+            "id range [" + fromId + ", " + toId + "] outside 1.." + entryCount + " or the table of " + table.length);
+      }
+      for (int id = fromId; id <= toId; id++) {
+        final int slot = sliceSlot(id);
+        final ValueDictionaryEntryNode spill = cachedSpills[slot];
+        if (spill != null) {
+          table[id] = lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES
+              ? spill.getValueLength()
+              : spill.codePointLength();
+          continue;
+        }
+        final int len = cachedLengths[slot];
+        if (lengthMode == ProjectionIndexByteScan.STRING_LENGTH_UTF8_BYTES) {
+          table[id] = len;
+        } else {
+          final byte[] backing = cachedBacking[slot];
+          final int off = cachedOffsets[slot];
+          int codePoints = 0;
+          for (int b = off; b < off + len; b++) {
+            if ((backing[b] & 0xC0) != 0x80) {
+              codePoints++;
+            }
+          }
+          table[id] = codePoints;
+        }
+      }
+    }
+
+    /**
+     * Materialize the value interned under {@code id} as a {@link String}.
+     *
+     * <p>
+     * For WINNERS only — group emission, deferred-extremum results — never for per-row work: the whole
+     * point of the id lanes is that rows stay integers. Packed ids decode straight off their slice;
+     * spilled ids go through the record's defensive copy, which is fine at winner cardinality.
+     */
+    public String valueAsString(final int id) {
+      final int slot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+      if (spill != null) {
+        return new String(spill.getValue(), StandardCharsets.UTF_8);
+      }
+      return new String(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot], StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Evaluate one string predicate against EVERY value in this revision's dictionary, returning a
+     * verdict bitset over id space: bit {@code id} (1-based, bit 0 unused) is set iff the value
+     * interned under {@code id} satisfies {@code op} against {@code literalUtf8}.
+     *
+     * <p>
+     * This is the global half of the two-phase pattern the per-leaf dictionaries already use
+     * ({@code evalStringDict}): the string work runs once per DISTINCT value here, and every row group
+     * afterwards answers each row with one bit test against the id it already stores. Packed ids
+     * evaluate over their zero-copy {@code (backing, offset, length)} slices through the same per-entry
+     * authority the leaf kernels use ({@code ProjectionIndexScan.stringDictEntryMatches}), so op
+     * semantics — including the UTF-16 collation contract for the ordering ops — cannot drift between
+     * the two dictionary tiers. Spilled ids evaluate through their record's own entry points, which
+     * exist so the record's array never escapes.
+     *
+     * <p>
+     * Sequential ids share sub-blocks, so the sweep runs at block-cache speed; the returned bitset is
+     * immutable by convention and safe to share across scan workers.
+     *
+     * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
+     * @param literalUtf8 the literal, UTF-8 encoded
+     * @return the verdict bitset, sized {@code (entryCount + 64) >> 6} words
+     */
+    public long[] stringOpVerdict(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
+      Objects.requireNonNull(op, "op must not be null");
+      Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      switch (op) {
+        case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+        }
+        default -> throw new IllegalArgumentException("not a per-value string op: " + op);
+      }
+      final long[] verdict = newVerdict();
+      fillStringOpVerdict(op, literalUtf8, 0, verdictBucketCount(), verdict, 0);
+      return verdict;
+    }
+
+    /**
+     * An empty verdict bitset for this revision, sized {@code (entryCount + 64) >> 6} words — one bit
+     * per id plus the unused bit zero, which is the size every consumer of a verdict assumes.
+     *
+     * @return a fresh, zeroed bitset
+     */
+    public long[] newVerdict() {
+      return new long[entryCount + 64 >>> 6];
+    }
+
+    /**
+     * Lane {@code lane} of {@code lanes} over this dictionary's buckets — {@link VerdictSlice#forLane}
+     * against {@link #verdictBucketCount()}, so a caller never repeats either number.
+     *
+     * @param lane the lane, {@code 0 <= lane < lanes}
+     * @param lanes number of lanes the sweep is split into, at least one
+     * @return the lane's share
+     */
+    public VerdictSlice verdictSlice(final int lane, final int lanes) {
+      return VerdictSlice.forLane(verdictBucketCount(), lane, lanes);
+    }
+
+    /**
+     * Buckets the reverse dictionary holds — the unit {@link #fillStringOpVerdict} is split on.
+     *
+     * @return bucket count, {@code 0} when the dictionary is empty
+     */
+    public int verdictBucketCount() {
+      return entryCount == 0
+          ? 0
+          : (entryCount - 1 >>> 8) + 1;
+    }
+
+    /**
+     * Fill the verdict bits for buckets {@code [bucketLo, bucketHi)} into {@code out}, whose word
+     * {@code 0} is the global verdict word {@code wordBase}.
+     *
+     * <h2>Why a caller-owned slice and not the shared array</h2>
+     *
+     * Ids are 1-based and bucketed by {@code (id - 1) >>> 8}, so bucket {@code b} owns ids
+     * {@code 256b+1 .. 256b+256} — which occupy verdict words {@code 4b .. 4b+4}, FIVE words, whose
+     * last is also bucket {@code b+1}'s first. Adjacent buckets therefore SHARE a boundary word, and
+     * two lanes OR-ing into it concurrently would lose one another's bits: a silently dropped row at
+     * one id in 256, on a path whose whole job is to decide which rows match. Each lane fills its own
+     * slice and the caller merges; the merge is a linear OR over 4*(bucketHi-bucketLo)+1 words.
+     *
+     * @param op one of {@code EQ}, {@code NE}, {@code STR_LT/LE/GT/GE}, {@code STR_CONTAINS}
+     * @param literalUtf8 the literal, UTF-8 encoded
+     * @param bucketLo first bucket, inclusive
+     * @param bucketHi last bucket, exclusive
+     * @param out destination, at least {@code 4 * (bucketHi - bucketLo) + 1} words
+     * @param wordBase the global verdict word {@code out[0]} stands for, normally {@code 4*bucketLo}
+     * @throws IllegalArgumentException if the range is not within the dictionary
+     */
+    public void fillStringOpVerdict(final ProjectionIndexScan.Op op, final byte[] literalUtf8, final int bucketLo,
+        final int bucketHi, final long[] out, final int wordBase) {
+      Objects.requireNonNull(op, "op must not be null");
+      Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
+      Objects.requireNonNull(out, "out must not be null");
+      switch (op) {
+        case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+        }
+        default -> throw new IllegalArgumentException("not a per-value string op: " + op);
+      }
+      final int buckets = verdictBucketCount();
+      if (bucketLo < 0 || bucketHi > buckets || bucketLo > bucketHi) {
+        throw new IllegalArgumentException(
+            "bucket range [" + bucketLo + ", " + bucketHi + ") outside the dictionary's " + buckets);
+      }
+      if (bucketLo == bucketHi) {
+        return;
+      }
+      final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+      // BLOCK-AT-A-TIME, not id-at-a-time. A per-id walk routes all entryCount values through
+      // sliceSlot, whose direct-mapped slice cache MISSES on every one of them — ascending ids never
+      // repeat a slot — so each value pays a revision check, two cache probes and a bucket search to
+      // reach bytes the block it came from is already holding. Measured on a 275,494-entry URL
+      // dictionary that machinery alone was 16.5 ms of a 25.1 ms sweep. Walking the reverse trie
+      // once and reading each block's packed bytes in place removes it without changing a verdict.
+      for (int bucket = bucketLo; bucket < bucketHi; bucket++) {
+        final ValueDictionaryValueBucketNode bucketNode =
+            GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
+        if (bucketNode == null) {
+          throw new IllegalStateException(
+              "global value dictionary bucket " + bucket + " is missing from revision " + revision);
+        }
+        final int blocks = bucketNode.blockCount();
+        for (int block = 0; block < blocks; block++) {
+          final int blockFirstId = bucketNode.blockFirstId(block);
+          final ValueDictionaryValueBlockNode node = GlobalValueDictionaryRadix.blockNode(bucketNode.blockKey(block),
+              blockFirstId, namePage, databaseType, reader);
+          if (node == null) {
+            throw new IllegalStateException(
+                "global value dictionary block " + blockFirstId + " is missing from " + "revision " + revision);
+          }
+          // Read the packed bytes once; a coded block expanded them when it deserialized, and
+          // re-entering through valueOffset(id) per value would re-check the id's range for nothing.
+          final byte[] bytes = node.rawBytes();
+          final int count = node.size();
+          int start = node.offsetAt(0);
+          for (int index = 0; index < count; index++) {
+            final int end = node.offsetAt(index + 1);
+            if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8,
+                litHasSupplementary)) {
+              final int id = blockFirstId + index;
+              out[(id >>> 6) - wordBase] |= 1L << (id & 63);
+            }
+            start = end;
+          }
+        }
+        // Values too large for a block live beside them, one record each; they are rare by
+        // construction, so they keep the per-record path rather than earning a bulk one.
+        final int spills = bucketNode.spillCount();
+        for (int spill = 0; spill < spills; spill++) {
+          final ValueDictionaryEntryNode entry =
+              GlobalValueDictionaryRadix.spillEntry(bucketNode.spillKeyAt(spill), namePage, databaseType, reader);
+          if (entry == null) {
+            throw new IllegalStateException("global value dictionary spill for id " + bucketNode.spillId(spill)
+                + " is missing from revision " + revision);
+          }
+          if (spillMatches(entry, op, literalUtf8)) {
+            final int id = bucketNode.spillId(spill);
+            out[(id >>> 6) - wordBase] |= 1L << (id & 63);
+          }
+        }
+      }
+    }
+
+    /**
+     * Op dispatch for a SPILLED value, through the record's no-escape entry points. Semantics mirror
+     * {@code stringDictEntryMatches} arm for arm; ordering uses {@code compareToRange}, which is UTF-16
+     * collation unconditionally — the same order the byte-path arm reaches via its
+     * supplementary-character fallback.
+     */
+    private static boolean spillMatches(final ValueDictionaryEntryNode spill, final ProjectionIndexScan.Op op,
+        final byte[] literalUtf8) {
+      return switch (op) {
+        case EQ -> spill.valueEquals(literalUtf8, 0, literalUtf8.length);
+        case NE -> !spill.valueEquals(literalUtf8, 0, literalUtf8.length);
+        case STR_CONTAINS -> spill.containsNeedle(literalUtf8, 0, literalUtf8.length);
+        case STR_LT -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) < 0;
+        case STR_LE -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) <= 0;
+        case STR_GT -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) > 0;
+        case STR_GE -> spill.compareToRange(literalUtf8, 0, literalUtf8.length) >= 0;
+        default -> throw new IllegalStateException("not a per-value string op: " + op);
+      };
+    }
+
+    /** Compare two ids under the query engine's UTF-16 string collation without materialisation. */
+    public int compareIds(final int leftId, final int rightId) {
+      if (leftId == rightId) {
+        return 0;
+      }
+      if (fullyOrdered) {
+        // Rank-ordered dictionary: id order IS collation order (W17's witnessed identity), so the
+        // comparison needs no slice resolution — the difference between an integer compare and two
+        // RANDOM block loads per row (measured: pass-2 string extrema over a global operand were
+        // ~54 s of q28's 60 s at 100M, dictionary 10× the record cache).
+        return Integer.compare(leftId, rightId);
+      }
+      // Both slices are resolved BEFORE either is read: the two ids may share a cache slot, and
+      // reading through a slot the second resolution has already overwritten would compare the wrong
+      // value. Copying the left operand out would fix that too — and reintroduce the per-compare
+      // allocation this path exists to remove — so the left triple is lifted into locals instead.
+      final int leftSlot = sliceSlot(leftId);
+      final byte[] leftBacking = cachedBacking[leftSlot];
+      final int leftOffset = cachedOffsets[leftSlot];
+      final int leftLength = cachedLengths[leftSlot];
+      final ValueDictionaryEntryNode leftSpill = cachedSpills[leftSlot];
+      final int rightSlot = sliceSlot(rightId);
+      final byte[] rightBacking = cachedBacking[rightSlot];
+      final ValueDictionaryEntryNode rightSpill = cachedSpills[rightSlot];
+      if (leftSpill == null) {
+        return rightSpill == null
+            ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength, rightBacking,
+                cachedOffsets[rightSlot], cachedLengths[rightSlot])
+            : -rightSpill.compareToRange(leftBacking, leftOffset, leftLength);
+      }
+      return rightSpill == null
+          ? leftSpill.compareToRange(rightBacking, cachedOffsets[rightSlot], cachedLengths[rightSlot])
+          : leftSpill.compareValueUtf16(rightSpill);
+    }
+
+    /**
+     * Compare the value behind {@code id} to a caller-owned byte range, under the same collation.
+     *
+     * <p>
+     * The binary-search probe's inner loop. It exists so that searching an ordered prefix reuses this
+     * view's caches — the bucket, the decoded block and the resolved slice — instead of walking the
+     * reverse radix and decoding a 33 KB block from scratch for every one of its ~18 steps, which is
+     * what the stateless per-id read does and what made the search 39x the hash probe when measured.
+     * Allocation-free by the same construction as {@link #compareIds}.
+     * </p>
+     *
+     * @return negative, zero or positive as the stored value orders before, with, or after the range
+     */
+    public int compareIdToValue(final int id, final byte[] utf8, final int offset, final int length) {
+      final int slot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+      return spill == null
+          ? ValueDictionaryEntryNode.compareUtf16Range(cachedBacking[slot], cachedOffsets[slot], cachedLengths[slot],
+              utf8, offset, length)
+          : spill.compareToRange(utf8, offset, length);
+    }
+
+    /**
+     * The id range that can hold {@code utf8}, narrowed by the separator array when there is one.
+     *
+     * <p>
+     * Returns {@code (low << 32) | high} packed, because this is on the probe path and a record here
+     * would allocate per probe. Without a separator array the range is the whole ordered prefix, which
+     * is correct and merely slower — the array is an accelerator, never a source of truth.
+     * </p>
+     */
+    long candidateIdRange(final byte[] utf8, final int offset, final int length, final int boundary) {
+      if (!blockIndexLoaded) {
+        blockIndexLoaded = true;
+        if (blockIndexKey != 0L) {
+          final DataRecord record = namePage.getProjectionValueDictionaryRecord(blockIndexKey, databaseType, reader);
+          if (record instanceof ValueDictionaryBlockIndexNode index) {
+            blockIndex = index;
+          }
+        }
+      }
+      final ValueDictionaryBlockIndexNode index = blockIndex;
+      if (index == null) {
+        return ((long) 1 << 32) | (boundary & 0xFFFFFFFFL);
+      }
+      final int block = index.blockOf(utf8, offset, length);
+      final int low = index.firstId(block);
+      final int high = block + 1 < index.size()
+          ? Math.min(index.firstId(block + 1) - 1, boundary)
+          : boundary;
+      return ((long) low << 32) | (high & 0xFFFFFFFFL);
+    }
+
+    /** Allocation-free {@code xs:integer(substring(value, start, length))}. */
+    public long xsIntegerOfSubstring(final int id, final int start, final int length) {
+      return transformed(id, start, length, (byte) 1);
+    }
+
+    /** Allocation-free order-preserving pack of a 16-byte ISO-minute substring. */
+    public long packIsoMinuteSubstring(final int id, final int start, final int length) {
+      return transformed(id, start, length, (byte) 2);
+    }
+
+    /** Materialise a validated ISO-minute substring for one emitted winner. */
+    public String materializeIsoMinuteSubstring(final int id, final int start, final int length) {
+      // The ONE place a value becomes a String: an emitted winner. Validated on exactly the terms
+      // packIsoMinuteSubstring uses, so an inadmissible substring is refused here as it is there.
+      final int slot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[slot];
+      if (spill != null) {
+        return spill.materializeAsciiSubstring(start, length);
+      }
+      final byte[] backing = cachedBacking[slot];
+      final int offset = cachedOffsets[slot];
+      final int valueLength = cachedLengths[slot];
+      if (ProjectionIndexByteScan.packIsoMinuteSubstring(backing, offset, valueLength, start,
+          length) == Long.MIN_VALUE) {
+        throw new IllegalArgumentException("dictionary value is not an admissible ISO-minute substring");
+      }
+      return new String(backing, offset + start - 1, length, StandardCharsets.US_ASCII);
+    }
+
+    /**
+     * Resolve {@code id} to a cache slot holding its slice, returning the slot index.
+     *
+     * <p>
+     * A packed id yields the sub-block's own backing array with an offset and length — nothing is
+     * copied and no record wrapper is built. A spilled id yields its entry record's bytes, which the
+     * record already owns. Either way the cached triple is a VIEW, never a copy.
+     */
+    private int sliceSlot(final int id) {
+      ensureRevision();
+      if (id < 1 || id > entryCount) {
+        throw new IllegalStateException(
+            "global value dictionary id " + id + " is outside revision " + revision + " cardinality " + entryCount);
+      }
+      final int slot = id & (READ_VIEW_CACHE_SIZE - 1);
+      if (cachedIds[slot] == id && (cachedBacking[slot] != null || cachedSpills[slot] != null)) {
+        return slot;
+      }
+      final int bucket = (id - 1) >>> 8;
+      final int bucketSlot = bucket & (READ_VIEW_BUCKET_SLOTS - 1);
+      // Allocated on first MISS, not in the constructor. A view is built per worker and there are
+      // many readView call sites per execution, so eager tables were 1.5-3 MB of garbage per
+      // execution when the budget sized them large -- paid even by the queries that never resolve a
+      // slice. One predictable branch on a path that fetches a record anyway costs nothing.
+      if (cachedBuckets == null) {
+        cachedBuckets = new int[READ_VIEW_BUCKET_SLOTS];
+        Arrays.fill(cachedBuckets, -1);
+        cachedBucketNodes = new ValueDictionaryValueBucketNode[READ_VIEW_BUCKET_SLOTS];
+      }
+      ValueDictionaryValueBucketNode bucketNode = cachedBuckets[bucketSlot] == bucket
+          ? cachedBucketNodes[bucketSlot]
+          : null;
+      if (bucketNode == null) {
+        bucketNode = GlobalValueDictionaryRadix.valueBucketOf(reverseRootKey, bucket, namePage, databaseType, reader);
+        if (bucketNode == null) {
+          throw new IllegalStateException("global value dictionary id " + id + " is missing from revision " + revision);
+        }
+        cachedBucketNodes[bucketSlot] = bucketNode;
+        cachedBuckets[bucketSlot] = bucket;
+      }
+      final long blockKey = bucketNode.blockKeyCovering(id);
+      if (blockKey != 0L) {
+        final int blockSlot = (int) (blockKey ^ blockKey >>> 32) & (READ_VIEW_BLOCK_SLOTS - 1);
+        if (cachedBlockKeys == null) {
+          cachedBlockKeys = new long[READ_VIEW_BLOCK_SLOTS];
+          cachedBlocks = new ValueDictionaryValueBlockNode[READ_VIEW_BLOCK_SLOTS];
+        }
+        ValueDictionaryValueBlockNode block = cachedBlockKeys[blockSlot] == blockKey
+            ? cachedBlocks[blockSlot]
+            : null;
+        if (block == null) {
+          block = GlobalValueDictionaryRadix.blockNode(blockKey, id, namePage, databaseType, reader);
+          cachedBlocks[blockSlot] = block;
+          cachedBlockKeys[blockSlot] = blockKey;
+        }
+        cachedBacking[slot] = block.rawBytes();
+        cachedOffsets[slot] = block.valueOffset(id);
+        cachedLengths[slot] = block.valueLength(id);
+        cachedSpills[slot] = null;
+      } else {
+        final long spillKey = bucketNode.spillKeyCovering(id);
+        if (spillKey == 0L) {
+          throw new IllegalStateException("global value dictionary id " + id + " is missing from revision " + revision);
+        }
+        cachedSpills[slot] = GlobalValueDictionaryRadix.spillEntry(spillKey, namePage, databaseType, reader);
+        cachedBacking[slot] = null;
+      }
+      cachedIds[slot] = id;
+      return slot;
+    }
+
+    private long transformed(final int id, final int start, final int length, final byte mode) {
+      ensureRevision();
+      if (transformedIds == null) {
+        transformedIds = new int[READ_VIEW_CACHE_SIZE];
+        transformedStarts = new int[READ_VIEW_CACHE_SIZE];
+        transformedLengths = new int[READ_VIEW_CACHE_SIZE];
+        transformedModes = new byte[READ_VIEW_CACHE_SIZE];
+        transformedValues = new long[READ_VIEW_CACHE_SIZE];
+      }
+      final int slot = (id * 31 + start * 17 + length * 7 + mode) & (READ_VIEW_CACHE_SIZE - 1);
+      if (transformedIds[slot] == id && transformedStarts[slot] == start && transformedLengths[slot] == length
+          && transformedModes[slot] == mode) {
+        return transformedValues[slot];
+      }
+      final int valueSlot = sliceSlot(id);
+      final ValueDictionaryEntryNode spill = cachedSpills[valueSlot];
+      // Packed values use the SAME range functions the column kernels use, so validation — including
+      // start < 1 and a negative length — is identical on both paths by construction rather than by
+      // agreement. A spilled value transforms through its own record for the same reason it compares
+      // through it: a record owns its bytes and does not hand them out.
+      final long transformed;
+      if (spill != null) {
+        transformed = mode == 1
+            ? spill.xsIntegerOfSubstring(start, length)
+            : spill.packIsoMinuteSubstring(start, length);
+      } else {
+        final byte[] backing = cachedBacking[valueSlot];
+        final int offset = cachedOffsets[valueSlot];
+        final int valueLength = cachedLengths[valueSlot];
+        transformed = mode == 1
+            ? ProjectionIndexByteScan.xsIntegerOfSubstring(backing, offset, valueLength, start, length)
+            : ProjectionIndexByteScan.packIsoMinuteSubstring(backing, offset, valueLength, start, length);
+      }
+      transformedIds[slot] = id;
+      transformedStarts[slot] = start;
+      transformedLengths[slot] = length;
+      transformedModes[slot] = mode;
+      transformedValues[slot] = transformed;
+      return transformed;
+    }
+
+    private void ensureRevision() {
+      final int actualRevision = reader.getRevisionNumber();
+      if (actualRevision != revision) {
+        throw new IllegalStateException("global value dictionary read view for revision " + revision
+            + " cannot serve reader revision " + actualRevision);
+      }
+    }
+  }
+
+  /** Blocks the warmer has decoded into the record cache; the engagement witness. */
+  private static final AtomicLong WARMED_BLOCKS = new AtomicLong();
+
+  /**
+   * Blocks STILL RESIDENT when their warm pass finished — the number that says what warming bought.
+   *
+   * <p>
+   * Separate from {@link #WARMED_BLOCKS} because they answer different questions and only the second
+   * can see eviction: a pass that warms 96,000 blocks and evicts 60,000 of them reports an identical
+   * warmed count to one that keeps every block. At a cardinality that fits they are equal; at one
+   * that does not, the gap between them IS the finding.
+   * </p>
+   */
+  private static final AtomicLong RESIDENT_BLOCKS = new AtomicLong();
+
+  /**
+   * @return blocks warmed into the record cache since JVM start; {@code 0} means the warmer never
+   *         ran.
+   */
+  public static long warmedBlockCount() {
+    return WARMED_BLOCKS.get();
+  }
+
+  /**
+   * @return warmed blocks still resident when their pass ended; below {@link #warmedBlockCount()}
+   *         means churn.
+   */
+  public static long residentBlockCount() {
+    return RESIDENT_BLOCKS.get();
+  }
+
+  /**
+   * Decodes a dictionary's value blocks into the buffer manager's record cache, ahead of the query
+   * that would otherwise pay for them.
+   *
+   * <p>
+   * <b>Why this exists.</b> A first verdict build over a 275,494-entry dictionary measured 142 ms, of
+   * which 123 ms was first touch — 84 ms fetching and deserializing 1,085 block records and 39 ms
+   * decoding and front-expanding them — against 19 ms of steady-state work once they are resident.
+   * Every later execution pays the 19 ms. This moves the 123 ms off the query that happens to be
+   * first. A prefetch of the pages alone would move only the 84 ms; a warmer has to fetch in order to
+   * decode, so it moves both.
+   * </p>
+   *
+   * <p>
+   * <b>It caches values, never accessors.</b> Nothing here is retained: the walk touches records
+   * through {@code NamePage}, which populates the record cache with decoded, immutable block records,
+   * and the reader this runs on belongs to the caller. No {@link ReadView} is held, so no transaction
+   * is pinned past its own lifetime.
+   * </p>
+   *
+   * <p>
+   * <b>Partial warmth is partial benefit, never wrongness.</b> The walk stops when it has warmed
+   * {@code budgetBytes}, so a dictionary larger than the record cache warms its low ids and leaves
+   * the rest; a query reaching an unwarmed block decodes it through the path that already exists.
+   * Racing is safe for the same reason — a query arriving mid-warm finds some blocks resident and
+   * fetches the others. A failure is swallowed for the same reason: warming is an optimisation, and a
+   * resource that closed underneath a background walk must not turn into a query error.
+   * </p>
+   *
+   * @param headerNodeKey the dictionary's header key
+   * @param reader a reader the CALLER owns and outlives this call
+   * @param budgetBytes decoded bytes to stop after
+   * @return blocks warmed, or {@code 0} if the dictionary was unreadable
+   */
+  public static long warmDictionaryBlocks(final long headerNodeKey, final StorageEngineReader reader,
+      final long budgetBytes) {
+    Objects.requireNonNull(reader, "reader must not be null");
+    // ONCE per (database, resource, revision, dictionary), claimed through the BUFFER MANAGER. The
+    // caller cannot dedupe this itself: the engine builds an executor per EXECUTION, so an
+    // executor-scoped guard let the walk repeat once per query — 43 times over a 43-query leg, each
+    // repeat also opening and closing a read-only transaction, which showed up as a stable cold
+    // regression on the earliest query. The marker belongs beside the caches it describes rather
+    // than in a static, so a resource deleted and recreated with the same ids has its marker swept
+    // with its data; a surviving marker would report "already warm" over an empty cache and disable
+    // the warmer for the life of the process.
+    final GlobalDictionaryRecordCacheKey warmKey = new GlobalDictionaryRecordCacheKey(reader.getDatabaseId(),
+        reader.getResourceId(), reader.getRevisionNumber(), headerNodeKey);
+    final Cache<GlobalDictionaryRecordCacheKey, Boolean> markers =
+        reader.getBufferManager().getGlobalDictionaryWarmMarkers();
+    if (markers.get(warmKey) != null) {
+      return 0L;
+    }
+    // Claimed on the interface rather than through a concrete putIfAbsent, so a no-op buffer manager
+    // stays a no-op. The window between the check and the put lets two callers walk the same
+    // dictionary at once, which is idempotent — both decode the same immutable blocks into the same
+    // keys — and costs one redundant walk in a race that only the first query per resource can hit.
+    markers.put(warmKey, Boolean.TRUE);
+    final ReadView view = readView(headerNodeKey, reader);
+    if (view == null || view.entryCount() <= 0) {
+      return 0L;
+    }
+    long warmed = 0L;
+    long bytes = 0L;
+    final LongArrayList warmedKeys = new LongArrayList();
+    final int bucketCount = (view.entryCount() - 1 >>> 8) + 1;
+    try {
+      for (int bucket = 0; bucket < bucketCount && bytes < budgetBytes; bucket++) {
+        final ValueDictionaryValueBucketNode bucketNode = GlobalValueDictionaryRadix.valueBucketOf(view.reverseRootKey,
+            bucket, view.namePage, view.databaseType, reader);
+        if (bucketNode == null) {
+          break;
+        }
+        final int blocks = bucketNode.blockCount();
+        for (int block = 0; block < blocks && bytes < budgetBytes; block++) {
+          final ValueDictionaryValueBlockNode node = GlobalValueDictionaryRadix.blockNode(bucketNode.blockKey(block),
+              bucketNode.blockFirstId(block), view.namePage, view.databaseType, reader);
+          if (node == null) {
+            continue;
+          }
+          bytes += node.rawBytes().length;
+          warmedKeys.add(bucketNode.blockKey(block));
+          warmed++;
+        }
+      }
+    } catch (final RuntimeException swallowed) {
+      // Best effort by contract: whatever was warmed stays warm and the query path is unaffected.
+      // A resource closing under a background walk must never surface as a query error.
+    }
+    WARMED_BLOCKS.addAndGet(warmed);
+    // What SURVIVED the pass. Re-reading each key is a cache lookup, so this costs a walk of the
+    // keys and no I/O; the gap against `warmed` is the eviction the warmed count cannot see.
+    final Cache<GlobalDictionaryRecordCacheKey, DataRecord> records =
+        reader.getBufferManager().getGlobalDictionaryRecordCache();
+    long resident = 0L;
+    for (int i = 0; i < warmedKeys.size(); i++) {
+      if (records.get(new GlobalDictionaryRecordCacheKey(reader.getDatabaseId(), reader.getResourceId(),
+          reader.getRevisionNumber(), warmedKeys.getLong(i))) != null) {
+        resident++;
+      }
+    }
+    RESIDENT_BLOCKS.addAndGet(resident);
+    return warmed;
   }
 
   public static long maximumKeysToReserve(final int entryCount) {
@@ -301,14 +1325,161 @@ public final class GlobalValueDictionary {
     if (header == null || !header.isDirectoryComplete()) {
       return ID_UNKNOWN;
     }
+    if (header.getEntryCount() == 0) {
+      // A COMPLETE directory with zero entries provably holds nothing — absence is an answer, not
+      // ignorance. Without this the empty dictionary fell past the prefix search (no boundary) to
+      // the forward-index check and answered UNKNOWN for want of an index it can never need.
+      return ID_ABSENT;
+    }
     final DatabaseType databaseType = databaseTypeOf(reader);
     final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
+    // The ordered prefix is probed by BINARY SEARCH over the reverse index, which is sorted by value
+    // because its ids were minted in collation order. That is what lets a rank-ordered dictionary
+    // carry no forward hash index at all. A dictionary with an unordered tail must try BOTH: the
+    // value may be in either half, and answering ABSENT after searching only the prefix would be a
+    // wrong answer, not a slow one.
+    final int boundary = header.getOrderedPrefixCount();
+    if (boundary > 0) {
+      // ONE view for the whole search: its bucket, block and slice caches are what make the ~18
+      // steps cost far less than 18 independent reads, and they are useless if a view is built per
+      // step. A caller that interns many values should hold a view across them for the same reason.
+      final ReadView view = readView(headerNodeKey, reader);
+      if (view == null) {
+        return ID_UNKNOWN;
+      }
+      final int ordered = searchOrderedPrefix(view, boundary, utf8, offset, length);
+      if (ordered != ID_ABSENT) {
+        return ordered;
+      }
+      if (header.isFullyOrdered()) {
+        return ID_ABSENT;
+      }
+    }
+    if (header.getForwardRootKey() == 0) {
+      // Only a fully ordered dictionary may omit the forward index, and that case returned above.
+      return ID_UNKNOWN;
+    }
     final long wanted = valueHash(utf8, offset, length);
     final long secondary = secondaryValueHash(utf8, offset, length);
     final GlobalValueDictionaryRadix.ProbeResult result =
         GlobalValueDictionaryRadix.probe(header.getForwardRootKey(), header.getReverseRootKey(), header.getEntryCount(),
             wanted, secondary, utf8, offset, length, namePage, databaseType, reader);
     return recordProbeResult(result.id(), result.units());
+  }
+
+  /**
+   * Builds the separator array over a fully ordered dictionary and returns its record key.
+   *
+   * <p>
+   * Partitions on REVERSE BUCKET boundaries (256 ids), not on block boundaries. The two are nearly
+   * the same partition, and the bucket one is total by construction — a bucket covers its ids whether
+   * they are packed in blocks or spilled to their own records, so the search's within-range step
+   * handles a spilled value with no special case.
+   * </p>
+   *
+   * @return the record key of the separator array, or 0 when the dictionary is too small to index
+   */
+  public static long buildBlockIndex(final long headerNodeKey, final NamePage namePage, final DatabaseType databaseType,
+      final StorageEngineWriter writer, final TransactionIntentLog log) {
+    final ValueDictionaryHeaderNode header = header(headerNodeKey, writer);
+    if (header == null || !header.isFullyOrdered() || header.getEntryCount() <= VALUES_PER_INDEXED_RANGE) {
+      return 0L;
+    }
+    final int entryCount = header.getEntryCount();
+    final int ranges = (entryCount + VALUES_PER_INDEXED_RANGE - 1) / VALUES_PER_INDEXED_RANGE;
+    final int[] firstIds = new int[ranges];
+    final int[] offsets = new int[ranges + 1];
+    final byte[][] separators = new byte[ranges][];
+    int totalSeparatorBytes = 0;
+    for (int i = 0; i < ranges; i++) {
+      final int firstId = i * VALUES_PER_INDEXED_RANGE + 1;
+      firstIds[i] = firstId;
+      if (i == 0) {
+        separators[i] = EMPTY_SEPARATOR;
+      } else {
+        final byte[] previous = valueBytes(headerNodeKey, firstId - 1, writer);
+        final byte[] next = valueBytes(headerNodeKey, firstId, writer);
+        if (previous == null || next == null) {
+          throw new IllegalStateException("the dictionary lost id " + firstId + " while its index was being built");
+        }
+        separators[i] = shortestSeparator(previous, next);
+      }
+      totalSeparatorBytes = Math.addExact(totalSeparatorBytes, separators[i].length);
+      offsets[i + 1] = totalSeparatorBytes;
+    }
+    final byte[] packed = new byte[totalSeparatorBytes];
+    for (int i = 0; i < ranges; i++) {
+      System.arraycopy(separators[i], 0, packed, offsets[i], separators[i].length);
+    }
+    final long indexKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
+    namePage.putProjectionValueDictionaryRecord(
+        ValueDictionaryBlockIndexNode.takeOwnership(indexKey, firstIds, packed, offsets), databaseType, writer, log);
+    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(header.getNodeKey(),
+        ValueDictionaryHeaderNode.VERSION, entryCount, header.getForwardRootKey(), header.getReverseRootKey(),
+        header.getGeneration(), header.getOrderedPrefixCount(), indexKey), databaseType, writer, log);
+    return indexKey;
+  }
+
+  /**
+   * The shortest prefix of {@code next} that still orders after {@code previous}.
+   *
+   * <p>
+   * Cut at a UTF-8 code-point boundary, because a prefix that splits a character is not a value the
+   * collation can compare, and VERIFIED against the comparator before it is used — if the short form
+   * does not separate, the whole value is stored. A separator array is an accelerator, so it may be
+   * larger than necessary but must never be wrong.
+   * </p>
+   */
+  static byte[] shortestSeparator(final byte[] previous, final byte[] next) {
+    int common = 0;
+    final int limit = Math.min(previous.length, next.length);
+    while (common < limit && previous[common] == next[common]) {
+      common++;
+    }
+    int cut = Math.min(common + 1, next.length);
+    while (cut < next.length && (next[cut] & 0xC0) == 0x80) {
+      cut++;
+    }
+    final byte[] candidate = Arrays.copyOf(next, cut);
+    return ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, candidate, 0, candidate.length) < 0
+        ? candidate
+        : next.clone();
+  }
+
+  /**
+   * Binary search for {@code utf8} over ids {@code 1..boundary}, which are in collation order.
+   *
+   * <p>
+   * The comparator MUST be {@link ValueDictionaryEntryNode#compareUtf16Range} and not unsigned byte
+   * order: the two differ for supplementary characters, which sort after U+E000..U+FFFF in UTF-8
+   * bytes but before them in UTF-16. The rank pass sorts with a byte substitution that is provably
+   * equivalent to this comparator, so searching with anything else would look up a value in an order
+   * it was not stored in and answer ABSENT for a value that is present.
+   * </p>
+   *
+   * @return the id, or {@link #ID_ABSENT} when the prefix provably does not hold the value, or
+   *         {@link #ID_UNKNOWN} when a value could not be read
+   */
+  private static int searchOrderedPrefix(final ReadView view, final int boundary, final byte[] utf8, final int offset,
+      final int length) {
+    // The separator array narrows the search to ONE block before a single value is read; without it
+    // the range is the whole prefix and every step decodes a different block.
+    final long range = view.candidateIdRange(utf8, offset, length, boundary);
+    int low = (int) (range >>> 32);
+    int high = (int) range;
+    while (low <= high) {
+      final int mid = (low + high) >>> 1;
+      final int comparison = view.compareIdToValue(mid, utf8, offset, length);
+      if (comparison == 0) {
+        return mid;
+      }
+      if (comparison < 0) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return ID_ABSENT;
   }
 
   private static int recordProbeResult(final int result, final int probeUnits) {

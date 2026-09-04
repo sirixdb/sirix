@@ -208,6 +208,34 @@ public final class OverflowPage implements Page {
     }
   }
 
+  /**
+   * The payload as a segment the page serializer's codecs can read IN PLACE, paired with
+   * {@link #payloadOffsetForSerializer()}.
+   *
+   * <p>
+   * Package-private and named for its one caller on purpose. {@link #getData()} deliberately refuses
+   * to hand a view into the reusable native reservoir to general callers, and that refusal stands —
+   * it copies instead. The serializer is the exception it already makes for {@link #writeDataTo}: it
+   * runs inside the append batch that owns the reservoir, so it may read the bounded view directly,
+   * and compressing through a heap copy would reintroduce exactly the promoted garbage the native
+   * staging path exists to remove.
+   * </p>
+   */
+  MemorySegment payloadSegmentForSerializer() {
+    if (heapData != null) {
+      return MemorySegment.ofArray(heapData);
+    }
+    ensureNativeViewOpen();
+    return nativeData;
+  }
+
+  /** First byte of this payload inside {@link #payloadSegmentForSerializer()}. */
+  long payloadOffsetForSerializer() {
+    return heapData != null
+        ? 0L
+        : nativeOffset;
+  }
+
   private void ensureNativeViewOpen() {
     if (closed) {
       throw new IllegalStateException("staged native overflow page is no longer owned by its append batch");

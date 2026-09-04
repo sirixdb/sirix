@@ -45,7 +45,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     ProjectionIndexBuilder.emitBorrowedSample(sample, dictionaries, page -> {
       final int index = callbackIndex[0]++;
       assertSame(sample.get(index), page, "the drain must borrow the exact converted sample page in order");
-      direct[index] = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(page, directWorkspace);
+      direct[index] = ProjectionIndexColumnSegmentCodec.encode(page, directWorkspace);
     });
     assertEquals(SAMPLE_LEAVES, callbackIndex[0]);
 
@@ -60,7 +60,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     for (int i = 0; i < SAMPLE_LEAVES; i++) {
       assertArrayEquals(sample.get(i).serialize(), rawPayloads.get(i), "raw adapter reordered sample page " + i);
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup viaRaw =
-          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(rawPayloads.get(i), rawWorkspace);
+          ProjectionIndexColumnSegmentCodec.encode(rawPayloads.get(i), rawWorkspace);
       assertEncodedEquals(direct[i], viaRaw, i);
     }
   }
@@ -210,7 +210,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
         ProjectionIndexBuilder.emitBorrowedLeafForReuse(page, dictionaries, borrowed -> {
           assertSame(page, borrowed);
           assertArrayEquals(expectedLarge.serialize(), borrowed.serialize());
-          emitted[0] = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(borrowed, workspace);
+          emitted[0] = ProjectionIndexColumnSegmentCodec.encode(borrowed, workspace);
         });
     assertSame(page, afterFirst);
     assertEquals(0, page.getRowCount());
@@ -223,7 +223,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
           assertSame(page, borrowed);
           assertArrayEquals(expectedSmall.serialize(), borrowed.serialize(),
               "short RAW leaf must not expose dirty FSST-generation tails");
-          emitted[1] = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(borrowed, workspace);
+          emitted[1] = ProjectionIndexColumnSegmentCodec.encode(borrowed, workspace);
         });
     assertSame(page, afterSecond);
 
@@ -233,7 +233,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
           assertSame(page, borrowed);
           assertArrayEquals(expectedLarge.serialize(), borrowed.serialize(),
               "A/B/A reuse must restore the original wire representation exactly");
-          emitted[2] = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(borrowed, workspace);
+          emitted[2] = ProjectionIndexColumnSegmentCodec.encode(borrowed, workspace);
         });
     assertSame(page, afterThird);
     assertEquals(0, afterThird.getRowCount());

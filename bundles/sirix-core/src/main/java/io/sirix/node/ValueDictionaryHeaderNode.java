@@ -53,6 +53,31 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   private final int generation;
 
   /**
+   * Ids {@code 1..orderedPrefixCount} are in UTF-16 collation order of their VALUES; ids above it are
+   * in append (first-intern) order.
+   *
+   * <p>
+   * Zero for every dictionary the streaming mint built, which is semantically correct rather than
+   * merely safe: those ids are in intern order and their ordered prefix is genuinely empty. It is
+   * never decreased by an append — an append raises {@link #entryCount} only — and is set to
+   * {@code entryCount} exactly once, by the rank pass, in the transaction that wrote the ranked run.
+   * Every reader that needs ORDER must test {@code orderedPrefixCount == entryCount}, never
+   * {@code > 0}: a single maintenance append leaves a sorted prefix with an unsorted tail, and an arm
+   * that only checked for non-zero would emit that tail in the wrong place.
+   * </p>
+   */
+  private final int orderedPrefixCount;
+
+  /**
+   * Record key of the {@link ValueDictionaryBlockIndexNode} over the ordered prefix, or 0 when there
+   * is none. Purely an accelerator: a probe without it is slower, never wrong.
+   */
+  private final long blockIndexKey;
+
+  /** {@code false} for an {@link #unknownLayout(long, int)} carrier this build cannot interpret. */
+  private final boolean currentLayout;
+
+  /**
    * Constructor.
    *
    * @param nodeKey the node key, which is the namespace base (local key 0)
@@ -65,9 +90,44 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
    */
   public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
       final long forwardRootKey, final long reverseRootKey, final int generation) {
+    this(nodeKey, version, entryCount, forwardRootKey, reverseRootKey, generation, 0);
+  }
+
+  /**
+   * Constructor carrying the ordered-prefix boundary.
+   *
+   * @param orderedPrefixCount how many ids from 1 are in collation order of their values
+   * @throws IllegalArgumentException if any count is negative, if the boundary exceeds
+   *         {@code entryCount}, or if a live dictionary has no reverse root
+   */
+  public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
+      final long forwardRootKey, final long reverseRootKey, final int generation, final int orderedPrefixCount) {
+    this(nodeKey, version, entryCount, forwardRootKey, reverseRootKey, generation, orderedPrefixCount, 0L);
+  }
+
+  /**
+   * Constructor carrying the block index key.
+   *
+   * @param blockIndexKey record key of the separator array, or 0
+   */
+  public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
+      final long forwardRootKey, final long reverseRootKey, final int generation, final int orderedPrefixCount,
+      final long blockIndexKey) {
     if (nodeKey <= 0 || version != VERSION || entryCount < 0 || forwardRootKey < 0 || reverseRootKey < 0
-        || generation < 0 || (entryCount == 0) != (forwardRootKey == 0 && reverseRootKey == 0)) {
+        || generation < 0 || orderedPrefixCount < 0 || orderedPrefixCount > entryCount || blockIndexKey < 0) {
       throw new IllegalArgumentException("invalid value dictionary header");
+    }
+    // The reverse root is what makes a dictionary readable at all, so it keeps the old biconditional.
+    if ((entryCount == 0) != (reverseRootKey == 0)) {
+      throw new IllegalArgumentException("invalid value dictionary header");
+    }
+    // RELAXED for the rank pass (design §3.3.2): a FULLY ordered dictionary needs no forward hash
+    // index, because "which id holds this value" is a binary search over a reverse index that is
+    // already sorted by value. A zero forward root is therefore legal exactly when the whole
+    // dictionary is ordered; anywhere else it means a directory that cannot be probed at all.
+    if (forwardRootKey == 0 && entryCount != 0 && orderedPrefixCount != entryCount) {
+      throw new IllegalArgumentException("value dictionary header has no forward index but only " + orderedPrefixCount
+          + " of " + entryCount + " ids are ordered");
     }
     this.nodeKey = nodeKey;
     this.version = version;
@@ -75,6 +135,44 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     this.forwardRootKey = forwardRootKey;
     this.reverseRootKey = reverseRootKey;
     this.generation = generation;
+    this.orderedPrefixCount = orderedPrefixCount;
+    this.blockIndexKey = blockIndexKey;
+    this.currentLayout = true;
+  }
+
+  private ValueDictionaryHeaderNode(final long nodeKey, final int version) {
+    this.nodeKey = nodeKey;
+    this.version = version;
+    this.entryCount = 0;
+    this.forwardRootKey = 0;
+    this.reverseRootKey = 0;
+    this.generation = 0;
+    this.orderedPrefixCount = 0;
+    this.blockIndexKey = 0L;
+    this.currentLayout = false;
+  }
+
+  /**
+   * A header whose serialized layout version this build cannot interpret. Only the version is carried
+   * — the payload behind it is unreadable by definition. Every consumer declines it
+   * ({@code GlobalValueDictionary#header} answers {@code null}), and re-serializing it is refused so
+   * a newer build's data is never overwritten with a lossy reconstruction.
+   *
+   * @throws IllegalArgumentException for a negative version — that is corruption, not a future
+   *         layout, and corruption stays loud
+   */
+  public static ValueDictionaryHeaderNode unknownLayout(final long nodeKey, final int version) {
+    if (nodeKey <= 0 || version < 0 || version == VERSION) {
+      throw new IllegalArgumentException("not an unknown-layout value dictionary header: version " + version);
+    }
+    return new ValueDictionaryHeaderNode(nodeKey, version);
+  }
+
+  /**
+   * Whether this build can interpret the header's layout ({@link #getVersion()} == {@link #VERSION}).
+   */
+  public boolean isCurrentLayout() {
+    return currentLayout;
   }
 
   @Override
@@ -102,11 +200,37 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     return generation;
   }
 
-  /** Whether a forward probe may report "absent" rather than declining. */
+  /** Record key of the block separator array, or 0 when the dictionary carries none. */
+  public long getBlockIndexKey() {
+    return blockIndexKey;
+  }
+
+  /** Ids {@code 1..this} are in collation order of their values; see the field's contract. */
+  public int getOrderedPrefixCount() {
+    return orderedPrefixCount;
+  }
+
+  /**
+   * Whether every live id is in collation order — the ONE test an ordering arm may make.
+   *
+   * <p>
+   * Deliberately not {@code getOrderedPrefixCount() > 0}: after a single maintenance append the
+   * prefix is still sorted but the dictionary is not, and an arm that took a non-empty prefix as
+   * permission to compare ids would place the appended tail wrong.
+   * </p>
+   */
+  public boolean isFullyOrdered() {
+    return orderedPrefixCount == entryCount;
+  }
+
+  /** Whether a probe may report "absent" rather than declining. */
   public boolean isDirectoryComplete() {
-    return entryCount == 0
-        ? forwardRootKey == 0 && reverseRootKey == 0
-        : forwardRootKey > 0 && reverseRootKey > 0;
+    if (entryCount == 0) {
+      return forwardRootKey == 0 && reverseRootKey == 0;
+    }
+    // A fully ordered dictionary is probed by binary search over the reverse index, so it is
+    // complete without a forward root; a partly ordered one needs the forward index for its tail.
+    return reverseRootKey > 0 && (forwardRootKey > 0 || isFullyOrdered());
   }
 
   @Override
@@ -120,14 +244,17 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     result = 31 * result + entryCount;
     result = 31 * result + Long.hashCode(forwardRootKey);
     result = 31 * result + Long.hashCode(reverseRootKey);
-    return 31 * result + generation;
+    result = 31 * result + generation;
+    result = 31 * result + orderedPrefixCount;
+    return 31 * result + Long.hashCode(blockIndexKey);
   }
 
   @Override
   public boolean equals(final Object obj) {
     return obj instanceof ValueDictionaryHeaderNode other && version == other.version && entryCount == other.entryCount
         && forwardRootKey == other.forwardRootKey && reverseRootKey == other.reverseRootKey
-        && generation == other.generation;
+        && generation == other.generation && orderedPrefixCount == other.orderedPrefixCount
+        && blockIndexKey == other.blockIndexKey;
   }
 
   @Override

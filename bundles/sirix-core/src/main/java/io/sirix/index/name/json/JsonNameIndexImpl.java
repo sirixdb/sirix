@@ -1,6 +1,5 @@
 package io.sirix.index.name.json;
 
-import io.sirix.access.DatabaseType;
 import io.sirix.index.IndexDef;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.name.NameIndexBuilderFactory;
@@ -13,8 +12,8 @@ public final class JsonNameIndexImpl implements JsonNameIndex {
   private final NameIndexListenerFactory nameIndexListenerFactory;
 
   public JsonNameIndexImpl() {
-    nameIndexBuilderFactory = new NameIndexBuilderFactory(DatabaseType.JSON);
-    nameIndexListenerFactory = new NameIndexListenerFactory(DatabaseType.JSON);
+    nameIndexBuilderFactory = new NameIndexBuilderFactory();
+    nameIndexListenerFactory = new NameIndexListenerFactory();
   }
 
   @Override

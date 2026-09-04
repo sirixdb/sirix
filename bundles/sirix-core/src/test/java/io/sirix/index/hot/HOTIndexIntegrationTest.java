@@ -14,16 +14,9 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.path.PathIndexListenerFactory;
-import io.sirix.index.cas.CASIndexListenerFactory;
-import io.sirix.index.name.NameIndexListenerFactory;
-import io.sirix.access.IndexBackendType;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -42,147 +35,32 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for HOT (Height Optimized Trie) index infrastructure.
- *
- * <p>
- * These tests verify both RBTree (default) and HOT backends work correctly.
- * </p>
+ * Integration tests for the canonical HOT (Height Optimized Trie) secondary-index infrastructure.
  */
 class HOTIndexIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOTByDefault() {
-    // Save original setting and enable HOT by default for all tests
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOTSetting() {
-    // Restore original setting
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
-
-  // ===== Configuration Tests =====
-
-  @Test
-  @DisplayName("HOT configuration property enables/disables HOT indexes")
-  void testHOTConfigurationProperty() {
-    // Disable first
-    System.clearProperty("sirix.index.useHOT");
-
-    // Test that HOT can be enabled/disabled via system property
-    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-    assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-    assertFalse(NameIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-
-    // Enable HOT
-    System.setProperty("sirix.index.useHOT", "true");
-    assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-
-    // Disable HOT
-    System.clearProperty("sirix.index.useHOT");
-    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled");
-
-    // Re-enable HOT for subsequent tests (class default)
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @Test
-  @DisplayName("Per-resource IndexBackendType configuration works correctly")
-  void testPerResourceIndexBackendConfiguration() {
-    // This test verifies that:
-    // 1. ResourceConfiguration.indexBackendType defaults to HOT
-    // 2. ResourceConfiguration.indexBackendType can be explicitly set to RBTREE
-    // 3. Configuration is properly stored and accessible
-
-    System.clearProperty("sirix.index.useHOT");
-
-    // Test 1: Default configuration should be HOT
-    JsonTestHelper.deleteEverything();
-    try {
-      final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build()); // No explicit index backend - should
-                                                                              // default to HOT
-
-      try (final var manager = databaseWithDefault.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        // Verify default is HOT
-        assertEquals(IndexBackendType.HOT, manager.getResourceConfig().indexBackendType,
-            "Default index backend should be HOT");
-      }
-    } finally {
-      JsonTestHelper.closeEverything();
-    }
-
-    // Test 2: Explicit HOT configuration
-    JsonTestHelper.deleteEverything();
-    try {
-      final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                               .useHOTIndexes() // Explicitly set HOT
-                               .build());
-
-      try (final var manager = databaseWithHOT.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.HOT, manager.getResourceConfig().indexBackendType,
-            "Resource should be configured for HOT");
-      }
-    } finally {
-      JsonTestHelper.closeEverything();
-    }
-
-    // Test 3: Explicit RBTREE configuration (opt-out of HOT)
-    JsonTestHelper.deleteEverything();
-    try {
-      final var databaseWithRBTree = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                               .useRBTreeIndexes() // Explicitly use RBTREE
-                               .build());
-
-      try (final var manager = databaseWithRBTree.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.RBTREE, manager.getResourceConfig().indexBackendType,
-            "Resource should be configured for RBTREE");
-      }
-    } finally {
-      JsonTestHelper.closeEverything();
-    }
-
-    // Re-enable HOT for subsequent tests
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  // ===== RBTree Backend Tests =====
+  // The initial bulk builder and subsequent insert/update/delete listeners target this same format.
 
   @Nested
-  @DisplayName("RBTree Backend Tests")
-  class RBTreeBackendTests {
+  @DisplayName("Canonical secondary-index tests")
+  class SecondaryIndexTests {
 
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
-      // Explicitly disable HOT for RBTree tests (overrides class-level default)
-      System.clearProperty("sirix.index.useHOT");
     }
 
     @AfterEach
     void tearDown() {
       JsonTestHelper.deleteEverything();
-      // Re-enable HOT for subsequent tests
-      System.setProperty("sirix.index.useHOT", "true");
       JsonTestHelper.deleteEverything();
     }
 
     @Test
-    @DisplayName("PATH index with RBTree backend returns 53 type nodes")
-    void testPathIndexWithRBTreeBackend() {
+    @DisplayName("PATH index creation and query")
+    void testPathIndex() {
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -190,7 +68,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create PATH index
+        // Create the PATH index.
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
         final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
 
@@ -201,94 +79,7 @@ class HOTIndexIntegrationTest {
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        // Query index
-        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
-        final var index = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
-
-        assertTrue(index.hasNext(), "Index should have results");
-        var refs = index.next();
-        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes");
-      }
-    }
-
-    @Test
-    @DisplayName("CAS index with RBTree backend finds all 53 'Feature' values")
-    void testCASIndexWithRBTreeBackend() {
-      final var jsonPath = JSON.resolve("abc-location-stations.json");
-      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-
-      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-          final var trx = manager.beginNodeTrx()) {
-        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
-
-        // Create CAS index for /features/[]/type
-        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-        final var idxDefOfType =
-            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
-
-        indexController.createIndexes(Set.of(idxDefOfType), trx);
-
-        // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-
-        // Query for "Feature" value
-        final var casIndex =
-            indexController.openCASIndex(trx.getStorageEngineReader(), idxDefOfType, indexController.createCASFilter(
-                Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
-
-        assertTrue(casIndex.hasNext(), "CAS query should find results");
-
-        var refs = casIndex.next();
-        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'Feature' values");
-      }
-    }
-  }
-
-  // ===== HOT Backend Tests =====
-  // Note: HOT is enabled by default at class level (@BeforeAll)
-
-  @Nested
-  @DisplayName("HOT Backend Tests")
-  class HOTBackendTests {
-
-    @BeforeEach
-    void setUp() {
-      JsonTestHelper.deleteEverything();
-      // HOT is already enabled by default - no need to set it
-    }
-
-    @AfterEach
-    void tearDown() {
-      JsonTestHelper.deleteEverything();
-      JsonTestHelper.deleteEverything();
-    }
-
-    @Test
-    @DisplayName("PATH index with HOT backend creation and query")
-    void testPathIndexWithHOTBackend() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-
-      final var jsonPath = JSON.resolve("abc-location-stations.json");
-      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-
-      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-          final var trx = manager.beginNodeTrx()) {
-        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
-
-        // Create PATH index with HOT backend
-        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
-
-        indexController.createIndexes(Set.of(pathIndexDef), trx);
-
-        // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
-            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-
-        // Query index using HOT reader
+        // Query through the canonical index reader.
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         final var index = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
 
@@ -299,9 +90,8 @@ class HOTIndexIntegrationTest {
     }
 
     @Test
-    @DisplayName("NAME index with HOT backend creation and query")
-    void testNameIndexWithHOTBackend() {
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+    @DisplayName("NAME index creation and query")
+    void testNameIndex() {
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -310,7 +100,7 @@ class HOTIndexIntegrationTest {
           final var trx = session.beginNodeTrx()) {
         var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create NAME index with HOT backend
+        // Create the NAME index.
         final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
@@ -319,7 +109,7 @@ class HOTIndexIntegrationTest {
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
-        // Query for specific name using HOT reader
+        // Query for a specific name.
         final var nameIndex = indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("type")));
 
@@ -331,9 +121,8 @@ class HOTIndexIntegrationTest {
     }
 
     @Test
-    @DisplayName("CAS index with HOT backend creation and query")
-    void testCASIndexWithHOTBackend() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+    @DisplayName("CAS index creation and query")
+    void testCASIndex() {
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -342,7 +131,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create CAS index with HOT backend
+        // Create the CAS index.
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
         final var idxDefOfType =
             IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
@@ -369,7 +158,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT listener writes to HOTLeafPage correctly")
     void testHOTListenerWritesToHOTLeafPage() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -403,7 +191,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index works before commit (uncommitted data)")
     void testHOTPathIndexBeforeCommit() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -438,7 +225,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index works across multiple commits in same transaction")
     void testHOTPathIndexMultipleCommits() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -482,7 +268,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index deletion works in same transaction")
     void testHOTPathIndexDeleteInSameTransaction() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -529,7 +314,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index deletion works across transactions")
     void testHOTPathIndexDeleteAcrossTransactions() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -587,7 +371,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index persists across session close/reopen")
     void testHOTPathIndexPersistence() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -637,7 +420,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT CAS index works with array-based document")
     void testHOTCASIndexWithArray() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -658,23 +440,27 @@ class HOTIndexIntegrationTest {
         trx.commit();
 
         // Query for "Alice" - should exist
-        var aliceIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var aliceIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(aliceIndex.hasNext(), "Should find 'Alice'");
 
         // Query for "Bob" - should exist
-        var bobIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Bob"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var bobIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Bob"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(bobIndex.hasNext(), "Should find 'Bob'");
 
         // Query for "Charlie" - should exist
-        var charlieIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var charlieIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(charlieIndex.hasNext(), "Should find 'Charlie'");
 
         // Query for non-existent value - should NOT exist
-        var daveIndex = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/[]/name"), new Str("Dave"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var daveIndex =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/[]/name"), new Str("Dave"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertFalse(daveIndex.hasNext(), "Should NOT find 'Dave'");
       }
     }
@@ -685,7 +471,6 @@ class HOTIndexIntegrationTest {
     // @Disabled("Cross-transaction HOT modifications need further work on page persistence")
     @DisplayName("HOT PATH index with 6+ revisions: insert and delete operations")
     void testHOTPathIndexMultiRevisionVersioning() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -765,7 +550,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT CAS index with 6+ revisions: insert, query, delete operations")
     void testHOTCASIndexMultiRevisionVersioning() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -798,8 +582,9 @@ class HOTIndexIntegrationTest {
         revision1 = 1;
 
         // Query for "Feature" - should find 53 nodes
-        var idx = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var idx =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(idx.hasNext(), "Rev1: Should find 'Feature' values");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 53 'Feature' nodes");
       }
@@ -828,8 +613,9 @@ class HOTIndexIntegrationTest {
 
         assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
 
-        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef, indexController.createCASFilter(
-            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef,
+            indexController.createCASFilter(Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(idx.hasNext(), "Latest: Should find 'Feature'");
         assertEquals(48, idx.next().getNodeKeys().getLongCardinality(),
             "Latest: Should have 48 'Feature' nodes (53 - 5 deleted)");
@@ -839,8 +625,9 @@ class HOTIndexIntegrationTest {
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
           final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef, indexController.createCASFilter(
-            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var idx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedCasIndexDef,
+            indexController.createCASFilter(Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(idx.hasNext(), "Rev1: Should find 'Feature'");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should still have 53 'Feature' nodes");
       }
@@ -849,7 +636,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT NAME index with 6+ revisions: insert and delete operations")
     void testHOTNameIndexMultiRevisionVersioning() {
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -862,7 +648,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-        // Create NAME index for all keys (ID will be JSON_NAME_INDEX_OFFSET + 0 = 1)
+        // Create the first NAME index after JSON's three reserved NamePage slots.
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         savedNameIndexDef = nameIndexDef;
 
@@ -933,7 +719,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index: verify cross-transaction read after commit")
     void testHOTPathIndexCrossTransactionRead() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       IndexDef savedPathIndexDef;
@@ -975,7 +760,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index: verify cross-transaction write after commit")
     void testHOTPathIndexCrossTransactionWrite() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       IndexDef savedPathIndexDef;
@@ -1047,7 +831,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT PATH index with multiple paths across revisions")
     void testHOTPathIndexMultiplePaths() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1172,7 +955,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT NAME index with multiple names and revisions")
     void testHOTNameIndexMultipleNames() {
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1288,7 +1070,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT CAS index with multiple values and revisions")
     void testHOTCASIndexMultipleValues() {
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1328,8 +1109,9 @@ class HOTIndexIntegrationTest {
         trx.commit();
 
         // Verify status counts
-        var pendingIdx = indexController.openCASIndex(trx.getStorageEngineReader(), statusIndexDef, indexController.createCASFilter(
-            Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var pendingIdx =
+            indexController.openCASIndex(trx.getStorageEngineReader(), statusIndexDef, indexController.createCASFilter(
+                Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(pendingIdx.hasNext(), "Rev1: Should find 'pending' status");
         assertEquals(3, pendingIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 3 pending tasks");
 
@@ -1340,8 +1122,9 @@ class HOTIndexIntegrationTest {
         assertEquals(1, completedIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 1 completed task");
 
         // Verify priority counts
-        var highIdx = indexController.openCASIndex(trx.getStorageEngineReader(), priorityIndexDef, indexController.createCASFilter(
-            Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var highIdx = indexController.openCASIndex(trx.getStorageEngineReader(), priorityIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
         assertTrue(highIdx.hasNext(), "Rev1: Should find 'high' priority");
         assertEquals(2, highIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 2 high priority tasks");
       }
@@ -1397,17 +1180,17 @@ class HOTIndexIntegrationTest {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         // pending: 3 initially - 1 deleted + 1 added = 3; but second deletion removed another pending = 2
-        var pendingIdx =
-            indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef, indexController.createCASFilter(
-                Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var pendingIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(pendingIdx.hasNext(), "Latest: Should find 'pending' status");
         long pendingCount = pendingIdx.next().getNodeKeys().getLongCardinality();
         assertTrue(pendingCount >= 2, "Latest: Should have at least 2 pending tasks");
 
         // in_progress: 2 added
-        var inProgressIdx =
-            indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef, indexController.createCASFilter(
-                Set.of("/tasks/[]/status"), new Str("in_progress"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var inProgressIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedStatusIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("in_progress"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(inProgressIdx.hasNext(), "Latest: Should find 'in_progress' status");
         assertEquals(2, inProgressIdx.next().getNodeKeys().getLongCardinality(),
             "Latest: Should have 2 in_progress tasks");
@@ -1415,9 +1198,9 @@ class HOTIndexIntegrationTest {
         // high priority: Initial 2 + 1 added = 3
         // Note: CAS index deletions in nested objects may not propagate completely
         // since we're deleting parent objects, not the value nodes directly
-        var highIdx =
-            indexController.openCASIndex(rtx.getStorageEngineReader(), savedPriorityIndexDef, indexController.createCASFilter(
-                Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var highIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), savedPriorityIndexDef,
+            indexController.createCASFilter(Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
         assertTrue(highIdx.hasNext(), "Latest: Should find 'high' priority");
         long highCount = highIdx.next().getNodeKeys().getLongCardinality();
         assertTrue(highCount >= 2 && highCount <= 3,
@@ -1428,9 +1211,6 @@ class HOTIndexIntegrationTest {
     @Test
     @DisplayName("HOT combined index test with insertions, updates, and deletions across revisions")
     void testHOTCombinedIndexOperations() {
-      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
 
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
@@ -1447,7 +1227,7 @@ class HOTIndexIntegrationTest {
         final var pathToStatus = parse("/orders/[]/status", PathParser.Type.JSON);
         pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToStatus), 0, IndexDef.DbType.JSON);
 
-        // NAME index for all keys (uses separate NamePage, so ID 0 is fine)
+        // NAME index for all keys; IndexDefs maps logical definition 0 past reserved NamePage slots.
         nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
 
         // CAS index for /orders/[]/status values (uses separate CASPage, so ID 0 is fine)
@@ -1478,8 +1258,9 @@ class HOTIndexIntegrationTest {
         assertTrue(nameIdx.hasNext(), "Rev1: NAME index should find 'status'");
         assertEquals(3, nameIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 3 'status' keys");
 
-        var casIdx = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var casIdx =
+            indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(casIdx.hasNext(), "Rev1: CAS index should find 'new' status");
         assertEquals(2, casIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 2 'new' status values");
       }
@@ -1534,15 +1315,17 @@ class HOTIndexIntegrationTest {
         assertEquals(5, nameIdx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 5 'status' keys");
 
         // CAS: 'processing' should have 2 occurrences
-        var processingIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/orders/[]/status"), new Str("processing"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var processingIdx =
+            indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/orders/[]/status"), new Str("processing"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(processingIdx.hasNext(), "Latest: CAS index should find 'processing'");
         assertEquals(2, processingIdx.next().getNodeKeys().getLongCardinality(),
             "Latest: Should have 2 'processing' status");
 
         // CAS: 'new' entries should be completely removed (both were deleted)
-        var newIdx = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-            Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var newIdx =
+            indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertFalse(newIdx.hasNext(), "Latest: 'new' should be completely removed after deletions");
       }
     }
@@ -1550,7 +1333,6 @@ class HOTIndexIntegrationTest {
 
   // ===== CAS Index Deletion Corner Cases =====
   // Formal proof of correctness: systematically test all deletion scenarios
-  // Note: HOT is enabled by default at class level (@BeforeAll)
 
   @Nested
   @DisplayName("CAS Index Deletion Corner Cases")
@@ -1595,8 +1377,9 @@ class HOTIndexIntegrationTest {
         // Verify all values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'banana' should be indexed");
           assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
         }
@@ -1618,17 +1401,20 @@ class HOTIndexIntegrationTest {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
           // "banana" should be gone
-          var bananaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(bananaIdx.hasNext(), "After deletion: 'banana' should be removed from index");
 
           // "apple" and "cherry" should still be there
-          var appleIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "'apple' should still be indexed");
 
-          var cherryIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var cherryIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(cherryIdx.hasNext(), "'cherry' should still be indexed");
         }
       }
@@ -1663,8 +1449,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
           assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
         }
@@ -1684,8 +1471,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
         }
       }
@@ -1720,8 +1508,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
         }
 
@@ -1737,8 +1526,9 @@ class HOTIndexIntegrationTest {
         // Verify "active" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
         }
       }
@@ -1774,8 +1564,9 @@ class HOTIndexIntegrationTest {
         // Verify 99.99 is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 99.99 should be indexed");
         }
 
@@ -1794,8 +1585,9 @@ class HOTIndexIntegrationTest {
         // Verify 99.99 is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 99.99 should be removed from index");
         }
       }
@@ -1830,8 +1622,9 @@ class HOTIndexIntegrationTest {
         // Verify true is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'true' should be indexed");
         }
 
@@ -1850,8 +1643,9 @@ class HOTIndexIntegrationTest {
         // Verify true is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'true' should be removed from index");
         }
       }
@@ -1887,8 +1681,9 @@ class HOTIndexIntegrationTest {
         // Verify 3 "active" values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
           assertEquals(3, idx.next().getNodeKeys().getLongCardinality(), "Should have 3 'active' values");
         }
@@ -1907,8 +1702,9 @@ class HOTIndexIntegrationTest {
         // Verify now only 2 "active" values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "After deletion: 'active' should still be indexed");
           assertEquals(2, idx.next().getNodeKeys().getLongCardinality(),
               "Should have 2 'active' values after deleting Bob");
@@ -1944,8 +1740,9 @@ class HOTIndexIntegrationTest {
         // Verify "deep" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'deep' should be indexed");
         }
 
@@ -1965,8 +1762,9 @@ class HOTIndexIntegrationTest {
         // Verify "deep" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'deep' should be removed from index");
         }
       }
@@ -2005,8 +1803,9 @@ class HOTIndexIntegrationTest {
         // Verify it exists before deletion
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/value"), new Str("persistent"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/value"), new Str("persistent"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Transaction 2: Value should exist before deletion");
         }
 
@@ -2061,12 +1860,14 @@ class HOTIndexIntegrationTest {
         // Verify initial state
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var appleIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "Step 1: 'apple' should be indexed");
 
-          var bananaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(bananaIdx.hasNext(), "Step 1: 'banana' should be indexed");
         }
 
@@ -2094,16 +1895,19 @@ class HOTIndexIntegrationTest {
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
-          var appleIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "Final: 'apple' should be indexed");
 
-          var bananaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(bananaIdx.hasNext(), "Final: 'banana' should be removed");
 
-          var cherryIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var cherryIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(cherryIdx.hasNext(), "Final: 'cherry' should be indexed");
         }
       }
@@ -2136,8 +1940,9 @@ class HOTIndexIntegrationTest {
         // Verify Rev 1: 2 distinct values
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var alphaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext());
           assertEquals(1, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev1: 1 'alpha'");
         }
@@ -2156,17 +1961,20 @@ class HOTIndexIntegrationTest {
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
-          var gammaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("gamma"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var gammaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("gamma"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(gammaIdx.hasNext(), "Rev2: 'gamma' should be indexed");
 
-          var deltaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("delta"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var deltaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("delta"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(deltaIdx.hasNext(), "Rev2: 'delta' should be indexed");
 
           // Original values still present
-          var alphaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext(), "Rev2: 'alpha' still indexed");
         }
 
@@ -2181,8 +1989,9 @@ class HOTIndexIntegrationTest {
         // Verify Rev 3: 2 'alpha' entries
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var alphaIdx = readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
-              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx =
+              readController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, readController.createCASFilter(
+                  Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext());
           assertEquals(2, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev3: 2 'alpha' entries");
         }
@@ -2191,7 +2000,6 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== PATH Index Corner Cases =====
-  // Note: HOT is enabled by default at class level (@BeforeAll)
 
   @Nested
   @DisplayName("PATH Index Corner Cases")
@@ -2563,7 +2371,6 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== NAME Index Corner Cases =====
-  // Note: HOT is enabled by default at class level (@BeforeAll)
 
   @Nested
   @DisplayName("NAME Index Corner Cases")

@@ -141,8 +141,21 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   private static final byte BOXED_PAYLOAD = 0;
   private static final byte INT_PAYLOAD = 1;
   private static final byte LONG_PAYLOAD = 2;
+  private static final byte OVERFLOW_PAYLOAD = 3;
   private static final byte INTEGER_WIRE_TAG = 2;
   private static final byte LONG_WIRE_TAG = 3;
+
+  /**
+   * The side-slot record carries only scan-visible fused-field metadata. The authoritative number
+   * remains in the same-key {@code OverflowPage} and must be resolved before exposing its value.
+   */
+  public static final byte PAYLOAD_TYPE_OVERFLOW = 0x7f;
+
+  /**
+   * Conservative upper bound for the kind, offset table, metadata fields, and one-byte payload
+   * discriminator. The variable-width numeric value is accounted for separately.
+   */
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 80;
 
   public ObjectNamedNumberNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
@@ -242,8 +255,28 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   @Override
   public int estimateSerializedSize() {
-    // 1 (nodeKind) + 9 (offset table) + ~35 (varint fields avg) + 8 (hash) + ~10 (number payload) = ~63
-    return 80;
+    if (!valueParsed) {
+      parseValueField();
+    }
+    return estimateSerializedSize(value);
+  }
+
+  /** Conservative allocation-free bound for a newly written boxed numeric record. */
+  public static int estimateSerializedSize(final Number value) {
+    final long estimatedSize = (long) SERIALIZED_METADATA_UPPER_BOUND + estimateNumberPayloadBytes(value);
+    return estimatedSize >= Integer.MAX_VALUE
+        ? Integer.MAX_VALUE
+        : (int) estimatedSize;
+  }
+
+  /** Allocation-free bound for a newly written primitive {@code int} record. */
+  public static int estimateSerializedIntSize(final int value) {
+    return SERIALIZED_METADATA_UPPER_BOUND + DeltaVarIntCodec.computeSignedEncodedWidth(value);
+  }
+
+  /** Allocation-free bound for a newly written primitive {@code long} record. */
+  public static int estimateSerializedLongSize(final long value) {
+    return SERIALIZED_METADATA_UPPER_BOUND + DeltaVarIntCodec.computeSignedLongEncodedWidth(value);
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -270,6 +303,11 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     final int payloadFieldOff =
         page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = dataRegionStart + payloadFieldOff;
+    final byte payloadType = page.get(ValueLayout.JAVA_BYTE, payloadStart);
+    if (payloadType == PAYLOAD_TYPE_OVERFLOW) {
+      throw new IllegalStateException("Overflow descriptor for node " + nodeKey
+          + " was bound as an inline value instead of resolving its OverflowPage");
+    }
     final MemorySegmentBytesIn bytesIn = new MemorySegmentBytesIn(page);
     bytesIn.position(payloadStart);
     this.value = NodeKind.deserializeNumber(bytesIn);
@@ -447,6 +485,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         target.set(ValueLayout.JAVA_BYTE, pos++, LONG_WIRE_TAG);
         pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, primitiveValue);
       }
+      case OVERFLOW_PAYLOAD -> target.set(ValueLayout.JAVA_BYTE, pos++, PAYLOAD_TYPE_OVERFLOW);
       default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
     }
 
@@ -466,6 +505,53 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     }
     return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
         nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value);
+  }
+
+  /**
+   * Serializes the fixed-size metadata used by projection scans when the complete fused number does
+   * not fit the 512-byte side-image limit. The marker is never a user-visible numeric value.
+   */
+  public int serializeOverflowDescriptorToHeap(final MemorySegment target, final long offset) {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, null, OVERFLOW_PAYLOAD, 0L);
+  }
+
+  /** Conservative upper bound for {@link #serializeOverflowDescriptorToHeap}. */
+  public int estimateOverflowDescriptorSize() {
+    return SERIALIZED_METADATA_UPPER_BOUND;
+  }
+
+  private static int estimateNumberPayloadBytes(final Number number) {
+    if (number instanceof Double) {
+      return Double.BYTES;
+    }
+    if (number instanceof Float) {
+      return Float.BYTES;
+    }
+    if (number instanceof Integer) {
+      return DeltaVarIntCodec.computeSignedEncodedWidth(number.intValue());
+    }
+    if (number instanceof Long) {
+      return DeltaVarIntCodec.computeSignedLongEncodedWidth(number.longValue());
+    }
+    if (number instanceof BigInteger bigInteger) {
+      final int bytes = bigInteger.bitLength() / Byte.SIZE + 1;
+      return bytes + stopBitEncodedSize(bytes);
+    }
+    if (number instanceof BigDecimal bigDecimal) {
+      final int bytes = bigDecimal.unscaledValue().bitLength() / Byte.SIZE + 1;
+      return bytes + stopBitEncodedSize(bytes) + DeltaVarIntCodec.computeSignedEncodedWidth(bigDecimal.scale());
+    }
+    throw new IllegalStateException("Unsupported number type: " + (number == null
+        ? "null"
+        : number.getClass().getName()));
+  }
+
+  private static int stopBitEncodedSize(final int value) {
+    return Math.max(1, (Integer.SIZE - Integer.numberOfLeadingZeros(value) + 6) / 7);
   }
 
   @Override

@@ -661,9 +661,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         // WrongThreadException rather than leaking or deferring reclaim to GC.
         if (!reserveCommittedBytes(size)) {
           firePressure();
+          // The retry can only observe relief from concurrent OVERSIZED releases (their bytes
+          // return to committedBytes on close). Page eviction returns frame SLOTS, and
+          // slab-region commitments never leave committedBytes before shutdown — report the
+          // split so a post-peak OOM here is diagnosable as slab pressure, not a leak.
           if (!reserveCommittedBytes(size)) {
             throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size + " bytes exceeds the "
-                + budgetBytes + "-byte physical budget");
+                + budgetBytes + "-byte physical budget (committed=" + committedBytes.get()
+                + " bytes — slab-region commitments release only at " + "shutdown; active=" + activeBytes.get()
+                + " bytes)");
           }
         }
         Arena arena = null;
@@ -793,10 +799,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       if (oversized.owner() != Thread.currentThread()) {
         throw new java.lang.WrongThreadException();
       }
-      oversized.arena().close();
+      // Remove the address mapping BEFORE closing the arena: close frees the native memory, and
+      // a fresh oversized allocation can immediately reuse the same address — its putIfAbsent
+      // would then collide with this stale entry and fail a VALID allocation with "duplicate
+      // oversized allocation address". Remove-first means only a genuine double-release loses
+      // the removal race and fails loudly.
       if (!oversizedByAddress.remove(address, oversized)) {
         throw new IllegalStateException("oversized allocation ownership changed during release at " + address);
       }
+      oversized.arena().close();
       activeBytes.addAndGet(-oversized.bytes());
       committedBytes.addAndGet(-oversized.bytes());
       HftBoundaryTelemetry.allocatorRelease();

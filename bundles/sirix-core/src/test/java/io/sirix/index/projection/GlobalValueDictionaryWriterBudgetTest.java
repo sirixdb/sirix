@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -272,6 +273,100 @@ final class GlobalValueDictionaryWriterBudgetTest {
   }
 
   @Test
+  @DisplayName("AUTO gives a lone worthwhile candidate the aggregate budget instead of a diluted column slice")
+  void autoCandidateUsesTheAggregateBudget() {
+    final long aggregate = 512L << 20;
+    final long candidateProjection = 71L << 20;
+    final long[] projectedBytes = {-1L, -1L, candidateProjection, -1L, -1L, -1L, -1L};
+    final long[] benefitScores = {0L, 0L, 16_000L, 0L, 0L, 0L, 0L};
+
+    final long[] allocations =
+        ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate, projectedBytes, benefitScores, true);
+
+    assertEquals(aggregate, allocations[2],
+        "six non-candidates must not dilute the one dictionary AUTO actually elected");
+    assertEquals(0L, allocations[0]);
+    assertEquals(0L, allocations[6]);
+    final long componentBudget = ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[2]);
+    assertTrue(componentBudget >= 2L * candidateProjection,
+        "both resident streaming structures must retain the existing two-times projection headroom");
+  }
+
+  @Test
+  @DisplayName("AUTO admits multiple candidates without aggregate overcommit")
+  void autoCandidatesShareOneBoundedAggregate() {
+    final long aggregate = 768L << 20;
+    final long firstProjection = 71L << 20;
+    final long secondProjection = 60L << 20;
+
+    final long[] allocations = ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate,
+        new long[] {firstProjection, secondProjection}, new long[] {16_000L, 15_000L}, true);
+
+    assertTrue(ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[0]) >= 2L * firstProjection);
+    assertTrue(
+        ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(allocations[1]) >= 2L * secondProjection);
+    assertEquals(aggregate, Math.addExact(allocations[0], allocations[1]),
+        "even simultaneous writer-plus-front peaks must stay inside the configured aggregate");
+  }
+
+  @Test
+  @DisplayName("AUTO's constrained winner is deterministic by benefit and projection-column order")
+  void autoConstrainedSelectionIsDeterministic() {
+    final long aggregate = 300L << 20;
+    final long projection = 50L << 20;
+
+    final long[] higherBenefitWins = ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate,
+        new long[] {projection, projection}, new long[] {10L, 20L}, true);
+    assertEquals(0L, higherBenefitWins[0]);
+    assertEquals(aggregate, higherBenefitWins[1]);
+
+    final long[] lowerColumnBreaksTie = ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate,
+        new long[] {projection, projection}, new long[] {20L, 20L}, true);
+    assertEquals(aggregate, lowerColumnBreaksTie[0]);
+    assertEquals(0L, lowerColumnBreaksTie[1]);
+  }
+
+  @Test
+  @DisplayName("AUTO rejects a streaming candidate whose two disjoint two-times caps exceed the aggregate")
+  void autoRejectsAProjectionThatExceedsTheAggregate() {
+    final long[] allocations = ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(512L << 20,
+        new long[] {130L << 20}, new long[] {16_000L}, true);
+
+    assertEquals(0L, allocations[0],
+        "selection must not weaken either component's conservative margin merely to force an admission");
+  }
+
+  @Test
+  @DisplayName("AUTO deterministically orders the maximum supported projection width")
+  void autoPlannerHandlesMaximumColumnCountWithoutQuadraticSelection() {
+    final int columns = RowGroupDescriptor.MAX_COLUMNS;
+    final long[] projectedBytes = new long[columns];
+    final long[] benefitScores = new long[columns];
+    Arrays.fill(projectedBytes, 1L << 20);
+    for (int column = 0; column < columns; column++) {
+      benefitScores[column] = column % 97L;
+    }
+
+    final long aggregate = 512L << 20;
+    final long[] first =
+        ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate, projectedBytes, benefitScores, true);
+    final long[] second =
+        ProjectionIndexBuilder.planAutoGlobalDictionaryBudgets(aggregate, projectedBytes, benefitScores, true);
+
+    int admitted = 0;
+    long allocated = 0L;
+    for (int column = 0; column < columns; column++) {
+      assertEquals(first[column], second[column], "planner order changed at column " + column);
+      if (first[column] != 0L) {
+        admitted++;
+        allocated = Math.addExact(allocated, first[column]);
+      }
+    }
+    assertEquals(128, admitted);
+    assertEquals(aggregate, allocated);
+  }
+
+  @Test
   @DisplayName("Maximum-cardinality reverse planning is range arithmetic, not an entry array")
   void maximumCardinalityReversePlanningDoesNotMaterialiseEntries() {
     final long reverseBuckets = ((long) Integer.MAX_VALUE + 255L) >>> 8;
@@ -280,8 +375,7 @@ final class GlobalValueDictionaryWriterBudgetTest {
 
     assertEquals(reverseBuckets + levelTwoNodes + levelOneNodes + 1L,
         GlobalValueDictionaryRadix.denseReverseRecordCountForTest(0, Integer.MAX_VALUE));
-    assertEquals(17L + (Integer.MAX_VALUE - 1L) * GlobalValueDictionary.PERSISTENT_RECORD_STRIDE,
-        GlobalValueDictionaryRadix.entryKeyForLocalIdForTest(17L, Integer.MAX_VALUE));
+    // entryKeyForLocalId was the per-value key derivation; packing replaced it, so the seam is gone.
   }
 
   private static byte[] compactValue(final int value) {

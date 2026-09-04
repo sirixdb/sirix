@@ -4,37 +4,31 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.Stage;
-import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
+import io.sirix.query.function.jn.SirixArraySize;
 
 /**
- * Rewrites {@code count(for $x in E[] return $x)} and {@code count(E[])} into {@code jn:size(E)}.
+ * Rewrites {@code count(for $x in E[] return $x)} and {@code count(E[])} into
+ * {@code jn:sirix-array-size(E)}.
  *
- * <p>Counting an array by unboxing it walks every member: on the 3.48 M-record comparison corpus
- * that is a 325–360 ms full scan, against <b>0.2 ms</b> for {@code jn:size}, because a JSON array
- * node stores its child count and the answer is a single node read. PostgreSQL cannot do this — an
- * MVCC heap has no O(1) row count, which is why {@code SELECT count(*)} scans there too — so this
- * is a structural advantage that was simply not being reached.
+ * <p>
+ * Counting an array by unboxing it walks every member: on the 3.48 M-record comparison corpus that
+ * is a 325–360 ms full scan, against <b>0.2 ms</b> for the stored-size accessor, because a JSON
+ * array node stores its child count and the answer is a single node read. PostgreSQL cannot do this
+ * — an MVCC heap has no O(1) row count, which is why {@code SELECT count(*)} scans there too — so
+ * this is a structural advantage that was simply not being reached.
  *
- * <p><b>Why the rewrite is sound.</b> {@code E[]} unboxes an array to its members, and each member
- * is exactly one item, so the number of items the {@code for} produces is the array's size. The
- * {@code return} clause must be exactly the loop variable and the pipeline must carry no other
- * clause: a {@code where}, {@code let}, {@code group by}, {@code order by}, {@code count}, positional
- * {@code at $p}, or {@code allowing empty} all change either the count or the binding, and every one
- * of them is rejected below.
- *
- * <p><b>Behaviour on non-arrays is preserved</b>, which is the part worth checking rather than
- * assuming. Measured on this branch: for an array the two agree ({@code count(for $m in [1,2,3][]
- * return $m)} and {@code jn:size([1,2,3])} both yield 3); for an object both raise
- * {@code err:XPTY0004}. They differ in exactly one case — the empty sequence, where {@code ()[]}
- * throws a {@code NullPointerException} inside the unbox and {@code jn:size(())} returns 0. Turning
- * a crash into the correct answer is the only semantic change this stage can make.
+ * <p>
+ * <b>Why the rewrite is sound.</b> The {@code return} clause must be exactly the loop variable and
+ * the pipeline must carry no other clause: a {@code where}, {@code let}, {@code group by},
+ * {@code order by}, {@code count}, positional {@code at $p}, or {@code allowing empty} changes
+ * either the count or the binding, and every one is rejected below. At runtime
+ * {@link SirixArraySize} takes the O(1) child-count arm only for a direct Sirix-backed array; every
+ * other operand is delegated to Brackit's own array-access implementation before it is counted.
+ * This preserves Brackit's runtime sequence dispatch and error behavior for the general case.
  */
 public final class ArrayCountToSizeStage implements Stage {
-
-  /** {@code jn:size}, the O(1) array-size accessor this stage rewrites to. */
-  private static final QNm JN_SIZE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "size");
 
   @Override
   public AST rewrite(final StaticContext sctx, final AST ast) {
@@ -58,21 +52,21 @@ public final class ArrayCountToSizeStage implements Stage {
     }
   }
 
-  /** @return the {@code jn:size(E)} node when {@code node} matches the pattern, else {@code null}. */
+  /** @return the stored-size call when {@code node} matches the pattern, else {@code null}. */
   private static AST tryRewrite(final AST node) {
-    if (node.getType() != XQ.FunctionCall || node.getChildCount() != 1
-        || !(node.getValue() instanceof QNm fn) || !isBuiltinCount(fn)) {
+    if (node.getType() != XQ.FunctionCall || node.getChildCount() != 1 || !(node.getValue() instanceof QNm fn)
+        || !isBuiltinCount(fn)) {
       return null;
     }
     final AST arrayExpr = countableArrayExpr(node.getChild(0));
     if (arrayExpr == null) {
       return null;
     }
-    final AST size = new AST(XQ.FunctionCall, JN_SIZE);
+    final AST size = new AST(XQ.FunctionCall, SirixArraySize.SIRIX_ARRAY_SIZE);
     // copyTree(), not copy(): copy() is shallow, so an array whose expression has children — a
-    // literal `[1,2,3]`, a nested deref — arrives at jn:size() stripped of its elements and reports
-    // size 0. A variable reference has no children, which is exactly why the corpus query looked
-    // correct while `count(for $m in [1,2,3][] return $m)` silently returned 0.
+    // literal `[1,2,3]`, a nested deref — arrives at the size function stripped of its elements and
+    // reports size 0. A variable reference has no children, which is exactly why the corpus query
+    // looked correct while `count(for $m in [1,2,3][] return $m)` silently returned 0.
     size.addChild(arrayExpr.copyTree());
     return size;
   }
@@ -86,8 +80,7 @@ public final class ArrayCountToSizeStage implements Stage {
       return false;
     }
     final String ns = fn.getNamespaceURI();
-    return ns == null || ns.isEmpty()
-        || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
+    return ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
   }
 
   /**
@@ -135,10 +128,8 @@ public final class ArrayCountToSizeStage implements Stage {
 
   /** {@code E[]} — an ArrayAccess whose index is the empty sequence, i.e. "all members". */
   private static boolean isUnboxAll(final AST node) {
-    return node.getType() == XQ.ArrayAccess
-        && node.getChildCount() == 2
-        && node.getChild(1).getType() == XQ.SequenceExpr
-        && node.getChild(1).getChildCount() == 0;
+    return node.getType() == XQ.ArrayAccess && node.getChildCount() == 2
+        && node.getChild(1).getType() == XQ.SequenceExpr && node.getChild(1).getChildCount() == 0;
   }
 
   private static boolean sameVariable(final AST declared, final AST referenced) {

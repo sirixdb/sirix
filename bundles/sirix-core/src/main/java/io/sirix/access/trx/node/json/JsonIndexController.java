@@ -35,6 +35,8 @@ import io.brackit.query.util.path.PathParser;
 import java.util.HashSet;
 import java.util.Set;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Index controller, used to control the handling of indexes.
  *
@@ -57,6 +59,11 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   @Override
   public JsonIndexController createIndexes(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
+    // Validate before createIndexBuilders catalogues any definition or the shared traversal writes a
+    // single index page. Unsupported lifecycle mixes therefore fail atomically at the API boundary.
+    validateNewIndexDefinitions(indexDefs, nodeWriteTrx);
+    validateProjectionDefinitions(indexDefs, nodeWriteTrx);
+
     // Build the visitor-driven indexes (PATH/CAS/NAME/VALIDTIME) in one
     // shared document traversal.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
@@ -130,17 +137,26 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    */
   private ProjectionBulkLoad[] armProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
       final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
-    final String resourceKey = nodeWriteTrx.getResourceSession().getResourceConfig().getResource().toString();
+    requireNonNull(indexDefs);
+    requireNonNull(nodeWriteTrx);
     for (final IndexDef indexDef : indexDefs) {
+      requireNonNull(indexDef);
       if (!indexDef.isProjectionIndex()) {
         throw new IllegalArgumentException(
             "createProjectionIndexesAtLoadStart accepts PROJECTION definitions only; got " + indexDef.getType());
       }
-      if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-        throw new IllegalStateException("Projection indexes require a resource created with a path summary "
-            + "(buildPathSummary=true) — the builder resolves its paths through it.");
-      }
-      if (!nodeWriteTrx.getPathSummary().getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+    }
+
+    // Reject a stale/reused physical slot before resolving resource identity, walking the path
+    // summary, publishing an owner, or cataloguing anything. This keeps the load-time arm as atomic
+    // as the ordinary createIndexes path and prevents precondition work from obscuring the actual
+    // lifecycle violation.
+    validateNewIndexDefinitions(indexDefs, nodeWriteTrx);
+
+    final String resourceKey = nodeWriteTrx.getResourceSession().getResourceConfig().getResource().toString();
+    for (final IndexDef indexDef : indexDefs) {
+      final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
+      if (!pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
         throw new IllegalStateException("Projection root path '" + indexDef.getProjectionRootPath()
             + "' already has records — a load-time build can only start on an empty record set. Use "
             + "jn:create-projection-index to build over existing data.");
@@ -151,12 +167,19 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // Allocate all ownership bookkeeping before publishing the first ACTIVE entry. Once begin()
     // returns, storing its reference in the preallocated array cannot fail and strand the owner.
     final ProjectionBulkLoad[] ownedLoads = new ProjectionBulkLoad[indexDefs.size()];
+    final IndexDef[] publishedDefs = new IndexDef[indexDefs.size()];
     int ownedCount = 0;
+    int publishedCount = 0;
     try {
       for (final IndexDef indexDef : indexDefs) {
         // Catalogues the def so it serializes on commit and is discoverable after re-open, exactly as
-        // createIndexBuilders does for the walking path.
-        indexes.add(indexDef);
+        // createIndexBuilders does for the walking path. Track only definitions this call actually
+        // publishes: duplicate-arm cleanup must never remove a pre-existing catalogue entry.
+        if (indexes.getIndexDef(indexDef.getID(), indexDef.getType()) == null) {
+          indexes.add(indexDef);
+          publishedDefs[publishedCount] = indexDef;
+          publishedCount++;
+        }
         final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey, nodeWriteTrx,
             nodeWriteTrx.getPathSummary(), nodeWriteTrx.getStorageEngineWriter(), expectedRows);
         ownedLoads[ownedCount] = ownedLoad;
@@ -170,6 +193,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       for (int i = ownedCount - 1; i >= 0; i--) {
         try {
           ownedLoads[i].abort();
+        } catch (final Throwable cleanupFailure) {
+          if (cleanupFailure != armFailure) {
+            armFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      // Unpublish every def catalogued above. A def left behind with no bound listener would
+      // serialize on commit and answer discovery while no maintenance ever feeds it — an index
+      // that exists in name only.
+      for (int i = publishedCount - 1; i >= 0; i--) {
+        try {
+          indexes.removeIndex(publishedDefs[i]);
         } catch (final Throwable cleanupFailure) {
           if (cleanupFailure != armFailure) {
             armFailure.addSuppressed(cleanupFailure);
@@ -196,30 +231,62 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * rolled-back builds are never visible to other sessions.
    */
   private void createProjectionIndex(final IndexDef indexDef, final JsonNodeTrx nodeWriteTrx) {
-    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-      throw new IllegalStateException("Projection indexes require a resource created with a path summary "
-          + "(buildPathSummary=true) — the builder resolves its paths through it.");
-    }
+    final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
     nodeWriteTrx.awaitPendingAsyncCommit();
     // Creation fails loudly on a root path with no instances (caller error).
-    ProjectionIndexBuilder.buildAndPersist(indexDef, nodeWriteTrx.getPathSummary(), nodeWriteTrx,
-        nodeWriteTrx.getStorageEngineWriter(), false);
+    ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(),
+        false);
   }
 
   @Override
   protected ChangeListener createProjectionIndexListener(final JsonNodeTrx nodeWriteTrx, final IndexDef indexDef) {
-    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
-      // Fail-safe parity with the XML default: a catalogued PROJECTION def
-      // on a summary-less resource must not brick every wtx open with an
-      // NPE — the projection simply has no maintenance (and no builder
-      // would have been able to create it anyway).
-      return null;
-    }
+    final PathSummaryReader pathSummary = requireProjectionPathSummary(nodeWriteTrx, indexDef);
     // The write transaction doubles as the maintenance navigation handle:
     // at pre-commit the listener re-extracts dirty records from its current
     // state to patch the persisted leaves incrementally.
-    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(),
-        indexDef, nodeWriteTrx);
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(), pathSummary, indexDef,
+        nodeWriteTrx);
+  }
+
+  @Override
+  protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isValidTimeIndex()
+          && nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig() == null) {
+        throw new IllegalStateException(
+            "Cannot create VALIDTIME index " + indexDef.getID() + ": the JSON resource has no ValidTimeConfig");
+      }
+    }
+  }
+
+  /**
+   * Validate projection prerequisites before createIndexBuilders can publish a definition or page.
+   */
+  private static void validateProjectionDefinitions(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        requireProjectionPathSummary(nodeWriteTrx, indexDef);
+      }
+    }
+  }
+
+  private static PathSummaryReader requireProjectionPathSummary(final JsonNodeTrx nodeWriteTrx,
+      final IndexDef indexDef) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      // A persisted definition is query-visible after reopen. Silently omitting its listener would
+      // let the document change while the projection kept serving the previous rows. Refuse the
+      // write transaction instead: projection creation already requires a path summary, and a
+      // catalogued definition on a summary-less resource is therefore an inconsistent persisted
+      // lifecycle which must fail closed before any mutation can occur.
+      throw new IllegalStateException("Cannot bind incremental maintenance for projection index " + indexDef.getID()
+          + ": the resource has no path summary. Projection indexes require buildPathSummary=true.");
+    }
+    final PathSummaryReader pathSummary = nodeWriteTrx.getPathSummary();
+    if (pathSummary == null) {
+      throw new IllegalStateException("Cannot bind incremental maintenance for projection index " + indexDef.getID()
+          + ": the resource's path summary is unavailable.");
+    }
+    return pathSummary;
   }
 
   /**

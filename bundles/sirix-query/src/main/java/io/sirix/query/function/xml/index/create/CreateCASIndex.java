@@ -20,7 +20,6 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBNode;
@@ -98,8 +97,10 @@ public final class CreateCASIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS), IndexDef.DbType.XML);
+    final var storageEngineWriter = wtx.getStorageEngineWriter();
+    final int indexDefNo =
+        storageEngineWriter.getCASPage(storageEngineWriter.getActualRevisionRootPage()).nextUnallocatedIndex();
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths, indexDefNo, IndexDef.DbType.XML);
     try {
       controller.createIndexes(Set.of(idxDef), wtx);
     } catch (final SirixIOException e) {

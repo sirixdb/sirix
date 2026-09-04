@@ -370,16 +370,6 @@ public final class ResourceConfiguration {
   public final RegionCompressionType regionCompressionType;
 
   /**
-   * Backend type for secondary indexes (PATH, CAS, NAME).
-   * 
-   * <p>
-   * Determines whether indexes use the traditional Red-Black Tree implementation or the newer
-   * Height-Optimized Trie (HOT) implementation.
-   * </p>
-   */
-  public final IndexBackendType indexBackendType;
-
-  /**
    * Whether to verify page checksums on read operations.
    * 
    * <p>
@@ -467,7 +457,6 @@ public final class ResourceConfiguration {
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
     regionCompressionType = builder.regionCompressionType;
-    indexBackendType = builder.indexBackendType;
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
     hashAlgorithm = builder.hashAlgorithm;
     validTimeConfig = builder.validTimeConfig;
@@ -526,7 +515,7 @@ public final class ResourceConfiguration {
    * <p>
    * Returns {@code 0} when no configuration is attached, and that value is a HAZARD rather than a
    * neutral default: this id is the leading component of every JVM-global cache key in the engine —
-   * {@code PageReference}, {@code RBIndexKey}, {@code NamesCacheKey}, {@code PathSummaryCacheKey},
+   * {@code PageReference}, {@code HOTLookupKey}, {@code NamesCacheKey}, {@code PathSummaryCacheKey},
    * {@code RevisionRootPageCacheKey} and the HOT lookup cache. Resource ids restart at 0 in every
    * database, so two unattached resources collapse onto the same {@code (0, 0, revision, …)} key
    * space and one is served the other's cached data.
@@ -637,9 +626,9 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES = {"binaryEncoding", "revisioning", "revisioningClass",
       "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "hashFunction", "compression",
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
-      "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
-      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics",
-      "repairBulkInsertHashes", "resourceUuid", "regionCompression"};
+      "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
+      "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
+      "resourceUuid", "regionCompression"};
 
   /**
    * Serialize the configuration.
@@ -693,32 +682,30 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
       // String compression type.
       jsonWriter.name(JSONNAMES[17]).value(config.stringCompressionType.name());
-      // Index backend type.
-      jsonWriter.name(JSONNAMES[18]).value(config.indexBackendType.name());
       // DeweyID sibling distance.
-      jsonWriter.name(JSONNAMES[19]).value(config.deweyIdSiblingDistance);
+      jsonWriter.name(JSONNAMES[18]).value(config.deweyIdSiblingDistance);
       // Verify checksums on read.
-      jsonWriter.name(JSONNAMES[20]).value(config.verifyChecksumsOnRead);
+      jsonWriter.name(JSONNAMES[19]).value(config.verifyChecksumsOnRead);
       // Hash algorithm for checksums.
-      jsonWriter.name(JSONNAMES[21]).value(config.hashAlgorithm.name());
+      jsonWriter.name(JSONNAMES[20]).value(config.hashAlgorithm.name());
       // Valid time configuration.
       if (config.validTimeConfig != null) {
-        jsonWriter.name(JSONNAMES[22]);
+        jsonWriter.name(JSONNAMES[21]);
         jsonWriter.beginObject();
-        jsonWriter.name(JSONNAMES[23]).value(config.validTimeConfig.getValidFromPath());
-        jsonWriter.name(JSONNAMES[24]).value(config.validTimeConfig.getValidToPath());
+        jsonWriter.name(JSONNAMES[22]).value(config.validTimeConfig.getValidFromPath());
+        jsonWriter.name(JSONNAMES[23]).value(config.validTimeConfig.getValidToPath());
         jsonWriter.endObject();
       }
       // Path statistics.
-      jsonWriter.name(JSONNAMES[25]).value(config.withPathStatistics);
+      jsonWriter.name(JSONNAMES[24]).value(config.withPathStatistics);
       // Bulk-insert hash repair (opt-in).
-      jsonWriter.name(JSONNAMES[26]).value(config.repairBulkInsertHashes);
+      jsonWriter.name(JSONNAMES[25]).value(config.repairBulkInsertHashes);
       // Resource identity UUID (cross-linked to both superblocks).
       if (config.resourceUuid != null) {
-        jsonWriter.name(JSONNAMES[27]).value(config.resourceUuid.toString());
+        jsonWriter.name(JSONNAMES[26]).value(config.resourceUuid.toString());
       }
       // Region wire compression (speed/size dial).
-      jsonWriter.name(JSONNAMES[28]).value(config.regionCompressionType.name());
+      jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -829,20 +816,11 @@ public final class ResourceConfiguration {
         }
       }
 
-      // Index backend type (optional for backward compatibility with older configs)
-      IndexBackendType indexBackendType = IndexBackendType.RBTREE;
-      if (jsonReader.hasNext()) {
-        name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[18])) {
-          indexBackendType = IndexBackendType.valueOf(jsonReader.nextString());
-        }
-      }
-
       // DeweyID sibling distance (optional for backward compatibility with older configs)
       int deweyIdSiblingDistance = 16; // Default value
       if (jsonReader.hasNext()) {
         name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[19])) {
+        if (name.equals(JSONNAMES[18])) {
           deweyIdSiblingDistance = jsonReader.nextInt();
         }
       }
@@ -851,7 +829,7 @@ public final class ResourceConfiguration {
       boolean verifyChecksumsOnRead = true; // Default value
       if (jsonReader.hasNext()) {
         name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[20])) {
+        if (name.equals(JSONNAMES[19])) {
           verifyChecksumsOnRead = jsonReader.nextBoolean();
         }
       }
@@ -860,7 +838,7 @@ public final class ResourceConfiguration {
       HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3; // Default value
       if (jsonReader.hasNext()) {
         name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[21])) {
+        if (name.equals(JSONNAMES[20])) {
           hashAlgorithm = HashAlgorithm.valueOf(jsonReader.nextString());
         }
       }
@@ -874,15 +852,15 @@ public final class ResourceConfiguration {
       RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[22])) {
+        if (name.equals(JSONNAMES[21])) {
           jsonReader.beginObject();
           String validFromPath = null;
           String validToPath = null;
           while (jsonReader.hasNext()) {
             String fieldName = jsonReader.nextName();
-            if (fieldName.equals(JSONNAMES[23])) {
+            if (fieldName.equals(JSONNAMES[22])) {
               validFromPath = jsonReader.nextString();
-            } else if (fieldName.equals(JSONNAMES[24])) {
+            } else if (fieldName.equals(JSONNAMES[23])) {
               validToPath = jsonReader.nextString();
             }
           }
@@ -890,13 +868,13 @@ public final class ResourceConfiguration {
           if (validFromPath != null && validToPath != null) {
             validTimeConfig = new ValidTimeConfig(validFromPath, validToPath);
           }
-        } else if (name.equals(JSONNAMES[25])) {
+        } else if (name.equals(JSONNAMES[24])) {
           pathStatistics = jsonReader.nextBoolean();
-        } else if (name.equals(JSONNAMES[26])) {
+        } else if (name.equals(JSONNAMES[25])) {
           repairBulkInsertHashes = jsonReader.nextBoolean();
-        } else if (name.equals(JSONNAMES[27])) {
+        } else if (name.equals(JSONNAMES[26])) {
           resourceUuid = UUID.fromString(jsonReader.nextString());
-        } else if (name.equals(JSONNAMES[28])) {
+        } else if (name.equals(JSONNAMES[27])) {
           regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
         }
       }
@@ -926,7 +904,6 @@ public final class ResourceConfiguration {
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
              .regionCompressionType(regionCompressionType)
-             .indexBackendType(indexBackendType)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
@@ -1060,11 +1037,6 @@ public final class ResourceConfiguration {
      * precisely for resources that want the speed back.
      */
     private RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
-
-    /**
-     * Backend type for secondary indexes (PATH, CAS, NAME). Defaults to HOT for best performance.
-     */
-    private IndexBackendType indexBackendType = IndexBackendType.HOT;
 
     /**
      * Whether to verify page checksums on read operations. Default is true for data integrity.
@@ -1362,69 +1334,6 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Set the backend type for secondary indexes (PATH, CAS, NAME).
-     * 
-     * <p>
-     * This controls which data structure is used for storing index data:
-     * <ul>
-     * <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (default, high performance)</li>
-     * <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (traditional, stable)</li>
-     * </ul>
-     *
-     * @param indexBackendType the index backend type to use
-     * @return reference to the builder object
-     */
-    public Builder indexBackendType(IndexBackendType indexBackendType) {
-      this.indexBackendType = requireNonNull(indexBackendType);
-      return this;
-    }
-
-    /**
-     * Enable HOT (Height-Optimized Trie) indexes for this resource.
-     * 
-     * <p>
-     * This is the default, so calling this method is optional unless explicitly overriding a previous
-     * setting.
-     * </p>
-     * 
-     * <p>
-     * This is a convenience method equivalent to calling
-     * {@code indexBackendType(IndexBackendType.HOT)}.
-     * </p>
-     * 
-     * <p>
-     * HOT indexes provide better performance for large datasets due to improved cache utilization and
-     * reduced memory accesses.
-     * </p>
-     *
-     * @return reference to the builder object
-     */
-    public Builder useHOTIndexes() {
-      this.indexBackendType = IndexBackendType.HOT;
-      return this;
-    }
-
-    /**
-     * Use RBTree (Red-Black Tree) indexes for this resource.
-     * 
-     * <p>
-     * This is a convenience method equivalent to calling
-     * {@code indexBackendType(IndexBackendType.RBTREE)}.
-     * </p>
-     * 
-     * <p>
-     * RBTree is the traditional index implementation. Use this if you prefer the more established
-     * implementation over the newer HOT backend.
-     * </p>
-     *
-     * @return reference to the builder object
-     */
-    public Builder useRBTreeIndexes() {
-      this.indexBackendType = IndexBackendType.RBTREE;
-      return this;
-    }
-
-    /**
      * Enable or disable page checksum verification on read operations.
      * 
      * <p>
@@ -1559,7 +1468,6 @@ public final class ResourceConfiguration {
                            .add("Max number of revisions to restore", maxNumberOfRevisionsToRestore)
                            .add("Use deweyIDs", useDeweyIDs)
                            .add("Byte handler pipeline", byteHandler)
-                           .add("Index backend type", indexBackendType)
                            .add("Verify checksums on read", verifyChecksumsOnRead)
                            .add("Valid time config", validTimeConfig)
                            .toString();

@@ -27,12 +27,13 @@ import java.util.Map;
 /**
  * Non-JMH scale runner for queries against a Sirix-stored JSON dataset.
  * <p>
- * JMH is unsuitable for record counts in the 100M-1B range because each
- * benchmark/parameter combination forks a fresh JVM and re-runs {@code @Setup}.
- * Re-shredding 1B records per fork would take days. This runner shreds once
- * and times each query in-process.
+ * JMH is unsuitable for record counts in the 100M-1B range because each benchmark/parameter
+ * combination forks a fresh JVM and re-runs {@code @Setup}. Re-shredding 1B records per fork would
+ * take days. This runner shreds once and times each query in-process.
  *
- * <p>Usage:
+ * <p>
+ * Usage:
+ * 
  * <pre>
  *   java io.sirix.benchmark.BrackitQueryOnSirixScaleMain &lt;recordCount&gt; [vectorized=true|false] [iters=N]
  * </pre>
@@ -45,19 +46,25 @@ public final class BrackitQueryOnSirixScaleMain {
 
   private static final Map<String, String> QUERIES = new LinkedHashMap<>();
   static {
-    QUERIES.put("filterCount",            "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
-    QUERIES.put("groupByDept",            "for $u in $doc[] let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
-    QUERIES.put("sumAge",                 "sum(for $u in $doc[] return $u.age)");
-    QUERIES.put("avgAge",                 "avg(for $u in $doc[] return $u.age)");
-    QUERIES.put("minMaxAge",              "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
-    QUERIES.put("groupBy2Keys",           "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
-    QUERIES.put("filterGroupBy",          "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
-    QUERIES.put("countDistinct",          "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
-    QUERIES.put("compoundAndFilterCount", "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
+    QUERIES.put("filterCount", "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
+    QUERIES.put("groupByDept",
+        "for $u in $doc[] let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("sumAge", "sum(for $u in $doc[] return $u.age)");
+    QUERIES.put("avgAge", "avg(for $u in $doc[] return $u.age)");
+    QUERIES.put("minMaxAge",
+        "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
+    QUERIES.put("groupBy2Keys",
+        "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+    QUERIES.put("filterGroupBy",
+        "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("countDistinct", "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
+    QUERIES.put("compoundAndFilterCount",
+        "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
     // Numeric-predicate variant that Brackit routes to executeFilteredGroupByCount.
     // The default impl silently drops the filter; our override implements a real
     // filter-then-group scan. Kept here as a ground-truth correctness check.
-    QUERIES.put("filterGroupByAge",       "for $u in $doc[] where $u.age > 40 let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+    QUERIES.put("filterGroupByAge",
+        "for $u in $doc[] where $u.age > 40 let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
   }
 
   public static void main(String[] args) throws Exception {
@@ -67,28 +74,30 @@ public final class BrackitQueryOnSirixScaleMain {
     }
     long recordCount = Long.parseLong(args[0]);
     boolean vectorized = args.length < 2 || Boolean.parseBoolean(args[1]);
-    int iters = args.length < 3 ? 3 : Integer.parseInt(args[2]);
+    int iters = args.length < 3
+        ? 3
+        : Integer.parseInt(args[2]);
 
     BenchLogging.silenceRootLogger();
 
     // Lift Sirix's 16 GB default offheap pool — at 100 M records the page-cache
     // pressure during shred otherwise tips over. Cap to host RAM minus heap.
-    long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes",
-                                                       String.valueOf(24L << 30)));
+    long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     var alloc = Allocators.getInstance();
     alloc.init(offheap);
-    System.out.printf("# Allocator: %s   maxBufferSize = %d MB (initialized=%s)%n",
-                      alloc.getClass().getSimpleName(),
-                      alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
+    System.out.printf("# Allocator: %s   maxBufferSize = %d MB (initialized=%s)%n", alloc.getClass().getSimpleName(),
+        alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
 
     // Re-use an existing shredded database when -Dsirix.db=/path is supplied —
     // shredding 100 M records takes ~7 minutes, and we want to iterate on
     // query-side optimizations without paying that cost each time.
     String reuseDb = System.getProperty("sirix.db");
     final boolean shredNeeded = reuseDb == null;
-    Path dbDir = reuseDb != null ? Path.of(reuseDb) : Files.createTempDirectory("sirix-scale-bench");
+    Path dbDir = reuseDb != null
+        ? Path.of(reuseDb)
+        : Files.createTempDirectory("sirix-scale-bench");
     System.out.printf("# Records: %,d   Vectorized: %s   Iters: %d   DB: %s   Offheap: %d MB   Reuse: %s%n",
-                      recordCount, vectorized, iters, dbDir, offheap / (1L << 20), !shredNeeded);
+        recordCount, vectorized, iters, dbDir, offheap / (1L << 20), !shredNeeded);
 
     // Smaller auto-commit window keeps offheap segments getting recycled
     // during the shred phase. Default is 1 M nodes — too coarse for 100 M+ records.
@@ -108,25 +117,23 @@ public final class BrackitQueryOnSirixScaleMain {
     }
     HashType hash = HashType.fromString(System.getProperty("hashType", "NONE"));
     BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-        .location(dbDir)
-        .numberOfNodesBeforeAutoCommit(autoCommit)
-        .buildPathSummary(pathSummary)
-        .buildPathStatistics(pathStatistics)
-        .hashType(hash)
-        .build();
+                                             .location(dbDir)
+                                             .numberOfNodesBeforeAutoCommit(autoCommit)
+                                             .buildPathSummary(pathSummary)
+                                             .buildPathStatistics(pathStatistics)
+                                             .hashType(hash)
+                                             .build();
     System.out.printf("# pathSummary=%s  pathStatistics=%s%n", pathSummary, pathStatistics);
     SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
     SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
 
     if (shredNeeded) {
       long shredStart = System.nanoTime();
-      try (Reader src = new GeneratedRecordsReader(recordCount);
-           JsonReader jr = new JsonReader(src)) {
+      try (Reader src = new GeneratedRecordsReader(recordCount); JsonReader jr = new JsonReader(src)) {
         store.create(JSON_DB, JSON_RESOURCE, jr);
       }
       long shredMs = (System.nanoTime() - shredStart) / 1_000_000L;
-      System.out.printf("# Shred: %,d ms (%.0f records/sec)%n",
-                        shredMs, recordCount * 1000.0 / Math.max(1, shredMs));
+      System.out.printf("# Shred: %,d ms (%.0f records/sec)%n", shredMs, recordCount * 1000.0 / Math.max(1, shredMs));
     } else {
       System.out.println("# Shred: skipped (re-using existing DB)");
     }
@@ -145,30 +152,27 @@ public final class BrackitQueryOnSirixScaleMain {
     if (vectorized) {
       JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
       session = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
+    }
+
+    // A projection is a catalogued index. Ensure it before binding the executor so the executor
+    // reads the revision produced by the index-creation commit.
+    if (Boolean.getBoolean("projection") && session != null) {
+      final long tBuild = System.nanoTime();
+      final ProjectionIndexBenchSetup.BuildResult result = ProjectionIndexBenchSetup.ensureProjection(session);
+      final long buildMs = (System.nanoTime() - tBuild) / 1_000_000L;
+      System.out.printf("# Projection index: %,d row groups, %,d rows, ensured in %,d ms%n", result.rowGroupCount(),
+          result.totalRows(), buildMs);
+    }
+
+    if (vectorized) {
       // Default = all cores. Overridable via -Dsirix.vec.threads=N — useful
       // when a concurrency bug in Sirix's JVMCI-compiled allocator / page
       // combiner path triggers at high fan-out.
       int vecThreads = Integer.parseInt(
-          System.getProperty("sirix.vec.threads",
-              String.valueOf(Runtime.getRuntime().availableProcessors())));
+          System.getProperty("sirix.vec.threads", String.valueOf(Runtime.getRuntime().availableProcessors())));
       vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), vecThreads);
       SequentialPipelineStrategy.setVectorizedExecutor(vec);
       System.out.printf("# Vec threads: %d%n", vecThreads);
-    }
-
-    // -Dprojection=true installs a covering projection index on
-    // (age, active, dept) so that the filterCount / compoundAndFilterCount
-    // queries route through ProjectionIndexByteScan instead of the generic
-    // collectColumns path. Correctness is preserved — the byte-scan returns
-    // the same count, and any query that isn't a conjunctive
-    // NUM_CMP/STR_EQ/BOOL_REF tree falls back to the generic path.
-    if (Boolean.getBoolean("projection") && session != null) {
-      final long tBuild = System.nanoTime();
-      final ProjectionIndexBenchSetup.BuildResult result =
-          ProjectionIndexBenchSetup.installWildcard(session);
-      final long buildMs = (System.nanoTime() - tBuild) / 1_000_000L;
-      System.out.printf("# Projection index: %,d leaves, %,d rows, built in %,d ms%n",
-          result.rowGroupCount(), result.totalRows(), buildMs);
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
@@ -176,8 +180,8 @@ public final class BrackitQueryOnSirixScaleMain {
     ctx.bind(DOC_VAR, (Sequence) docItem);
 
     System.out.printf("%-26s | %10s | %10s | %10s | %10s%n", "query", "min(ms)", "avg(ms)", "max(ms)", "result_bytes");
-    System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------",
-                      "----------", "----------", "----------", "------------");
+    System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------", "----------", "----------",
+        "----------", "------------");
 
     long hitsBefore = io.sirix.cache.ShardedPageCache.getCacheHits();
     long missesBefore = io.sirix.cache.ShardedPageCache.getCacheMisses();
@@ -187,13 +191,17 @@ public final class BrackitQueryOnSirixScaleMain {
     long hits = io.sirix.cache.ShardedPageCache.getCacheHits() - hitsBefore;
     long misses = io.sirix.cache.ShardedPageCache.getCacheMisses() - missesBefore;
     long total = hits + misses;
-    double hitPct = total == 0 ? 0.0 : 100.0 * hits / total;
-    System.out.printf("# RecordPageCache during queries: hits=%,d misses=%,d (hit-rate=%.2f%%)%n",
-                      hits, misses, hitPct);
+    double hitPct = total == 0
+        ? 0.0
+        : 100.0 * hits / total;
+    System.out.printf("# RecordPageCache during queries: hits=%,d misses=%,d (hit-rate=%.2f%%)%n", hits, misses,
+        hitPct);
 
     SequentialPipelineStrategy.setVectorizedExecutor(null);
-    if (vec != null) vec.close();
-    if (session != null) session.close();
+    if (vec != null)
+      vec.close();
+    if (session != null)
+      session.close();
     chain.close();
     store.close();
     // Default: keep the DB around for re-use via -Dsirix.db=<path>. Set
@@ -207,8 +215,8 @@ public final class BrackitQueryOnSirixScaleMain {
     }
   }
 
-  private static void runQueryRepeated(SirixCompileChain chain, SirixQueryContext ctx,
-                                        String name, String body, int iters) {
+  private static void runQueryRepeated(SirixCompileChain chain, SirixQueryContext ctx, String name, String body,
+      int iters) {
     String wrapped = "declare variable $doc external; " + body;
 
     // Warm up: enough invocations to let HotSpot tier-up the query path.
@@ -217,7 +225,9 @@ public final class BrackitQueryOnSirixScaleMain {
     // a true cold scan — useful for comparing the executor's single-shot
     // latency rather than the repeated-query cache-hit latency.
     final boolean noWarmup = Boolean.getBoolean("sirix.noWarmup");
-    int warmupCount = noWarmup ? 0 : Math.max(3, Math.min(20, iters));
+    int warmupCount = noWarmup
+        ? 0
+        : Math.max(3, Math.min(20, iters));
     long warmDeadline = System.nanoTime() + 5_000_000_000L; // 5s budget
     try {
       for (int i = 0; i < warmupCount && System.nanoTime() < warmDeadline; i++) {
@@ -246,10 +256,9 @@ public final class BrackitQueryOnSirixScaleMain {
             final JsonDBCollection coll = (JsonDBCollection) ((JsonDBItem) ctx.resolve(DOC_VAR)).getCollection();
             final JsonResourceSession sess = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
             final int vecThreads = Integer.parseInt(
-                System.getProperty("sirix.vec.threads",
-                    String.valueOf(Runtime.getRuntime().availableProcessors())));
-            final SirixVectorizedExecutor fresh = new SirixVectorizedExecutor(sess,
-                sess.getMostRecentRevisionNumber(), vecThreads);
+                System.getProperty("sirix.vec.threads", String.valueOf(Runtime.getRuntime().availableProcessors())));
+            final SirixVectorizedExecutor fresh =
+                new SirixVectorizedExecutor(sess, sess.getMostRecentRevisionNumber(), vecThreads);
             SequentialPipelineStrategy.setVectorizedExecutor(fresh);
           }
         }
@@ -268,10 +277,9 @@ public final class BrackitQueryOnSirixScaleMain {
           // keep the filter range non-empty across the 20-66 age distribution.
           final int lowJit = i;
           final int upJit = i;
-          wrappedForIter = wrapped
-              .replace("$u.age > 40", "$u.age > " + (25 + lowJit))
-              .replace("$u.age > 30", "$u.age > " + (22 + lowJit))
-              .replace("$u.age < 50", "$u.age < " + (55 + upJit));
+          wrappedForIter = wrapped.replace("$u.age > 40", "$u.age > " + (25 + lowJit))
+                                  .replace("$u.age > 30", "$u.age > " + (22 + lowJit))
+                                  .replace("$u.age < 50", "$u.age < " + (55 + upJit));
         } else {
           wrappedForIter = wrapped;
         }
@@ -279,8 +287,10 @@ public final class BrackitQueryOnSirixScaleMain {
         bytes = runOnce(chain, ctx, wrappedForIter);
         long elapsed = System.nanoTime() - t0;
         sum += elapsed;
-        if (elapsed < min) min = elapsed;
-        if (elapsed > max) max = elapsed;
+        if (elapsed < min)
+          min = elapsed;
+        if (elapsed > max)
+          max = elapsed;
       }
     } catch (RuntimeException re) {
       System.out.printf("%-26s | (aborted iter: %s)%n", name, re.getMessage());
@@ -289,8 +299,7 @@ public final class BrackitQueryOnSirixScaleMain {
     double minMs = min / 1e6;
     double maxMs = max / 1e6;
     double avgMs = (sum / (double) iters) / 1e6;
-    System.out.printf("%-26s | %10.3f | %10.3f | %10.3f | %,10d%n",
-                      name, minMs, avgMs, maxMs, bytes);
+    System.out.printf("%-26s | %10.3f | %10.3f | %10.3f | %,10d%n", name, minMs, avgMs, maxMs, bytes);
   }
 
   private static int runOnce(SirixCompileChain chain, SirixQueryContext ctx, String wrapped) {

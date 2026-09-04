@@ -48,16 +48,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * END-TO-END test for the valid-time interval index using the user-facing JSONiq function
- * {@code jn:create-valid-time-index}, under DEFAULT JVM settings (NO {@code -Dsirix.index.useHOT}).
+ * {@code jn:create-valid-time-index}.
  *
- * <p>The flow mirrors a real user: create a resource with valid-time config, shred data, create the
+ * <p>
+ * The flow mirrors a real user: create a resource with valid-time config, shred data, create the
  * interval index from a query ({@code jn:create-valid-time-index($doc)} + {@code sdb:commit}), then
  * run {@code jn:valid-at} for many instants (including all boundary cases) and assert the results
- * equal a brute-force Java oracle — and that the interval-index fast path is actually taken.</p>
+ * equal a brute-force Java oracle — and that the interval-index fast path is actually taken.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
-@DisplayName("Valid-Time Interval Index End-to-End Test (jn:create-valid-time-index, no -D flags)")
+@DisplayName("Valid-Time Interval Index End-to-End Test (jn:create-valid-time-index)")
 public final class ValidTimeIndexEndToEndTest {
 
   private static final Path sirixPath = PATHS.PATH1.getFile();
@@ -93,12 +95,6 @@ public final class ValidTimeIndexEndToEndTest {
   @Test
   @DisplayName("create-valid-time-index from a query, then jn:valid-at == brute force for all t")
   void createIndexViaQueryThenValidAt() throws IOException {
-    // Assert NO -Dsirix.index.useHOT is in effect — this test must pass with default settings.
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "This end-to-end test must run WITHOUT -Dsirix.index.useHOT (got: "
-            + System.getProperty("sirix.index.useHOT") + ")");
-
     final List<Record> records = buildDataset();
     final String json = toJson(records);
 
@@ -129,17 +125,15 @@ public final class ValidTimeIndexEndToEndTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // 1) CREATE THE INDEX VIA A QUERY — exactly how a user would, then commit.
-        final String createQuery =
-            "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
-                + "let $idx := jn:create-valid-time-index($doc) "
-                + "return sdb:commit($doc)";
+        final String createQuery = "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
+            + "let $idx := jn:create-valid-time-index($doc) " + "return sdb:commit($doc)";
         final Sequence createResult = new Query(chain, createQuery).evaluate(ctx);
         assertNotNull(createResult, "jn:create-valid-time-index query must return a result");
       }
     }
 
     // 2) QUERY via jn:valid-at and assert == brute force, with a fresh store (cold caches) so the
-    //    index is read from persisted pages.
+    // index is read from persisted pages.
     Databases.getGlobalBufferManager().clearAllCaches();
 
     int boundaryFrom = 0;
@@ -185,8 +179,7 @@ public final class ValidTimeIndexEndToEndTest {
 
             // (a) The interval-index FAST PATH must be taken (a VALIDTIME index exists + is usable).
             final JsonDBItem doc = collection.getDocument(RESOURCE);
-            final ValidTimeIntervalIndex.Result fast =
-                ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
+            final ValidTimeIntervalIndex.Result fast = ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
             assertNotNull(fast, "Interval-index fast path must be taken at t=" + t
                 + " (the index was created via jn:create-valid-time-index)");
             fastPathTaken++;
@@ -196,8 +189,7 @@ public final class ValidTimeIndexEndToEndTest {
             doc.getTrx().close();
 
             // (b) The jn:valid-at function (which prefers the interval index) must agree.
-            assertEquals(brute, idsFromValidAt(chain, ctx, t),
-                "jn:valid-at must equal brute force at t=" + t);
+            assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must equal brute force at t=" + t);
           }
         }
       }
@@ -211,12 +203,8 @@ public final class ValidTimeIndexEndToEndTest {
   }
 
   @Test
-  @DisplayName("RBTree CAS index + HOT VALIDTIME index coexist on one resource (no -D flags)")
-  void rbtreeCasAndHotValidTimeCoexist() throws IOException {
-    assertTrue(System.getProperty("sirix.index.useHOT") == null
-            || "false".equalsIgnoreCase(System.getProperty("sirix.index.useHOT")),
-        "This coexistence test must run WITHOUT -Dsirix.index.useHOT");
-
+  @DisplayName("CAS and VALIDTIME indexes coexist on one resource")
+  void casAndValidTimeCoexist() throws IOException {
     // A small, deterministic dataset so we can assert an exact CAS hit.
     final List<Record> records = new ArrayList<>();
     final Instant uFrom = Instant.parse("2021-01-15T00:00:00Z");
@@ -228,12 +216,10 @@ public final class ValidTimeIndexEndToEndTest {
     final var dbPath = sirixPath.resolve(DB_NAME);
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
 
-    // Resource with the RBTree backend selected for secondary indexes (CAS/PATH/NAME) AND valid-time
-    // config. The VALIDTIME index will still force HOT internally.
+    // Create one resource configured for both the CAS and valid-time indexes.
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE)
                                                       .validTimePaths(VALID_FROM, VALID_TO)
-                                                      .indexBackendType(io.sirix.access.IndexBackendType.RBTREE)
                                                       .buildPathSummary(true)
                                                       .build();
       database.createResource(resourceConfig);
@@ -251,12 +237,10 @@ public final class ValidTimeIndexEndToEndTest {
       try (var ctx = SirixQueryContext.createWithJsonStore(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-        // Create an RBTree CAS index on /[]/validFrom, then the HOT VALIDTIME index, then commit.
-        final String createBoth =
-            "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
-                + "let $cas := jn:create-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
-                + "let $vt := jn:create-valid-time-index($doc) "
-                + "return sdb:commit($doc)";
+        // Create a CAS index on /[]/validFrom, then the VALIDTIME index, then commit.
+        final String createBoth = "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
+            + "let $cas := jn:create-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
+            + "let $vt := jn:create-valid-time-index($doc) " + "return sdb:commit($doc)";
         assertNotNull(new Query(chain, createBoth).evaluate(ctx),
             "creating both a CAS and a VALIDTIME index in one query must succeed");
       }
@@ -273,30 +257,28 @@ public final class ValidTimeIndexEndToEndTest {
 
         // (1) Both index types must be registered on the resource.
         final JsonDBItem doc = collection.getDocument(RESOURCE);
-        final var controller = doc.getTrx().getResourceSession()
-                                  .getRtxIndexController(doc.getTrx().getRevisionNumber());
+        final var controller =
+            doc.getTrx().getResourceSession().getRtxIndexController(doc.getTrx().getRevisionNumber());
         assertTrue(controller.getIndexes().getNrOfIndexDefsWithType(io.sirix.index.IndexType.CAS) >= 1,
-            "resource must have the RBTree CAS index");
+            "resource must have the CAS index");
         assertTrue(controller.getIndexes().getNrOfIndexDefsWithType(io.sirix.index.IndexType.VALIDTIME) >= 1,
-            "resource must have the HOT VALIDTIME index");
+            "resource must have the VALIDTIME index");
 
-        // (2) The HOT VALIDTIME index must answer jn:valid-at correctly via its fast path.
+        // (2) The VALIDTIME index must answer jn:valid-at correctly via its fast path.
         for (final Instant t : List.of(uFrom, Instant.parse("2021-06-01T12:00:00Z"),
             Instant.parse("2019-01-01T00:00:00Z"))) {
           final Set<Integer> brute = bruteForce(records, t);
-          final ValidTimeIntervalIndex.Result fast =
-              ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
-          assertNotNull(fast, "interval-index fast path must be taken alongside an RBTree CAS index at t=" + t);
+          final ValidTimeIntervalIndex.Result fast = ValidTimeIntervalIndex.tryIndexScan(doc, t, validTimeConfig);
+          assertNotNull(fast, "interval-index fast path must be taken alongside a CAS index at t=" + t);
           assertEquals(brute, idsOfItems(fast.items()), "interval index must be correct at t=" + t);
           assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must be correct at t=" + t);
         }
 
-        // (3) The RBTree CAS index must independently still work (scan it for a known validFrom).
-        final String casScan =
-            "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
-                + "let $n := jn:find-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
-                + "for $node in jn:scan-cas-index($doc, $n, '" + uFrom + "', '==', '/[]/" + VALID_FROM + "') "
-                + "return sdb:nodekey($node)";
+        // (3) The CAS index must independently still work (scan it for a known validFrom).
+        final String casScan = "let $doc := jn:doc('" + DB_NAME + "', '" + RESOURCE + "') "
+            + "let $n := jn:find-cas-index($doc, 'xs:string', '/[]/" + VALID_FROM + "') "
+            + "for $node in jn:scan-cas-index($doc, $n, '" + uFrom + "', '==', '/[]/" + VALID_FROM + "') "
+            + "return sdb:nodekey($node)";
         final Sequence casResult = new Query(chain, casScan).evaluate(ctx);
         int casHits = 0;
         if (casResult != null) {
@@ -309,8 +291,7 @@ public final class ValidTimeIndexEndToEndTest {
             it.close();
           }
         }
-        assertTrue(casHits >= 1,
-            "the RBTree CAS index must return the validFrom='" + uFrom + "' node (record 0)");
+        assertTrue(casHits >= 1, "the CAS index must return the validFrom='" + uFrom + "' node (record 0)");
       }
     }
   }
@@ -336,8 +317,8 @@ public final class ValidTimeIndexEndToEndTest {
     int id = 0;
     final long maxFromOffsetDays = ChronoUnit.DAYS.between(base, UNIVERSAL);
     for (int i = 0; i < 120; i++) {
-      final Instant from = base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS)
-                               .plusSeconds(rnd.nextInt(86_400));
+      final Instant from =
+          base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
       final Instant to = (i % 6 == 0)
           ? Instant.parse("2999-12-31T23:59:59Z") // open-ended
           : UNIVERSAL.plus(1 + rnd.nextInt(700), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
@@ -361,9 +342,17 @@ public final class ValidTimeIndexEndToEndTest {
       if (i > 0) {
         sb.append(",");
       }
-      sb.append("{\"id\": ").append(r.id())
-        .append(", \"").append(VALID_FROM).append("\": \"").append(r.validFrom())
-        .append("\", \"").append(VALID_TO).append("\": \"").append(r.validTo()).append("\"}");
+      sb.append("{\"id\": ")
+        .append(r.id())
+        .append(", \"")
+        .append(VALID_FROM)
+        .append("\": \"")
+        .append(r.validFrom())
+        .append("\", \"")
+        .append(VALID_TO)
+        .append("\": \"")
+        .append(r.validTo())
+        .append("\"}");
     }
     sb.append("]");
     return sb.toString();
@@ -373,7 +362,7 @@ public final class ValidTimeIndexEndToEndTest {
     final Set<Instant> times = new LinkedHashSet<>();
     times.add(Instant.parse("1900-01-01T00:00:00Z")); // before all -> zero match
     times.add(Instant.parse("2998-01-01T00:00:00Z")); // after all closed intervals
-    times.add(UNIVERSAL);                              // all match
+    times.add(UNIVERSAL); // all match
     for (final Record r : recs) {
       times.add(r.validFrom());
       times.add(r.validTo());

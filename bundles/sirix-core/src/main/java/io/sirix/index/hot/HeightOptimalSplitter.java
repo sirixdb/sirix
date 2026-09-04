@@ -65,7 +65,7 @@ import org.jspecify.annotations.Nullable;
  * @see DiscriminativeBitComputer
  * @see NodeUpgradeManager
  */
-public final class HeightOptimalSplitter {
+final class HeightOptimalSplitter {
 
   /** Private constructor to prevent instantiation. */
   private HeightOptimalSplitter() {
@@ -80,8 +80,8 @@ public final class HeightOptimalSplitter {
    * @param rightChild reference to right child
    * @param discriminativeBitIndex the bit index that discriminates left from right
    */
-  public record SplitResult(HOTIndirectPage newRoot, PageReference leftChild,
-      PageReference rightChild, int discriminativeBitIndex) {
+  record SplitResult(HOTIndirectPage newRoot, PageReference leftChild, PageReference rightChild,
+      int discriminativeBitIndex) {
   }
 
   /**
@@ -105,8 +105,8 @@ public final class HeightOptimalSplitter {
    * @return the split result containing the new root and child references, or {@code null} if the
    *         page cannot be split (e.g., only 1 entry)
    */
-  public static @Nullable SplitResult splitLeafPage(HOTLeafPage fullPage, HOTLeafPage rightPage,
-      long newRootPageKey, int revision) {
+  static @Nullable SplitResult splitLeafPage(HOTLeafPage fullPage, HOTLeafPage rightPage, long newRootPageKey,
+      int revision) {
 
     // 1. Split entries at midpoint (splitTo returns the split key, but we compute
     // the discriminative bit from actual boundary keys for correctness)
@@ -137,8 +137,8 @@ public final class HeightOptimalSplitter {
     if (discriminativeBit < 0) {
       // Keys are identical — this indicates a bug in the split algorithm since properly
       // sorted unique keys should never produce identical leftMax/rightMin after split.
-      throw new IllegalStateException("Cannot split: leftMax and rightMin are identical: "
-          + java.util.Arrays.toString(leftMax));
+      throw new IllegalStateException(
+          "Cannot split: leftMax and rightMin are identical: " + java.util.Arrays.toString(leftMax));
     }
 
     // 4. Determine which side new keys go based on discriminative bit value
@@ -188,7 +188,7 @@ public final class HeightOptimalSplitter {
    * <ol>
    * <li>Compute discriminative bit mask across all keys</li>
    * <li>If bits are within 8 contiguous bytes → SpanNode (up to 16 children)</li>
-   * <li>If bits span more than 8 bytes → MultiNode (up to 256 children)</li>
+   * <li>If bits span more than 8 bytes → MultiNode (up to 32 children)</li>
    * <li>If only 1 bit differs → BiNode (2 children)</li>
    * </ol>
    * 
@@ -198,8 +198,8 @@ public final class HeightOptimalSplitter {
    * @param revision current revision
    * @return the split result, or null if split not possible
    */
-  public static @Nullable SplitResult splitLeafPageOptimal(HOTLeafPage fullPage,
-      HOTLeafPage rightPage, long newRootPageKey, int revision) {
+  static @Nullable SplitResult splitLeafPageOptimal(HOTLeafPage fullPage, HOTLeafPage rightPage, long newRootPageKey,
+      int revision) {
 
     // Get all keys to analyze discriminative bits
     byte[][] allKeys = fullPage.getAllKeys();
@@ -256,9 +256,8 @@ public final class HeightOptimalSplitter {
    * @param numDiscriminativeBits number of discriminative bits
    * @return the split result with SpanNode root, or null if not possible
    */
-  private static @Nullable SplitResult createSpanNodeSplit(HOTLeafPage fullPage,
-      HOTLeafPage rightPage, long newRootPageKey, int revision, byte[][] allKeys, long discriminativeMask,
-      int numDiscriminativeBits) {
+  private static @Nullable SplitResult createSpanNodeSplit(HOTLeafPage fullPage, HOTLeafPage rightPage,
+      long newRootPageKey, int revision, byte[][] allKeys, long discriminativeMask, int numDiscriminativeBits) {
 
     // For SpanNode, we need to:
     // 1. Determine the byte range containing all discriminative bits
@@ -298,7 +297,7 @@ public final class HeightOptimalSplitter {
    * @param keys sorted array of keys
    * @return the index where the split should occur (first key of right subtree)
    */
-  public static int findOptimalSplitPoint(byte[][] keys) {
+  static int findOptimalSplitPoint(byte[][] keys) {
     if (keys.length <= 2) {
       return keys.length / 2;
     }
@@ -321,7 +320,7 @@ public final class HeightOptimalSplitter {
    * @param discriminativeBit the computed discriminative bit
    * @return true if a SpanNode should be created
    */
-  public static boolean shouldCreateSpanNode(byte[] leftMax, byte[] rightMin, int discriminativeBit) {
+  static boolean shouldCreateSpanNode(byte[] leftMax, byte[] rightMin, int discriminativeBit) {
     // Check if there are additional discriminative bits in the same byte
     int byteIndex = DiscriminativeBitComputer.getByteIndex(discriminativeBit);
 
@@ -356,8 +355,8 @@ public final class HeightOptimalSplitter {
    * @param rightRef reference to right child
    * @return the new BiNode
    */
-  public static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBit,
-      PageReference leftRef, PageReference rightRef) {
+  static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBit, PageReference leftRef,
+      PageReference rightRef) {
     return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, leftRef, rightRef);
   }
 
@@ -366,7 +365,7 @@ public final class HeightOptimalSplitter {
    * 
    * <p>
    * This is a simplified helper for creating the root reference. Full tree integration with COW
-   * propagation is handled by {@link io.sirix.access.trx.page.HOTTrieWriter#handleLeafSplitWithPath}.
+   * propagation is handled by the canonical index writer.
    * </p>
    * 
    * <p>
@@ -378,15 +377,14 @@ public final class HeightOptimalSplitter {
    * @param childIndex index of the split child in the parent (unused in simple case)
    * @return the new root reference
    */
-  public static PageReference integrateBiNodeIntoTree(SplitResult splitResult,
-      @Nullable PageReference parentRef, int childIndex) {
+  static PageReference integrateBiNodeIntoTree(SplitResult splitResult, @Nullable PageReference parentRef,
+      int childIndex) {
 
     // Create reference to the new root
-    // Full integration with parent is handled by HOTTrieWriter.updateParentForSplitWithPath()
+    // Full integration with the parent is handled by the canonical index writer.
     PageReference newRootRef = new PageReference();
     newRootRef.setPage(splitResult.newRoot());
     newRootRef.setKey(splitResult.newRoot().getPageKey());
     return newRootRef;
   }
 }
-

@@ -1,5 +1,11 @@
 # HOT Phase 7 — Leaf-Owned-Bits Metadata
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Goal:** Drive 50K diagnosticMicrobenchPatternReproducer to 0 violations by making
 multi-entry leaves track which absolute bit positions can vary inside them. Caller
 queries this metadata BEFORE inserting a key; if the key would introduce a new

@@ -2,7 +2,9 @@ package io.sirix.io;
 
 import net.openhft.hashing.LongHashFunction;
 
+import java.lang.ref.Reference;
 import java.lang.foreign.MemorySegment;
+import java.nio.ByteBuffer;
 
 /**
  * Hash algorithms for page checksum verification.
@@ -60,9 +62,40 @@ public enum HashAlgorithm {
 
     @Override
     public long computeHashLong(MemorySegment segment) {
-      // One access serves native and heap segments alike, zero-copy either way — the previous
-      // address()/heapBase() split existed only because the Unsafe access needed raw coordinates.
+      // This public API accepts arbitrary FFM segments, including closeable shared arenas. Keep the
+      // checked segment access here: an isAlive() pre-check cannot pin a shared arena, so handing its
+      // raw address to native code could race a concurrent close and dereference unmapped memory.
+      if (segment.isNative()) {
+        requireAccessibleNativeSegment(segment);
+      }
       return HASHER.hash(segment, HashAccesses.SEGMENT, 0, segment.byteSize());
+    }
+
+    @Override
+    public long computeHashLong(final ByteBuffer buffer) {
+      final int length = buffer.remaining();
+      if (buffer.hasArray()) {
+        return HASHER.hash(buffer.array(), HashAccesses.BYTES, (long) buffer.arrayOffset() + buffer.position(), length);
+      }
+      // FileChannel readers exclusively own their borrowed direct buffer through checksum and decode.
+      // The library's own ByteBuffer kernel is never entered for a buffer without an array: linking
+      // it resolves sun.nio.ch.DirectBuffer, which java.base does not export, so outside a JVM
+      // started with --add-opens (Gradle's test workers add it silently) the FIRST page read of every
+      // resource failed with IllegalAccessError. The public FFM view of the buffer — native for a
+      // direct buffer, a read-only heap view otherwise — feeds the same xx3 kernel through the
+      // segment access: bit-identical values, no Unsafe, no module flags. The view spans
+      // position..limit, so no extra offset applies.
+      final MemorySegment view = MemorySegment.ofBuffer(buffer);
+      if (view.isNative()) {
+        requireAccessibleNativeSegment(view);
+      }
+      try {
+        return HASHER.hash(view, HashAccesses.SEGMENT, 0L, length);
+      } finally {
+        // The kernel sees only an address. Keep the direct buffer (and therefore its Cleaner
+        // attachment) strongly reachable until the final native load has completed.
+        Reference.reachabilityFence(buffer);
+      }
     }
 
     @Override
@@ -80,6 +113,18 @@ public enum HashAlgorithm {
   // XXH128(16) { ... }, // Would need computeHash128() methods
 
   private final int hashLength;
+
+  /**
+   * Fail deterministically even for a zero-length native segment, before the hash performs no load.
+   */
+  private static void requireAccessibleNativeSegment(final MemorySegment segment) {
+    if (!segment.scope().isAlive()) {
+      throw new IllegalStateException("Cannot hash a closed memory segment");
+    }
+    if (!segment.isAccessibleBy(Thread.currentThread())) {
+      throw new WrongThreadException("Cannot hash a memory segment confined to another thread");
+    }
+  }
 
   HashAlgorithm(int hashLength) {
     this.hashLength = hashLength;
@@ -121,6 +166,14 @@ public enum HashAlgorithm {
    * @return hash as long
    */
   public abstract long computeHashLong(MemorySegment segment);
+
+  /**
+   * Compute a hash over the buffer's remaining bytes without changing its position.
+   *
+   * @param buffer source buffer
+   * @return hash as long
+   */
+  public abstract long computeHashLong(ByteBuffer buffer);
 
   /**
    * Verify data against expected hash (zero allocation).

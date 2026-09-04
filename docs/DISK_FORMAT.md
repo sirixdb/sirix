@@ -8,7 +8,7 @@ decisions log), and the byte-level contract is pinned by golden tests
 change to any pinned structure fails CI. From here, ANY change to the bytes in this document is
 a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
-byte (PIXM/PIXC/PIX1, per-record versions) — accompanied by an update to the golden constants
+byte (PIXM/PIXD/PIXS/PIX1, per-record versions) — accompanied by an update to the golden constants
 and a migration note here. Nothing has been bumped under that rule yet: SirixDB has no released
 consumers, so structures still evolve IN PLACE and the golden pins alone make each change
 deliberate (see §2, "PathStats trailer").
@@ -151,10 +151,10 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 - `BytesOut`/`BytesIn` payload primitives, the KVLP header+bitmap block, PAX regions,
   flyweight field access, and the FFILz4 frame header: pinned LE via `io.sirix.node.LE`
   layouts (`ByteArrayBytesIn` already decoded LE byte-shifts).
-- Deliberate exceptions (byte-shift-encoded, endian-independent): `compactDir` and in-blob
-  column length prefixes use big-endian *byte layout* via explicit shifts; HOT discriminative
-  keys use BE loads for lexicographic `compareUnsigned` — both are defined byte sequences, not
-  host-order dependent.
+- Deliberate big-endian defined byte sequences: `compactDir` uses explicit byte composition on
+  stream reads and a byte-swapped LE-short access on `MemorySegment`; in-blob column length
+  prefixes use explicit shifts. HOT discriminative keys use BE loads for lexicographic
+  `compareUnsigned`. These are defined wire byte sequences, not host-order dependent.
 - The superblock's endianness check remains as a fail-fast guard for headers written by
   pre-pin dev builds on BE hosts (none exist in practice).
 - The legacy big-endian FILE backend is removed; `StorageType.FILE` fails fast.
@@ -162,12 +162,30 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 ## 2. Pages
 
 Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
-(`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is reserved
-extension space for **every** page kind — all bits zero in V0, and a reader rejects nonzero
-flags as "written by a newer version" instead of misparsing. Kind ids: 1 KVLP, 2 NAME,
+(`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is extension space
+**per page kind, not a shared namespace** — the same bit number means a different thing depending on
+the kind byte that precedes it, so a bit only has meaning once the kind is known. A kind that
+defines no flag writes zero and rejects anything else; a kind that defines flags reads through
+`readVersionAndFlagsAllowing(source, allowedMask)`, which rejects any bit outside **that kind's own**
+mask as "written by a newer version" instead of misparsing.
+
+The masks declared today — derive this list from the `readVersionAndFlagsAllowing` call sites rather
+than trusting it to stay complete, since a kind may add a flag without touching this document:
+
+| kind | bit | constant | meaning |
+|---|---|---|---|
+| KVLP (1) | `0x01` | `ChunkedBodyConfig.FLAG_CHUNKED_BODY` | body is chunk-framed (one META frame plus heap chunks split at entry boundaries, each independently compressed and checksummed) instead of one monolithic codec frame; writer off by default, both bodies readable |
+| KVLP (1) | `0x02` | `FLAG_OVERFLOW_SLOT_SIDECAR` | the page carries a cold overflow-slot sidecar. Set from the data, not a switch: written whenever `getSideSlotCount() != 0` |
+| OVERFLOW (9) | `0x01` | `FLAG_OVERFLOW_PAYLOAD_COMPRESSED` | the compressed body described below — **the default** since the payload-compression flip |
+| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries the segment/blob side map described below |
+
+Every other kind writes zero and refuses any nonzero bit. **Compatibility is one-directional:** a
+build that predates a flag bit reads a resource written without it, but a resource written WITH it
+cannot be read by that build — the reader refuses the unknown bit loudly rather than misparsing.
+Kind ids: 1 KVLP, 2 NAME,
 3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
-12 HOT_LEAF, 13 HOT_INDIRECT, 14 BITMAP_CHUNK, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
-(7 retired/reserved).
+12 HOT_LEAF, 13 HOT_INDIRECT, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
+(7 and 14 retired/reserved; readers reject both ids).
 
 **Format evolution mechanism (decided):** the unit of node-record/page-body evolution is a
 `BinaryEncodingVersion` bump — every node/page (de)serializer receives the
@@ -175,26 +193,55 @@ flags as "written by a newer version" instead of misparsing. Kind ids: 1 KVLP, 2
 per-page version byte fails fast on unknown values. Node kinds that need to evolve
 independently of the global version carry a per-record version byte (the VECTOR_NODE /
 VECTOR_INDEX_METADATA pattern); sub-structures with their own magic carry their own version
-byte (PIXC/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
+byte (PIXD/PIXS/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
 fail-fast lookups, never ordinals.
 
 - **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
+- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage**: reference-container delegate
+  followed by one sparse HOT allocator map `[i32 count][count × (i32 indexId, i64 maxHotPageKey)]`.
+  Entries are emitted in ascending `indexId` order. These secondary-index containers have one
+  representation only: their references root HOT trees; no keyed-trie node-key or indirect-level
+  counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
+  draft in place; there are no persisted databases requiring a compatibility branch.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
+  compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
+  inline length (0..1023 — the field's full reach, which is also `MAX_RECORD_SIZE`; zero is legal
+  only for the raw-slot kind), and 6 low bits encode the
+  persisted slotted kind (`0` raw sentinel or a supported flyweight kind). Unsupported/retired
+  kind ids are corruption, and no length is representable above the cap. The directory is followed by a
   smallest-of-three body codec (`ZeroRunByteCodec` 0 / `ByteRunCodec` 2 / `SirixLZ77Codec` 3 —
   an LZ4-block-format clone, little-endian) over either the offset-table-template dedup layout
   (≤255 templates/page, 1-byte slot ids, hash/value/nameKey elision bitmaps, predictor-coded
   parentKey column, pathNodeKey dictionary) or the inline fallback; then PAX regions
   (`RegionTable`, one slot per stable kind id: 0 Number = frame-of-reference + bit-packing +
   per-tag zone maps, 1 String, 2 Struct, 3 DeweyID, 4 ObjectKeyNameKey, 5 Boolean, 6 Hash,
-  7 StructPointers, 8 StringDictSketch = Bloom filter over the string dictionary,
+  7 StructPointers, 8 StringDictSketch = Bloom filter over the string dictionary (omitted on a
+  page whose string region suppressed a tag, since the filter's negative is exact and page-wide),
+  1 String's completeness is PER TAG: a tag holding a value too large to stay inline leaves the
+  region entirely and is named in the header's suppressed-tag list, which is present only when
+  `parentDictSize` carries its sign bit,
   9 NumberZoneMap = the number column's per-tag min/max hoisted out so a range predicate can
   prune the page without decompressing it, 10 RecordOrdinal = the slot → record linkage a
   predicate spanning two fields needs, 11 Double = the double-typed column the long-only number
   region cannot hold, each tag encoded PLAIN, ALP, ALP-RD or exact-decimal — see
   `page/pax/DoubleRegion` for that region's wire format and what each encoding means for a
   comparison), overflow pointers, optional FSST symbol table.
+- **String-region tag forms (two optional lanes, both OFF by default).** A tag's dictionary is
+  normally text plus a length lane whose width is a two-bit code (1/2/4 bytes). The spare code 3 —
+  unreachable before, since only three widths exist — now selects a lane instead of a width, and the
+  plain-tag bit says which: code 3 alone is the TRIE lane (the dictionary holds global ids into a
+  resource-wide dictionary, and the tag stores no value bytes; armed by
+  `-Dsirix.projection.trieLane=true` at load), and code 3 WITH the plain bit is the TEMPORAL lane
+  (`-Dsirix.page.temporalLane=true`; a tag whose whole dictionary is `"YYYY-MM-DD"` or
+  `"YYYY-MM-DD HH:MM:SS"` is stored as frame-of-reference-packed day/second counts via
+  `page/pax/TemporalTextCodec`, which refuses anything it could not render back byte-identically).
+  Decoding either lane is unconditional, so a page written with one stays readable after the switch
+  is turned off. Compatibility is one-directional exactly as for the flags byte: a build predating a
+  lane meets an unknown width code and throws, rather than reading an id or timestamp lane as
+  lengths. `StringRegion.temporalLaneEnabled()` documents the one read path — a region REBUILT from
+  the slotted page — that re-encodes under the current setting rather than the writer's.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
   (`DeltaVarIntCodec`), varint revisions, fixed 8-byte rolling hash (elided page-wide when all
   zero), typed number payloads (Double/Float fixed, Int/Long zigzag varint).
@@ -260,8 +307,8 @@ revision records** (little-endian) plus their **checksummed 16-entry tail log in
 slots** (salvage + self-heal, eviction guarded by a per-resource durability watermark);
 **legacy FILE backend removed** (`StorageType.FILE` fails
 fast — it wrote an incompatible layout under the same version); u8 fragment-count guards;
-BITMAP_CHUNK honors its version byte; PATH_SUMMARY writes its delegate byte via the shared
-helper; PageReference hashes as `[u8 flag][8 B]` instead of `[i32 len][8 B]`; the `+8`
+PATH_SUMMARY writes its delegate byte via the shared helper; PageReference hashes as
+`[u8 flag][8 B]` instead of `[i32 len][8 B]`; the `+8`
 first-offset quirk and the 256-byte RevisionRootPage alignment are gone (8-byte alignment for
 all data pages, data starts exactly at `DATA_REGION_START`).
 
@@ -269,12 +316,12 @@ Done since the audit (see `docs/BINARY_ENCODING_FUTURE_PROOFING_AUDIT.md` for th
 **full little-endian pin** (was item 1 — all scalar IO via `io.sirix.node.LE`); **reserved
 flags byte in every page envelope** (additive changes no longer force a global version bump);
 **revisions record stride persisted in the superblock** and validated at open; **stable id
-bytes replace every enum-ordinal on disk** (HOT node/layout types, BitmapChunkPage index
-type); **fail-fast unknown node-kind/page-flags/version errors**; **pure-Java LZ4 block
+bytes replace every enum-ordinal on disk** (including HOT node/layout types); **fail-fast unknown
+node-kind/page-flags/version errors**; **pure-Java LZ4 block
 decoder** (`JavaLz4BlockDecoder` — LZ4-bodied pages and FFILz4-pipeline resources are readable
 without `liblz4`; writes fall back to stored-uncompressed frames); **hash-function identity
 persisted + validated** (`ressetting.obj` `hashFunction` = "XX3"); **config field validation
-throws in production** (was `assert`); **PIXC/PIX1 carry version bytes**; **DeweyID framing
+throws in production** (was `assert`); **projection substructures carry version bytes**; **DeweyID framing
 and record offset-table guards throw instead of truncating**; **long child/descendant counts**;
 **golden byte-pinning tests** (`io.sirix.format.GoldenFormatTest` — superblocks, page
 envelope, node record, varints, Roaring64 coupling, id registries).
@@ -380,10 +427,11 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                   segCount × { u16 columnSegmentId; int byteLen;
                                                u64 xxh3; u8 colFlags; i64 min; i64 max } }
                ZONE MAP ONLY — no trailing inline region: a segment's bytes live in the
-               segment's own slot, never also here. (byteLen's SEG_INLINE high bit and the
-               inline region are vestigial from the descriptor layout; the write path strips
-               them via toZoneMapOnly.) ver=0 is the ONLY supported version: validate() refuses
-               any other value, so a future shape change is rejected rather than misread.
+               segment's own slot, never also here. The encoder emits only this form and
+               every storage/read boundary rejects a byteLen inline marker or trailing
+               payload; there is no normalization or compatibility reader. ver=0 is the
+               ONLY supported version: validation refuses any other value, so a future
+               shape change is rejected rather than misread.
                zero-length value = tombstone; rowCount==0 descriptor = live empty row group
     slotKind ≥ 1: BARE segment slot — { u8 kind } [+ raw segment bytes]
                kind 0 = INLINE (bytes follow, used when ≤ 512 B); kind 1 = REFERENCED
@@ -407,8 +455,22 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
     (ownerSlotKey << 16 | subId) → page file offset (bare u64)
     subId is always 0 here — a referenced blob or segment slot owns exactly one page, since
     the slot IS the segment. |ownerSlotKey| < 2^47 is enforced by the composite encoder.
-  OverflowPage (PageKind 9): { int len; bytes } — offset identity, no fragments,
-    whole-page last-writer-wins; integrity = descriptor/marker byteLen + xxh3 (its only checksum).
+  OverflowPage (PageKind 9): offset identity, no fragments, whole-page last-writer-wins;
+    integrity = descriptor/marker byteLen + xxh3 (its only checksum). TWO bodies, selected by
+    envelope flag 0x01 (FLAG_OVERFLOW_PAYLOAD_COMPRESSED):
+      flag clear: { i32 dataLength; bytes[dataLength] }
+      flag set:   { i32 dataLength; i32 storedLength; u8 codec; bytes[storedLength] }
+                  codec 0 = ZeroRunByte, 2 = ByteRun, 3 = SirixLZ77 (1 is not used here).
+                  dataLength is the DECODED size; the decoder refuses a frame that produces
+                  anything else rather than returning a short payload.
+    The COMPRESSED body is the DEFAULT. A payload of OVERFLOW_COMPRESSION_MIN_BYTES = 64 bytes or
+    more is offered to a codec bake-off on write, and takes the flag only when the winner beats the
+    raw payload by more than the 5 bytes of extra framing (storedLength + codec byte); payloads
+    under 64 bytes, and payloads no codec shrinks by that margin, keep the flag-clear body. Since
+    overflow pages carry oversized records, projection column segments and value-dictionary blocks,
+    the flag-set form is the common case on a real resource.
+    `-Dsirix.page.overflow.compress=false` skips the bake-off and reproduces the flag-clear bytes
+    exactly, which is also what every resource written before the flag existed carries.
     (Reused for referenced segments AND referenced blobs; the bespoke ProjectionSegmentPage was retired.)
 
 Segment ids: 0 = KEYS, 4c+1 = BODY(c), 4c+2 = DICT(c), 4c+3 = SET_COUNTS(c),

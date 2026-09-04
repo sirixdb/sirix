@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -130,6 +131,22 @@ final class ProjectionBulkSlotAccumulationTest {
         assertArrayEquals(bigFromPlain, bigFromBulk, "committed big-blob side page mismatch");
         assertArrayEquals(bigBlobPayload(), bigFromBulk, "committed big-blob content mismatch");
       }
+    }
+  }
+
+  @Test
+  void accumulationRefusesANonVirginTreeWithoutChangingIt() {
+    final byte[] payload = {1, 2, 3, 4};
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+        JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0);
+      storage.putBlob(META_SLOT, payload);
+
+      assertThrows(IllegalStateException.class, storage::beginBulkSlotAccumulation,
+          "bulk initialization must never become an alternate writer for populated state");
+      assertFalse(storage.isBulkAccumulating());
+      assertArrayEquals(payload, storage.getBlob(META_SLOT));
     }
   }
 

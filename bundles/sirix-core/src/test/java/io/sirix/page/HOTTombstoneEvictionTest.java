@@ -7,9 +7,9 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -49,8 +49,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * happened — the empty-enumeration mistake. Each case therefore asserts the counter for the
  * mechanism it is actually about, BEFORE its absence assertion: merge cases assert
  * {@code multiFragmentMerges > 0}, eviction cases assert {@code carryForwardRotations > 0}, and the
- * split case asserts {@code IN_PLACE_LEAF_SPLITS > 0}. "A merge ran" is NOT a witness that an
- * eviction ran, and the two are different code paths.
+ * split case asserts an indirect projection root. "A merge ran" is NOT a witness that an eviction
+ * ran, and the two are different code paths.
  *
  * <h2>Window arithmetic, so the commit counts are not folklore</h2>
  *
@@ -79,7 +79,7 @@ final class HOTTombstoneEvictionTest {
 
   private static final int PAYLOAD_BYTES = 3 * 1024;
 
-  /** Matches {@link HOTCompleteDumpMergeTest}: the row count at which an in-place split appears. */
+  /** Matches {@link HOTCompleteDumpMergeTest}: the row count at which a structural split appears. */
   private static final int SPLIT_KEYS = 2000;
 
   @BeforeEach
@@ -92,7 +92,6 @@ final class HOTTombstoneEvictionTest {
             + "-Dsirix.hot.mergeDiag=true (the gradle test configuration sets it).");
     JsonTestHelper.deleteEverything();
     VersioningType.resetFragmentMergeCounters();
-    HOTTrieWriter.resetInPlaceLeafSplits();
   }
 
   @AfterEach
@@ -160,7 +159,7 @@ final class HOTTombstoneEvictionTest {
   }
 
   /**
-   * CASE 3 — the full composition: a tombstone, an IN-PLACE SPLIT that relocates entries around it,
+   * CASE 3 — the full composition: a tombstone, a structural split that relocates entries around it,
    * and then enough commits that the window ROTATES on the split leaf.
    *
    * <p>
@@ -188,8 +187,13 @@ final class HOTTombstoneEvictionTest {
         assertDeletedStaysDeleted(session, "post-split phase " + phase);
       }
 
-      assertTrue(HOTTrieWriter.inPlaceLeafSplits() > 0,
-          "no in-place leaf split ran, so the split half of this case is not covered. " + counters());
+      try (JsonNodeReadOnlyTrx probe = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader reader = probe.getStorageEngineReader();
+        final PageReference rootReference = ProjectionIndexHOTStorage.rootReference(reader, 0);
+        assertNotNull(rootReference, "projection HOT root must exist");
+        assertTrue(reader.loadHOTPage(rootReference) instanceof HOTIndirectPage,
+            "the projection remained a root leaf, so the split half of this case is not covered. " + counters());
+      }
       assertTrue(VersioningType.carryForwardRotations() > 0,
           "the window never rotated, so this case is a split test, not an interaction test. " + counters());
       assertDeletedStaysDeleted(session, "after split and rotation");
@@ -218,9 +222,9 @@ final class HOTTombstoneEvictionTest {
   private static String counters() {
     return "single=" + VersioningType.singleFragmentReads() + " merges=" + VersioningType.multiFragmentMerges()
         + " walked=" + VersioningType.fragmentsWalked() + " shortCircuit=" + VersioningType.completeDumpShortCircuits()
-        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " inPlaceSplits="
-        + HOTTrieWriter.inPlaceLeafSplits() + " carryFwdRotations=" + VersioningType.carryForwardRotations()
-        + " carryFwdReemitted=" + VersioningType.carryForwardEntriesReemitted();
+        + " walkedPastDump=" + VersioningType.completeDumpsWalkedPast() + " carryFwdRotations="
+        + VersioningType.carryForwardRotations() + " carryFwdReemitted="
+        + VersioningType.carryForwardEntriesReemitted();
   }
 
   // ---------------------------------------------------------------- fixture
@@ -262,7 +266,7 @@ final class HOTTombstoneEvictionTest {
 
   private static void delete(final JsonResourceSession session, final long slotKey) {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).tombstoneRowGroup(slotKey);
+      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).tombstoneBlob(slotKey);
       wtx.commit();
     }
   }

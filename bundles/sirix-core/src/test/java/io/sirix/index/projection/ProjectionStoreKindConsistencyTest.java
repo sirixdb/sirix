@@ -114,9 +114,9 @@ final class ProjectionStoreKindConsistencyTest {
     final int[] ids = new int[segments];
     final long[] offsets = new long[segments];
     for (int i = 0; i < segments; i++) {
-      ids[i] = encoded.columnSegmentIds()[i] & 0xFF;
+      ids[i] = encoded.columnSegmentIds()[i];
       offsets[i] = 1_000L + i;
     }
-    return new RowGroupDirectory(rowGroupId, encoded.descriptor(), ids, offsets);
+    return new RowGroupDirectory(rowGroupId, encoded.descriptor(), ids, offsets, new byte[ids.length][]);
   }
 }

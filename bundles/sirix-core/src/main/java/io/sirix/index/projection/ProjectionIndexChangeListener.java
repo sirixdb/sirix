@@ -18,7 +18,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
-import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -115,7 +114,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private static final AtomicLong HFT_METADATA_READS = new AtomicLong();
   private static final AtomicLong HFT_METADATA_WRITES = new AtomicLong();
   private static final AtomicLong HFT_DICTIONARY_PROBES = new AtomicLong();
-  private static final AtomicLong HFT_REBUILD_BASELINE = new AtomicLong();
+
+  /**
+   * Complete projection builds ({@code ProjectionIndexBuilder.buildAndPersist}) since the last
+   * telemetry reset. The maintenance contract is INCREMENTAL — inserts, updates, deletes and moves
+   * patch row groups in place — so after a reset this counter staying at zero across a maintenance
+   * window is the witness that no path quietly fell back to an O(corpus) rebuild. It ticks for
+   * initial creations too, which is why the gates reset BEFORE the window they measure.
+   */
+  private static final AtomicLong HFT_FULL_REBUILDS = new AtomicLong();
+
+  /** Tick one complete projection build; called by the builder, package-visible on purpose. */
+  static void recordFullRebuild() {
+    HFT_FULL_REBUILDS.incrementAndGet();
+  }
 
   /** Last completed maintenance pass, used by locality tests and operational diagnostics. */
   private static volatile MaintenanceLocality LAST_MAINTENANCE_LOCALITY = MaintenanceLocality.EMPTY;
@@ -145,10 +157,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   /**
    * Navigation handle over the owning write transaction's current state, used ONLY in the apply phase
-   * (pre-commit re-extraction). {@code null} degrades to the legacy invalidation-only contract: the
-   * first relevant change tombstones the projection.
+   * (pre-commit re-extraction). Every listener has this handle: projection updates have one
+   * incremental maintenance contract and never fall back to whole-index invalidation.
    */
-  private final @Nullable NodeReadOnlyTrx maintenanceTrx;
+  private final NodeReadOnlyTrx maintenanceTrx;
 
   private ProjectionStructuralOrderDirectory.@Nullable Accessor structuralOrderDirectory;
   /** Records a bounded rebalance re-spread in this transaction; their persisted rows must follow. */
@@ -183,7 +195,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private boolean seeded;
 
-  /** Corruption valve used by the legacy invalidation-only and abandoned bulk-build paths. */
+  /** Fail-closed state used only after an explicitly abandoned bulk build. */
   private boolean invalidated;
 
   private boolean maintenanceFailed;
@@ -235,17 +247,74 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private static final long MEMO_MISS = Long.MIN_VALUE;
 
   public ProjectionIndexChangeListener(final StorageEngineWriter storageEngineWriter,
-      final PathSummaryReader pathSummary, final IndexDef indexDef, final @Nullable NodeReadOnlyTrx maintenanceTrx) {
+      final PathSummaryReader pathSummary, final IndexDef indexDef, final NodeReadOnlyTrx maintenanceTrx) {
+    this(storageEngineWriter, pathSummary, indexDef, maintenanceTrx,
+        resolveBulkLoadForNewListener(storageEngineWriter, pathSummary, indexDef, maintenanceTrx));
+  }
+
+  /**
+   * Validate BEFORE resolving, so that delegating to the injecting constructor cannot change what
+   * invalid input does.
+   *
+   * <p>
+   * {@code this(...)} must be the first statement, so this argument expression runs AHEAD of the
+   * delegated constructor's own checks. Resolving first would make the failure for identical bad
+   * input depend on GLOBAL registry state: with no load armed {@link #resolveBulkLoad} returns early
+   * and the delegated constructor reports the real problem, while with one armed it dereferences the
+   * very arguments that were never checked and throws a different exception from a different place.
+   *
+   * <p>
+   * The checks below are the delegated constructor's, in ITS EXACT ORDER — projection type first
+   * (which is also what makes a null {@code indexDef} fail the way it always has), then
+   * {@code storageEngineWriter}, {@code pathSummary}, {@code indexDef}, {@code maintenanceTrx}. Order
+   * is not cosmetic here: checking {@code maintenanceTrx} early would turn a non-projection
+   * {@link IndexDef} combined with a null transaction from an {@link IllegalArgumentException} into a
+   * {@link NullPointerException}. Repeating them in the delegated constructor costs nothing.
+   */
+  private static @Nullable ProjectionBulkLoad resolveBulkLoadForNewListener(
+      final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary, final IndexDef indexDef,
+      final NodeReadOnlyTrx maintenanceTrx) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionIndexChangeListener requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
-    this.storageEngineWriter = storageEngineWriter;
-    this.pathSummary = pathSummary;
-    this.indexDef = indexDef;
-    this.maintenanceTrx = maintenanceTrx;
-    this.bulkLoad = resolveBulkLoad(indexDef, maintenanceTrx);
-    this.bulkSkipsNamedKinds = bulkLoad != null && bulkLoad.isArrayElementRoot();
+    Objects.requireNonNull(storageEngineWriter, "storageEngineWriter");
+    Objects.requireNonNull(pathSummary, "pathSummary");
+    Objects.requireNonNull(indexDef, "indexDef");
+    Objects.requireNonNull(maintenanceTrx, "maintenanceTrx");
+    return resolveBulkLoad(indexDef, maintenanceTrx);
+  }
+
+  /**
+   * Constructor taking the armed load explicitly, so that {@link #bulkLoad} and the FINAL
+   * {@link #bulkSkipsNamedKinds} are always derived from the SAME source.
+   *
+   * <p>
+   * The public constructor resolves the load from the global registry and delegates here, so there is
+   * no extra work on any production path — the resolution happens exactly once, as before.
+   *
+   * <p>
+   * It exists because the two fields are correlated and only one of them is a reference: a test that
+   * replaced {@code bulkLoad} alone (reflectively, as one did) left {@code bulkSkipsNamedKinds}
+   * derived from whatever the registry happened to hold, which is a silent skew between two fields
+   * that must agree. Injecting the load removes the possibility rather than asserting against it.
+   *
+   * @param injectedBulkLoad the armed load to route notifications to, or {@code null} for ordinary
+   *        maintenance
+   */
+  ProjectionIndexChangeListener(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary,
+      final IndexDef indexDef, final NodeReadOnlyTrx maintenanceTrx,
+      final @Nullable ProjectionBulkLoad injectedBulkLoad) {
+    if (!indexDef.isProjectionIndex()) {
+      throw new IllegalArgumentException(
+          "ProjectionIndexChangeListener requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
+    }
+    this.storageEngineWriter = Objects.requireNonNull(storageEngineWriter, "storageEngineWriter");
+    this.pathSummary = Objects.requireNonNull(pathSummary, "pathSummary");
+    this.indexDef = Objects.requireNonNull(indexDef, "indexDef");
+    this.maintenanceTrx = Objects.requireNonNull(maintenanceTrx, "maintenanceTrx");
+    this.bulkLoad = injectedBulkLoad;
+    this.bulkSkipsNamedKinds = injectedBulkLoad != null && injectedBulkLoad.isArrayElementRoot();
   }
 
   /**
@@ -279,8 +348,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   private static @Nullable ProjectionBulkLoad resolveBulkLoad(final IndexDef indexDef,
-      final @Nullable NodeReadOnlyTrx maintenanceTrx) {
-    if (maintenanceTrx == null || !ProjectionBulkLoad.anyActive()) {
+      final NodeReadOnlyTrx maintenanceTrx) {
+    if (!ProjectionBulkLoad.anyActive()) {
       return null;
     }
     return ProjectionBulkLoad.active(maintenanceTrx.getResourceSession().getResourceConfig().getResource().toString(),
@@ -324,7 +393,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       throw new IllegalStateException("Subtree move rejected: projection index " + indexDef.getID()
           + " is being built by the running load; load-time projection construction is append-only");
     }
-    if (invalidated || maintenanceTrx == null) {
+    if (invalidated) {
+      return;
+    }
+    if (!seeded && skipExplicitlyAbandonedProjection()) {
       return;
     }
     if (!seeded) {
@@ -340,7 +412,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   @Override
   public void afterStructuralChange(final long movedNodeKey) {
     try {
-      if (invalidated || maintenanceTrx == null) {
+      if (invalidated) {
         return;
       }
       final StructuralRange before = pendingStructuralRecords;
@@ -476,7 +548,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable ProjectionPersistedRecordLookup openPersistedRecordLookup() {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     final ProjectionIndexMetadata metadata = readMetadata(storage);
-    if (metadata == null || metadata.isStale()) {
+    if (metadata == null) {
+      throw new IllegalStateException(
+          "Projection index " + indexDef.getID() + " has no live metadata; incremental maintenance cannot proceed");
+    }
+    if (metadata.isStale()) {
       return null;
     }
     return new ProjectionPersistedRecordLookup(storage, ProjectionIndexFences.open(storage, metadata.rowGroupCount()),
@@ -728,25 +804,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       onChangeDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
       return;
     }
+    if (!seeded && skipExplicitlyAbandonedProjection()) {
+      return;
+    }
     if (!seeded) {
       seed();
-    }
-    if (maintenanceTrx == null) {
-      // Legacy invalidation-only mode: first relevant change tombstones.
-      // An unresolvable record set makes every change potentially relevant.
-      if (rootPcrs.isEmpty() || isRelevantForInvalidation(pathNodeKey)) {
-        invalidate();
-      }
-      return;
     }
     // NOTE: an EMPTY root-PCR set is fine here — the record set simply has
     // no instances (yet). A change creating one arrives with a new matching
     // path class, which classifyUnseenPcr reseeds as a root.
-    if (pathNodeKey > 0) {
-      if (irrelevantPcrs.contains(pathNodeKey)) {
-        return;
-      }
-      if (!relevantPcrs.contains(pathNodeKey) && !classifyUnseenPcr(pathNodeKey)) {
+    if (pathNodeKey > 0 && !relevantPcrs.contains(pathNodeKey)) {
+      // Positive knowledge wins: a class can enter the negative cache first and be PROVEN
+      // relevant later (an ancestor registered when a younger column class appears), so
+      // relevance is consulted before irrelevance.
+      if (irrelevantPcrs.contains(pathNodeKey) || !classifyUnseenPcr(pathNodeKey)) {
         return;
       }
     }
@@ -867,12 +938,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return false;
     }
     // Unseen path class — it may be the record set's, appearing for the first time (on an empty
-    // resource EVERY class is unseen, the root's included). matchesRootPath reseeds rootPcrs.
-    if (matchesRootPath(pathNodeKey)) {
-      registerRootPcr(pathNodeKey);
-      return true;
+    // resource EVERY class is unseen, the root's included). Classification must prove the FULL
+    // claim before caching: a class that roots no record may still carry a projection column
+    // (a field path first materializing mid-load), and caching it as irrelevant here would make
+    // the post-load maintenance path drop that field's changes for the rest of the transaction.
+    // classifyUnseenPcr registers matching columns, reseeds rootPcrs on a root match, and only
+    // caches irrelevance for classes that match neither.
+    if (classifyUnseenPcr(pathNodeKey)) {
+      return rootPcrs.contains(pathNodeKey);
     }
-    irrelevantPcrs.add(pathNodeKey);
     return false;
   }
 
@@ -1008,6 +1082,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     long current = pathNodeKey;
     while (current > 0) {
       relevantPcrs.add(current);
+      // A class classified before this column's path existed may sit in the negative cache
+      // (e.g. /a seen before /a/b when /a/b is a projection field); relevance discovered later
+      // must beat that verdict, or onChange keeps dropping the ancestor's notifications.
+      irrelevantPcrs.remove(current);
       long[] words = columnWordsByPcr.get(current);
       if (words == null) {
         words = new long[allColumnWords.length];
@@ -1020,22 +1098,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       current = node.getParentKey();
     }
-  }
-
-  /** Legacy invalidation-mode relevance check (conservative on unknowns). */
-  private boolean isRelevantForInvalidation(final long pathNodeKey) {
-    // Unknown provenance (document-root replacement, no pathNodeKey) —
-    // fail safe and invalidate.
-    if (pathNodeKey <= 0) {
-      return true;
-    }
-    if (relevantPcrs.contains(pathNodeKey)) {
-      return true;
-    }
-    if (irrelevantPcrs.contains(pathNodeKey)) {
-      return false;
-    }
-    return classifyUnseenPcr(pathNodeKey);
   }
 
   /**
@@ -1351,14 +1413,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   private @Nullable ImmutableNode readNode(final long nodeKey) {
-    try {
-      final DataRecord record = storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-      return record instanceof final ImmutableNode node
-          ? node
-          : null;
-    } catch (final RuntimeException e) {
-      return null;
-    }
+    final DataRecord record = storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+    return record instanceof final ImmutableNode node
+        ? node
+        : null;
   }
 
   private ProjectionStructuralOrderDirectory.Accessor structuralOrderDirectory() {
@@ -1571,7 +1629,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         boundaries.allocatorAllocations(), boundaries.allocatorReleases(), boundaries.tilReads(),
         boundaries.tilWrites(), boundaries.nativeAllocations(), boundaries.nativeReleases(),
         boundaries.asyncSubmissions(), boundaries.asyncCompletions(), boundaries.bytesRead(), boundaries.bytesWritten(),
-        Math.max(0L, AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get() - HFT_REBUILD_BASELINE.get()));
+        HFT_FULL_REBUILDS.get());
   }
 
   public static void resetMaintenanceTelemetry() {
@@ -1590,8 +1648,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     HFT_METADATA_READS.set(0L);
     HFT_METADATA_WRITES.set(0L);
     HFT_DICTIONARY_PROBES.set(0L);
+    HFT_FULL_REBUILDS.set(0L);
     HftBoundaryTelemetry.reset();
-    HFT_REBUILD_BASELINE.set(AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get());
   }
 
   public static void printMaintenanceTelemetry() {
@@ -1665,10 +1723,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * collector owns every core and the load stops producing rows while still looking alive, which is
    * how a 100M ClickBench load spent two hours before it was killed. Abandoning is cheap and already
    * modelled: {@link ProjectionBulkLoad#abort()} drops the build without finalizing, so slot 0 keeps
-   * the stale tombstone it has carried since the load began, and {@link #invalidate()} makes every
-   * later notification a no-op. Both matter — without the invalidate the listener would fall back to
-   * the dirty-set patcher and buffer a record key for every remaining row of the corpus, trading one
-   * unbounded structure for another.
+   * the stale tombstone it has carried since the load began, and
+   * {@link #invalidate(ProjectionIndexMetadata.StaleReason)} makes every later notification a no-op.
+   * Both matter — without the invalidate the listener would fall back to the dirty-set patcher and
+   * buffer a record key for every remaining row of the corpus, trading one unbounded structure for
+   * another.
    * </p>
    */
   private void abandonForOversizedDictionary(final ProjectionBulkLoad load,
@@ -1692,7 +1751,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             + " B retained)";
     System.err.println("[proj] PROJECTION ABANDONED during the load: index " + indexDef.getID() + ", column "
         + tooBig.column() + " " + breach + ". The load completes; the projection is STALE and every query will take"
-        + " the generic pipeline until jn:create-projection-index rebuilds it.");
+        + " the generic pipeline. After the load, drop and commit this stale definition before creating a"
+        + " replacement in a new projection tree.");
     LOGGER.warn("Projection index " + indexDef.getID() + " ABANDONED during the load. " + tooBig.getMessage() + " "
         + ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED.remedy(), tooBig);
     load.abort();
@@ -1757,7 +1817,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     dirtyColumnWordsByRecord = null;
     rootProvenanceByRecord = null;
     structuralDeltas = null;
-    if (invalidated || maintenanceTrx == null) {
+    if (invalidated) {
       return;
     }
     // A rebalance raised by a subtree move re-spreads siblings BEFORE this pass starts and outside
@@ -1893,6 +1953,27 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
+   * Resolve the persisted maintenance state before the first ordinary notification. A stale marker is
+   * written only when a load was explicitly abandoned, so that definition remains a transaction-
+   * local no-op without touching row groups or structural-order side slots. Absence is not a mode: a
+   * catalogued definition without metadata is inconsistent and must fail the owning transaction.
+   */
+  private boolean skipExplicitlyAbandonedProjection() {
+    // Read through the writer's reader view. Constructing writable HOT storage here would CoW the
+    // projection container on the first (possibly irrelevant) document notification.
+    final ProjectionIndexMetadata metadata = readMetadata();
+    if (metadata == null) {
+      throw new IllegalStateException(
+          "Projection index " + indexDef.getID() + " has no live metadata; incremental maintenance cannot proceed");
+    }
+    if (!metadata.isStale()) {
+      return false;
+    }
+    invalidated = true;
+    return true;
+  }
+
+  /**
    * Patch the persisted leaves for the given dirty records.
    *
    * @return {@code true} when the persisted state is consistent afterwards (including "nothing to
@@ -1903,17 +1984,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas, final LongOpenHashSet relabelled) {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     final ProjectionIndexMetadata meta = readMetadata(storage);
-    if (meta == null || meta.isStale()) {
-      // No live snapshot to maintain: a metadata-less (bench/legacy) store,
-      // a valve tombstone from an earlier commit, or a def whose build
-      // never ran. Nothing to do.
+    if (meta == null) {
+      throw new IllegalStateException(
+          "Projection index " + indexDef.getID() + " has no live metadata; incremental maintenance cannot proceed");
+    }
+    if (meta.isStale()) {
+      // An explicitly abandoned load has no live snapshot to maintain. It remains unusable until its
+      // definition is dropped and a replacement is initialized under a fresh tree id.
       return true;
     }
-    // Layout: both storage layouts are patched in place. Every row-group read/write below is
-    // dispatched on this flag — a segment-slot store keys its descriptor at slotKind 0 of the
-    // composite key and each column segment at its own slot, so it must NOT go through the
-    // descriptor layout's raw-slot I/O. The flag is also carried into the refreshed metadata at the
-    // end (it is sticky per store); dropping it there would silently reinterpret every slot.
+    // The only persisted layout is segment-slot: slotKind 0 owns the zone-map descriptor and each
+    // column segment has its own adjacent slot. Every maintenance read/write below stays in that
+    // layout; an inline-in-descriptor payload is rejected as unsupported rather than migrated.
     // Shape guard: the persisted snapshot must describe exactly this definition, or patching would
     // splice rows into foreign columns.
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
@@ -1953,6 +2035,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final ProjectionPersistedRecordLookup persistedLookup =
         new ProjectionPersistedRecordLookup(storage, fences, locator);
     final MaintenanceLocalityAccumulator locality = new MaintenanceLocalityAccumulator();
+    final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
+        new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
     final Long2LongOpenHashMap locationByRecord = new Long2LongOpenHashMap();
     locationByRecord.defaultReturnValue(ProjectionPersistedRecordLookup.ABSENT);
     final LongOpenHashSet removals = new LongOpenHashSet();
@@ -2106,10 +2190,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (row < 0 || edit.orderExceptions.getBoolean(row) != ProjectionPersistedRecordLookup.orderException(location)) {
         return false;
       }
-      edit.recordKeys.removeLong(row);
-      edit.orderExceptions.removeBoolean(row);
-      edit.orderLabels.remove(row);
-      edit.keysChanged = true;
+      edit.removeKeyAt(row);
       membershipSlots.add(slot);
       if (ProjectionPersistedRecordLookup.orderException(location) && !insertions.contains(recordKey)) {
         locator.remove(recordKey);
@@ -2174,7 +2255,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       int offset = insertionOffset;
       for (int chainIndex = 0; chainIndex < chain.size(); chainIndex++) {
         final long key = chain.getLong(chainIndex);
-        if (target.indexOf(key) >= 0) {
+        if (target.containsKey(key)) {
           return false;
         }
         boolean orderException = true;
@@ -2182,10 +2263,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           fences.extendLastBaseUpper(key);
           orderException = false;
         }
-        target.recordKeys.add(offset, key);
-        target.orderExceptions.add(offset, orderException);
-        target.orderLabels.add(offset, positionByInsertion.get(key).orderLabel());
-        target.keysChanged = true;
+        target.insertKeyAt(offset, key, orderException, positionByInsertion.get(key).orderLabel());
         offset++;
       }
       membershipSlots.add(targetSlot);
@@ -2280,7 +2358,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           updateExceptionLocators(locator, page, physicalSlot, edit.slot, insertedOrMoved);
           validateRewrittenRowGroup(page, physicalSlot, locator, rewrittenRecordKeys);
           writeRowGroup(storage, physicalSlot, page, fences, changedLeafSlots, changedColumnsByLeaf, allColumnWords,
-              true, group == 0 && edit.priorExists);
+              true, group == 0 && edit.priorExists, encodeWorkspace);
           persistedLookup.invalidate(physicalSlot);
           adjustSetValueRowCounts(setValueRowCounts, page, 1L, allColumnWords);
           if (group > 0) {
@@ -2302,7 +2380,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         }
         final ProjectionPersistedRecordLookup.Keys cachedKeys = persistedLookup.keys(slot);
         if (!applyColumnOnlyUpdate(storage, slot, changedColumnsBySlot.get(slot), persistedKinds, globalDictionaries,
-            setValueRowCounts, extractor, rtx, cachedKeys, changedLeafSlots, changedColumnsByLeaf, locality)) {
+            setValueRowCounts, extractor, rtx, cachedKeys, changedLeafSlots, changedColumnsByLeaf, locality,
+            encodeWorkspace)) {
           return false;
         }
       }
@@ -2320,9 +2399,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final int dictionarySegments = pendingMaintenanceDictionarySegments(globalDictionaries);
       final long[] valueDictionaryHeaderKeys = flushMaintenanceGlobalDictionaries(meta, globalDictionaries);
       final Map<Integer, Map<String, Long>> persistedSetSummaries = setValueRowCounts.flush(persistedKinds);
-      final ProjectionIndexMetadata refreshed =
-          new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(), meta.fieldNames(), persistedKinds,
-              newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries, valueDictionaryHeaderKeys);
+      // The SEGMENT anchor table is carried forward, not rebuilt: it describes where each already
+      // sealed segment's dictionary lives, and maintenance neither seals nor moves one. Dropping it
+      // here — which an earlier version of this call did, simply by not passing it — erases the only
+      // route from a converted page's anchor to its dictionary, and every such page becomes
+      // unresolvable on the very next read ("cannot resolve id N against it").
+      final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
+          meta.fieldNames(), persistedKinds, newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries,
+          valueDictionaryHeaderKeys, meta.segmentAnchors());
       fences.flush(newRowGroupCount);
       final ProjectionBloomChunks.RewriteStats bloomStats =
           ProjectionBloomChunks.rewriteTouchedChunks(storage, persistedKinds, newRowGroupCount,
@@ -2624,6 +2708,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     private final ObjectArrayList<byte[]> orderLabels;
     private boolean keysChanged;
     private boolean readCounted;
+    /**
+     * Lazily built membership index over {@link #recordKeys}, kept in sync by
+     * {@link #insertKeyAt}/{@link #removeKeyAt}. Without it, N records appended at the document tail
+     * form ONE insertion chain into ONE edit and the per-element presence probe rescans the growing
+     * list — N(N−1)/2 comparisons inside beforeCommit().
+     */
+    private @Nullable LongOpenHashSet keySet;
 
     private LeafEdit(final int slot, final boolean priorExists, final @Nullable ProjectionIndexRowGroupPage oldPage,
         final LongArrayList recordKeys, final BooleanArrayList orderExceptions,
@@ -2639,13 +2730,53 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       this.orderLabels = orderLabels;
     }
 
+    private LongOpenHashSet keySet() {
+      LongOpenHashSet set = keySet;
+      if (set == null) {
+        set = new LongOpenHashSet(Math.max(16, recordKeys.size()));
+        for (int row = 0; row < recordKeys.size(); row++) {
+          set.add(recordKeys.getLong(row));
+        }
+        keySet = set;
+      }
+      return set;
+    }
+
+    private boolean containsKey(final long recordKey) {
+      return keySet().contains(recordKey);
+    }
+
     private int indexOf(final long recordKey) {
+      if (keySet != null && !keySet.contains(recordKey)) {
+        return -1; // an absent key answers in O(1); the scan below only runs for present keys
+      }
       for (int row = 0; row < recordKeys.size(); row++) {
         if (recordKeys.getLong(row) == recordKey) {
           return row;
         }
       }
       return -1;
+    }
+
+    private void insertKeyAt(final int row, final long recordKey, final boolean orderException,
+        final byte[] orderLabel) {
+      recordKeys.add(row, recordKey);
+      orderExceptions.add(row, orderException);
+      orderLabels.add(row, orderLabel);
+      keysChanged = true;
+      if (keySet != null) {
+        keySet.add(recordKey);
+      }
+    }
+
+    private void removeKeyAt(final int row) {
+      final long removed = recordKeys.removeLong(row);
+      orderExceptions.removeBoolean(row);
+      orderLabels.remove(row);
+      keysChanged = true;
+      if (keySet != null) {
+        keySet.remove(removed);
+      }
     }
 
     private int markReadOnce() {
@@ -2670,7 +2801,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final ProjectionSetSummaryChunks.Accessor setValueRowCounts, final ProjectionIndexRowExtractor extractor,
       final NodeReadOnlyTrx rtx, final ProjectionPersistedRecordLookup.Keys cachedKeys,
       final LongOpenHashSet changedLeafSlots, final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf,
-      final MaintenanceLocalityAccumulator locality) {
+      final MaintenanceLocalityAccumulator locality,
+      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace) {
     final byte[] descriptor = cachedKeys.descriptor();
     if (descriptor == null || RowGroupDescriptor.columnCount(descriptor) != persistedKinds.length) {
       return false;
@@ -2742,37 +2874,40 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
     }
 
-    byte[] currentDescriptor = descriptor;
-    final long[] actuallyChanged = new long[changedColumnWords.length];
-    final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
-        new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
-    boolean anyChanged = false;
+    final ProjectionIndexColumnSegmentCodec.EncodedColumn[] encodedColumns =
+        new ProjectionIndexColumnSegmentCodec.EncodedColumn[selectedColumns];
+    int encodedColumnCount = 0;
     for (int column = 0; column < persistedKinds.length; column++) {
       final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
       if (rebuilt == null) {
         continue;
       }
       final ProjectionIndexColumnSegmentCodec.EncodedColumn encoded =
-          ProjectionIndexColumnSegmentCodec.encodeColumnReferencedOnly(rebuilt, column, workspace);
+          ProjectionIndexColumnSegmentCodec.encodeColumn(rebuilt, column, encodeWorkspace);
+      encodedColumns[encodedColumnCount++] = encoded;
       locality.columnSegmentsEncoded += encoded.columnSegmentIds().length;
-      final byte[] patchedDescriptor =
-          ProjectionIndexColumnSegmentCodec.spliceReferencedColumn(currentDescriptor, encoded);
-      final ProjectionIndexHOTStorage.ColumnPatchResult patch =
-          storage.putColumnPatch(slot, currentDescriptor, patchedDescriptor, encoded);
-      if (!patch.changed()) {
-        continue;
-      }
-      anyChanged = true;
-      currentDescriptor = patchedDescriptor;
-      actuallyChanged[column >>> 6] |= 1L << (column & 63);
+    }
+    if (encodedColumnCount != selectedColumns) {
+      throw new IllegalStateException(
+          "encoded " + encodedColumnCount + " projection columns, expected " + selectedColumns);
+    }
+    final long[] actuallyChanged = new long[(persistedKinds.length + Long.SIZE - 1) >>> 6];
+    final byte[] patchedDescriptor = ProjectionIndexColumnSegmentCodec.spliceColumns(descriptor, encodedColumns,
+        encodedColumnCount, actuallyChanged);
+    final ProjectionIndexHOTStorage.ColumnPatchResult patch = storage.putColumnPatches(slot, descriptor,
+        patchedDescriptor, encodedColumns, encodedColumnCount, actuallyChanged);
+    if (patch.changed()) {
       locality.columnSegmentsWritten += patch.segmentsWritten() + patch.segmentsTombstoned();
       locality.descriptorsWritten++;
-      if (persistedKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      for (int encodedIndex = 0; encodedIndex < encodedColumnCount; encodedIndex++) {
+        final int column = encodedColumns[encodedIndex].column();
+        if (persistedKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            || !columnSelected(actuallyChanged, column)) {
+          continue;
+        }
         adjustSetValueRowCounts(setValueRowCounts, column, priorSlices[column], -1L);
-        adjustSetValueRowCounts(setValueRowCounts, column, rebuilt, 1L);
+        adjustSetValueRowCounts(setValueRowCounts, column, rebuiltColumns[column], 1L);
       }
-    }
-    if (anyChanged) {
       changedLeafSlots.add(slot);
       mergeChangedColumns(changedColumnsByLeaf, slot, actuallyChanged);
       locality.rowGroupsColumnPatched++;
@@ -3101,24 +3236,23 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Write a row group and fold its record-key range into the fence arrays, through whichever storage
-   * layout this store uses. The segment-slot write encodes once and lets
-   * {@link ProjectionIndexHOTStorage#putRowGroupAsColumnSegmentSlots} do the per-segment
-   * carry-forward, so an unchanged column segment stays a true no-op (its slot value and overflow
-   * page carry forward untouched) and segments that vanished from the rebuilt row group are
-   * tombstoned — the same CoW sharing the descriptor layout gets from {@code putRowGroup}.
+   * Write a row group and fold its record-key range into the fence arrays. The segment-slot write
+   * encodes once and lets {@link ProjectionIndexHOTStorage#putRowGroupAsColumnSegmentSlots} do the
+   * per-segment carry-forward, so an unchanged column segment stays a true no-op (its slot value and
+   * overflow page carry forward untouched) and segments that vanished from the rebuilt row group are
+   * tombstoned.
    */
   private static long writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
       final ProjectionIndexRowGroupPage leaf, final ProjectionIndexFences.Accessor fences,
       final LongOpenHashSet changedLeafSlots, final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf,
-      final long[] changedColumnWords, final boolean keysChanged, final boolean priorSlotExists) {
+      final long[] changedColumnWords, final boolean keysChanged, final boolean priorSlotExists,
+      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace) {
     // The page mirror and fence metadata are one invariant. Rowless and exception-only leaves carry
     // MAX/MIN sentinels; retaining a deleted key here would manufacture a normal fence for no row.
     final long firstRecordKey = leaf.firstRecordKey();
     final long lastRecordKey = leaf.lastRecordKey();
-    final byte[] raw = leaf.serialize();
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
+        ProjectionIndexColumnSegmentCodec.encode(leaf, encodeWorkspace);
     final boolean changed = priorSlotExists
         ? storage.putRowGroupAsColumnSegmentSlots(slot, encoded, changedColumnWords, keysChanged)
         : storage.putRowGroupAsColumnSegmentSlots(slot, encoded);
@@ -3138,20 +3272,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Corruption valve (and the legacy invalidation-only contract): overwrite slot 0 with the stale
-   * tombstone so every reader falls back to the generic pipeline until a manual
-   * {@code jn:create-projection-index} re-run. Regular maintenance never calls this — unattributable
-   * changes fail the owning transaction instead. Callers with a KNOWN cause use the reason-carrying
-   * overload; this default records {@link ProjectionIndexMetadata.StaleReason#UNSPECIFIED}, the
-   * legacy-invalidation contract's honest answer.
-   */
-  private void invalidate() {
-    invalidate(ProjectionIndexMetadata.StaleReason.UNSPECIFIED);
-  }
-
-  /**
-   * As {@link #invalidate()}, recording WHY in the tombstone so a later decline can quote the
-   * writer's decision instead of guessing (task #55).
+   * Mark the projection stale for a known, explicit load-time admission failure. Ordinary mutation
+   * maintenance never calls this: unattributable or inconsistent changes fail the owning transaction
+   * instead of silently switching to a second maintenance mode.
    *
    * @param reason what the writer decided and on what grounds; never {@code null}
    */
@@ -3168,24 +3291,31 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // revisions see the stale marker and fall back while earlier revisions
     // keep their own immutable snapshot.
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    // The row-group slots survive the tombstone; the next rebuild reclaims them by probing what is
-    // physically live, so the marker carries "stale" and the reason it went stale.
+    // The partial build remains isolated behind this stale marker. It is never overwritten; an
+    // operator drops the definition and creates a replacement under a fresh tree id.
     storage.putBlob(0, ProjectionIndexMetadata.staleTombstone(reason).serialize());
   }
 
   /**
-   * Metadata blob of the definition's sub-tree, or {@code null} for an absent or metadata-less slot-0
-   * payload. A malformed current metadata payload fails the owning transaction.
+   * Metadata blob of the definition's sub-tree, or {@code null} only when slot 0 is absent. Any
+   * non-metadata or unsupported-version payload fails the owning transaction.
    */
   private @Nullable ProjectionIndexMetadata readMetadata(final ProjectionIndexHOTStorage storage) {
-    final byte[] payload = storage.getBlob(0);
+    return parseMetadata(storage.getBlob(0));
+  }
+
+  /** Read-only writer-visible slot-0 probe for first-notification state classification. */
+  private @Nullable ProjectionIndexMetadata readMetadata() {
+    return parseMetadata(ProjectionIndexHOTStorage.readBlob(storageEngineWriter, indexDef.getID(), 0L));
+  }
+
+  private @Nullable ProjectionIndexMetadata parseMetadata(final byte @Nullable [] payload) {
     if (HFT_TELEMETRY_ENABLED && payload != null) {
       HFT_METADATA_READS.incrementAndGet();
     }
     final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(payload);
-    if (metadata == null && payload != null && payload.length >= Integer.BYTES
-        && ProjectionIndexRowGroupCodec.getIntLE(payload, 0) == ProjectionIndexMetadata.MAGIC) {
-      throw new IllegalStateException("unsupported projection metadata version for index " + indexDef.getID());
+    if (metadata == null && payload != null) {
+      throw new IllegalStateException("unsupported or non-metadata projection payload for index " + indexDef.getID());
     }
     return metadata;
   }

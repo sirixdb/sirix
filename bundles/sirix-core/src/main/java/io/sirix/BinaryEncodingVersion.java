@@ -54,8 +54,9 @@ public enum BinaryEncodingVersion {
    * <p>
    * KeyValueLeafPage layout (on disk):
    * <ul>
-   * <li>{@code compactDir}: one {@code int} per populated slot — {@code
-   *       (onDiskDataLength << 8) | nodeKindId}.</li>
+   * <li>{@code compactDir}: one big-endian unsigned short per populated slot — {@code
+   *       (onDiskDataLength << 6) | nodeKindId}, with a 10-bit inline length and a 6-bit kind
+   * ID.</li>
    * <li>{@code onDiskHeapSize}: pre-compression size of the packed heap.</li>
    * <li><b>Offset-table template pool</b> ({@link io.sirix.page.OffsetTableTemplatePool}): per-record
    * {@code FIELD_COUNT} offset-table bytes collapse to a 1-byte {@code templateId}. Dedup is per-page

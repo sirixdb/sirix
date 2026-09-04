@@ -27,9 +27,12 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.DatabaseType;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.HOTLookupCache;
 import io.sirix.cache.HOTLookupKey;
@@ -41,6 +44,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.utils.LogWrapper;
@@ -86,15 +90,46 @@ public abstract class AbstractHOTIndexReader<K> {
 
   /**
    * The mutable state one point-lookup chunk walk needs: a trie reader (whose construction allocates
-   * path-stack arrays) and a chunk accumulator (whose construction allocates a key array). They are
-   * pooled as ONE object rather than two because the pool handoff is atomic and the atomics are not
-   * free — the profile put the pair of {@code getAndSet}/{@code compareAndSet} at 4.6% of a point
-   * lookup, and a walk never wants one without the other.
-   *
-   * @param trie the reader for the descent and the leaf-to-leaf walk
-   * @param accumulator the merge target for the walk's chunk payloads
+   * path-stack arrays), a chunk accumulator (whose construction allocates a key array), and the rare
+   * fallback seek buffer needed when a caller has no room for the chunk trailer. They are pooled as
+   * ONE object because the pool handoff is atomic and the atomics are not free — the profile put the
+   * pair of {@code getAndSet}/{@code compareAndSet} at 4.6% of a point lookup, and a walk never wants
+   * one without the others.
    */
-  private record ChunkWalkState(HOTTrieReader trie, NodeReferencesSerializer.ChunkAccumulator accumulator) {
+  private static final class ChunkWalkState {
+    private static final byte[] EMPTY_SEEK_SCRATCH = new byte[0];
+
+    private final HOTTrieReader trie;
+    private final NodeReferencesSerializer.ChunkAccumulator accumulator;
+    private byte[] seekScratch = EMPTY_SEEK_SCRATCH;
+
+    private ChunkWalkState(final StorageEngineReader storageEngineReader) {
+      trie = new HOTTrieReader(storageEngineReader);
+      accumulator = new NodeReferencesSerializer.ChunkAccumulator();
+    }
+
+    private HOTTrieReader trie() {
+      return trie;
+    }
+
+    private NodeReferencesSerializer.ChunkAccumulator accumulator() {
+      return accumulator;
+    }
+
+    /**
+     * Return a buffer capable of holding {@code prefix || chunkIdx_be4}. Reuse the caller's spare
+     * capacity whenever possible; otherwise retain one fallback buffer with the pooled walk state.
+     */
+    private byte[] compositeSeekBuffer(final byte[] prefixBuf, final int prefixLen, final int compositeLen) {
+      if (prefixBuf.length >= compositeLen) {
+        return prefixBuf;
+      }
+      if (seekScratch.length < compositeLen) {
+        seekScratch = new byte[compositeLen];
+      }
+      System.arraycopy(prefixBuf, 0, seekScratch, 0, prefixLen);
+      return seekScratch;
+    }
   }
 
   /**
@@ -261,7 +296,7 @@ public abstract class AbstractHOTIndexReader<K> {
     Objects.checkFromIndexSize(0, keyLen, requireNonNull(keyBuf, "keyBuf").length);
     final HOTLookupCache cache = lookupCache;
     if (cache == null) {
-      return computePointLookup(keyBuf, keyLen);
+      return collectChunksViaLowerBoundWalk(keyBuf, keyLen);
     }
     // ONE key object, hashed ONCE, reused for the probe and for the admission. Building it per phase
     // instead cost three allocations and three full passes over the key bytes on every miss — and a
@@ -279,14 +314,11 @@ public abstract class AbstractHOTIndexReader<K> {
           : NodeReferences.copyOfSortedUnchecked(hit);
     }
     // Snapshot the key bytes BEFORE the walk, not after it. `probe` BORROWS the caller's reusable
-    // serialization buffer and froze its hash at construction, while computePointLookup below is an
-    // overridable extension point running on the same thread with that very buffer in reach —
-    // serializeKeyToArray writes into it in place whenever the key fits. Copying afterwards would
-    // file the entry under hash(bytes-before-the-walk) while carrying bytes-after: a slot no probe
-    // can ever match, or — on a 32-bit hash collision — one that answers a different logical key.
-    // The copy costs one byte[] per miss even when the answer turns out too large to admit, which is
-    // the rare case; nothing on today's walk path rewrites the buffer, but the ordering is what makes
-    // that a property of this method rather than of every future override.
+    // serialization buffer and froze its hash at construction. Owning the admission key up front
+    // keeps lookup and admission inseparable even if the canonical walk later starts reusing that
+    // same scratch buffer. Copying afterwards could otherwise file the entry under
+    // hash(bytes-before-the-walk) while carrying bytes-after. The copy costs one byte[] per cache
+    // miss, and only on the committed-reader path where an answer may be admitted.
     final HOTLookupKey owned = probe.owned();
     // Captured BEFORE the walk reads a single page, and handed back at admission. An invalidation
     // sweep that overlaps this walk bumps the generation, so the answer below — which may have been
@@ -294,21 +326,9 @@ public abstract class AbstractHOTIndexReader<K> {
     // number truncateTo is about to re-issue over different content. Ordering the sweep's own steps
     // cannot achieve this; see HOTLookupCache#generation.
     final long generation = cache.generation();
-    final NodeReferences computed = computePointLookup(keyBuf, keyLen);
+    final NodeReferences computed = collectChunksViaLowerBoundWalk(keyBuf, keyLen);
     memoize(cache, owned, computed, generation);
     return computed;
-  }
-
-  /**
-   * Compute a point lookup without consulting or populating the cache. Overridden where a reader has
-   * a fallback beyond the chunk walk.
-   *
-   * @param keyBuf buffer holding the serialized logical key
-   * @param keyLen serialized length of the key
-   * @return the references for the key, or {@code null} when it has none
-   */
-  protected @Nullable NodeReferences computePointLookup(final byte[] keyBuf, final int keyLen) {
-    return collectChunksViaLowerBoundWalk(keyBuf, keyLen);
   }
 
   /**
@@ -340,8 +360,8 @@ public abstract class AbstractHOTIndexReader<K> {
     // A zero-length array is the ABSENT sentinel, so a non-null-but-empty result must NOT be stored:
     // it would come back as null on the next hit, and NameIndex/PathIndex distinguish those two
     // outcomes. Both producers guarantee non-empty today (the accumulator returns null for an empty
-    // result rather than an empty NodeReferences), but computePointLookup is overridable and the
-    // sentinel makes the invariant load-bearing, so it is checked here rather than assumed.
+    // result rather than an empty NodeReferences), but the sentinel makes the invariant
+    // load-bearing, so it is checked here rather than assumed.
     if (nodeKeys.length == 0) {
       return;
     }
@@ -389,30 +409,26 @@ public abstract class AbstractHOTIndexReader<K> {
    *         holds a live reference
    */
   protected final @Nullable NodeReferences collectChunksViaLowerBoundWalk(final byte[] prefixBuf, final int prefixLen) {
+    Objects.checkFromIndexSize(0, prefixLen, requireNonNull(prefixBuf, "prefixBuf").length);
+    final int compositeLen = Math.addExact(prefixLen, HOTKeySerializer.CHUNK_IDX_BYTES);
     final PageReference rootRef = getRootReference();
     if (rootRef == null) {
       return null;
     }
-    final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
-    // The seek key must be an EXACTLY-sized array, so it is built fresh rather than appended to the
-    // caller's oversized buffer in place. Not an oversight: the whole descent takes the search key's
-    // length from the array itself — HOTLeafPage.compareKeyWithBound reads bound.length and
-    // DiscriminativeBitComputer.computeDifferingBit reads both operands' lengths — so handing it a
-    // 512-byte thread-local buffer means "a 512-byte key padded with zeros", which routes and
-    // verifies against the wrong key and silently misses stored entries (measured: 13% of point
-    // lookups). Removing this allocation needs a length-parameterized HOTTrieReader.lowerBound, not
-    // a buffer trick.
-    final byte[] fromBytes = new byte[compositeLen];
-    System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
-    HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
 
     final ChunkWalkState pooled = pooledWalkState.getAndSet(null);
     final ChunkWalkState state = pooled != null
         ? pooled
-        : new ChunkWalkState(new HOTTrieReader(storageEngineReader), new NodeReferencesSerializer.ChunkAccumulator());
+        : new ChunkWalkState(storageEngineReader);
     final HOTTrieReader trie = state.trie();
     final NodeReferencesSerializer.ChunkAccumulator accumulator = state.accumulator();
     try {
+      // HOTTrieReader's valid-length lowerBound makes spare capacity safe: routing, leaf lookup and
+      // mismatch-bit logic all ignore bytes after compositeLen. The common generic and long readers
+      // therefore append the zero chunk trailer straight into their thread-local buffers. Only an
+      // exactly-sized caller buffer uses the pooled fallback scratch, allocating at most when it grows.
+      final byte[] fromBytes = state.compositeSeekBuffer(prefixBuf, prefixLen, compositeLen);
+      HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
       // The whole walk runs against UNPINNED leaves under optimistic stamps: each leaf's read
       // batch — the per-slot prefix compares, the chunkIdx reads, the payload merges — is
       // validated once before its outcome (stop, or advance to the next leaf) takes effect. A
@@ -421,54 +437,13 @@ public abstract class AbstractHOTIndexReader<K> {
       // re-derives the identical result.
       for (int walkAttempt = 0; walkAttempt < HOTTrieReader.MAX_STAMP_RETRIES; walkAttempt++) {
         accumulator.reset();
-        // FAST PATH: a point lookup needs the first slot at-or-after `prefix ‖ chunk0`, which is
-        // usually just where the PEXT descent lands — the seek key differs from the stored ones
-        // only in the 4-byte chunk trailer, so they route together unless a discriminative bit
-        // falls inside it. Measured on the 33K-key movies index: the descent is ~71 ns while the
-        // full lowerBound is ~346 ns, because the latter additionally verifies the landing, may
-        // peek the successor leaf, and on a miss re-descends the whole trie comparing per-child
-        // first keys (each of which is itself a leftmost descent).
-        //
-        // Correctness: the fast path is taken ONLY when the landing leaf actually resolves the
-        // question — either it holds a slot carrying the prefix, or it proves the prefix is
-        // absent by holding a key that sorts strictly past it. Anything else (the seek runs off
-        // the end of the leaf, or the landing is lexically off-subtree) falls through to the full
-        // lowerBound, which keeps every guarantee it had.
-        HOTLeafPage leaf = null;
-        int idx = 0;
+        // One decision route: every logical lookup starts at canonical PEXT lowerBound. Do not
+        // duplicate its navigate/find/insertion-point subset here; that shortcut diverged exactly
+        // when chunk 0 was absent and the first live chunk sat in the next leaf.
+        final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes, compositeLen);
+        HOTLeafPage leaf = lowerBound.leaf;
+        int idx = lowerBound.indexInLeaf;
         boolean torn = false;
-        final HOTLeafPage landing = trie.navigateToLeaf(rootRef, fromBytes);
-        if (landing != null) {
-          try {
-            final int entryCount = landing.getEntryCount();
-            final int found = landing.findEntry(fromBytes);
-            final int insertion = found >= 0
-                ? found
-                : -(found + 1);
-            if (insertion < entryCount) {
-              // The landing answers the seek: either this slot carries the prefix (walk from
-              // here) or it sorts past it (the prefix has no chunks at all).
-              leaf = landing;
-              idx = insertion;
-            }
-          } catch (RuntimeException e) {
-            if (trie.validateCurrentLeaf()) {
-              throw e;
-            }
-            torn = true;
-          }
-          if (!torn && !trie.validateCurrentLeaf()) {
-            torn = true;
-          }
-        }
-        if (torn) {
-          continue;
-        }
-        if (leaf == null) {
-          final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
-          leaf = lowerBound.leaf;
-          idx = lowerBound.indexInLeaf;
-        }
         while (leaf != null) {
           boolean stop = false;
           try {
@@ -581,34 +556,48 @@ public abstract class AbstractHOTIndexReader<K> {
     return switch (indexType) {
       case PATH -> {
         final PathPage pathPage = storageEngineReader.getPathPage(rootPage);
-        if (pathPage == null || indexNumber >= pathPage.getReferencesCount()) {
-          yield null;
-        }
-        yield pathPage.getOrCreateReference(indexNumber);
+        yield pathPage == null
+            ? null
+            : pathPage.getIndexReference(indexNumber);
       }
       case CAS -> {
         final CASPage casPage = storageEngineReader.getCASPage(rootPage);
-        if (casPage == null || indexNumber >= casPage.getReferencesCount()) {
-          yield null;
-        }
-        yield casPage.getOrCreateReference(indexNumber);
+        yield casPage == null
+            ? null
+            : casPage.getIndexReference(indexNumber);
       }
       case NAME -> {
         final NamePage namePage = storageEngineReader.getNamePage(rootPage);
-        if (namePage == null || indexNumber >= namePage.getReferencesCount()) {
-          yield null;
-        }
-        yield namePage.getOrCreateReference(indexNumber);
+        yield namePage == null
+            ? null
+            : namePage.getIndexReference(nameDatabaseType(), indexNumber);
+      }
+      case PROJECTION -> {
+        final ProjectionIndexPage projectionPage = storageEngineReader.getProjectionIndexPage(rootPage);
+        yield projectionPage == null
+            ? null
+            : projectionPage.getIndexReference(indexNumber);
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = storageEngineReader.getValidTimeIndexPage(rootPage);
-        if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
-          yield null;
-        }
-        yield vtPage.getOrCreateReference(indexNumber);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
       }
       default -> null;
     };
+  }
+
+  private DatabaseType nameDatabaseType() {
+    final var resourceSession = storageEngineReader.getResourceSession();
+    if (resourceSession instanceof JsonResourceSession) {
+      return DatabaseType.JSON;
+    }
+    if (resourceSession instanceof XmlResourceSession) {
+      return DatabaseType.XML;
+    }
+    throw new IllegalStateException("Cannot determine the database type for NAME index " + indexNumber
+        + " from resource session " + resourceSession);
   }
 
   // navigateToLeaf(rootRef, key) was removed: no caller anywhere, and under optimistic stamps a
@@ -803,19 +792,17 @@ public abstract class AbstractHOTIndexReader<K> {
    * emitted group, and no key deserialization, so {@link LazyKeyEntry}'s laziness survives.
    *
    * <p>
-   * Out-of-range groups are skipped rather than terminating the sweep, because the path-stack forward
-   * walk is not strictly lex-monotonic across sibling subtrees (see {@link #lowerBoundKey}); the
-   * composite ceiling still bounds the scan.
+   * Out-of-range groups are skipped defensively because the composite byte window is deliberately
+   * coarser than the logical-key interval. The canonical HOT path walk itself is lex-monotonic under
+   * the writer-enforced disjoint-subtree invariant.
    */
   protected final class ChunkAggregatingIterator implements Iterator<Map.Entry<K, NodeReferences>>, AutoCloseable {
     private final @Nullable HOTTrieReader trieReader;
     private final @Nullable HOTRangeCursor cursor;
     /**
      * Serialized logical lower bound, or {@code null} for unbounded. Doubles as the cheap per-slot
-     * pre-filter that suppresses the lex-residue the PEXT-routed seek can leave at the head of the
-     * sweep: HOT sibling subtrees can have overlapping lex ranges (a bit that varies at the parent
-     * level and inside a sibling's subtree cannot be a parent disc bit, so it lives deeper), which
-     * makes the forward walk non-monotonic in the small.
+     * filter required because the composite byte window is not the logical-key interval: serializers
+     * such as raw UTF-8 CAS strings are not prefix-free.
      */
     private final byte @Nullable [] lowerBoundKey;
     private final boolean lowerInclusive;

@@ -134,6 +134,7 @@ class DiscriminativeBitComputerTest {
       // 7 bytes * 8 bits + 7 (LSB of 8th byte) = 63
       assertEquals(63, result);
     }
+
   }
 
   @Nested
@@ -190,6 +191,14 @@ class DiscriminativeBitComputerTest {
       byte[] key = {(byte) 0xFF};
       assertFalse(DiscriminativeBitComputer.isBitSet(key, -1));
     }
+
+    @Test
+    @DisplayName("Valid length treats stale tail bits as zero")
+    void testValidLengthTreatsTailBitsAsZero() {
+      final byte[] key = {0x00, (byte) 0xFF};
+      assertFalse(DiscriminativeBitComputer.isBitSet(key, 1, 8));
+      assertTrue(DiscriminativeBitComputer.isBitSet(key, 2, 8));
+    }
   }
 
   @Nested
@@ -227,9 +236,9 @@ class DiscriminativeBitComputerTest {
     void testStartBytePosGe8() {
       // Keys that are identical in bytes 0-8 and differ only in byte 9
       // Old code: endBytePos = Math.min(startBytePos + maxBytes, 8) = Math.min(8+8, 8) = 8
-      //   → range [8, 8) is empty → mask = 0  (BUG)
-      // Fixed:   endBytePos = startBytePos + Math.min(maxBytes, 8) = 8 + 8 = 16
-      //   → range [8, 16) covers byte 9 → mask != 0
+      // → range [8, 8) is empty → mask = 0 (BUG)
+      // Fixed: endBytePos = startBytePos + Math.min(maxBytes, 8) = 8 + 8 = 16
+      // → range [8, 16) covers byte 9 → mask != 0
       byte[] prefix = new byte[9]; // 9 identical bytes
       byte[] key1 = new byte[10];
       byte[] key2 = new byte[10];
@@ -308,4 +317,3 @@ class DiscriminativeBitComputerTest {
     }
   }
 }
-

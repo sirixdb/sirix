@@ -1,5 +1,11 @@
 # HOT Existing-Code Audit — what is wrong, vs. Binna's thesis + reference
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Method.** Three independent audit passes (each itself a double pass) of the live
 Sirix HOT writer — `HOTTrieWriter.java` (~14k lines), `AbstractHOTIndexWriter.java`,
 `HOTIndirectPage.java`, `HOTLeafPage.java` — against Binna's reference

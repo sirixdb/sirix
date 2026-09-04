@@ -62,12 +62,10 @@ class HOTIndexManyRevisionsTest {
       // Ignore
     }
     tempDir = Files.createTempDirectory("sirix-hot-many-revisions-test");
-    System.setProperty("sirix.index.useHOT", "true");
   }
 
   @AfterEach
   void tearDown() throws IOException {
-    System.clearProperty("sirix.index.useHOT");
     if (tempDir != null) {
       deleteRecursively(tempDir);
     }
@@ -708,4 +706,3 @@ class HOTIndexManyRevisionsTest {
     }
   }
 }
-

@@ -4,6 +4,7 @@
 package io.sirix.access.trx.node.json;
 
 import io.sirix.service.json.JsonNumber;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -26,8 +27,10 @@ import java.util.Map;
  * surrogate pairs assembled from consecutive escapes.</li>
  * <li>UTF-8 value bytes are byte-identical to {@code String.getBytes(UTF_8)} over the decoded
  * chars, INCLUDING the {@code '?'} replacement byte for unpaired surrogates.</li>
- * <li>Numbers are delegated verbatim to {@link JsonNumber#stringToNumber(String)} — identical
- * {@code Number} types and values by construction.</li>
+ * <li>Ordinary integers accumulate into an overflow-checked primitive while their characters are
+ * scanned; decimal, exponent, overflow and malformed forms fall back verbatim to
+ * {@link JsonNumber#stringToNumber(String)}. The exposed {@code Number} types and values therefore
+ * remain identical.</li>
  * </ul>
  *
  * <p>
@@ -48,7 +51,29 @@ final class BulkJsonScanner {
   static final int EVENT_NULL = 9;
   static final int EVENT_END_DOCUMENT = 10;
 
+  /** No numeric event is currently exposed. */
+  static final int NUMBER_TYPE_NONE = 0;
+  /** The current numeric event is represented exactly by an {@code int}. */
+  static final int NUMBER_TYPE_INT = 1;
+  /** The current numeric event is represented exactly by a {@code long}. */
+  static final int NUMBER_TYPE_LONG = 2;
+  /** The current numeric event requires the ordinary {@link Number} fallback representation. */
+  static final int NUMBER_TYPE_FALLBACK = 3;
+
   private static final int DEFAULT_BUFFER_CHARS = 1 << 16;
+
+  /**
+   * Whether field names are canonicalised from the decode buffer instead of through a String-keyed
+   * map. Kill switch {@code -Dsirix.ingest.internTable=false} restores the map, and with it one
+   * transient String plus its value array per key OCCURRENCE.
+   */
+  private static final boolean INTERN_TABLE_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.ingest.internTable"));
+
+  /** The default refill-buffer size, for callers that must name the shared-name-table constructor. */
+  static int defaultBufferChars() {
+    return DEFAULT_BUFFER_CHARS;
+  }
 
   private final Reader in;
   private final char[] buffer;
@@ -72,24 +97,62 @@ final class BulkJsonScanner {
   private byte[] scratchUtf8 = new byte[512];
   private int scratchUtf8Length;
 
-  /** Canonical name strings, one allocation per distinct field name. */
-  private final Map<String, String> nameInterns = new HashMap<>();
+  /**
+   * Canonical name strings looked up straight from {@link #token}, so a repeat field-name occurrence
+   * allocates nothing. Shared across the import when the importer supplies one, which is what makes
+   * the canonical instance global rather than per chunk.
+   */
+  private final NameInternTable nameInternTable;
+
+  /**
+   * Legacy lane, allocated only when {@code -Dsirix.ingest.internTable=false} selects it: a map keyed
+   * by String, which must BUILD one to look one up. Kept so the lever has an off position that is the
+   * previous behaviour exactly, not an approximation of it.
+   */
+  private final Map<String, String> nameInterns;
 
   private String currentName;
   private Number currentNumber;
   private String scratchName;
   private Number scratchNumber;
 
+  /**
+   * Primitive numeric state follows the same scratch/current handoff as the UTF-8 buffers. A peek may
+   * populate the scratch lane, but it cannot overwrite the event the caller is still consuming.
+   */
+  private int currentNumberType;
+  private long currentIntegralNumberValue;
+  private int scratchNumberType;
+  private long scratchIntegralNumberValue;
+
   private int peekedEvent = -1;
 
   BulkJsonScanner(final Reader in) {
-    this(in, DEFAULT_BUFFER_CHARS);
+    this(in, DEFAULT_BUFFER_CHARS, null);
   }
 
   /** Buffer size is a test seam: tiny buffers force refills inside tokens. */
   BulkJsonScanner(final Reader in, final int bufferChars) {
+    this(in, bufferChars, null);
+  }
+
+  /**
+   * @param in the character source
+   * @param bufferChars refill-buffer size; a test seam, tiny buffers force refills inside tokens
+   * @param sharedNames the import-wide canonical-name table, or {@code null} to own a private one
+   */
+  BulkJsonScanner(final Reader in, final int bufferChars, final @Nullable NameInternTable sharedNames) {
     this.in = in;
     this.buffer = new char[Math.max(16, bufferChars)];
+    if (INTERN_TABLE_ENABLED) {
+      this.nameInternTable = sharedNames != null
+          ? sharedNames
+          : new NameInternTable();
+      this.nameInterns = null;
+    } else {
+      this.nameInternTable = null;
+      this.nameInterns = new HashMap<>();
+    }
   }
 
   int peek() throws IOException {
@@ -115,6 +178,8 @@ final class BulkJsonScanner {
     scratchUtf8 = previouslyExposed;
     currentName = scratchName;
     currentNumber = scratchNumber;
+    currentNumberType = scratchNumberType;
+    currentIntegralNumberValue = scratchIntegralNumberValue;
     return event;
   }
 
@@ -125,7 +190,37 @@ final class BulkJsonScanner {
 
   /** Valid after {@link #next()} returned {@link #EVENT_NUMBER}. */
   Number number() {
+    // Preserve the existing Number-shaped scanner contract, but materialize a wrapper only for a
+    // caller that actually asks for it. Primitive-aware sinks can consume numberType() and
+    // integralNumberValue() without allocating an Integer or Long per token.
+    if (currentNumber == null) {
+      if (currentNumberType == NUMBER_TYPE_INT) {
+        currentNumber = Integer.valueOf((int) currentIntegralNumberValue);
+      } else if (currentNumberType == NUMBER_TYPE_LONG) {
+        currentNumber = Long.valueOf(currentIntegralNumberValue);
+      }
+    }
     return currentNumber;
+  }
+
+  /**
+   * Primitive representation tag for the current numeric event. Valid after {@link #next()} returns
+   * {@link #EVENT_NUMBER}; {@link #NUMBER_TYPE_FALLBACK} means callers must use {@link #number()}.
+   */
+  int numberType() {
+    return currentNumberType;
+  }
+
+  /**
+   * Exact primitive value of the current {@link #NUMBER_TYPE_INT} or {@link #NUMBER_TYPE_LONG} event.
+   *
+   * @throws IllegalStateException if the current event has no primitive integral representation
+   */
+  long integralNumberValue() {
+    if (currentNumberType != NUMBER_TYPE_INT && currentNumberType != NUMBER_TYPE_LONG) {
+      throw new IllegalStateException("current number has no primitive integral representation");
+    }
+    return currentIntegralNumberValue;
   }
 
   /** Valid after {@link #next()} returned {@link #EVENT_STRING}; reused buffer. */
@@ -186,7 +281,6 @@ final class BulkJsonScanner {
         default -> {
           if (c == '-' || (c >= '0' && c <= '9')) {
             scanNumber((char) c);
-            scratchNumber = JsonNumber.stringToNumber(new String(token, 0, tokenLength));
             return EVENT_NUMBER;
           }
           throw new IOException("unexpected character '" + (char) c + "' in JSON input");
@@ -281,18 +375,68 @@ final class BulkJsonScanner {
   private void scanNumber(final char first) throws IOException {
     tokenLength = 0;
     appendToken(first);
+
+    // Parse the ordinary integral lane while the scanner already traverses the token. Accumulating
+    // negatively is the same overflow-safe technique used by JsonNumber.stringInteger and admits
+    // Long.MIN_VALUE, whose positive magnitude cannot be represented by a long. Any decimal mark,
+    // exponent syntax, embedded sign, overflow, or malformed sign-only token takes the exact old
+    // String/JsonNumber path below.
+    final boolean negative = first == '-';
+    final long overflowLimit = negative
+        ? Long.MIN_VALUE
+        : -Long.MAX_VALUE;
+    final long multiplyLimit = overflowLimit / 10;
+    long result = 0;
+    int digits = 0;
+    boolean primitiveIntegral = true;
+    if (!negative) {
+      result = -(first - '0');
+      digits = 1;
+    }
+
     while (true) {
       if (position == limit && !fill()) {
-        return;
+        break;
       }
       final char c = buffer[position];
       if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
         appendToken(c);
         position++;
+        if (primitiveIntegral && c >= '0' && c <= '9') {
+          final int digit = c - '0';
+          if (result < multiplyLimit) {
+            primitiveIntegral = false;
+          } else {
+            result *= 10;
+            if (result < overflowLimit + digit) {
+              primitiveIntegral = false;
+            } else {
+              result -= digit;
+              digits++;
+            }
+          }
+        } else {
+          primitiveIntegral = false;
+        }
       } else {
-        return;
+        break;
       }
     }
+
+    if (primitiveIntegral && digits > 0) {
+      final long value = negative
+          ? result
+          : -result;
+      scratchIntegralNumberValue = value;
+      scratchNumberType = value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE
+          ? NUMBER_TYPE_INT
+          : NUMBER_TYPE_LONG;
+      scratchNumber = null;
+      return;
+    }
+
+    scratchNumber = JsonNumber.stringToNumber(new String(token, 0, tokenLength));
+    scratchNumberType = NUMBER_TYPE_FALLBACK;
   }
 
   private void expect(final String rest) throws IOException {
@@ -328,13 +472,36 @@ final class BulkJsonScanner {
     return true;
   }
 
+  /**
+   * The canonical instance for the field name currently in {@link #token}.
+   *
+   * <p>
+   * Both lanes keep the CANONICAL instance stable, so the downstream maps (PCR memo, name memo) see
+   * the same object for every occurrence of a name and their first equality test is a pointer
+   * comparison. They differ in what that costs. The char-slice table hashes and compares the decode
+   * buffer in place, so a repeat occurrence allocates nothing; the legacy map is keyed by
+   * {@code String} and so must BUILD one — a String plus its Latin-1 value array — merely to look one
+   * up, then drop it. That was 105,000,000 transient Strings and 5.39 GB on a 1M-row load, 35 % of
+   * everything the load allocated.
+   * </p>
+   */
   private String intern(final char[] chars, final int length) {
-    // One transient String per LOOKUP would defeat the point for repeats; but name lookups need a
-    // map key. A tiny open-addressing char-slice table would avoid it entirely — measured later;
-    // v1 accepts one short-lived String per name occurrence and keeps the CANONICAL instance
-    // stable so downstream maps (PCR memo, name memo) hash the same object every time.
+    if (nameInternTable != null) {
+      final String canonical = nameInternTable.intern(chars, 0, length);
+      if (BulkImportAllocationDiag.ENABLED) {
+        // A hit here allocates NOTHING, which is the whole point; the counter still records the
+        // occurrence so the before/after is measured on the same denominator.
+        BulkImportAllocationDiag.recordCanonicalNameLookup(length);
+      }
+      return canonical;
+    }
     final String candidate = new String(chars, 0, length);
     final String canonical = nameInterns.get(candidate);
+    if (BulkImportAllocationDiag.ENABLED) {
+      // Diagnostic only: prices the transient String and its Latin-1 byte[] that this method mints
+      // per OCCURRENCE. Gated on a static final read, so the branch folds away when it is off.
+      BulkImportAllocationDiag.recordNameIntern(length, canonical != null);
+    }
     if (canonical != null) {
       return canonical;
     }

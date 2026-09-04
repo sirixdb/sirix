@@ -61,6 +61,7 @@ def hft_config_line(
     gc_logging: bool = True,
     safepoint_logging: bool = True,
     storage: str = "FILE_CHANNEL",
+    importer: str = "parallel-bulk",
     projection_mode: str = "incremental",
     expected_rows: int = 1_000_000,
     pinned_trie_scan_budget: int = 1_024,
@@ -76,7 +77,7 @@ def hft_config_line(
         f"initialHeapBytes={initial_heap_bytes} maxHeapBytes={max_heap_bytes} "
         f"g1RegionSizeBytes={g1_region_size_bytes} "
         f"gcLogging={str(gc_logging).lower()} safepointLogging={str(safepoint_logging).lower()} "
-        f"storage={storage} "
+        f"storage={storage} importer={importer} "
         f"projectionMode={projection_mode} expectedRows={expected_rows} "
         f"pinnedTrieScanBudget={pinned_trie_scan_budget} "
         f"pinnedTrieBatchCapacity={pinned_trie_batch_capacity} versioningType={versioning_type} "
@@ -1089,6 +1090,7 @@ class EvaluationTest(unittest.TestCase):
             "gcLogging=true": "gcLogging=false",
             "safepointLogging=true": "safepointLogging=false",
             "storage=FILE_CHANNEL": "storage=MEMORY_MAPPED",
+            "importer=parallel-bulk": "importer=jackson",
             "projectionMode=incremental": "projectionMode=second-pass",
             "expectedRows=1000000": "expectedRows=999999",
             "pinnedTrieScanBudget=1024": "pinnedTrieScanBudget=2048",

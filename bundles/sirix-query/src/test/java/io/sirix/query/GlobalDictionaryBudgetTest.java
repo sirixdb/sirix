@@ -17,6 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -53,12 +56,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * under a budget that admits it, so a test that stopped exercising the mechanism would fail its
  * twin rather than pass quietly.
  */
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ_WRITE)
 final class GlobalDictionaryBudgetTest {
 
   private static final String BUDGET_PROPERTY = "sirix.projection.globalDict.budgetBytes";
+  private static final String MODE_PROPERTY = "sirix.projection.globalDict";
   private static final String ROOT_PATH = "/[]";
   private static final List<String> FIELD_PATHS = List.of("/[]/id", "/[]/url");
   private static final List<String> FIELD_TYPES = List.of("long", "string");
+  private static final List<String> AGGREGATE_FIELD_PATHS =
+      List.of("/[]/url", "/[]/low0", "/[]/low1", "/[]/low2", "/[]/low3", "/[]/low4", "/[]/low5");
+  private static final List<String> AGGREGATE_FIELD_TYPES =
+      List.of("string", "string", "string", "string", "string", "string", "string");
 
   /**
    * Enough records for several leaves AND enough distinct values to clear AUTO's minimum-entries
@@ -71,14 +80,29 @@ final class GlobalDictionaryBudgetTest {
   @TempDir
   private Path root;
 
+  private String priorBudget;
+  private String priorMode;
+
   @BeforeEach
-  void clearBefore() {
+  void configureAutoMode() {
+    priorBudget = System.getProperty(BUDGET_PROPERTY);
+    priorMode = System.getProperty(MODE_PROPERTY);
     System.clearProperty(BUDGET_PROPERTY);
+    System.setProperty(MODE_PROPERTY, "auto");
   }
 
   @AfterEach
-  void clearAfter() {
-    System.clearProperty(BUDGET_PROPERTY);
+  void restoreProperties() {
+    restoreProperty(BUDGET_PROPERTY, priorBudget);
+    restoreProperty(MODE_PROPERTY, priorMode);
+  }
+
+  private static void restoreProperty(final String property, final String value) {
+    if (value == null) {
+      System.clearProperty(property);
+    } else {
+      System.setProperty(property, value);
+    }
   }
 
   private static String dataset(final int records) {
@@ -152,6 +176,20 @@ final class GlobalDictionaryBudgetTest {
     return sb.append(']').toString();
   }
 
+  /** Seven declared string columns, but only {@code url} is a worthwhile AUTO candidate. */
+  private static String aggregateBudgetDataset() {
+    final StringBuilder sb = new StringBuilder(RECORDS * 160).append('[');
+    for (int i = 0; i < RECORDS; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      sb.append("{\"url\":\"http://example.com/a/rather/long/path/segment?id=")
+        .append(i)
+        .append("\",\"low0\":\"a\",\"low1\":\"b\",\"low2\":\"c\",\"low3\":\"d\"," + "\"low4\":\"e\",\"low5\":\"f\"}");
+    }
+    return sb.append(']').toString();
+  }
+
   private int loadAndCountGlobalColumns(final String dbName, final long expectedRows) throws IOException {
     return loadAndCountGlobalColumns(dbName, expectedRows, RECORDS);
   }
@@ -163,6 +201,11 @@ final class GlobalDictionaryBudgetTest {
 
   private int loadAndCountGlobalColumns(final String dbName, final long expectedRows, final String json)
       throws IOException {
+    return loadAndCountGlobalColumns(dbName, expectedRows, json, FIELD_PATHS, FIELD_TYPES);
+  }
+
+  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows, final String json,
+      final List<String> fieldPaths, final List<String> fieldTypes) throws IOException {
     try (
         final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
                                                        .location(root.resolve(dbName))
@@ -171,7 +214,7 @@ final class GlobalDictionaryBudgetTest {
                                                        .buildPathStatistics(false)
                                                        .build();
         final JsonReader reader = new JsonReader(new StringReader(json))) {
-      store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES, expectedRows));
+      store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, fieldPaths, fieldTypes, expectedRows));
     }
     return ProjectionIndexBuilder.globalDictionaryColumnsBuilt();
   }
@@ -193,7 +236,7 @@ final class GlobalDictionaryBudgetTest {
   void oversizedProjectionDeclinesAtElection() throws IOException {
     // Control FIRST, so the decline below cannot be mistaken for a corpus that never elected at all:
     // the same data with a budget that admits it must promote exactly one column.
-    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
     assertEquals(1, loadAndCountGlobalColumns("admits", RECORDS),
         "the control must ELECT — otherwise the decline case proves nothing about the budget");
 
@@ -201,7 +244,31 @@ final class GlobalDictionaryBudgetTest {
     // changed; only the bound did.
     System.setProperty(BUDGET_PROPERTY, String.valueOf(256L << 10));
     assertEquals(0, loadAndCountGlobalColumns("declines", RECORDS),
-        "a dictionary projected past half the budget must leave its column as a per-leaf DICT");
+        "a streaming dictionary whose combined four-times reservation exceeds the aggregate must remain "
+            + "per-leaf DICT");
+  }
+
+  @Test
+  @DisplayName("AUTO spends the aggregate on worthwhile candidates instead of slicing it across declared strings")
+  void worthwhileCandidateIsNotDilutedByUnworthyStringColumns() throws IOException {
+    // The 128 MiB combined envelope gives the generation writer and resident front 64 MiB each,
+    // enough for the real 12k-value radix flush peak. The larger election hint makes url's
+    // conservative combined reservation fit that aggregate while exceeding the former
+    // 128 MiB / 7 columns / 2 uncertainty gate. Six unrelated low-cardinality declarations must not
+    // decide the useful column's fate.
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
+
+    assertEquals(1, loadAndCountGlobalColumns("aggregate-candidate", 120_000L, aggregateBudgetDataset(),
+        AGGREGATE_FIELD_PATHS, AGGREGATE_FIELD_TYPES),
+        "the one worthwhile column fits both disjoint component caps and must be elected");
+    final ProjectionIndexMetadata metadata = projectionMetadata("aggregate-candidate");
+    assertNotNull(metadata);
+    final byte[] columnKinds = metadata.columnKinds();
+    assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, columnKinds[0]);
+    for (int column = 1; column < columnKinds.length; column++) {
+      assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, columnKinds[column],
+          "low-cardinality column " + column + " should remain local-dictionary encoded");
+    }
   }
 
   @Test
@@ -209,7 +276,7 @@ final class GlobalDictionaryBudgetTest {
   void theHintAndNotTheCorpusDrivesTheDecline() throws IOException {
     // The lever under test is the HINT: identical data and budget, and only the claimed row count
     // differs. This is what lets a 100M load decline up front on a sample of its first leaves.
-    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
     assertEquals(1, loadAndCountGlobalColumns("small-hint", RECORDS));
     assertEquals(0, loadAndCountGlobalColumns("huge-hint", 100_000_000L),
         "projected bytes scale with the hint, so a 100M-row claim must decline what 4k rows admitted");
@@ -226,7 +293,7 @@ final class GlobalDictionaryBudgetTest {
     // projection, so a 0 could mean either "declined at election" or "abandoned at runtime" — two
     // different mechanisms with the same observable. Holding the budget fixed leaves the HINT as
     // the only variable, which is what this pins.
-    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
     assertEquals(1, loadAndCountGlobalColumns("no-hint", -1L),
         "an unhinted load must elect exactly as it always did — the election has no denominator to judge with");
   }
@@ -234,7 +301,7 @@ final class GlobalDictionaryBudgetTest {
   @Test
   @DisplayName("AUTO reserves a full row group of headroom before converting a near-cap sample")
   void structuralEntryLimitDeclinesDuringElectionWithoutAbandoningTheProjection() throws IOException {
-    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
     assertEquals(1, loadAndCountGlobalColumns("structural-control", -1L),
         "the smaller control must prove that AUTO elects this all-unique string shape");
 
@@ -254,7 +321,7 @@ final class GlobalDictionaryBudgetTest {
     // dictionary and the election-time value-length check passes. A later row — past the sample,
     // and therefore invisible to the election — carries a value one byte above the safe V0 limit.
     // That is a genuine runtime structural refusal rather than an election-time decline.
-    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(128L << 20));
     assertEquals(1, loadAndCountGlobalColumns("runtime-control", -1L),
         "the completed control must establish the last-successful-build diagnostic");
     assertEquals(1, loadAndCountGlobalColumns("abandoned", -1L, runtimeCapDataset()),

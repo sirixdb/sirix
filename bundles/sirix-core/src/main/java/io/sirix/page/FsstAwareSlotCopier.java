@@ -15,39 +15,36 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 /**
- * Per-source-fragment slot copier that transparently decodes FSST-compressed
- * string values using the <em>source</em> fragment's symbol table. Used by
- * multi-fragment {@code combineRecordPages} implementations so that the
- * resulting target page contains no compressed string bytes and no FSST
- * symbol table of its own. At the next commit the writer hands the page the
- * revision's pooled symbol table and {@code compressStringValues} re-encodes,
- * producing a single coherent table before writing to disk, so the
- * decompress-on-merge step is write/disk neutral — it only shifts work from
- * read-time (where it would otherwise be repeated for each read) to
- * combine-time (once).
+ * Per-source-fragment slot copier that transparently decodes FSST-compressed string values using
+ * the <em>source</em> fragment's symbol table. Used by multi-fragment {@code combineRecordPages}
+ * implementations so that the resulting target page contains no compressed string bytes and no FSST
+ * symbol table of its own. At the next commit the writer hands the page the revision's pooled
+ * symbol table and {@code compressStringValues} re-encodes, producing a single coherent table
+ * before writing to disk, so the decompress-on-merge step is write/disk neutral — it only shifts
+ * work from read-time (where it would otherwise be repeated for each read) to combine-time (once).
  *
- * <p><b>Correctness invariant.</b> A compressed string slot's bytes are the
- * output of {@code FSSTCompressor.encode(value, srcTable)}; decoding with any
- * other table corrupts the value. This copier guarantees that every slot
- * handed off to the target is either (a) not a string slot — raw-copied; or
- * (b) a string slot whose compressed-flag byte is {@code 0} after rewrite.
- * There is no scenario in which a compressed-flag byte survives to the target
- * page — so the target may safely carry {@code fsstSymbolTable = null}.
+ * <p>
+ * <b>Correctness invariant.</b> A compressed string slot's bytes are the output of
+ * {@code FSSTCompressor.encode(value, srcTable)}; decoding with any other table corrupts the value.
+ * This copier guarantees that every slot handed off to the target is either (a) not a string slot —
+ * raw-copied; or (b) a string slot whose compressed-flag byte is {@code 0} after rewrite. There is
+ * no scenario in which a compressed-flag byte survives to the target page — so the target may
+ * safely carry {@code fsstSymbolTable = null}.
  *
- * <p><b>Wire formats handled.</b>
+ * <p>
+ * <b>Wire formats handled.</b>
  * <ul>
- *   <li>Flyweight format (dir {@code nodeKindId} in {@code {30, 40}}): slot is
- *       {@code [kindByte][offsetTable: fieldCount bytes][data region]}. We
- *       locate the payload via the offset-table byte and do not touch the
- *       structural varints.</li>
- *   <li>Legacy format (dir {@code nodeKindId == 0}): slot is
- *       {@code [kindByte][NodeKind.serialize output]}. We skip structural
- *       varints byte-by-byte using the LEB128 continuation-bit rule.</li>
+ * <li>Flyweight format (dir {@code nodeKindId} in {@code {30, 40}}): slot is
+ * {@code [kindByte][offsetTable: fieldCount bytes][data region]}. We locate the payload via the
+ * offset-table byte and do not touch the structural varints.</li>
+ * <li>Legacy format (dir {@code nodeKindId == 0}): slot is
+ * {@code [kindByte][NodeKind.serialize output]}. We skip structural varints byte-by-byte using the
+ * LEB128 continuation-bit rule.</li>
  * </ul>
  *
- * <p>Since only the payload is rewritten and all bytes preceding it are
- * preserved byte-for-byte, any offset table remains valid without
- * modification.
+ * <p>
+ * Since only the payload is rewritten and all bytes preceding it are preserved byte-for-byte, any
+ * offset table remains valid without modification.
  */
 public final class FsstAwareSlotCopier {
 
@@ -68,8 +65,8 @@ public final class FsstAwareSlotCopier {
   private static final int STRING_VALUE_PAYLOAD_FIELD = 5;
 
   /**
-   * Structural delta-varints preceding {@code prevRev} in the STRING_VALUE
-   * legacy wire format (parent, rightSib, leftSib).
+   * Structural delta-varints preceding {@code prevRev} in the STRING_VALUE legacy wire format
+   * (parent, rightSib, leftSib).
    */
   private static final int STRING_VALUE_STRUCTURAL_VARINTS = 3;
 
@@ -80,10 +77,9 @@ public final class FsstAwareSlotCopier {
   private final boolean active;
 
   /**
-   * Build a copier for a source fragment's FSST symbol table. A {@code null}
-   * or empty {@code fsstSymbolTable} yields an inactive copier whose
-   * {@link #active()} returns {@code false} — callers can fast-path to a raw
-   * byte copy in that case.
+   * Build a copier for a source fragment's FSST symbol table. A {@code null} or empty
+   * {@code fsstSymbolTable} yields an inactive copier whose {@link #active()} returns {@code false} —
+   * callers can fast-path to a raw byte copy in that case.
    */
   public FsstAwareSlotCopier(final byte[] fsstSymbolTable) {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
@@ -102,28 +98,26 @@ public final class FsstAwareSlotCopier {
   }
 
   /**
-   * @return {@code true} iff this copier can actually decompress. Callers may
-   *     skip invoking {@link #decompressSlot} entirely when {@code false}.
+   * @return {@code true} iff this copier can actually decompress. Callers may skip invoking
+   *         {@link #decompressSlot} entirely when {@code false}.
    */
   public boolean active() {
     return active;
   }
 
   /**
-   * Try to rewrite {@code slot} into a freshly-allocated byte array whose
-   * compressed-flag byte is {@code 0} and whose value bytes are the
-   * uncompressed form of the original. Returns {@code null} when no rewrite
-   * is required — either the slot is not a string kind, or the slot's
-   * compressed flag is already {@code 0}, or the wire layout is malformed
-   * (caller should fall back to raw copy, which then requires the target
-   * keep the source's FSST table — so callers must verify {@link #active()}
-   * before deciding whether raw copy is safe in a multi-fragment combine).
+   * Try to rewrite {@code slot} into a freshly-allocated byte array whose compressed-flag byte is
+   * {@code 0} and whose value bytes are the uncompressed form of the original. Returns {@code null}
+   * when no rewrite is required — either the slot is not a string kind or the slot's compressed flag
+   * is already {@code 0}. A malformed string layout throws instead: returning {@code null} for both
+   * raw and unreadable table-dependent bytes made multi-fragment callers either reject valid raw
+   * slots when table ids differed or silently copy corrupt compressed bytes into an unbound target.
    *
-   * <p>When this returns a non-null array, the returned layout is a
-   * byte-for-byte copy of the input up to (but not including) the
-   * compressed-flag byte, followed by {@code [0][lengthVarint][value]} and
-   * then any trailing bytes. For slots whose payload is the last field
-   * (the normal case) the tail is empty.
+   * <p>
+   * When this returns a non-null array, the returned layout is a byte-for-byte copy of the input up
+   * to (but not including) the compressed-flag byte, followed by {@code [0][lengthVarint][value]} and
+   * then any trailing bytes. For slots whose payload is the last field (the normal case) the tail is
+   * empty.
    *
    * @param slot slot bytes as returned by {@code KeyValueLeafPage.getSlot(offset)}
    * @param dirNodeKindId directory {@code nodeKindId} — distinguishes flyweight from legacy
@@ -138,8 +132,7 @@ public final class FsstAwareSlotCopier {
       return decompressFlyweight(slot, slotLen, STRING_VALUE_FIELD_COUNT, STRING_VALUE_PAYLOAD_FIELD);
     }
     if (dirNodeKindId == OBJECT_NAMED_STRING_KIND_ID) {
-      return decompressFlyweight(slot, slotLen,
-          OBJECT_NAMED_STRING_FIELD_COUNT, OBJECT_NAMED_STRING_PAYLOAD_FIELD);
+      return decompressFlyweight(slot, slotLen, OBJECT_NAMED_STRING_FIELD_COUNT, OBJECT_NAMED_STRING_PAYLOAD_FIELD);
     }
     if (dirNodeKindId == 0 && slotLen > 0) {
       final int kindByte = slot.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
@@ -150,16 +143,16 @@ public final class FsstAwareSlotCopier {
     return null;
   }
 
-  private byte[] decompressFlyweight(final MemorySegment slot, final int slotLen,
-      final int fieldCount, final int payloadField) {
+  private byte[] decompressFlyweight(final MemorySegment slot, final int slotLen, final int fieldCount,
+      final int payloadField) {
     final int dataStart = 1 + fieldCount;
     if (dataStart > slotLen) {
-      return null;
+      throw malformedStringSlot("truncated offset table");
     }
     final int payloadOffset = slot.get(ValueLayout.JAVA_BYTE, 1 + payloadField) & 0xFF;
     final int payloadAbs = dataStart + payloadOffset;
     if (payloadAbs >= slotLen) {
-      return null;
+      throw malformedStringSlot("payload offset exceeds slot length");
     }
     return rewriteFromCompressedFlag(slot, slotLen, payloadAbs);
   }
@@ -172,31 +165,33 @@ public final class FsstAwareSlotCopier {
     pos = skipVarint(slot, pos, slotLen); // prevRev
     pos = skipVarint(slot, pos, slotLen); // lastModRev
     if (pos >= slotLen) {
-      return null;
+      throw malformedStringSlot("truncated legacy string header");
     }
     return rewriteFromCompressedFlag(slot, slotLen, pos);
   }
 
   /**
-   * Given the absolute byte offset of the isCompressed flag within the slot,
-   * decode the FSST-compressed payload and return a rewritten slot. Returns
-   * {@code null} if the flag is already 0 or the length varint cannot be
-   * decoded within the slot bounds.
+   * Given the absolute byte offset of the isCompressed flag within the slot, decode the
+   * FSST-compressed payload and return a rewritten slot. Returns {@code null} only when the flag is
+   * explicitly zero; malformed flags and lengths fail closed.
    */
   private byte[] rewriteFromCompressedFlag(final MemorySegment slot, final int slotLen, final int flagPos) {
     final byte isCompressed = slot.get(ValueLayout.JAVA_BYTE, flagPos);
-    if (isCompressed != 1) {
+    if (isCompressed == 0) {
       return null;
+    }
+    if (isCompressed != 1) {
+      throw malformedStringSlot("invalid compression flag " + (isCompressed & 0xFF));
     }
     // Read length varint.
     long readResult = readSignedVarint(slot, flagPos + 1, slotLen);
     if (readResult == READ_FAILED) {
-      return null;
+      throw malformedStringSlot("truncated compressed length");
     }
     final int lenVarEnd = (int) (readResult >>> 32);
     final int compressedLen = (int) (readResult & 0xFFFFFFFFL);
-    if (compressedLen < 0 || lenVarEnd + compressedLen > slotLen) {
-      return null;
+    if (compressedLen < 0 || (long) lenVarEnd + compressedLen > slotLen) {
+      throw malformedStringSlot("compressed payload exceeds slot length");
     }
     // Materialize the compressed blob. Unavoidable since FSSTCompressor.decode
     // takes a byte[] — but we allocate exactly once per compressed slot.
@@ -227,6 +222,10 @@ public final class FsstAwareSlotCopier {
     return out;
   }
 
+  private static IllegalStateException malformedStringSlot(final String detail) {
+    return new IllegalStateException("Malformed FSST string slot: " + detail);
+  }
+
   // =========================================================================
   // Varint helpers — LEB128 with zigzag encoding for signed values, matching
   // DeltaVarIntCodec's byte-level wire format. Duplicated here so the helper
@@ -238,10 +237,9 @@ public final class FsstAwareSlotCopier {
   private static final long READ_FAILED = -1L;
 
   /**
-   * Read a signed varint (zigzag + LEB128) from {@code slot} starting at
-   * {@code pos}, stopping before {@code limit}. Returns a packed {@code long}
-   * where the high 32 bits hold the end-position (exclusive) and the low 32
-   * bits hold the decoded int value. Returns {@link #READ_FAILED} if the
+   * Read a signed varint (zigzag + LEB128) from {@code slot} starting at {@code pos}, stopping before
+   * {@code limit}. Returns a packed {@code long} where the high 32 bits hold the end-position
+   * (exclusive) and the low 32 bits hold the decoded int value. Returns {@link #READ_FAILED} if the
    * varint runs past {@code limit} or exceeds 5 continuation bytes.
    */
   private static long readSignedVarint(final MemorySegment slot, int pos, final int limit) {

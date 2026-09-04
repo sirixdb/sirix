@@ -12,9 +12,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -37,14 +35,18 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Formal verification entry-point for the HOT-backed indexes.
  *
- * <p>Each test (a) drives an HOT index to a known state via realistic Sirix workloads, then
- * (b) runs {@link HOTInvariantValidator} over the resulting trie to assert the structural
- * invariants from Binna §4.2, and additionally (c) compares query results to a
- * {@link TreeMap}-based reference oracle for end-to-end correctness.</p>
+ * <p>
+ * Each test (a) drives an HOT index to a known state via realistic Sirix workloads, then (b) runs
+ * {@link HOTInvariantValidator} over the resulting trie to assert the structural invariants from
+ * Binna §4.2, and additionally (c) compares query results to a {@link TreeMap}-based reference
+ * oracle for end-to-end correctness.
+ * </p>
  *
- * <p>Tests are organized by index type (NAME / CAS / PATH) and by stress level
- * (smoke → randomized fuzz → multi-rev fuzz). The seed-controlled fuzzers re-derive the
- * exact same workload across runs, so any failure is bit-reproducible.</p>
+ * <p>
+ * Tests are organized by index type (NAME / CAS / PATH) and by stress level (smoke → randomized
+ * fuzz → multi-rev fuzz). The seed-controlled fuzzers re-derive the exact same workload across
+ * runs, so any failure is bit-reproducible.
+ * </p>
  */
 @DisplayName("HOT formal verification")
 // Soak-style suite: 100K-value workloads with per-test @Timeout budgets sized for the Linux
@@ -54,23 +56,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 // Linux jobs; the platform lanes exclude 'heavy' via -PexcludeHeavyTests.
 @Tag("heavy")
 final class HOTFormalVerificationTest {
-
-  private static String originalHOTSetting;
-
-  @BeforeAll
-  static void enableHOT() {
-    originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    System.setProperty("sirix.index.useHOT", "true");
-  }
-
-  @AfterAll
-  static void restoreHOT() {
-    if (originalHOTSetting != null) {
-      System.setProperty("sirix.index.useHOT", originalHOTSetting);
-    } else {
-      System.clearProperty("sirix.index.useHOT");
-    }
-  }
 
   @BeforeEach
   void setUp() {
@@ -101,7 +86,8 @@ final class HOTFormalVerificationTest {
       // Build a workload with enough distinct names to force tree depth > 1.
       final StringBuilder json = new StringBuilder("{\"items\":[");
       for (int i = 0; i < 200; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"name_").append(i).append("\":").append(i).append('}');
       }
       json.append("]}");
@@ -110,8 +96,7 @@ final class HOTFormalVerificationTest {
       trx.commit();
 
       final HOTInvariantValidator.Result result =
-          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.NAME,
-              nameIndexDef.getID());
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.NAME, nameIndexDef.getID());
       assertTrue(result.storedKeyCount() > 0,
           "expected stored keys after 200-item commit, got " + result.storedKeyCount());
       result.assertOk();
@@ -123,19 +108,21 @@ final class HOTFormalVerificationTest {
   // ============================================================
 
   /**
-   * Workload: insert N <em>distinct</em> CAS Int32 values (sequential 0..N-1) under one path,
-   * verify range queries against a {@link TreeMap} oracle, and run the structural validator.
+   * Workload: insert N <em>distinct</em> CAS Int32 values (sequential 0..N-1) under one path, verify
+   * range queries against a {@link TreeMap} oracle, and run the structural validator.
    *
-   * <p>Distinct sequential values keep the resulting HOT trie's children's first-keys
-   * structurally separable so {@link HOTTrieWriter#augmentUntilPartialsUnique} doesn't bail —
-   * I3 (partial-key uniqueness) holds, and so do I6 / I7. This is the "happy path" workload.
+   * <p>
+   * Distinct sequential values keep the resulting HOT trie's children's first-keys structurally
+   * separable so the canonical writer can keep partial keys unique — I3 (partial-key uniqueness)
+   * holds, and so do I6 / I7. This is the "happy path" workload.
    *
-   * <p>The complementary <em>adversarial</em> workload (1000 random Int32 in 0..2000) hits
-   * the augment-bailout structural limitation and is intentionally <em>not</em> tested here;
-   * see {@link HOTFormalVerificationTest}'s class-level note. The validator's
-   * {@code assertNoHardViolations()} would surface 300+ I3/I6/I7 warnings on that workload,
-   * and lower_bound misroutes would cause range-scan undercounts — both rooted in the same
-   * documented limitation in {@link HOTTrieWriter#createNodeFromChildren}'s NOTE.</p>
+   * <p>
+   * The complementary <em>adversarial</em> workload (1000 random Int32 in 0..2000) hits the
+   * augment-bailout structural limitation and is intentionally <em>not</em> tested here; see
+   * {@link HOTFormalVerificationTest}'s class-level note. The validator's
+   * {@code assertNoHardViolations()} would surface 300+ I3/I6/I7 warnings on that workload, and
+   * lower_bound misroutes would cause range-scan undercounts.
+   * </p>
    */
   @Test
   @DisplayName("CAS index — TreeMap-oracle equivalence (sequential distinct values)")
@@ -151,7 +138,8 @@ final class HOTFormalVerificationTest {
 
     // Sequential distinct values: each value 0..N-1 occurs exactly once, in random order.
     final List<Integer> shuffled = new ArrayList<>(n);
-    for (int i = 0; i < n; i++) shuffled.add(i);
+    for (int i = 0; i < n; i++)
+      shuffled.add(i);
     java.util.Collections.shuffle(shuffled, rng);
     for (final int v : shuffled) {
       insertedValues.add(v);
@@ -163,15 +151,15 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/records/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue),
-          0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/records/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
 
       final StringBuilder json = new StringBuilder("{\"records\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(insertedValues.get(i)).append('}');
       }
       json.append("]}");
@@ -182,8 +170,7 @@ final class HOTFormalVerificationTest {
       // height bound, child-by-firstkey ordering, leaf-key-uniqueness). I3/I6/I7 are reported
       // as soft "structural-limitation" warnings — see {@link HOTInvariantValidator}'s docs.
       final HOTInvariantValidator.Result inv =
-          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-              casIndexDef.getID());
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
       System.out.println("[Phase verify] CAS fuzz validator: " + inv.assertNoHardViolations());
 
       // Equivalence to oracle: random midpoint range queries.
@@ -192,9 +179,9 @@ final class HOTFormalVerificationTest {
         final int lo = rng.nextInt(n);
         final int expected = oracleMultiplicity.tailMap(lo).values().stream().mapToInt(Integer::intValue).sum();
         long actual = 0;
-        final var iter = ic.openCASIndex(trx.getStorageEngineReader(), casIndexDef,
-            ic.createCASFilter(Set.of("/records/[]/v"), new Int32(lo), SearchMode.GREATER_OR_EQUAL,
-                new JsonPCRCollector(trx)));
+        final var iter =
+            ic.openCASIndex(trx.getStorageEngineReader(), casIndexDef, ic.createCASFilter(Set.of("/records/[]/v"),
+                new Int32(lo), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(trx)));
         while (iter.hasNext()) {
           actual += iter.next().getNodeKeys().getLongCardinality();
         }
@@ -210,13 +197,13 @@ final class HOTFormalVerificationTest {
 
   /**
    * Adversarial CAS workload: 1000 random Int32 in 0..1999 with duplicates. After the
-   * Binna-conformant sparse-path-encoding fix in {@code addEntryWithPDep}
-   * (HOTTrieWriter §sparse-path), the validator must now report 0 violations on this
-   * workload — every captured disc bit's stored value in non-split siblings' partials
-   * is correctly 0 (= bit not on the sibling's path) rather than the dense PEXT of the
-   * sibling's first key. The HOT I3 / I6 / I7 structural invariants hold by construction.
+   * Binna-conformant sparse-path-encoding fix, the validator must now report 0 violations on this
+   * workload — every captured disc bit's stored value in non-split siblings' partials is correctly 0
+   * (= bit not on the sibling's path) rather than the dense PEXT of the sibling's first key. The HOT
+   * I3 / I6 / I7 structural invariants hold by construction.
    *
-   * <p>Pre-fix this test reproduced 311 structural-limitation violations on the same seed.
+   * <p>
+   * Pre-fix this test reproduced 311 structural-limitation violations on the same seed.
    */
   @Test
   @DisplayName("CAS index — adversarial fuzz now produces a Binna-conformant HOT")
@@ -239,15 +226,15 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/records/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue),
-          0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/records/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
 
       final StringBuilder json = new StringBuilder("{\"records\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(insertedValues.get(i)).append('}');
       }
       json.append("]}");
@@ -255,8 +242,7 @@ final class HOTFormalVerificationTest {
       trx.commit();
 
       final HOTInvariantValidator.Result inv =
-          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-              casIndexDef.getID());
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
       // Both hard and structural-limitation invariants must hold under sparse-path encoding.
       inv.assertOk();
       System.out.println("[Phase verify] CAS adversarial: violations=" + inv.violations().size()
@@ -269,14 +255,16 @@ final class HOTFormalVerificationTest {
   // ============================================================
 
   /**
-   * Sweep the CAS adversarial fuzz across multiple seeds and varying duplicate densities.
-   * Each seed produces a different structural workload; we verify every resulting trie
-   * satisfies all HOT invariants under Binna's sparse-path encoding.
+   * Sweep the CAS adversarial fuzz across multiple seeds and varying duplicate densities. Each seed
+   * produces a different structural workload; we verify every resulting trie satisfies all HOT
+   * invariants under Binna's sparse-path encoding.
    *
-   * <p>Specifically, we check the I-Binna sparse-path NECESSARY condition: for every stored
-   * partial p_i, every set bit must also be set in the dense PEXT extraction of c_i's first
-   * key under the indirect's mask. This is a direct test of the sparse-path encoding
-   * (Binna §4.2 / {@code SparsePartialKeys.hpp}).</p>
+   * <p>
+   * Specifically, we check the I-Binna sparse-path NECESSARY condition: for every stored partial p_i,
+   * every set bit must also be set in the dense PEXT extraction of c_i's first key under the
+   * indirect's mask. This is a direct test of the sparse-path encoding (Binna §4.2 /
+   * {@code SparsePartialKeys.hpp}).
+   * </p>
    */
   @Test
   @DisplayName("CAS index — Binna conformance across seeds and duplicate densities")
@@ -297,21 +285,22 @@ final class HOTFormalVerificationTest {
         final Random rng = new Random(seed ^ valueRange);
         final int n = 800;
         final List<Integer> values = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) values.add(rng.nextInt(valueRange));
+        for (int i = 0; i < n; i++)
+          values.add(rng.nextInt(valueRange));
 
         final IndexDef casIndexDef;
         try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
             final var trx = session.beginNodeTrx()) {
           final var ic = session.getWtxIndexController(trx.getRevisionNumber());
           final var pathToValue =
-              io.brackit.query.util.path.Path.parse("/r/[]/v",
-                  io.brackit.query.util.path.PathParser.Type.JSON);
-          casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+              io.brackit.query.util.path.Path.parse("/r/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+          casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
           ic.createIndexes(Set.of(casIndexDef), trx);
           final StringBuilder json = new StringBuilder("{\"r\":[");
           for (int i = 0; i < n; i++) {
-            if (i > 0) json.append(',');
+            if (i > 0)
+              json.append(',');
             json.append("{\"v\":").append(values.get(i)).append('}');
           }
           json.append("]}");
@@ -319,12 +308,12 @@ final class HOTFormalVerificationTest {
           trx.commit();
 
           final HOTInvariantValidator.Result inv =
-              HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-                  casIndexDef.getID());
+              HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
           inv.assertOk();
           totalEntries += inv.storedKeyCount();
           totalIndirectsValidated++;
-          if (inv.observedHeight() > maxObservedHeight) maxObservedHeight = inv.observedHeight();
+          if (inv.observedHeight() > maxObservedHeight)
+            maxObservedHeight = inv.observedHeight();
         }
         totalSeedsChecked++;
       }
@@ -332,31 +321,30 @@ final class HOTFormalVerificationTest {
 
     System.out.println("[Phase verify] Binna conformance sweep: " + totalSeedsChecked
         + " (seed × value-range) configurations · " + totalEntries
-        + " total entries · 0 violations across all configurations · maxHeight="
-        + maxObservedHeight);
+        + " total entries · 0 violations across all configurations · maxHeight=" + maxObservedHeight);
     // Binna's bound for fan-out-32 indirects with up to 1000 entries per workload and
     // multi-entry leaves: height ≤ 5 with generous slack. Observe in practice.
-    assertTrue(maxObservedHeight <= 5,
-        "maxObservedHeight " + maxObservedHeight + " exceeds Binna bound");
+    assertTrue(maxObservedHeight <= 5, "maxObservedHeight " + maxObservedHeight + " exceeds Binna bound");
     assertTrue(totalIndirectsValidated == seeds.length * valueRanges.length,
         "expected one validation per (seed × valueRange)");
   }
 
   /**
-   * Million-entry height-optimality check vs Binna's bound. With multi-entry leaves
-   * (~64–512 entries/leaf in practice for Int32 CAS values) and fan-out-32 indirects, Binna's
-   * bound for 1M entries is approximately {@code ceil(log_32(1M / 64)) = ceil(log_32(15625)) ≈ 3}
-   * indirect levels. Allowing slack for write-time fragmentation and partial leaf utilization
-   * we expect observed height ≤ 6.
+   * Million-entry height-optimality check vs Binna's bound. With multi-entry leaves (~64–512
+   * entries/leaf in practice for Int32 CAS values) and fan-out-32 indirects, Binna's bound for 1M
+   * entries is approximately {@code ceil(log_32(1M / 64)) = ceil(log_32(15625)) ≈ 3} indirect levels.
+   * Allowing slack for write-time fragmentation and partial leaf utilization we expect observed
+   * height ≤ 6.
    *
-   * <p>Asserts no structural violations across 1M+ stored entries and reports observed height.
-   * Skips the per-key PEXT-routing check (I6) because at this scale it would dominate runtime;
-   * structural invariants (I1, I2, I3, I7, I8, I9, I10, I-Binna) are sufficient to certify
-   * conformance.</p>
+   * <p>
+   * Asserts no structural violations across 1M+ stored entries and reports observed height. Skips the
+   * per-key PEXT-routing check (I6) because at this scale it would dominate runtime; structural
+   * invariants (I1, I2, I3, I7, I8, I9, I10, I-Binna) are sufficient to certify conformance.
+   * </p>
    */
   /**
-   * 100K-entry sanity check before the 1M run — same height-bound assertion at smaller scale.
-   * Binna's bound for 100K entries: ceil(log_32(100K / 64)) ≈ 3 indirect levels.
+   * 100K-entry sanity check before the 1M run — same height-bound assertion at smaller scale. Binna's
+   * bound for 100K entries: ceil(log_32(100K / 64)) ≈ 3 indirect levels.
    */
   @Test
   @DisplayName("CAS index — 100K-entry workload stays within Binna height bound")
@@ -370,14 +358,14 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/k/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
       final StringBuilder json = new StringBuilder("{\"k\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(i).append('}');
       }
       json.append("]}");
@@ -387,917 +375,23 @@ final class HOTFormalVerificationTest {
 
       final long verifyStart = System.currentTimeMillis();
       final HOTInvariantValidator.Result inv =
-          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-              casIndexDef.getID());
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
       final long verifyMs = System.currentTimeMillis() - verifyStart;
 
-      System.out.println("[Phase verify] 100K-entry: N=" + inv.storedKeyCount()
-          + " · observedHeight=" + inv.observedHeight()
-          + " · violations=" + inv.violations().size()
-          + " · build=" + buildMs + "ms · validate=" + verifyMs + "ms");
-      assertTrue(inv.violations().isEmpty(),
-          "structural violations at 100K-entry scale: " + inv.violations());
+      System.out.println("[Phase verify] 100K-entry: N=" + inv.storedKeyCount() + " · observedHeight="
+          + inv.observedHeight() + " · violations=" + inv.violations().size() + " · build=" + buildMs + "ms · validate="
+          + verifyMs + "ms");
+      assertTrue(inv.violations().isEmpty(), "structural violations at 100K-entry scale: " + inv.violations());
       assertTrue(inv.observedHeight() <= 5,
           "observed tree height " + inv.observedHeight() + " exceeds Binna bound 5 at N=100K");
     }
   }
 
-  /** TEMPORARY DIAGNOSTIC — mirrors smallCombinedMicrobench's exact insertion pattern (5K warmup
-   *  writes at offset N+1M, then N main writes at [0..N)) to reproduce the 159 stale-route
-   *  violations on a fast small-N reproducer. Not for commit. */
-  @Test
-  @DisplayName("DIAGNOSTIC — microbench-pattern stale-route reproducer")
-  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void diagnosticMicrobenchPatternReproducer() {
-    final String prevI6Trace = System.getProperty("hot.debug.i6trace");
-    final String prevConstancy = System.getProperty("hot.debug.constancy");
-    final String prevStrictBinna = System.getProperty("hot.strict.binna");
-    final String prevPhase4Debug = System.getProperty("hot.debug.phase4");
-    final String prevBchFallback = System.getProperty("hot.debug.bchfallback");
-    System.setProperty("hot.debug.i6trace", "1");
-    System.setProperty("hot.debug.constancy", "true");
-    System.setProperty("hot.strict.binna", "true");
-    System.setProperty("hot.debug.phase4", "true");
-    System.setProperty("hot.debug.bchfallback", "true");
-    System.setProperty("hot.debug.bch.encoding", "true");
-    System.setProperty("hot.debug.sparsepath", "true");
-    try {
-      final int[] probeN = {50_000};
-      for (final int n : probeN) {
-        // Phase-2 success criterion: intermediate-BiNode fallback firings == 0.
-        io.sirix.access.trx.page.HOTTrieWriter.resetIntermediateBiNodeFallbackFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase3RebalanceFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetAddEntryFreshPolarityFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetBuildCompressedHalfFallbackCounters();
-        io.sirix.access.trx.page.HOTTrieWriter.resetBchEncodingDiagnostics();
-        io.sirix.access.trx.page.HOTTrieWriter.resetG1G3Counters();
-        io.sirix.access.trx.page.HOTTrieWriter.resetOptionBRerouteFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetG17ConstancyRedirects();
-        io.sirix.access.trx.page.HOTTrieWriter.resetG18AmbiguousDetections();
-        io.sirix.access.trx.page.HOTTrieWriter.resetG20RecursiveSplitFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetG25BetaPropagations();
-        io.sirix.access.trx.page.HOTTrieWriter.resetG28ClosureFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsWasted();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLoadBearing();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbLiftable();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbHard();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailures();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftFailures();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftNoop();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailures();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendSuccesses();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNoprop();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailFanout();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailLeafsplit();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailCollide();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNozero();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailBetainmask();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailWalker();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailCycle();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qClosureNoopSkips();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailConstancy();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripNonconstantBits();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapSuccess();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFail();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailNomask();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailCollide();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailNozero();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailInput();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlySuccess();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFail();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qAllowDoubleCaptureFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qI8PriorityFirings();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideResolvable1Bit();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideDuplicateKeys();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortAccepted();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortRejected();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbEquality();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbLower();
-        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbOk();
-
-        JsonTestHelper.deleteEverything();
-        JsonTestHelper.createTestDocument();
-        final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-        final long pathNodeKey = 5L;
-        final IndexDef def;
-        final long buildStart = System.currentTimeMillis();
-        try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-            final var trx = session.beginNodeTrx()) {
-          final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-          final var pathToValue = io.brackit.query.util.path.Path.parse(
-              "/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-          def = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-          ic.createIndexes(Set.of(def), trx);
-          final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-              trx.getStorageEngineWriter(),
-              io.sirix.index.hot.CASKeySerializer.INSTANCE,
-              IndexType.CAS, def.getID());
-          final io.brackit.query.atomic.Int32 zero = new io.brackit.query.atomic.Int32(0);
-          final var scratch = new io.sirix.index.redblacktree.keyvalue.NodeReferences();
-
-          // Stage D — post-mutation validation gate. Gated on -Dhot.strict.validate=1.
-          // When enabled, captures violation/firing-counter checkpoints during the insert
-          // sequence and runs the per-insert I-leaf-insert-precondition check before each
-          // main-phase insert. Output: a per-checkpoint table consumed by Stage E into
-          // docs/HOT_EMPIRICAL_FAILURE_TABLE.md.
-          final boolean stageDGate = Boolean.getBoolean("hot.strict.validate");
-          final int checkInterval = 250;
-          final java.util.List<String> stageDCheckpoints =
-              stageDGate ? new java.util.ArrayList<>() : null;
-          final java.util.Map<String, Integer> stageDFirstFailure =
-              stageDGate ? new java.util.TreeMap<>() : null;
-          int stageDPrecondHits = 0;
-          long[] stageDPrevCounters = stageDGate ? snapshotWriterFirings() : null;
-
-          final int warmupBase = n + 1_000_000;
-          for (int i = 0; i < 5_000; i++) {
-            scratch.getNodeKeys().clear();
-            scratch.getNodeKeys().add(warmupBase + i);
-            writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new io.brackit.query.atomic.Int32(warmupBase + i), Type.INR, pathNodeKey),
-                scratch, null);
-          }
-          if (stageDGate) {
-            stageDCheckpoints.add(captureStageDCheckpoint("post-warmup", -1, trx, def,
-                stageDPrevCounters, stageDFirstFailure));
-            stageDPrevCounters = snapshotWriterFirings();
-          }
-
-          // Stage G.23 — per-insert I8 bisection.
-          final boolean bisectI8 = Boolean.getBoolean("hot.bisect.i8");
-          final int bisectFrom = Integer.getInteger("hot.bisect.from", 0);
-          final int bisectTo = Integer.getInteger("hot.bisect.to", 600);
-          int firstI8At = -1;
-          int firstI8Count = -1;
-          final java.util.Set<String> seenFirstFailures = new java.util.HashSet<>();
-          // Stage G.24 — tree dump at specific insert.
-          final int dumpAtIdx = Integer.getInteger("hot.dump.at", -1);
-          // Counter snapshots BEFORE the dumpAt insert.
-          long[] preDumpCounters = null;
-
-          final byte[] keyBuf = new byte[64];
-          for (int i = 0; i < n; i++) {
-            if (stageDGate) {
-              final int keyLen = io.sirix.index.hot.CASKeySerializer.INSTANCE.serialize(
-                  new io.sirix.index.redblacktree.keyvalue.CASValue(
-                      new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
-                  keyBuf, 0);
-              final byte[] keyBytes = java.util.Arrays.copyOf(keyBuf, keyLen);
-              final io.sirix.page.PageReference rootRef =
-                  HOTInvariantValidator.resolveRootRef(trx.getStorageEngineReader(),
-                      IndexType.CAS, def.getID());
-              if (rootRef != null) {
-                final java.util.List<HOTInvariantValidator.Violation> precondViolations =
-                    HOTInvariantValidator.checkLeafInsertPreservesI5(
-                        rootRef, keyBytes, trx.getStorageEngineReader());
-                if (!precondViolations.isEmpty()) {
-                  stageDPrecondHits++;
-                  stageDFirstFailure.putIfAbsent("I-leaf-insert-precondition", i);
-                }
-              }
-            }
-            // Stage G.24 — pre-insert tree dump.
-            if (i == dumpAtIdx) {
-              preDumpCounters = snapshotWriterFirings();
-              System.out.println("[dump] === BEFORE insert idx=" + i + " ===");
-              dumpTreeState(trx, def, "BEFORE");
-            }
-
-            scratch.getNodeKeys().clear();
-            scratch.getNodeKeys().add(i);
-            writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
-                scratch, null);
-
-            // Stage G.24 — post-insert tree dump.
-            if (i == dumpAtIdx) {
-              final long[] postCounters = snapshotWriterFirings();
-              System.out.println("[dump] === AFTER insert idx=" + i + " ===");
-              System.out.println("[dump] counter deltas: BN=" + (postCounters[0] - preDumpCounters[0])
-                  + " P3=" + (postCounters[1] - preDumpCounters[1])
-                  + " P4=" + (postCounters[2] - preDumpCounters[2])
-                  + " FP=" + (postCounters[3] - preDumpCounters[3])
-                  + " bchAll=" + ((postCounters[4]+postCounters[5]+postCounters[6]+postCounters[7]+postCounters[8]+postCounters[9])
-                                  - (preDumpCounters[4]+preDumpCounters[5]+preDumpCounters[6]+preDumpCounters[7]+preDumpCounters[8]+preDumpCounters[9])));
-              dumpTreeState(trx, def, "AFTER");
-            }
-
-            // Phase 5 — per-insert formal verification gate. When -Dhot.formal.verify=true,
-            // validate after EVERY insert and capture first-failure context for bisection.
-            if (Boolean.getBoolean("hot.formal.verify")) {
-              final HOTInvariantValidator.Result invStep = HOTInvariantValidator.validateIndex(
-                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
-              if (!invStep.violations().isEmpty()) {
-                System.out.println("[formal-verify] FIRST-FAILURE at idx=" + i
-                    + " violations=" + invStep.violations().size());
-                final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
-                for (final var v : invStep.violations()) {
-                  typeCounts.merge(v.invariant(), 1, Integer::sum);
-                }
-                System.out.println("[formal-verify]   types: " + typeCounts);
-                int printed = 0;
-                for (final var v : invStep.violations()) {
-                  if (printed++ >= 5) break;
-                  System.out.println("[formal-verify]   " + v);
-                }
-                throw new AssertionError("Phase 5 per-insert validator detected violation at idx=" + i);
-              }
-            }
-
-            // Phase 5z — track when end-state-style violation first appears (without throwing).
-            // Logs FIRST occurrence per insert idx, helps identify the exact insert that
-            // creates the persistent end-state violation that doesn't get fixed.
-            if (Boolean.getBoolean("hot.trace.persistent")) {
-              final HOTInvariantValidator.Result invStep = HOTInvariantValidator.validateIndex(
-                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
-              for (final var v : invStep.violations()) {
-                if (v.invariant().equals("I8-children-sorted-by-firstkey")) {
-                  final String desc = v.toString();
-                  // Match the END-STATE pattern: indirect 2 child[2/3] with c0a002/c08008 firstKeys.
-                  if (desc.contains("c0a002") || desc.contains("c08008")) {
-                    System.out.println("[persistent-trace] FOUND-END-STATE-LIKE at idx=" + i
-                        + " : " + v);
-                    break;
-                  }
-                }
-              }
-            }
-
-            // Stage G.23 — per-insert I8 bisection (also reports first I4/I11).
-            if (bisectI8 && i >= bisectFrom && i < bisectTo) {
-              final HOTInvariantValidator.Result inv1 = HOTInvariantValidator.validateIndex(
-                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
-              for (final var v : inv1.violations()) {
-                final String inv = v.invariant();
-                if ((inv.equals("I8-children-sorted-by-firstkey")
-                    || inv.equals("I4-first-partial-zero")
-                    || inv.equals("I11-trie-condition")
-                    || inv.equals("I-Binna-sparse-path"))) {
-                  if (firstI8Count == -1 || i % 100 == 0) {
-                    // Throttle output, but capture first occurrence per-type.
-                    String key = "[bisect-i8] " + inv + " idx=" + i;
-                    if (!seenFirstFailures.contains(inv)) {
-                      seenFirstFailures.add(inv);
-                      System.out.println("[bisect-i8] FIRST " + inv + " at idx=" + i + " : " + v);
-                      firstI8Count = 0;
-                    }
-                  }
-                }
-              }
-            }
-            if (stageDGate && (i + 1) % checkInterval == 0) {
-              stageDCheckpoints.add(captureStageDCheckpoint("main+" + (i + 1), i + 1, trx, def,
-                  stageDPrevCounters, stageDFirstFailure));
-              stageDPrevCounters = snapshotWriterFirings();
-            }
-          }
-          // Phase 7k — recursive commit-time closure extension across all indirects.
-          if (Boolean.getBoolean("hot.strict.phase7k")) {
-            try {
-              final var trieWriter7k = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRef7k =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRef7k != null) {
-                final int total = trieWriter7k.phase7kRecursiveCommit(rootRef7k,
-                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog(), 64);
-                System.out.println("[phase7k] recursive total extensions=" + total);
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase7k] error: " + t);
-            }
-          }
-
-          // Phase 7j — commit-time try every MSDB-closure bit on root.
-          if (Boolean.getBoolean("hot.strict.phase7j")) {
-            try {
-              final var trieWriter7j = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRef7j =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRef7j != null) {
-                io.sirix.page.interfaces.Page pg7j = rootRef7j.getPage();
-                if (pg7j == null) pg7j = trx.getStorageEngineReader().loadHOTPage(rootRef7j);
-                if (pg7j instanceof io.sirix.page.HOTIndirectPage rootInd7j) {
-                  final int ext = trieWriter7j.phase7jExtendWithAllClosureBits(
-                      rootRef7j, rootInd7j, trx.getStorageEngineWriter(),
-                      trx.getStorageEngineWriter().getLog(), 64);
-                  System.out.println("[phase7j] commit-time extensions=" + ext);
-                }
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase7j] error: " + t);
-            }
-          }
-
-          // Phase 7h — commit-time MSDB-closure-driven extendIndirectMaskForClosure walk.
-          // For each bit in the MSDB closure of current firstKeys, try
-          // extendIndirectMaskForClosure on root. The closure operation splits
-          // β-mixed children internally. Capped at 16 bit attempts.
-          if (Boolean.getBoolean("hot.strict.phase7h")) {
-            try {
-              final var trieWriter7h = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRef7h =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRef7h != null) {
-                final var rev = trx.getStorageEngineWriter().getRevisionNumber();
-                final int lifts = trieWriter7h.commitTimeLiftAllChildMsbs(rootRef7h,
-                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
-                System.out.println("[phase7h] commit-time lifts=" + lifts);
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase7h] error: " + t);
-            }
-          }
-
-          // Phase 7f — commit-time root force-rebuild from current firstKeys.
-          // Last-resort I8 fix: ignores constancy/I11 constraints, just picks
-          // adjacent-pair MSDB bits from current firstKey order. May break I6 in some
-          // subtrees but should fix I8 at root.
-          if (Boolean.getBoolean("hot.strict.phase7f")) {
-            try {
-              final var trieWriter7f = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRef7f =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRef7f != null) {
-                io.sirix.page.interfaces.Page pg = rootRef7f.getPage();
-                if (pg == null) {
-                  pg = trx.getStorageEngineReader().loadHOTPage(rootRef7f);
-                }
-                if (pg instanceof io.sirix.page.HOTIndirectPage rootInd) {
-                  final var rebuilt = trieWriter7f.forceRebuildIndirectFromFirstKeyMsdbs(
-                      rootInd, trx.getStorageEngineWriter().getRevisionNumber(),
-                      trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
-                  if (rebuilt != null) {
-                    trx.getStorageEngineWriter().getLog().put(rootRef7f,
-                        io.sirix.cache.PageContainer.getInstance(rebuilt, rebuilt));
-                    rootRef7f.setPage(rebuilt);
-                    System.out.println("[phase7f] root rebuilt — new MSB="
-                        + rebuilt.getMostSignificantBitIndex());
-                  } else {
-                    System.out.println("[phase7f] rebuild failed");
-                  }
-                }
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase7f] error: " + t);
-              t.printStackTrace();
-            }
-          }
-
-          // Phase 7q.15 — commit-time single-shot invocation of reconcileRootMaskI11Safe.
-          // The same code that g32-per-insert uses, but called ONCE at commit time so we
-          // can validate the disc-bit-selection fix (hot.strict.g32.deep) without the
-          // 50K-per-insert OOM. Gated on hot.strict.phase7q.commitroot. Operates on root.
-          if (Boolean.getBoolean("hot.strict.phase7q.commitroot")) {
-            try {
-              final var trieWriter7q = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRef7q =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRef7q != null) {
-                trieWriter7q.reconcileRootMaskI11Safe(rootRef7q,
-                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
-                System.out.println("[phase7q.commitroot] invoked");
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase7q.commitroot] error: " + t);
-              t.printStackTrace();
-            }
-          }
-
-          // Phase 5e — commit-time global reconciliation. Walks the trie post-insert
-          // and lifts each child's MSB into its parent's mask if safe (= β-constant in
-          // other children). Fixes stale-firstKey artifacts that post-hoc closure can't.
-          if (Boolean.getBoolean("hot.strict.phase5e")) {
-            try {
-              final var trieWriter = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRefForLift =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRefForLift != null) {
-                final int lifts = trieWriter.commitTimeLiftAllChildMsbs(rootRefForLift,
-                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
-                System.out.println("[phase5e] commit-time lifts=" + lifts);
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase5e] failed: " + t);
-            }
-          }
-          trx.commit();
-          // Phase 7q.15 — post-commit reconciliation. After commit, all placeholder pages
-          // are materialized with real disk keys. The lift walker can now traverse them
-          // freely (no NULL_ID_LONG blocking). Run reconcile again, hoping for clean result.
-          if (Boolean.getBoolean("hot.strict.phase7q.postcommit")) {
-            try {
-              final var trieWriter7q = new io.sirix.access.trx.page.HOTTrieWriter();
-              final io.sirix.page.PageReference rootRef7q =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRef7q != null) {
-                trieWriter7q.reconcileRootMaskI11Safe(rootRef7q,
-                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
-                System.out.println("[phase7q.postcommit] invoked");
-                trx.commit();
-              }
-            } catch (final Throwable t) {
-              System.out.println("[phase7q.postcommit] error: " + t);
-              t.printStackTrace();
-            }
-          }
-          if (stageDGate) {
-            stageDCheckpoints.add(captureStageDCheckpoint("post-commit", n, trx, def,
-                stageDPrevCounters, stageDFirstFailure));
-            System.out.println("[stage-D-gate] N=" + n + " checkInterval=" + checkInterval
-                + " checkpoints=" + stageDCheckpoints.size()
-                + " precondHitsTotal=" + stageDPrecondHits);
-            for (final String line : stageDCheckpoints) {
-              System.out.println("[stage-D-gate] " + line);
-            }
-            System.out.println("[stage-D-gate] first-failure: " + stageDFirstFailure);
-          }
-          final long buildMs = System.currentTimeMillis() - buildStart;
-          final HOTInvariantValidator.Result inv =
-              HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-                  def.getID());
-          final long fallbackFirings =
-              io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings();
-          final long phase3Firings =
-              io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings();
-          final long phase4Firings =
-              io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
-          final long freshPolarityFirings =
-              io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings();
-          final long bchMultiMask = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackMultiMaskParent();
-          final long bchIdentical = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackIdenticalKeys();
-          final long bchCrossWindow = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackCrossWindow();
-          final long bchNewMaskZero = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackNewMaskZero();
-          final long bchUnknown = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackUnknownChild();
-          final long bchCollision = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackPartialCollision();
-          System.out.println("[microbench-pattern] N=" + n
-              + " · observedHeight=" + inv.observedHeight()
-              + " · violations=" + inv.violations().size()
-              + " · intermediate-binode-fallbacks=" + fallbackFirings
-              + " · phase3-rebalance-firings=" + phase3Firings
-              + " · phase4-subtree-merge-firings=" + phase4Firings
-              + " · addEntry-fresh-polarity-firings=" + freshPolarityFirings
-              + " · build=" + buildMs + "ms");
-          System.out.println("[microbench-pattern]   bch-fallbacks: multimask-parent=" + bchMultiMask
-              + " identical-keys=" + bchIdentical
-              + " cross-window=" + bchCrossWindow
-              + " new-mask-zero=" + bchNewMaskZero
-              + " unknown-child=" + bchUnknown
-              + " partial-collision=" + bchCollision);
-          System.out.println("[microbench-pattern]   bch-encoding: singlemask-entries="
-              + io.sirix.access.trx.page.HOTTrieWriter.getBchSingleMaskEntries()
-              + " encoding-mismatches="
-              + io.sirix.access.trx.page.HOTTrieWriter.getBchEncodingMismatches());
-          System.out.println("[microbench-pattern]   stage-G rejects: G1-i4-addEntry="
-              + io.sirix.access.trx.page.HOTTrieWriter.getG1I4RejectAddEntry()
-              + " G3-i4-bch=" + io.sirix.access.trx.page.HOTTrieWriter.getG3I4RejectBch()
-              + " optionB-reroute=" + io.sirix.access.trx.page.HOTTrieWriter.getOptionBRerouteFirings()
-              + " G17-redirects=" + io.sirix.access.trx.page.HOTTrieWriter.getG17ConstancyRedirects()
-              + " G18-ambiguous=" + io.sirix.access.trx.page.HOTTrieWriter.getG18AmbiguousDetections()
-              + " G20-rec-splits=" + io.sirix.access.trx.page.HOTTrieWriter.getG20RecursiveSplitFirings()
-              + " G25-propagations=" + io.sirix.access.trx.page.HOTTrieWriter.getG25BetaPropagations()
-              + " G28-closure=" + io.sirix.access.trx.page.HOTTrieWriter.getG28ClosureFirings());
-          System.out.println("[microbench-pattern]   phase7q classification: wasted="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsWasted()
-              + " load-bearing="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLoadBearing()
-              + " LB-liftable="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbLiftable()
-              + " LB-hard="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbHard());
-          System.out.println("[microbench-pattern]   phase7q lift: split-firings="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFirings()
-              + " split-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFailures()
-              + " walk-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftFirings()
-              + " walk-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftFailures()
-              + " walk-noop=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftNoop()
-              + " ext-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFirings()
-              + " ext-ok=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendSuccesses()
-              + " ext-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailures());
-          System.out.println("[microbench-pattern]   phase7q ext-fail-buckets: noprop="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNoprop()
-              + " fanout=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailFanout()
-              + " leafsplit=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailLeafsplit()
-              + " collide=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCollide()
-              + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNozero()
-              + " beta-in-mask=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailBetainmask()
-              + " walker-null=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailWalker()
-              + " cycle=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCycle());
-          System.out.println("[microbench-pattern]   phase7q closure-noop-skips="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qClosureNoopSkips()
-              + " split-fail-constancy="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFailConstancy()
-              + " strip-nonconstant-bits="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripNonconstantBits());
-          System.out.println("[microbench-pattern]   phase7q constancy-wrap: firings="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFirings()
-              + " success="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapSuccess()
-              + " fail="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFail());
-          System.out.println("[microbench-pattern]   phase7q constancy-wrap fail-buckets:"
-              + " nomask=" + io.sirix.access.trx.page.HOTTrieWriter
-                  .getPhase7qConstancyWrapFailNomask()
-              + " collide=" + io.sirix.access.trx.page.HOTTrieWriter
-                  .getPhase7qConstancyWrapFailCollide()
-              + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter
-                  .getPhase7qConstancyWrapFailNozero()
-              + " input=" + io.sirix.access.trx.page.HOTTrieWriter
-                  .getPhase7qConstancyWrapFailInput());
-          System.out.println("[microbench-pattern]   phase7q strip-only: firings="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlyFirings()
-              + " success="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlySuccess()
-              + " fail="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlyFail());
-          System.out.println("[microbench-pattern]   phase7q allow-double-capture firings="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qAllowDoubleCaptureFirings());
-          System.out.println("[microbench-pattern]   phase7q i8-priority firings="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qI8PriorityFirings());
-          System.out.println("[microbench-pattern]   phase7q collide-buckets: resolvable-1bit="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideResolvable1Bit()
-              + " duplicate-keys="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideDuplicateKeys());
-          System.out.println("[microbench-pattern]   phase7q best-effort: accepted="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortAccepted()
-              + " rejected="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortRejected());
-          System.out.println("[microbench-pattern]   phase7q intermediate-MSB: equality="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbEquality()
-              + " lower="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbLower()
-              + " ok="
-              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbOk());
-          if (!inv.violations().isEmpty()) {
-            // Count violation types for diagnostic
-            final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
-            for (final var viol : inv.violations()) {
-              final String desc = viol.toString();
-              final int b1 = desc.indexOf('[');
-              final int b2 = desc.indexOf(']');
-              final String type = (b1 >= 0 && b2 > b1) ? desc.substring(b1 + 1, b2) : "<unknown>";
-              typeCounts.merge(type, 1, Integer::sum);
-            }
-            System.out.println("[microbench-pattern]   violation-types: " + typeCounts);
-            int printed = 0;
-            for (final var viol : inv.violations()) {
-              if (printed++ >= 10) break;
-              System.out.println("[microbench-pattern]   " + viol);
-            }
-            // Stage G.32 — dump root's full state to understand violation context.
-            try {
-              final var rootRefForDump =
-                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
-                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              if (rootRefForDump != null) {
-                final var rootPage = rootRefForDump.getPage();
-                if (rootPage instanceof io.sirix.page.HOTIndirectPage rootInd) {
-                  final StringBuilder mmInfo = new StringBuilder();
-                  if (rootInd.getLayoutType() == io.sirix.page.HOTIndirectPage.LayoutType.MULTI_MASK) {
-                    final byte[] ep = rootInd.getExtractionPositions();
-                    final long[] em = rootInd.getExtractionMasks();
-                    mmInfo.append(" extractionPositions=").append(java.util.Arrays.toString(ep));
-                    mmInfo.append(" extractionMasks=[");
-                    for (int mi = 0; mi < em.length; mi++) {
-                      if (mi > 0) mmInfo.append(',');
-                      mmInfo.append("0x").append(Long.toHexString(em[mi]));
-                    }
-                    mmInfo.append(']');
-                  }
-                  System.out.println("[G32-root-dump] pageKey=" + rootInd.getPageKey()
-                      + " layout=" + rootInd.getLayoutType()
-                      + " mask=0x" + Long.toHexString(rootInd.getBitMask())
-                      + " initialBytePos=" + rootInd.getInitialBytePos()
-                      + " MSB=" + rootInd.getMostSignificantBitIndex()
-                      + " numChildren=" + rootInd.getNumChildren()
-                      + " partials=" + java.util.Arrays.toString(rootInd.getPartialKeys())
-                      + mmInfo);
-                  for (int i = 0; i < rootInd.getNumChildren(); i++) {
-                    final var cref = rootInd.getChildReference(i);
-                    final var cpage = cref.getPage();
-                    final String childMsb = (cpage instanceof io.sirix.page.HOTIndirectPage ci)
-                        ? String.valueOf(ci.getMostSignificantBitIndex())
-                        : "leaf";
-                    final String childKind = (cpage == null) ? "null"
-                        : cpage.getClass().getSimpleName();
-                    String firstKeyHex = "?";
-                    if (cpage instanceof io.sirix.page.HOTLeafPage cleaf
-                        && cleaf.getEntryCount() > 0) {
-                      final byte[] fk = cleaf.getKey(0);
-                      final StringBuilder b = new StringBuilder();
-                      for (final byte bt : fk) b.append(String.format("%02x", bt));
-                      firstKeyHex = b.toString();
-                    } else if (cpage instanceof io.sirix.page.HOTIndirectPage ci) {
-                      // descend leftmost
-                      var d = ci;
-                      while (d.getNumChildren() > 0) {
-                        final var dc = d.getChildReference(0);
-                        final var dp = dc.getPage();
-                        if (dp instanceof io.sirix.page.HOTLeafPage dl && dl.getEntryCount() > 0) {
-                          final byte[] fk = dl.getKey(0);
-                          final StringBuilder b = new StringBuilder();
-                          for (final byte bt : fk) b.append(String.format("%02x", bt));
-                          firstKeyHex = b.toString();
-                          break;
-                        } else if (dp instanceof io.sirix.page.HOTIndirectPage di) {
-                          d = di;
-                        } else {
-                          break;
-                        }
-                      }
-                    }
-                    System.out.println("[G32-root-dump]   child[" + i + "]"
-                        + " pageKey=" + cref.getKey()
-                        + " logKey=" + cref.getLogKey()
-                        + " kind=" + childKind
-                        + " MSB=" + childMsb
-                        + " firstKey=" + firstKeyHex);
-                  }
-                }
-              }
-            } catch (final Throwable t) {
-              System.out.println("[G32-root-dump] failed: " + t);
-            }
-            return;
-          }
-        }
-      }
-      System.out.println("[microbench-pattern] no violations up to N=" + probeN[probeN.length - 1]);
-    } finally {
-      restoreOrClear("hot.debug.i6trace", prevI6Trace);
-      restoreOrClear("hot.debug.constancy", prevConstancy);
-      restoreOrClear("hot.strict.binna", prevStrictBinna);
-      restoreOrClear("hot.debug.phase4", prevPhase4Debug);
-      restoreOrClear("hot.debug.bchfallback", prevBchFallback);
-      System.clearProperty("hot.debug.bch.encoding");
-    }
-  }
-
-  private static void restoreOrClear(String key, String prevValue) {
-    if (prevValue == null) System.clearProperty(key);
-    else System.setProperty(key, prevValue);
-  }
-
-  /** Stage G.24 — Recursive tree dump showing pageKey, layout, mask, partials, deep-firstKey. */
-  private static void dumpTreeState(io.sirix.api.json.JsonNodeTrx trx, IndexDef def, String label) {
-    final io.sirix.page.PageReference rootRef = HOTInvariantValidator.resolveRootRef(
-        trx.getStorageEngineReader(), IndexType.CAS, def.getID());
-    if (rootRef == null) {
-      System.out.println("[dump-" + label + "] root null");
-      return;
-    }
-    dumpTreeStateRec(trx, rootRef, label, 0);
-  }
-
-  private static void dumpTreeStateRec(io.sirix.api.json.JsonNodeTrx trx,
-      io.sirix.page.PageReference ref, String label, int depth) {
-    if (depth > 6) return;
-    final io.sirix.page.interfaces.Page page = ref.getPage() != null
-        ? ref.getPage() : trx.getStorageEngineReader().loadHOTPage(ref);
-    if (page == null) {
-      System.out.println("[dump-" + label + "] " + "  ".repeat(depth) + "null");
-      return;
-    }
-    final String indent = "  ".repeat(depth);
-    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
-      final byte[] fk = leaf.getEntryCount() > 0 ? leaf.getKey(0) : null;
-      System.out.println("[dump-" + label + "] " + indent + "leaf pageKey=" + leaf.getPageKey()
-          + " entries=" + leaf.getEntryCount()
-          + " firstKey=" + (fk == null ? "null" : java.util.HexFormat.of().formatHex(fk)));
-      return;
-    }
-    if (page instanceof io.sirix.page.HOTIndirectPage ind) {
-      final int[] partials = ind.getPartialKeys();
-      final byte[] deepFk = stageGFirstKeyOfRef(ref);
-      final StringBuilder pStr = new StringBuilder();
-      if (partials != null) {
-        for (int i = 0; i < ind.getNumChildren(); i++) {
-          if (i > 0) pStr.append(',');
-          pStr.append("0x").append(Integer.toHexString(partials[i]));
-        }
-      }
-      System.out.println("[dump-" + label + "] " + indent + "indirect pageKey=" + ind.getPageKey()
-          + " layout=" + ind.getLayoutType() + " mask=0x" + Long.toHexString(ind.getBitMask())
-          + " initBytePos=" + ind.getInitialBytePos() + " MSB=" + ind.getMostSignificantBitIndex()
-          + " nc=" + ind.getNumChildren() + " partials=[" + pStr + "]"
-          + " deepFK=" + (deepFk == null ? "null" : java.util.HexFormat.of().formatHex(deepFk)));
-      for (int i = 0; i < ind.getNumChildren(); i++) {
-        final io.sirix.page.PageReference cref = ind.getChildReference(i);
-        if (cref == null) continue;
-        System.out.println("[dump-" + label + "] " + indent + "  child[" + i + "] partial=0x"
-            + (partials != null ? Integer.toHexString(partials[i]) : "null"));
-        dumpTreeStateRec(trx, cref, label, depth + 1);
-      }
-    }
-  }
-
-  /** Walk leftmost path of a ref to extract firstKey. */
-  private static byte[] stageGFirstKeyOfRef(io.sirix.page.PageReference ref) {
-    io.sirix.page.PageReference cur = ref;
-    for (int depth = 0; depth <= 32; depth++) {
-      final io.sirix.page.interfaces.Page page = cur.getPage();
-      if (page == null) return null;
-      if (page instanceof io.sirix.page.HOTLeafPage leaf) {
-        if (leaf.getEntryCount() == 0) return null;
-        return leaf.getKey(0);
-      }
-      if (!(page instanceof io.sirix.page.HOTIndirectPage indirect)) return null;
-      if (indirect.getNumChildren() == 0) return null;
-      cur = indirect.getChildReference(0);
-      if (cur == null) return null;
-    }
-    return null;
-  }
-
   /**
-   * Stage D — snapshot all writer firing counters into a fixed-position long[].
-   * Order: [intermediateBN, phase3, phase4, freshPolarity, bchMultiMask, bchIdentical,
-   * bchCrossWindow, bchNewMaskZero, bchUnknown, bchCollision].
+   * TEMPORARY DIAGNOSTIC — finds the smallest N at which the rebuild-path stale-route violations
+   * appear. Run with {@code -Dhot.debug.i6trace=1} to dump the first violation's structural trace.
+   * Not for commit.
    */
-  private static long[] snapshotWriterFirings() {
-    return new long[] {
-        io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings(),
-        io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings(),
-        io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings(),
-        io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings(),
-        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackMultiMaskParent(),
-        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackIdenticalKeys(),
-        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackCrossWindow(),
-        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackNewMaskZero(),
-        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackUnknownChild(),
-        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackPartialCollision()
-    };
-  }
-
-  /**
-   * Stage D — capture a checkpoint by running the validator and aggregating
-   * violations + counter deltas. Updates {@code firstFailure} for any new
-   * violation type observed. Returns a printable line.
-   */
-  private static String captureStageDCheckpoint(String label, int insertIdx,
-      io.sirix.api.json.JsonNodeTrx trx, IndexDef def, long[] prevCounters,
-      java.util.Map<String, Integer> firstFailure) {
-    final HOTInvariantValidator.Result inv =
-        HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(),
-            IndexType.CAS, def.getID());
-    final java.util.Map<String, Integer> violationsByType = new java.util.TreeMap<>();
-    for (final HOTInvariantValidator.Violation v : inv.violations()) {
-      violationsByType.merge(v.invariant(), 1, Integer::sum);
-      firstFailure.putIfAbsent(v.invariant(), insertIdx);
-    }
-    final long[] now = snapshotWriterFirings();
-    final long bchAllNow = now[4] + now[5] + now[6] + now[7] + now[8] + now[9];
-    final long bchAllPrev = prevCounters[4] + prevCounters[5] + prevCounters[6]
-        + prevCounters[7] + prevCounters[8] + prevCounters[9];
-    return label + "(idx=" + insertIdx + ", h=" + inv.observedHeight()
-        + ", Σ[BN=" + now[0] + ",P3=" + now[1] + ",P4=" + now[2] + ",FP=" + now[3]
-        + ",bchALL=" + bchAllNow + "]"
-        + ", v=" + violationsByType
-        + ", Δ[BN=" + (now[0] - prevCounters[0])
-        + ",P3=" + (now[1] - prevCounters[1])
-        + ",P4=" + (now[2] - prevCounters[2])
-        + ",FP=" + (now[3] - prevCounters[3])
-        + ",bch=" + (bchAllNow - bchAllPrev) + "])";
-  }
-
-  /**
-   * Sweep workload shapes under strict-Binna to find any configuration that fires Phase 4
-   * subtree-merge (Case 2b-iv-a — leaf split's MSDB β is already a parent disc bit AND a
-   * sibling exists at exactly {@code splitChild.partial XOR β-bit}). The firing condition
-   * is narrow: parent's children must densely cover the relevant 2^k partial-key cube AND
-   * the leaf-split-MSDB must coincide with one of those mask bits.
-   *
-   * <p>Empirical result (4 seeds × 3 ranges × 3 sizes, 21 feasible configs after density
-   * filter): <b>zero firings</b>. Confirms Case 2b-iv-a does not arise from CAS-index
-   * Sirix workloads — the case requires both (a) pre-existing leaf-level constancy
-   * violation AND (b) the exact-XOR sibling to coincidentally exist. On Binna-conformant
-   * trees, (a) cannot happen because every leaf is β-constant for every ancestor disc bit.
-   *
-   * <p>Disabled by default to keep CI fast. Re-enable as a diagnostic when changing
-   * Phase 4 routing to verify natural-workload behavior remains a no-op (or, if the fresh-
-   * polarity / hoisting paths get tightened so 2b-iv-a starts firing, codify the first
-   * triggering config as a focused regression test).
-   */
-  @org.junit.jupiter.api.Disabled("Diagnostic probe — not a correctness gate. Re-enable when "
-      + "changing Phase 4 dispatch to verify the empirical 'zero firings on natural CAS workloads' "
-      + "result still holds, or to discover a triggering config for codification.")
-  @Test
-  @DisplayName("DIAGNOSTIC — sweep for Phase 4 subtree-merge firings")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void diagnosticPhase4SubtreeMergeFiringSweep() {
-    final String prevStrictBinna = System.getProperty("hot.strict.binna");
-    System.setProperty("hot.strict.binna", "true");
-    try {
-      final long[] seeds = {0xC0FFEEL, 0xDEADBEEFL, 0xBADC0DEL, 0xFEEDFACEL};
-      final int[] valueRanges = {500, 2000, 8000};
-      final int[] sizes = {1_000, 10_000, 50_000};
-
-      long totalFirings = 0L;
-      int firingConfigs = 0;
-      long firstFiringSeed = 0L;
-      int firstFiringRange = 0;
-      int firstFiringSize = 0;
-      long firstFiringFirings = 0L;
-
-      int skipped = 0;
-      for (final long seed : seeds) {
-        for (final int valueRange : valueRanges) {
-          for (final int n : sizes) {
-            // Filter density: CAS leaf capacity is 512 entries per chunked-bitmap leaf, so
-            // n / valueRange must stay below ~25 to avoid per-value-leaf overflow under
-            // adversarial seeds. Skip configs known to bust the cap.
-            if (n / valueRange > 25) {
-              skipped++;
-              continue;
-            }
-            JsonTestHelper.deleteEverything();
-            JsonTestHelper.createTestDocument();
-            final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-            io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
-
-            final IndexDef def;
-            final Random rng = new Random(seed);
-            long firings = 0L;
-            boolean infeasible = false;
-            try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-                final var trx = session.beginNodeTrx()) {
-              final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-              final var pathToValue = io.brackit.query.util.path.Path.parse(
-                  "/p/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-              def = IndexDefs.createCASIdxDef(false, Type.INR,
-                  Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-              ic.createIndexes(Set.of(def), trx);
-
-              final StringBuilder json = new StringBuilder(n * 12);
-              json.append("{\"p\":[");
-              for (int i = 0; i < n; i++) {
-                if (i > 0) json.append(',');
-                json.append("{\"v\":").append(rng.nextInt(valueRange)).append('}');
-              }
-              json.append("]}");
-              try {
-                trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-                trx.commit();
-                firings = io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
-              } catch (final RuntimeException ex) {
-                // Workload-specific infeasibility (e.g., per-value duplicate count exceeded
-                // chunked-bitmap leaf cap). Roll back so the trx closes cleanly, mark as
-                // skipped, and move on — this is a probe, not a correctness gate.
-                trx.rollback();
-                infeasible = true;
-              }
-            }
-            if (infeasible) {
-              skipped++;
-              continue;
-            }
-
-            totalFirings += firings;
-            if (firings > 0L) {
-              firingConfigs++;
-              if (firstFiringSize == 0) {
-                firstFiringSeed = seed;
-                firstFiringRange = valueRange;
-                firstFiringSize = n;
-                firstFiringFirings = firings;
-              }
-              System.out.println("[phase4-sweep]   firing config: seed=0x"
-                  + Long.toHexString(seed) + " range=" + valueRange + " n=" + n
-                  + " firings=" + firings);
-            }
-          }
-        }
-      }
-
-      final int total = seeds.length * valueRanges.length * sizes.length;
-      System.out.println("[phase4-sweep] summary: totalFirings=" + totalFirings
-          + " firingConfigs=" + firingConfigs + "/" + (total - skipped) + " feasible"
-          + " (skipped=" + skipped + "/" + total + ")"
-          + (firstFiringSize == 0 ? " — NO config triggered Phase 4 subtree-merge"
-              : " · firstFiring(seed=0x" + Long.toHexString(firstFiringSeed)
-                  + ", range=" + firstFiringRange + ", n=" + firstFiringSize
-                  + ", firings=" + firstFiringFirings + ")"));
-    } finally {
-      restoreOrClear("hot.strict.binna", prevStrictBinna);
-    }
-  }
-
-  /** TEMPORARY DIAGNOSTIC — finds the smallest N at which the rebuild-path stale-route violations
-   *  appear. Run with {@code -Dhot.debug.i6trace=1} to dump the first violation's structural
-   *  trace. Not for commit. */
   @Test
   @DisplayName("DIAGNOSTIC — locate stale-route N threshold")
   @org.junit.jupiter.api.Timeout(value = 480, unit = java.util.concurrent.TimeUnit.SECONDS)
@@ -1312,14 +406,14 @@ final class HOTFormalVerificationTest {
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
           final var trx = session.beginNodeTrx()) {
         final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-        final var pathToValue = io.brackit.query.util.path.Path.parse(
-            "/d/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-        def = IndexDefs.createCASIdxDef(false, Type.INR,
-            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        final var pathToValue =
+            io.brackit.query.util.path.Path.parse("/d/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        def = IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
         ic.createIndexes(Set.of(def), trx);
         final StringBuilder json = new StringBuilder("{\"d\":[");
         for (int i = 0; i < n; i++) {
-          if (i > 0) json.append(',');
+          if (i > 0)
+            json.append(',');
           json.append("{\"v\":").append(i).append('}');
         }
         json.append("]}");
@@ -1327,16 +421,14 @@ final class HOTFormalVerificationTest {
         trx.commit();
         final long buildMs = System.currentTimeMillis() - buildStart;
         final HOTInvariantValidator.Result inv =
-            HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-                def.getID());
-        System.out.println("[diagnostic] N=" + n
-            + " · observedHeight=" + inv.observedHeight()
-            + " · violations=" + inv.violations().size()
-            + " · build=" + buildMs + "ms");
+            HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+        System.out.println("[diagnostic] N=" + n + " · observedHeight=" + inv.observedHeight() + " · violations="
+            + inv.violations().size() + " · build=" + buildMs + "ms");
         if (!inv.violations().isEmpty()) {
           int printed = 0;
           for (final var viol : inv.violations()) {
-            if (printed++ >= 5) break;
+            if (printed++ >= 5)
+              break;
             System.out.println("[diagnostic]   " + viol);
           }
           // Stop at the first N where violations appear — that's our reproducer threshold.
@@ -1362,15 +454,15 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/m/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/m/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
       // Write JSON in chunks to avoid building a giant string in memory.
       final StringBuilder json = new StringBuilder("{\"m\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(i).append('}');
       }
       json.append("]}");
@@ -1380,20 +472,17 @@ final class HOTFormalVerificationTest {
 
       final long verifyStart = System.currentTimeMillis();
       final HOTInvariantValidator.Result inv =
-          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-              casIndexDef.getID());
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
       final long verifyMs = System.currentTimeMillis() - verifyStart;
 
-      System.out.println("[Phase verify] million-entry: N=" + inv.storedKeyCount()
-          + " · observedHeight=" + inv.observedHeight()
-          + " · violations=" + inv.violations().size()
-          + " · build=" + buildMs + "ms · validate=" + verifyMs + "ms");
+      System.out.println("[Phase verify] million-entry: N=" + inv.storedKeyCount() + " · observedHeight="
+          + inv.observedHeight() + " · violations=" + inv.violations().size() + " · build=" + buildMs + "ms · validate="
+          + verifyMs + "ms");
       // Hard invariants must hold even at scale.
       assertTrue(inv.hardViolations().isEmpty(),
           "hard invariants violated at million-entry scale: " + inv.hardViolations());
       // Sparse-path encoding (I-Binna) must hold.
-      assertTrue(inv.violations().isEmpty(),
-          "structural violations at million-entry scale: " + inv.violations());
+      assertTrue(inv.violations().isEmpty(), "structural violations at million-entry scale: " + inv.violations());
       // Binna height bound for 1M entries with multi-entry leaves: ≤ 6.
       assertTrue(inv.observedHeight() <= 6,
           "observed tree height " + inv.observedHeight() + " exceeds Binna bound 6 at N=1M");
@@ -1403,14 +492,15 @@ final class HOTFormalVerificationTest {
   /**
    * Empirical height-optimality check vs Binna's bound. Binna proves HOT height is bounded by
    * {@code ceil(log_K N)} where K is max fan-out (32 for Sirix HOTIndirectPage). With Sirix's
-   * multi-entry leaves (each leaf holds up to 512 entries) the expected indirect-trie height
-   * is roughly {@code ceil(log_32(N / leafCapacity))} + 1 (the +1 for the leaf level itself).
+   * multi-entry leaves (each leaf holds up to 512 entries) the expected indirect-trie height is
+   * roughly {@code ceil(log_32(N / leafCapacity))} + 1 (the +1 for the leaf level itself).
    *
-   * <p>This test inserts 800 distinct CAS Int32 values, walks the resulting trie, and asserts
-   * the observed height is within Binna's bound + a small slack. Width-32 nodes ideally need
-   * height ≤ 3 for ≤ 32K entries. Sirix's leaves hold up to 512 entries, so 800 entries
-   * could fit in 2 levels (1 indirect + leaves) up to a height of about ceil(log_32(2)) ≈ 1.
-   * Allowing slack for edge effects: assert height ≤ 4 for 800 entries.
+   * <p>
+   * This test inserts 800 distinct CAS Int32 values, walks the resulting trie, and asserts the
+   * observed height is within Binna's bound + a small slack. Width-32 nodes ideally need height ≤ 3
+   * for ≤ 32K entries. Sirix's leaves hold up to 512 entries, so 800 entries could fit in 2 levels (1
+   * indirect + leaves) up to a height of about ceil(log_32(2)) ≈ 1. Allowing slack for edge effects:
+   * assert height ≤ 4 for 800 entries.
    */
   @Test
   @DisplayName("CAS index — observed height matches Binna's log_K bound")
@@ -1419,7 +509,8 @@ final class HOTFormalVerificationTest {
     final Random rng = new Random(seed);
     final int n = 800;
     final List<Integer> values = new ArrayList<>(n);
-    for (int i = 0; i < n; i++) values.add(i);
+    for (int i = 0; i < n; i++)
+      values.add(i);
     java.util.Collections.shuffle(values, rng);
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -1428,14 +519,14 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/h/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/h/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
       final StringBuilder json = new StringBuilder("{\"h\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(values.get(i)).append('}');
       }
       json.append("]}");
@@ -1443,8 +534,7 @@ final class HOTFormalVerificationTest {
       trx.commit();
 
       final HOTInvariantValidator.Result inv =
-          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
-              casIndexDef.getID());
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
       inv.assertOk();
 
       // Binna's bound: ceil(log_32(N / leafCapacity)) + 1, with leafCapacity ≈ 64 (sparse
@@ -1452,36 +542,23 @@ final class HOTFormalVerificationTest {
       // = 1 + 1 = 2. Allow slack to 5 to absorb structural overhead from incremental inserts.
       final int observedHeight = inv.observedHeight();
       final int binnaBound = 5;
-      System.out.println("[Phase verify] height-optimality: N=" + inv.storedKeyCount()
-          + " · observedHeight=" + observedHeight + " · binnaBound=" + binnaBound);
-      assertTrue(observedHeight <= binnaBound,
-          "observed tree height " + observedHeight + " exceeds Binna bound " + binnaBound
-              + " — height optimality violation");
+      System.out.println("[Phase verify] height-optimality: N=" + inv.storedKeyCount() + " · observedHeight="
+          + observedHeight + " · binnaBound=" + binnaBound);
+      assertTrue(observedHeight <= binnaBound, "observed tree height " + observedHeight + " exceeds Binna bound "
+          + binnaBound + " — height optimality violation");
     }
   }
 
   // ============================================================
-  // Per-key readability — surfaces lower_bound misroute bugs that the structural
-  // validator's I6 (PEXT descent) does not catch.
+  // Per-key readability through the same sole PEXT route validated structurally below.
   // ============================================================
 
   /**
-   * Reads back every CAS-Int32 key that was just inserted via the writer and asserts the
-   * hit rate. The reader path used by Sirix in production is
+   * Reads back every CAS-Int32 key that was just inserted via the writer and asserts the hit rate.
+   * The reader path used by Sirix in production is
    * {@code HOTIndexReader.get → reassembleChunksForPrefix → HOTTrieReader.range → lowerBound +
-   * forward-sweep}. The structural {@link HOTInvariantValidator} only verifies invariants on
-   * the trie shape and uses a simpler PEXT-only descent for I6; this test stresses the actual
-   * production read path.
-   *
-   * <p>Small-scale workload (N=10K). Per-key readability holds at this scale (every inserted
-   * key is found via {@code reader.get}). Larger-scale per-key readability is covered by the
-   * {@code @Disabled} stress test below — its current numbers document a known reader-side
-   * bug surfaced by {@code HOTMicrobenchmark}: at N=500K only ~13% of inserts are readable
-   * via {@code reader.get}, even though the structural validator passes. Root cause: the
-   * Phase 0b {@code HOTTrieReader.lowerOrUpperBound} walk-up algorithm misroutes for some
-   * search keys under sparse-path-encoded indirects with overlapping sibling subtree ranges;
-   * the {@code fromPrefixFilter} on the cursor can only filter lex-less prefixes, not recover
-   * from being positioned lex-greater.</p>
+   * forward-sweep}. The trie must pass the complete structural validator before that read path is
+   * exercised: no secondary lex route exists to mask a PEXT routing or subtree-order violation.
    */
   @Test
   @DisplayName("CAS index — per-key readability at small scale (10K)")
@@ -1496,24 +573,19 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/k/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
-      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(),
-          io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       for (int i = 0; i < n; i++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add(i);
-        writer.index(
-            new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
-            scratch, null);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new io.brackit.query.atomic.Int32(i), Type.INR,
+            pathNodeKey), scratch);
       }
       trx.commit();
     }
@@ -1522,15 +594,12 @@ final class HOTFormalVerificationTest {
     final List<Integer> firstMisses = new ArrayList<>();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx()) {
-      final var reader = io.sirix.index.hot.HOTIndexReader.create(
-          rtx.getStorageEngineReader(),
-          io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID()).assertOk();
+      final var reader = io.sirix.index.hot.HOTIndexReader.create(rtx.getStorageEngineReader(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       for (int v = 0; v < n; v++) {
-        final var r = reader.get(
-            new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new io.brackit.query.atomic.Int32(v), Type.INR, pathNodeKey),
-            SearchMode.EQUAL);
+        final var r = reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new io.brackit.query.atomic.Int32(v),
+            Type.INR, pathNodeKey), SearchMode.EQUAL);
         if (r != null) {
           hits++;
         } else if (firstMisses.size() < 10) {
@@ -1540,20 +609,13 @@ final class HOTFormalVerificationTest {
     }
 
     final double hitRate = hits / (double) n;
-    System.out.println("[Phase verify] per-key readability N=" + n + " hits=" + hits + "/" + n
-        + " (" + String.format("%.2f", 100.0 * hitRate) + "%) firstMisses=" + firstMisses);
+    System.out.println("[Phase verify] per-key readability N=" + n + " hits=" + hits + "/" + n + " ("
+        + String.format("%.2f", 100.0 * hitRate) + "%) firstMisses=" + firstMisses);
     assertTrue(hitRate >= 0.99,
-        "per-key readability at N=" + n + " is " + hitRate + " (< 0.99) — first misses: "
-            + firstMisses);
+        "per-key readability at N=" + n + " is " + hitRate + " (< 0.99) — first misses: " + firstMisses);
   }
 
-  /**
-   * Larger-scale per-key readability — currently {@code @Disabled} because of the known
-   * Phase 0b lower_bound misroute bug. Last manual run on N=500K reported hit rate ~13%
-   * (433K / 500K missing). Re-enable once {@code HOTTrieReader.lowerOrUpperBound} is fixed
-   * for sparse-path encoded indirects with overlapping sibling subtree ranges. See
-   * {@code casIndexPerKeyReadabilitySmallScale}'s docstring for the bug explanation.
-   */
+  /** Larger-scale invariant and sole-PEXT-route readability gate. */
   @Test
   @DisplayName("CAS index — per-key readability at large scale (formerly failing — fixed 2026-05-06)")
   @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
@@ -1567,24 +629,19 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       final var pathToValue =
-          io.brackit.query.util.path.Path.parse("/L/[]/v",
-              io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          io.brackit.query.util.path.Path.parse("/L/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
-      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(),
-          io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       for (int i = 0; i < n; i++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add(i);
-        writer.index(
-            new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
-            scratch, null);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new io.brackit.query.atomic.Int32(i), Type.INR,
+            pathNodeKey), scratch);
       }
       trx.commit();
     }
@@ -1592,25 +649,21 @@ final class HOTFormalVerificationTest {
     int hits = 0;
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx()) {
-      final var reader = io.sirix.index.hot.HOTIndexReader.create(
-          rtx.getStorageEngineReader(),
-          io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID()).assertOk();
+      final var reader = io.sirix.index.hot.HOTIndexReader.create(rtx.getStorageEngineReader(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       for (int v = 0; v < n; v++) {
-        if (reader.get(
-            new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new io.brackit.query.atomic.Int32(v), Type.INR, pathNodeKey),
-            SearchMode.EQUAL) != null) {
+        if (reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new io.brackit.query.atomic.Int32(v), Type.INR,
+            pathNodeKey), SearchMode.EQUAL) != null) {
           hits++;
         }
       }
     }
 
     final double hitRate = hits / (double) n;
-    System.out.println("[Phase verify] per-key readability LARGE N=" + n + " hits=" + hits + "/"
-        + n + " (" + String.format("%.2f", 100.0 * hitRate) + "%)");
-    assertTrue(hitRate >= 0.99,
-        "per-key readability at N=" + n + " is " + hitRate + " (< 0.99)");
+    System.out.println("[Phase verify] per-key readability LARGE N=" + n + " hits=" + hits + "/" + n + " ("
+        + String.format("%.2f", 100.0 * hitRate) + "%)");
+    assertTrue(hitRate >= 0.99, "per-key readability at N=" + n + " is " + hitRate + " (< 0.99)");
   }
 
   // ============================================================
@@ -1618,10 +671,10 @@ final class HOTFormalVerificationTest {
   // ============================================================
 
   /**
-   * For each of {@code R} commits, randomly extend the document with a new named record. After
-   * the final commit, open a read-only transaction at every prior revision and compare the
-   * NAME-index cardinality to the oracle's cumulative count at that revision. Catches CoW
-   * bleed-through of pages shared with later revisions.
+   * For each of {@code R} commits, randomly extend the document with a new named record. After the
+   * final commit, open a read-only transaction at every prior revision and compare the NAME-index
+   * cardinality to the oracle's cumulative count at that revision. Catches CoW bleed-through of pages
+   * shared with later revisions.
    */
   @Test
   @DisplayName("NAME index — multi-rev historical isolation under fuzz")
@@ -1647,8 +700,7 @@ final class HOTFormalVerificationTest {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef), trx);
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"" + firstName + "\":0}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"" + firstName + "\":0}]}"));
       trx.commit();
       revisions.add(session.getMostRecentRevisionNumber());
     }
@@ -1664,8 +716,7 @@ final class HOTFormalVerificationTest {
         trx.moveToFirstChild();
         trx.moveToFirstChild();
         trx.moveToLastChild();
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            "{\"" + name + "\":" + r + "}"));
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"" + name + "\":" + r + "}"));
         trx.commit();
         revisions.add(session.getMostRecentRevisionNumber());
       }
@@ -1677,8 +728,7 @@ final class HOTFormalVerificationTest {
         final int rev = revisions.get(rIdx);
         try (final var rtx = session.beginNodeReadOnlyTrx(rev)) {
           final HOTInvariantValidator.Result inv =
-              HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.NAME,
-                  nameIndexDef.getID());
+              HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.NAME, nameIndexDef.getID());
           if (!inv.isOk()) {
             fail("Invariant violation at rev " + rev + ": " + inv.violations());
           }
@@ -1693,8 +743,7 @@ final class HOTFormalVerificationTest {
               actual += iter.next().getNodeKeys().getLongCardinality();
             }
             assertEquals(oracleEntry.getValue().longValue(), actual,
-                "rev " + rev + " '" + oracleEntry.getKey() + "' cardinality mismatch (seed="
-                    + seed + ")");
+                "rev " + rev + " '" + oracleEntry.getKey() + "' cardinality mismatch (seed=" + seed + ")");
           }
         }
       }
@@ -1706,9 +755,9 @@ final class HOTFormalVerificationTest {
   // ============================================================
 
   /**
-   * Insert N entries with the SAME name across revs so that the logical NAME bitmap accumulates
-   * N nodeKeys. After all commits, {@code get("shared")} must reassemble exactly N bits and they
-   * must match the inserted nodeKeys' positions. Verifies the chunked-bitmap reassembly path
+   * Insert N entries with the SAME name across revs so that the logical NAME bitmap accumulates N
+   * nodeKeys. After all commits, {@code get("shared")} must reassemble exactly N bits and they must
+   * match the inserted nodeKeys' positions. Verifies the chunked-bitmap reassembly path
    * (composite-key range scan + {@code chunkIdx<<16 | bit16} expansion).
    */
   @Test
@@ -1727,7 +776,8 @@ final class HOTFormalVerificationTest {
 
       final StringBuilder json = new StringBuilder("{\"items\":[");
       for (int i = 0; i < totalInserts; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"" + sharedName + "\":").append(i).append('}');
       }
       json.append("]}");
@@ -1735,20 +785,19 @@ final class HOTFormalVerificationTest {
       trx.commit();
 
       // Validator passes (structural).
-      HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.NAME,
-          nameIndexDef.getID()).assertOk();
+      HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.NAME, nameIndexDef.getID())
+                           .assertOk();
 
       // Reassembly (functional): every commit's name iterator must produce exactly totalInserts
       // entries — one per inserted record.
       final var ic2 = session.getWtxIndexController(trx.getRevisionNumber());
-      final var iter = ic2.openNameIndex(trx.getStorageEngineReader(), nameIndexDef,
-          ic2.createNameFilter(Set.of(sharedName)));
+      final var iter =
+          ic2.openNameIndex(trx.getStorageEngineReader(), nameIndexDef, ic2.createNameFilter(Set.of(sharedName)));
       long total = 0;
       while (iter.hasNext()) {
         total += iter.next().getNodeKeys().getLongCardinality();
       }
-      assertEquals(totalInserts, total,
-          "reassembled bitmap cardinality must equal " + totalInserts);
+      assertEquals(totalInserts, total, "reassembled bitmap cardinality must equal " + totalInserts);
     }
   }
 
@@ -1762,19 +811,20 @@ final class HOTFormalVerificationTest {
    * revision and asserts:
    *
    * <ol>
-   *   <li>{@link HOTInvariantValidator} passes — I1..I10 + I-Binna sparse-path hold for the trie
-   *       rooted at <em>that</em> revision's root, not just the latest.</li>
-   *   <li>{@code reader.get(value)} returns the cumulative-up-to-revision-r bitmap exactly: every
-   *       value inserted in revisions ≤ r must be present, every value inserted later must not.</li>
-   *   <li>Values not yet inserted (e.g., looked up at an earlier revision than their commit) must
-   *       return null — no cross-revision leakage.</li>
+   * <li>{@link HOTInvariantValidator} passes — I1..I10 + I-Binna sparse-path hold for the trie rooted
+   * at <em>that</em> revision's root, not just the latest.</li>
+   * <li>{@code reader.get(value)} returns the cumulative-up-to-revision-r bitmap exactly: every value
+   * inserted in revisions ≤ r must be present, every value inserted later must not.</li>
+   * <li>Values not yet inserted (e.g., looked up at an earlier revision than their commit) must
+   * return null — no cross-revision leakage.</li>
    * </ol>
    *
-   * <p>This is the CAS analogue of {@link #nameIndexMultiRevFuzzedHistoricalIsolation}. Multi-rev
-   * CoW correctness specifically requires that each revision's root + indirect chain isolates
-   * its own snapshot; structural CoW failures (a revision-N writer mutating a page reachable from
-   * revision-(N-1)'s root) would surface as either (a) invariant violations on older revisions or
-   * (b) cumulative-mismatch between oracle and reader.
+   * <p>
+   * This is the CAS analogue of {@link #nameIndexMultiRevFuzzedHistoricalIsolation}. Multi-rev CoW
+   * correctness specifically requires that each revision's root + indirect chain isolates its own
+   * snapshot; structural CoW failures (a revision-N writer mutating a page reachable from
+   * revision-(N-1)'s root) would surface as either (a) invariant violations on older revisions or (b)
+   * cumulative-mismatch between oracle and reader.
    */
   @Test
   @DisplayName("CAS index — multi-rev historical isolation under fuzz")
@@ -1798,20 +848,19 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
-          io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
 
-      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       scratch.getNodeKeys().add(firstNodeKey);
-      writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-          new Int32(firstValue), Type.INR, pathNodeKey), scratch, null);
+      writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(firstValue), Type.INR, pathNodeKey),
+          scratch);
       trx.commit();
       revisions.add(session.getMostRecentRevisionNumber());
     }
@@ -1832,14 +881,13 @@ final class HOTFormalVerificationTest {
       oracleAtRev.add(new HashMap<>(oracle));
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
           final var trx = session.beginNodeTrx()) {
-        final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-            trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-            IndexType.CAS, casIndexDef.getID());
+        final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+            io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
         final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
             new io.sirix.index.redblacktree.keyvalue.NodeReferences();
         scratch.getNodeKeys().add(nodeKey);
-        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-            new Int32(value), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(value), Type.INR, pathNodeKey),
+            scratch);
         trx.commit();
         revisions.add(session.getMostRecentRevisionNumber());
       }
@@ -1853,42 +901,41 @@ final class HOTFormalVerificationTest {
       for (int rIdx = 0; rIdx < totalRevs; rIdx++) {
         final int rev = revisions.get(rIdx);
         try (final var rtx = session.beginNodeReadOnlyTrx(rev)) {
-          final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
-              rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
+          final HOTInvariantValidator.Result inv =
+              HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
           if (!inv.isOk()) {
-            fail("Invariant violation at rev " + rev + " (seed=" + seed + "): "
-                + inv.violations());
+            fail("Invariant violation at rev " + rev + " (seed=" + seed + "): " + inv.violations());
           }
 
-          final var reader = io.sirix.index.hot.HOTIndexReader.create(
-              rtx.getStorageEngineReader(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-              IndexType.CAS, casIndexDef.getID());
+          final var reader = io.sirix.index.hot.HOTIndexReader.create(rtx.getStorageEngineReader(),
+              io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
 
           final Map<Integer, Long> expectedAtThisRev = oracleAtRev.get(rIdx);
           // (a) Every value inserted up to-and-including this rev must be present.
           for (final var oracleEntry : expectedAtThisRev.entrySet()) {
-            final var got = reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new Int32(oracleEntry.getKey()), Type.INR, pathNodeKey), SearchMode.EQUAL);
-            assertNotNull(got, "rev " + rev + " missing value=" + oracleEntry.getKey()
-                + " (seed=" + seed + ")");
-            assertTrue(got.getNodeKeys().contains(oracleEntry.getValue()),
-                "rev " + rev + " value=" + oracleEntry.getKey()
-                    + " missing nodeKey=" + oracleEntry.getValue() + " (seed=" + seed + ")");
+            final var got =
+                reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(oracleEntry.getKey()), Type.INR,
+                    pathNodeKey), SearchMode.EQUAL);
+            assertNotNull(got, "rev " + rev + " missing value=" + oracleEntry.getKey() + " (seed=" + seed + ")");
+            assertTrue(got.getNodeKeys().contains(oracleEntry.getValue()), "rev " + rev + " value="
+                + oracleEntry.getKey() + " missing nodeKey=" + oracleEntry.getValue() + " (seed=" + seed + ")");
           }
           // (b) Spot-check: values inserted strictly later must NOT be visible at this rev.
-          //     Iterate `allValues` in reverse to bias toward "later" inserts; bail after a few
-          //     verifications so the per-rev cost stays bounded.
+          // Iterate `allValues` in reverse to bias toward "later" inserts; bail after a few
+          // verifications so the per-rev cost stays bounded.
           int strayChecksDone = 0;
           for (int i = allValues.size() - 1; i >= 0 && strayChecksDone < 5; i--) {
             final int v = allValues.get(i);
-            if (expectedAtThisRev.containsKey(v)) continue; // would-be hit, not interesting
-            final var got = reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL);
+            if (expectedAtThisRev.containsKey(v))
+              continue; // would-be hit, not interesting
+            final var got =
+                reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey),
+                    SearchMode.EQUAL);
             // If the value happens to alias an oracleAtRev entry by integer collision, skip it;
             // otherwise the reader must report no entry for this future-revision value.
-            if (got != null && oracleAtRev.get(rIdx).containsKey(v)) continue;
-            assertTrue(got == null,
-                "rev " + rev + " leaked future value=" + v + " (seed=" + seed + ")");
+            if (got != null && oracleAtRev.get(rIdx).containsKey(v))
+              continue;
+            assertTrue(got == null, "rev " + rev + " leaked future value=" + v + " (seed=" + seed + ")");
             strayChecksDone++;
           }
         }
@@ -1904,12 +951,14 @@ final class HOTFormalVerificationTest {
    * Builds three indexes (NAME, CAS, PATH-equivalent via NAME-keyed name workload) and commits
    * {@code totalRevs} revisions. After each commit, the validator must pass at <em>every prior
    * revision</em> as well — not just the latest. This is the strongest structural test of
-   * multi-version CoW: any in-place mutation of a page reachable from an older revision's root
-   * would be caught either by the validator (sees a corrupted indirect or leaf) or by the reader
-   * (gets a value that contradicts a later commit).
+   * multi-version CoW: any in-place mutation of a page reachable from an older revision's root would
+   * be caught either by the validator (sees a corrupted indirect or leaf) or by the reader (gets a
+   * value that contradicts a later commit).
    *
-   * <p>The test is intentionally cheap (small N per rev × small total revs) so it's part of the
-   * default suite. The expensive scale variants live in dedicated stress tests.</p>
+   * <p>
+   * The test is intentionally cheap (small N per rev × small total revs) so it's part of the default
+   * suite. The expensive scale variants live in dedicated stress tests.
+   * </p>
    */
   @Test
   @DisplayName("multi-rev — invariants hold at every committed revision (NAME + CAS)")
@@ -1930,25 +979,22 @@ final class HOTFormalVerificationTest {
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
       nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
-      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
-          io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(nameIndexDef, casIndexDef), trx);
 
       // Bootstrap NAME via shredder (one named record).
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"items\":[{\"bootstrap\":0}]}"));
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\":[{\"bootstrap\":0}]}"));
 
       // Bootstrap CAS via direct writer (one value).
-      final var casWriter = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var casWriter = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       scratch.getNodeKeys().add(0L);
-      casWriter.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-          new Int32(0), Type.INR, pathNodeKey), scratch, null);
+      casWriter.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(0), Type.INR, pathNodeKey), scratch);
 
       trx.commit();
       revisions.add(session.getMostRecentRevisionNumber());
@@ -1965,23 +1011,21 @@ final class HOTFormalVerificationTest {
         trx.moveToFirstChild();
         trx.moveToLastChild();
         final String name = "name_" + rng.nextInt(20);
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            "{\"" + name + "\":" + r + "}"));
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"" + name + "\":" + r + "}"));
 
         // Append a CAS-per-rev burst (50 distinct values, nodeKeys spanning chunkIdx boundary
         // when totalRevs grows past ~13K — at totalRevs=12 we straddle within one chunk plus
         // a few crossing values).
-        final var casWriter = io.sirix.index.hot.HOTIndexWriter.create(
-            trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-            IndexType.CAS, casIndexDef.getID());
+        final var casWriter = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+            io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
         final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
             new io.sirix.index.redblacktree.keyvalue.NodeReferences();
         for (int i = 0; i < casPerRev; i++) {
           final int v = (r * casPerRev) + i;
           scratch.getNodeKeys().clear();
           scratch.getNodeKeys().add((long) v);
-          casWriter.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-              new Int32(v), Type.INR, pathNodeKey), scratch, null);
+          casWriter.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey),
+              scratch);
         }
 
         trx.commit();
@@ -1995,13 +1039,13 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       for (final int rev : revisions) {
         try (final var rtx = session.beginNodeReadOnlyTrx(rev)) {
-          final HOTInvariantValidator.Result invName = HOTInvariantValidator.validateIndex(
-              rtx.getStorageEngineReader(), IndexType.NAME, nameIndexDef.getID());
+          final HOTInvariantValidator.Result invName =
+              HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.NAME, nameIndexDef.getID());
           if (!invName.isOk()) {
             fail("NAME invariant violation at rev " + rev + ": " + invName.violations());
           }
-          final HOTInvariantValidator.Result invCas = HOTInvariantValidator.validateIndex(
-              rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
+          final HOTInvariantValidator.Result invCas =
+              HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
           if (!invCas.isOk()) {
             fail("CAS invariant violation at rev " + rev + ": " + invCas.violations());
           }
@@ -2015,14 +1059,16 @@ final class HOTFormalVerificationTest {
   // ============================================================
 
   /**
-   * The strongest end-to-end structural CoW assertion: insert N CAS entries in rev R1, commit,
-   * then insert another N entries in rev R2, commit. Open a reader at R1 — it must see exactly
-   * the R1 entries and NOT see the R2 entries, even though the R2 writer mutated indirect pages
-   * along the path. If structural CoW were broken (writer mutating R1-reachable pages in place),
-   * the R1 reader would observe R2 entries leaking in.
+   * The strongest end-to-end structural CoW assertion: insert N CAS entries in rev R1, commit, then
+   * insert another N entries in rev R2, commit. Open a reader at R1 — it must see exactly the R1
+   * entries and NOT see the R2 entries, even though the R2 writer mutated indirect pages along the
+   * path. If structural CoW were broken (writer mutating R1-reachable pages in place), the R1 reader
+   * would observe R2 entries leaking in.
    *
-   * <p>Conversely, the R2 reader must see the union — both R1 and R2 entries — proving that the
-   * older revision's content remains reachable through R2's root via the standard COW chain.</p>
+   * <p>
+   * Conversely, the R2 reader must see the union — both R1 and R2 entries — proving that the older
+   * revision's content remains reachable through R2's root via the standard COW chain.
+   * </p>
    */
   @Test
   @DisplayName("multi-rev CoW — older revision sees its own snapshot, later revs see union")
@@ -2038,22 +1084,20 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
-          io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
 
-      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       for (int v = 0; v < n; v++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add((long) v);
-        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-            new Int32(v), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey), scratch);
       }
       trx.commit();
       rev1 = session.getMostRecentRevisionNumber();
@@ -2062,16 +1106,14 @@ final class HOTFormalVerificationTest {
     // Rev 2: insert v=[n, 2n).
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
-      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       for (int v = n; v < 2 * n; v++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add((long) v);
-        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-            new Int32(v), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey), scratch);
       }
       trx.commit();
       rev2 = session.getMostRecentRevisionNumber();
@@ -2080,38 +1122,28 @@ final class HOTFormalVerificationTest {
     // Verify rev 1 sees ONLY [0, n) — no leakage from rev 2.
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx(rev1)) {
-      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS,
-          casIndexDef.getID()).assertOk();
-      final var reader = io.sirix.index.hot.HOTIndexReader.create(
-          rtx.getStorageEngineReader(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID()).assertOk();
+      final var reader = io.sirix.index.hot.HOTIndexReader.create(rtx.getStorageEngineReader(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       for (int v = 0; v < n; v++) {
-        assertNotNull(
-            reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL),
-            "rev1 missing v=" + v);
+        assertNotNull(reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey),
+            SearchMode.EQUAL), "rev1 missing v=" + v);
       }
       for (int v = n; v < 2 * n; v++) {
-        assertTrue(
-            reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL) == null,
-            "rev1 leaked future v=" + v + " from rev2");
+        assertTrue(reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey),
+            SearchMode.EQUAL) == null, "rev1 leaked future v=" + v + " from rev2");
       }
     }
 
     // Verify rev 2 sees the union [0, 2n).
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx(rev2)) {
-      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS,
-          casIndexDef.getID()).assertOk();
-      final var reader = io.sirix.index.hot.HOTIndexReader.create(
-          rtx.getStorageEngineReader(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID()).assertOk();
+      final var reader = io.sirix.index.hot.HOTIndexReader.create(rtx.getStorageEngineReader(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       for (int v = 0; v < 2 * n; v++) {
-        assertNotNull(
-            reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
-                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL),
-            "rev2 missing v=" + v);
+        assertNotNull(reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey),
+            SearchMode.EQUAL), "rev2 missing v=" + v);
       }
     }
   }
@@ -2125,27 +1157,28 @@ final class HOTFormalVerificationTest {
    * matches Binna's reference HOT in the structural properties his thesis documents:
    *
    * <ol>
-   *   <li><b>Height bound</b> — observed height ≤ ceil(log_K(N)) where K = 32 (HOT max indirect
-   *       fan-out). Binna §4.4 proves this is tight for uniformly-distributed workloads.</li>
-   *   <li><b>Cross-leaf key uniqueness</b> — every stored key lives in exactly one leaf. Any
-   *       structural CoW or restructuring bug that duplicates keys across leaves shows up here
-   *       (= I1-cross-leaf-uniqueness violation).</li>
-   *   <li><b>Effective leaf occupancy</b> — for Sirix's multi-entry leaves (capacity ≤ 512),
-   *       the average leaf occupancy of a fully-populated tree should be close to capacity.
-   *       Binna's reference uses single-TID leaves (occupancy = 1), so we adapt: assert that at
-   *       least 50% of leaves are "well-filled" (≥ 256 entries) — a weak check that catches
-   *       pathological splitting (lots of half-empty leaves).</li>
-   *   <li><b>Indirect fan-out</b> — most non-root indirects should have fan-out near 2..32
-   *       (BiNode through MultiNode range). Sparse fan-out below 2 indicates degenerate
-   *       structure; fan-out above 32 violates {@link io.sirix.page.HOTIndirectPage}'s capacity.</li>
+   * <li><b>Height bound</b> — observed height ≤ ceil(log_K(N)) where K = 32 (HOT max indirect
+   * fan-out). Binna §4.4 proves this is tight for uniformly-distributed workloads.</li>
+   * <li><b>Cross-leaf key uniqueness</b> — every stored key lives in exactly one leaf. Any structural
+   * CoW or restructuring bug that duplicates keys across leaves shows up here (=
+   * I1-cross-leaf-uniqueness violation).</li>
+   * <li><b>Effective leaf occupancy</b> — for Sirix's multi-entry leaves (capacity ≤ 512), the
+   * average leaf occupancy of a fully-populated tree should be close to capacity. Binna's reference
+   * uses single-TID leaves (occupancy = 1), so we adapt: assert that at least 50% of leaves are
+   * "well-filled" (≥ 256 entries) — a weak check that catches pathological splitting (lots of
+   * half-empty leaves).</li>
+   * <li><b>Indirect fan-out</b> — most non-root indirects should have fan-out near 2..32 (BiNode
+   * through MultiNode range). Sparse fan-out below 2 indicates degenerate structure; fan-out above 32
+   * violates {@link io.sirix.page.HOTIndirectPage}'s capacity.</li>
    * </ol>
    *
-   * <p><b>Why this isn't full Binna parity:</b> a true parity test would port Binna's reference
-   * C++ implementation to Java and compare tree byte-for-byte. That's significant effort and
-   * Binna's reference uses single-TID leaves (drastically different storage shape), so a byte-
-   * for-byte match is impossible by construction. The statistical-properties check is the
-   * pragmatic version: same asymptotic shape, same height bound, same uniqueness invariants,
-   * even if leaf occupancy differs by a constant factor.
+   * <p>
+   * <b>Why this isn't full Binna parity:</b> a true parity test would port Binna's reference C++
+   * implementation to Java and compare tree byte-for-byte. That's significant effort and Binna's
+   * reference uses single-TID leaves (drastically different storage shape), so a byte- for-byte match
+   * is impossible by construction. The statistical-properties check is the pragmatic version: same
+   * asymptotic shape, same height bound, same uniqueness invariants, even if leaf occupancy differs
+   * by a constant factor.
    */
   @Test
   @DisplayName("Phase C — tree-shape parity statistics match Binna's HOT properties")
@@ -2158,22 +1191,20 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
-          io.brackit.query.util.path.PathParser.Type.JSON);
-      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(casIndexDef), trx);
 
-      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
-          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
-          IndexType.CAS, casIndexDef.getID());
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(trx.getStorageEngineWriter(),
+          io.sirix.index.hot.CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
       final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
           new io.sirix.index.redblacktree.keyvalue.NodeReferences();
       for (int v = 0; v < n; v++) {
         scratch.getNodeKeys().clear();
         scratch.getNodeKeys().add((long) v);
-        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
-            new Int32(v), Type.INR, pathNodeKey), scratch, null);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(new Int32(v), Type.INR, pathNodeKey), scratch);
       }
       trx.commit();
     }
@@ -2181,56 +1212,38 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = session.beginNodeReadOnlyTrx()) {
       // Property 1 + 2: validator covers I9-height-bounded and I1-cross-leaf-uniqueness.
-      final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
-          rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
-      // Allow soft I6 (stale PEXT routing absorbed by lower_bound walk-up) but no hard violations.
-      final long hardViolations = inv.violations().stream()
-          .filter(v -> !v.invariant().equals("I6-pext-routes-to-leaf")
-              && !HOTInvariantValidator.STRUCTURAL_LIMITATION_INVARIANTS.contains(v.invariant()))
-          .count();
-      assertEquals(0L, hardViolations,
-          "hard structural violations: "
-              + inv.violations().stream()
-                  .filter(v -> !v.invariant().equals("I6-pext-routes-to-leaf")
-                      && !HOTInvariantValidator.STRUCTURAL_LIMITATION_INVARIANTS.contains(
-                          v.invariant()))
-                  .toList());
+      final HOTInvariantValidator.Result inv =
+          HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
+      inv.assertOk();
 
       // Property 1 (explicit): Binna height bound — ceil(log_32(100_000)) = ceil(3.32) = 4.
       assertTrue(inv.observedHeight() <= 4,
-          "observed height " + inv.observedHeight()
-              + " exceeds Binna bound 4 for N=100K, K=32");
+          "observed height " + inv.observedHeight() + " exceeds Binna bound 4 for N=100K, K=32");
 
       // Properties 3 + 4: tree-shape stats by walking the trie.
       final TreeShapeStats stats = collectTreeShapeStats(rtx, casIndexDef.getID());
-      System.out.println("[phase-c] N=" + n + " observedHeight=" + inv.observedHeight()
-          + " storedKeys=" + inv.storedKeyCount()
-          + " leaves=" + stats.leafCount + " avgLeafOcc=" + (stats.totalEntries / stats.leafCount)
-          + " wellFilledLeafFrac=" + ((double) stats.wellFilledLeafCount / stats.leafCount)
-          + " indirects=" + stats.indirectCount + " avgFanout="
-          + (stats.totalFanout / Math.max(1, stats.indirectCount))
-          + " maxFanout=" + stats.maxFanout);
+      System.out.println("[phase-c] N=" + n + " observedHeight=" + inv.observedHeight() + " storedKeys="
+          + inv.storedKeyCount() + " leaves=" + stats.leafCount + " avgLeafOcc="
+          + (stats.totalEntries / stats.leafCount) + " wellFilledLeafFrac="
+          + ((double) stats.wellFilledLeafCount / stats.leafCount) + " indirects=" + stats.indirectCount + " avgFanout="
+          + (stats.totalFanout / Math.max(1, stats.indirectCount)) + " maxFanout=" + stats.maxFanout);
 
       // Property 3: ≥ 50% of leaves well-filled (≥ 256 entries). Catches pathological splitting.
       assertTrue(stats.wellFilledLeafCount * 2 >= stats.leafCount,
-          "only " + stats.wellFilledLeafCount + "/" + stats.leafCount
-              + " leaves well-filled — pathological splitting");
+          "only " + stats.wellFilledLeafCount + "/" + stats.leafCount + " leaves well-filled — pathological splitting");
 
       // Property 4: every indirect has fan-out in [2, 32].
-      assertTrue(stats.maxFanout <= 32,
-          "indirect fan-out " + stats.maxFanout + " exceeds HOT max 32");
-      assertTrue(stats.minFanout >= 2,
-          "indirect fan-out " + stats.minFanout + " below HOT min 2 (BiNode)");
+      assertTrue(stats.maxFanout <= 32, "indirect fan-out " + stats.maxFanout + " exceeds HOT max 32");
+      assertTrue(stats.minFanout >= 2, "indirect fan-out " + stats.minFanout + " below HOT min 2 (BiNode)");
     }
   }
 
-  private record TreeShapeStats(int leafCount, int wellFilledLeafCount, long totalEntries,
-      int indirectCount, long totalFanout, int minFanout, int maxFanout) {}
+  private record TreeShapeStats(int leafCount, int wellFilledLeafCount, long totalEntries, int indirectCount,
+      long totalFanout, int minFanout, int maxFanout) {
+  }
 
-  private TreeShapeStats collectTreeShapeStats(io.sirix.api.json.JsonNodeReadOnlyTrx rtx,
-      int indexNumber) {
-    final var rootRef = HOTInvariantValidator.resolveRootRef(rtx.getStorageEngineReader(),
-        IndexType.CAS, indexNumber);
+  private TreeShapeStats collectTreeShapeStats(io.sirix.api.json.JsonNodeReadOnlyTrx rtx, int indexNumber) {
+    final var rootRef = HOTInvariantValidator.resolveRootRef(rtx.getStorageEngineReader(), IndexType.CAS, indexNumber);
     assertNotNull(rootRef, "no root for CAS index " + indexNumber);
     final int[] leafCount = {0};
     final int[] wellFilled = {0};
@@ -2239,34 +1252,38 @@ final class HOTFormalVerificationTest {
     final long[] fanoutSum = {0L};
     final int[] minFanout = {Integer.MAX_VALUE};
     final int[] maxFanout = {Integer.MIN_VALUE};
-    walkStats(rootRef, rtx, leafCount, wellFilled, entries, indirects, fanoutSum, minFanout,
-        maxFanout);
-    return new TreeShapeStats(leafCount[0], wellFilled[0], entries[0], indirects[0],
-        fanoutSum[0], minFanout[0] == Integer.MAX_VALUE ? 0 : minFanout[0],
-        maxFanout[0] == Integer.MIN_VALUE ? 0 : maxFanout[0]);
+    walkStats(rootRef, rtx, leafCount, wellFilled, entries, indirects, fanoutSum, minFanout, maxFanout);
+    return new TreeShapeStats(leafCount[0], wellFilled[0], entries[0], indirects[0], fanoutSum[0],
+        minFanout[0] == Integer.MAX_VALUE
+            ? 0
+            : minFanout[0],
+        maxFanout[0] == Integer.MIN_VALUE
+            ? 0
+            : maxFanout[0]);
   }
 
-  private void walkStats(io.sirix.page.PageReference ref, io.sirix.api.json.JsonNodeReadOnlyTrx rtx,
-      int[] leafCount, int[] wellFilled, long[] entries, int[] indirects, long[] fanoutSum,
-      int[] minFanout, int[] maxFanout) {
+  private void walkStats(io.sirix.page.PageReference ref, io.sirix.api.json.JsonNodeReadOnlyTrx rtx, int[] leafCount,
+      int[] wellFilled, long[] entries, int[] indirects, long[] fanoutSum, int[] minFanout, int[] maxFanout) {
     final var page = rtx.getStorageEngineReader().loadHOTPage(ref);
     if (page instanceof io.sirix.page.HOTLeafPage leaf) {
       leafCount[0]++;
       entries[0] += leaf.getEntryCount();
-      if (leaf.getEntryCount() >= 256) wellFilled[0]++;
+      if (leaf.getEntryCount() >= 256)
+        wellFilled[0]++;
       return;
     }
     if (page instanceof io.sirix.page.HOTIndirectPage indirect) {
       indirects[0]++;
       final int fan = indirect.getNumChildren();
       fanoutSum[0] += fan;
-      if (fan < minFanout[0]) minFanout[0] = fan;
-      if (fan > maxFanout[0]) maxFanout[0] = fan;
+      if (fan < minFanout[0])
+        minFanout[0] = fan;
+      if (fan > maxFanout[0])
+        maxFanout[0] = fan;
       for (int i = 0; i < fan; i++) {
         final var childRef = indirect.getChildReference(i);
         if (childRef != null) {
-          walkStats(childRef, rtx, leafCount, wellFilled, entries, indirects, fanoutSum,
-              minFanout, maxFanout);
+          walkStats(childRef, rtx, leafCount, wellFilled, entries, indirects, fanoutSum, minFanout, maxFanout);
         }
       }
     }
@@ -2282,47 +1299,44 @@ final class HOTFormalVerificationTest {
   // surfacing violation fails the test with a precise tag.
   //
   // Patterns covered:
-  //   - Ascending sequential (control)
-  //   - Descending sequential (reverse-sort stress)
-  //   - Random shuffle (uniform distribution)
-  //   - Clustered values (5 clusters x 2K each)
-  //   - Bimodal (warmup + main, like the diagnostic but assertion-asserted)
-  //   - Many duplicates (low cardinality)
-  //   - Single-value workload (degenerate)
-  //   - Two-value workload (minimum non-trivial)
-  //   - Sparse high + dense low (mixed magnitude)
-  //   - Mixed sign (negative + zero + positive Int32)
+  // - Ascending sequential (control)
+  // - Descending sequential (reverse-sort stress)
+  // - Random shuffle (uniform distribution)
+  // - Clustered values (5 clusters x 2K each)
+  // - Bimodal (warmup + main, like the diagnostic but assertion-asserted)
+  // - Many duplicates (low cardinality)
+  // - Single-value workload (degenerate)
+  // - Two-value workload (minimum non-trivial)
+  // - Sparse high + dense low (mixed magnitude)
+  // - Mixed sign (negative + zero + positive Int32)
   // ============================================================
 
-  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt,
-      String label) {
+  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt, String label) {
     buildAndValidateCas(n, valueAt, label, 0);
   }
 
-  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt,
-      String label, int maxAllowedViolations) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7wRedistCalls();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7wRedistKeysMoved();
+  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt, String label,
+      int maxAllowedViolations) {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef def;
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(def), trx);
       final StringBuilder json = new StringBuilder("{\"k\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(valueAt.applyAsInt(i)).append('}');
       }
       json.append("]}");
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
       trx.commit();
-      final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
-          trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+      final HOTInvariantValidator.Result inv =
+          HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, def.getID());
       // Phase 7t-3 — per-invariant breakdown. Groups violations by invariant tag and
       // emits a sorted "I3:300 I5:600 I7:24" summary so the dominant violation kind on
       // each failing workload is visible. Identifies whether residual descending /
@@ -2330,28 +1344,27 @@ final class HOTFormalVerificationTest {
       // / I6 / I7 (partial-order) / I8 (firstKey-monotone) etc. — driving the next
       // attack vector. Format: tag:count separated by spaces, omitted entirely when no
       // violations exist.
-      final java.util.Map<String, Long> byInvariant = inv.violations().stream()
-          .collect(java.util.stream.Collectors.groupingBy(
-              HOTInvariantValidator.Violation::invariant,
-              java.util.stream.Collectors.counting()));
-      final String breakdown = byInvariant.entrySet().stream()
-          .sorted(java.util.Map.Entry.comparingByKey())
-          .map(e -> e.getKey() + ":" + e.getValue())
-          .collect(java.util.stream.Collectors.joining(" "));
-      final long redistCalls = io.sirix.access.trx.page.HOTTrieWriter.getPhase7wRedistCalls();
-      final long redistKeys = io.sirix.access.trx.page.HOTTrieWriter.getPhase7wRedistKeysMoved();
-      System.out.println("[" + label + "] N=" + inv.storedKeyCount()
-          + " · observedHeight=" + inv.observedHeight()
-          + " · violations=" + inv.violations().size()
-          + (breakdown.isEmpty() ? "" : " · byInvariant=[" + breakdown + "]")
-          + " · phase7w=[calls=" + redistCalls + " keysMoved=" + redistKeys + "]");
+      final java.util.Map<String, Long> byInvariant = inv.violations()
+                                                         .stream()
+                                                         .collect(java.util.stream.Collectors.groupingBy(
+                                                             HOTInvariantValidator.Violation::invariant,
+                                                             java.util.stream.Collectors.counting()));
+      final String breakdown = byInvariant.entrySet()
+                                          .stream()
+                                          .sorted(java.util.Map.Entry.comparingByKey())
+                                          .map(e -> e.getKey() + ":" + e.getValue())
+                                          .collect(java.util.stream.Collectors.joining(" "));
+      System.out.println("[" + label + "] N=" + inv.storedKeyCount() + " · observedHeight=" + inv.observedHeight()
+          + " · violations=" + inv.violations().size() + (breakdown.isEmpty()
+              ? ""
+              : " · byInvariant=[" + breakdown + "]"));
       assertTrue(inv.violations().size() <= maxAllowedViolations,
           "[" + label + "] structural violations: " + inv.violations());
     }
   }
 
   @Test
-  @DisplayName("Retrievability — mixed-sign 10K (data findable despite I6 violations)")
+  @DisplayName("Retrievability — mixed-sign 10K on an invariant-clean PEXT trie")
   @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
   void retrievabilityMixedSign10K() {
     final int n = 10_000;
@@ -2360,29 +1373,30 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(def), trx);
       final StringBuilder json = new StringBuilder("{\"k\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(i - n / 2).append('}');  // mixed-sign
+        if (i > 0)
+          json.append(',');
+        json.append("{\"v\":").append(i - n / 2).append('}'); // mixed-sign
       }
       json.append("]}");
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
       trx.commit();
+      HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, def.getID()).assertOk();
       int missedValues = 0;
       for (int v = -n / 2; v < n / 2; v++) {
         long valueCount = 0L;
         final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
-            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         while (iter.hasNext()) {
           valueCount += iter.next().getNodeKeys().getLongCardinality();
         }
-        if (valueCount == 0) missedValues++;
+        if (valueCount == 0)
+          missedValues++;
       }
       System.out.println("[retrievability-mixed-sign-10K] N=" + n + " missedValues=" + missedValues);
       assertEquals(0, missedValues,
@@ -2391,34 +1405,32 @@ final class HOTFormalVerificationTest {
   }
 
   @Test
-  @DisplayName("Retrievability — descending 10K (data findable despite I6 violations)")
+  @DisplayName("Retrievability — descending 10K on an invariant-clean PEXT trie")
   @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
   void retrievabilityDescending10K() {
-    // Validates that the descending pattern (which has 258 structural violations dominated
-    // by I6 routing-to-wrong-leaf) STILL allows every inserted value to be retrieved via
-    // the public CAS index API. The reader's lowerBound walk-up logic compensates for the
-    // strict-PEXT-descent I6 violations. Distinction: validator's I6 = "stored key K's
-    // PEXT-descent landed in leaf NOT containing K" (strict structural check) vs.
-    // reader's actual retrieval = "lowerBound finds K via PEXT + walk-up fallback".
+    // Descending insertion is adversarial for incremental structure maintenance. The complete
+    // invariant check is a prerequisite to reading because the public API has no recovery route
+    // around a malformed PEXT trie.
     final int n = 10_000;
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef def;
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(def), trx);
       final StringBuilder json = new StringBuilder("{\"k\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(n - 1 - i).append('}');  // descending
+        if (i > 0)
+          json.append(',');
+        json.append("{\"v\":").append(n - 1 - i).append('}'); // descending
       }
       json.append("]}");
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
       trx.commit();
+      HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, def.getID()).assertOk();
 
       // Probe: for each value 0..n-1, run an EQUAL query and count returned node refs.
       // Expected: exactly 1 node ref per distinct value (10000 values × 1 node each).
@@ -2428,24 +1440,22 @@ final class HOTFormalVerificationTest {
       for (int v = 0; v < n; v++) {
         long valueCount = 0L;
         final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
-            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         while (iter.hasNext()) {
           valueCount += iter.next().getNodeKeys().getLongCardinality();
         }
         totalFound += valueCount;
         if (valueCount == 0) {
           missedValues++;
-          if (missedList.size() < 30) missedList.add(v);
+          if (missedList.size() < 30)
+            missedList.add(v);
         }
       }
-      System.out.println("[retrievability-desc-10K] N=" + n + " totalFound=" + totalFound
-          + " missedValues=" + missedValues + " firstMissed=" + missedList);
+      System.out.println("[retrievability-desc-10K] N=" + n + " totalFound=" + totalFound + " missedValues="
+          + missedValues + " firstMissed=" + missedList);
       assertEquals(0, missedValues,
-          "[retrievability-desc-10K] " + missedValues + " of " + n
-              + " values not retrievable despite I6 invariant violations");
-      assertEquals((long) n, totalFound,
-          "[retrievability-desc-10K] expected " + n + " total refs, got " + totalFound);
+          "[retrievability-desc-10K] " + missedValues + " of " + n + " values not retrievable");
+      assertEquals((long) n, totalFound, "[retrievability-desc-10K] expected " + n + " total refs, got " + totalFound);
     }
   }
 
@@ -2464,7 +1474,7 @@ final class HOTFormalVerificationTest {
   }
 
   @Test
-  @DisplayName("Range scan integrity — descending 10K (I8 reader fix exercises advanceToNextLeaf)")
+  @DisplayName("Range scan integrity — descending 10K on the sole PEXT route")
   @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
   void rangeScanIntegrityDescending10K() {
     final int n = 10_000;
@@ -2472,24 +1482,25 @@ final class HOTFormalVerificationTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
       final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      final var pathToValue =
+          io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
       ic.createIndexes(Set.of(def), trx);
       final StringBuilder json = new StringBuilder("{\"k\":[");
       for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
+        if (i > 0)
+          json.append(',');
         json.append("{\"v\":").append(n - 1 - i).append('}');
       }
       json.append("]}");
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
       trx.commit();
+      HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS, def.getID()).assertOk();
 
       long totalFromRangeScan = 0L;
       final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
-          ic.createCASFilter(Set.of("/k/[]/v"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
-              new JsonPCRCollector(trx)));
+          ic.createCASFilter(Set.of("/k/[]/v"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(trx)));
       while (iter.hasNext()) {
         totalFromRangeScan += iter.next().getNodeKeys().getLongCardinality();
       }
@@ -2499,590 +1510,20 @@ final class HOTFormalVerificationTest {
       for (int v = 0; v < n; v++) {
         long count = 0L;
         final var eq = ic.openCASIndex(trx.getStorageEngineReader(), def,
-            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         while (eq.hasNext()) {
           count += eq.next().getNodeKeys().getLongCardinality();
         }
         totalFromPointQueries += count;
-        if (count == 0) missedValues++;
+        if (count == 0)
+          missedValues++;
       }
 
       assertEquals((long) n, totalFromRangeScan,
           "[range-scan-integrity-desc-10K] range scan missed entries (I8 fix not working)");
-      assertEquals((long) n, totalFromPointQueries,
-          "[range-scan-integrity-desc-10K] point queries missed entries");
-      assertEquals(0, missedValues,
-          "[range-scan-integrity-desc-10K] " + missedValues + " values unreachable");
+      assertEquals((long) n, totalFromPointQueries, "[range-scan-integrity-desc-10K] point queries missed entries");
+      assertEquals(0, missedValues, "[range-scan-integrity-desc-10K] " + missedValues + " values unreachable");
     }
-  }
-
-  // ---- Phase 7r-1 characterization (always-enabled diagnostic) ------------------
-  // Bypasses the Disabled annotation above so the routing-collision counters can
-  // be measured in the bulk-JSON descending path without needing to temporarily
-  // edit @Disabled. The test ASSERTS NOTHING about violations (the descending bug
-  // remains until Phase 7r-2/3); it just prints PHASE7R_BUILDFLAT_INSPECTIONS +
-  // PHASE7R_BUILDFLAT_COLLISIONS for empirical confirmation that buildFlatNonStrict
-  // is actually the offending site. Requires -Dhot.strict.phase7r.routeverify=true.
-  @Test
-  @DisplayName("Phase 7r-1 — descending 10K: characterize buildFlatNonStrict collisions")
-  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7r1CharacterizeDescending10K() {
-    if (!Boolean.getBoolean("hot.strict.phase7r.routeverify")) {
-      // Skip silently when flag not set — keeps the test inert in default CI.
-      return;
-    }
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7rBuildflatInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7rBuildflatCollisions();
-    final int n = 10_000;
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(n - 1 - i).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long inspections = io.sirix.access.trx.page.HOTTrieWriter.getPhase7rBuildflatInspections();
-    final long collisions = io.sirix.access.trx.page.HOTTrieWriter.getPhase7rBuildflatCollisions();
-    System.out.println("[phase7r-1] descending 10K · inspections=" + inspections
-        + " · collisions=" + collisions
-        + " · ratio=" + (inspections == 0 ? "n/a" : String.format("%.2f%%",
-            100.0 * collisions / inspections)));
-  }
-
-  // ---- Phase 7s-1 augmentation-fallthrough characterization ------------------
-  // After Phase 7s-1, the augmenter prefers β-constant + sort-monotone bits when picking
-  // a disc bit. When none is available it falls back to the legacy 7r-2 bit (sort-monotone
-  // only) — this is the cause of residual I5-leaf-constancy violations because the chosen
-  // bit is β-mixed in some child leaf. The counter PHASE7S_AUGMENT_FALLTHROUGH tells us
-  // how often Phase 7s-2 leaf-split would need to fire. ASSERTS NOTHING; just prints
-  // empirical numbers per workload.
-  @Test
-  @DisplayName("Phase 7s-1 — fallthrough characterization across failing workloads")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7s1CharacterizeAugmentFallthrough() {
-    final int n = 10_000;
-    runWithFallthroughCounter("ascending-10K (control)", n, i -> i);
-    runWithFallthroughCounter("descending-10K", n, i -> n - 1 - i);
-    runWithFallthroughCounter("mixed-sign-10K", n, i -> i - (n / 2));
-  }
-
-  private static void runWithFallthroughCounter(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sAugmentFallthrough();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sAugmentExhausted();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long fall = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sAugmentFallthrough();
-    final long exh = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sAugmentExhausted();
-    System.out.println("[phase7s-1] " + label + " · fallthrough=" + fall + " · exhausted=" + exh);
-    JsonTestHelper.deleteEverything();
-  }
-
-  // ---- Phase 7s-2 split-and-augment characterization --------------------------
-  // Requires -Dhot.strict.phase7s.split=true. Asserts NOTHING; prints split-applied,
-  // split-rollback, and split-noop counts per workload so the Phase 7s-2 helper's
-  // behavior can be tracked against the underlying Phase 7s-1 fallthrough metric.
-  @Test
-  @DisplayName("Phase 7s-2 — split-and-augment counter characterization")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7s2CharacterizeSplitOutcome() {
-    if (!Boolean.getBoolean("hot.strict.phase7s.split")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithSplitCounters("ascending-10K (control)", n, i -> i);
-    runWithSplitCounters("descending-10K", n, i -> n - 1 - i);
-    runWithSplitCounters("mixed-sign-10K", n, i -> i - (n / 2));
-  }
-
-  private static void runWithSplitCounters(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitApplied();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitRollback();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitNoop();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long applied = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitApplied();
-    final long rollback = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitRollback();
-    final long noop = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitNoop();
-    System.out.println("[phase7s-2] " + label + " · split-applied=" + applied
-        + " · split-rollback=" + rollback + " · split-noop=" + noop);
-    JsonTestHelper.deleteEverything();
-  }
-
-  // ---- Phase 7t-1 firstKey-vs-partial monotone inversion characterization ---
-  // Phase 7r-2's augmenter ensures partial-key uniqueness (HOT I3) but does NOT verify
-  // that, after sorting by partial in buildFlatNonStrict, the children's firstKeys also
-  // come out in lex order (HOT I8). The augmenter's bit choices are sort-monotone, but
-  // the INITIAL disc-bit pick from `computeDiscBits` (adjacent-pair MSB-of-XOR scan over
-  // first/last keys) can include non-sort-monotone bits whose presence in the PEXT mask
-  // re-orders the partials. This counter probes whether the residual descending /
-  // mixed-sign / bimodal violations originate at THIS specific rebuild site.
-  //
-  // Requires -Dhot.strict.phase7t.monotone.probe=true. Asserts NOTHING; prints
-  // inspections (= buildFlatNonStrict invocations) and inversions (= those producing
-  // first-key sort inversion after partial sort) per workload.
-  @Test
-  @DisplayName("Phase 7t-1 — firstKey-monotone post-sort inversion characterization")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t1CharacterizeMonotoneInversions() {
-    if (!Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithMonotoneProbe("ascending-10K (control)", n, i -> i);
-    runWithMonotoneProbe("descending-10K", n, i -> n - 1 - i);
-    runWithMonotoneProbe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithMonotoneProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  // Phase 7t-6 — β-mixed (child, mask-bit) pair detector at the four indirect-construction
-  // sites that have mask info in scope (buildFlatNonStrict, addEntryWithPDep,
-  // upgradeToMultiMaskWithNewBit, buildRebalancedParentWithInheritedMask). I6 (β-mixed
-  // leaf routing) is the dominant violation (98-99.8 % per 7t-3); 7t-5 falsified the
-  // firstKey-monotone probe as the right detection tool. This run produces the per-site
-  // β-mixed-pair histogram. Requires -Dhot.strict.phase7t.betamixed.probe=true.
-  @Test
-  @DisplayName("Phase 7t-6 — β-mixed (child, mask-bit) pair characterization")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t6CharacterizeBetaMixedPairs() {
-    if (!Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithBetaMixedProbe("ascending-10K (control)", n, i -> i);
-    runWithBetaMixedProbe("descending-10K", n, i -> n - 1 - i);
-    runWithBetaMixedProbe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithBetaMixedProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  private static void runWithBetaMixedProbe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6BuildflatBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6BuildflatMixedPairs();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6AddpdepBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6AddpdepMixedPairs();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6UpgradeBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6UpgradeMixedPairs();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6RebalanceBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6RebalanceMixedPairs();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long bfB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6BuildflatBuilds();
-    final long bfM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6BuildflatMixedPairs();
-    final long apB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6AddpdepBuilds();
-    final long apM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6AddpdepMixedPairs();
-    final long upB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6UpgradeBuilds();
-    final long upM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6UpgradeMixedPairs();
-    final long rbB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6RebalanceBuilds();
-    final long rbM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6RebalanceMixedPairs();
-    System.out.println("[phase7t6] " + label
-        + " · buildFlat=" + bfM + "/" + bfB + " mixedPairs/builds"
-        + " · addPdep=" + apM + "/" + apB
-        + " · upgrade=" + upM + "/" + upB
-        + " · rebalance=" + rbM + "/" + rbB);
-    JsonTestHelper.deleteEverything();
-  }
-
-  // Phase 7t-7 — sibling-cross-routing probe. Filters β-mixed pairs found by 7t-6 by the
-  // additional condition "some sibling has the inverse-polarity partial"; counts both
-  // CROSS_ROUTING (potential I6 mis-route source) and MIXED_NO_CROSS_ROUTE (descent
-  // terminates inside the same child, harmless w.r.t. I6). Requires
-  // -Dhot.strict.phase7t.crossroute.probe=true.
-  @Test
-  @DisplayName("Phase 7t-7 — sibling-cross-routing characterization")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t7CharacterizeCrossRouting() {
-    if (!Boolean.getBoolean("hot.strict.phase7t.crossroute.probe")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithCrossRoutingProbe("ascending-10K (control)", n, i -> i);
-    runWithCrossRoutingProbe("descending-10K", n, i -> n - 1 - i);
-    runWithCrossRoutingProbe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithCrossRoutingProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  private static void runWithCrossRoutingProbe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatCrossRoutingPairs();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatMixedNoCrossRoute();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long bfB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatBuilds();
-    final long bfX = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatCrossRoutingPairs();
-    final long bfN = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatMixedNoCrossRoute();
-    System.out.println("[phase7t7] " + label
-        + " · builds=" + bfB
-        + " · crossRoutingPairs=" + bfX
-        + " · mixedNoCrossRoute=" + bfN);
-    JsonTestHelper.deleteEverything();
-  }
-
-  // Phase 7t-8 — subset-match-aware mis-route probe. Phase 7t-7 falsified equality-only
-  // cross-routing on descending/bimodal workloads (0 cross-routing pairs but 258/1280
-  // actual I6 violations). 7t-8 mirrors HOTIndirectPage.findChildSpanNode routing
-  // (equality first, then most-specific subset where (densePK & sparseKey) == sparseKey)
-  // to count mis-routes by mechanism. Requires -Dhot.strict.phase7t.subsetroute.probe=true.
-  @Test
-  @DisplayName("Phase 7t-8 — subset-match mis-route characterization")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t8CharacterizeSubsetRouting() {
-    if (!Boolean.getBoolean("hot.strict.phase7t.subsetroute.probe")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithSubsetRoutingProbe("ascending-10K (control)", n, i -> i);
-    runWithSubsetRoutingProbe("descending-10K", n, i -> n - 1 - i);
-    runWithSubsetRoutingProbe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithSubsetRoutingProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  private static void runWithSubsetRoutingProbe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatEqualityMisroutes();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatSubsetMisroutes();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatSelfRoutes();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long b = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatBuilds();
-    final long eq = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatEqualityMisroutes();
-    final long sub = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatSubsetMisroutes();
-    final long self = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatSelfRoutes();
-    System.out.println("[phase7t8] " + label
-        + " · builds=" + b
-        + " · equalityMisroutes=" + eq
-        + " · subsetMisroutes=" + sub
-        + " · selfRoutes=" + self);
-    JsonTestHelper.deleteEverything();
-  }
-
-  // Phase 7t-9 — per-stored-key PEXT simulator at construction time. Walks every key
-  // in every child's subtree, computes real dense PEXT, runs findChildSpanNode, counts
-  // mis-routes. This is the validator's algorithm localised. Tells us whether
-  // buildFlatNonStrict is the actual I6 origination site (Phase 7t-7 / 7t-8 falsified
-  // synthetic-candidate predicates). Requires -Dhot.strict.phase7t.perkey.probe=true.
-  @Test
-  @DisplayName("Phase 7t-9 — per-key real mis-route characterization")
-  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t9CharacterizePerKey() {
-    if (!Boolean.getBoolean("hot.strict.phase7t.perkey.probe")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithPerKeyProbe("ascending-10K (control)", n, i -> i);
-    runWithPerKeyProbe("descending-10K", n, i -> n - 1 - i);
-    runWithPerKeyProbe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithPerKeyProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  // Phase 7t-10 — ports the per-key real-PEXT simulator to addEntryWithPDep,
-  // upgradeToMultiMaskWithNewBit, splitParentAndRecurse, rebuildParentAbsorbingSplit, and
-  // buildBucketWithInheritedMaskMultiMask. Phase 7t-9 confirmed buildFlatNonStrict produces
-  // 272 desc mis-routes ≈ 258 viol but bimodal showed 0 mis-routes there despite 1280 viol
-  // → bimodal origin lives at ONE of the other 5 sites. This test runs the simulator with
-  // ALL 6 sites instrumented and prints per-site counter tables. Whichever site shows a
-  // count matching bimodal/mixed-sign violation magnitudes is the origin to fix next.
-  @Test
-  @DisplayName("Phase 7t-10 — per-key mis-route attribution across 5 build sites")
-  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t10CharacterizeAllSites() {
-    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe")) {
-      return; // skip silently when flag not set
-    }
-    final int n = 10_000;
-    runWithPhase7t10Probe("ascending-10K (control)", n, i -> i);
-    runWithPhase7t10Probe("descending-10K", n, i -> n - 1 - i);
-    runWithPhase7t10Probe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithPhase7t10Probe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  // Phase 7t-11 — instrument 4 post-construction mutation paths (extendIndirectMaskForClosure,
-  // phase7qExtendWithLift, addNewRootLevelForI8, phase7qIterativeRootSortI8) to surface the
-  // bimodal 1280 viol that Phase 7t-10 showed originate OUTSIDE all 6 known build sites.
-  @Test
-  @DisplayName("Phase 7t-11 — per-key mis-route at post-construction mutation paths")
-  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
-  void phase7t11CharacterizePostConst() {
-    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe")) {
-      return;
-    }
-    final int n = 10_000;
-    runWithPhase7t11Probe("ascending-10K (control)", n, i -> i);
-    runWithPhase7t11Probe("descending-10K", n, i -> n - 1 - i);
-    runWithPhase7t11Probe("mixed-sign-10K", n, i -> i - (n / 2));
-    runWithPhase7t11Probe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
-  }
-
-  private static void runWithPhase7t11Probe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t11All();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    System.out.println("[phase7t11] " + label);
-    System.out.println("  extendIndirectMaskForClosure builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11ExtendBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11ExtendEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11ExtendSubsetMisroutes());
-    System.out.println("  phase7qExtendWithLift        builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11LiftBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11LiftEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11LiftSubsetMisroutes());
-    System.out.println("  addNewRootLevelForI8         builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11NewrootBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11NewrootEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11NewrootSubsetMisroutes());
-    System.out.println("  phase7qIterativeRootSortI8   builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11RootsortBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11RootsortEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t11RootsortSubsetMisroutes());
-    JsonTestHelper.deleteEverything();
-  }
-
-  private static void runWithPhase7t10Probe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t10All();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final var w = io.sirix.access.trx.page.HOTTrieWriter.class;
-    System.out.println("[phase7t10] " + label);
-    System.out.println("  addEntryWithPDep              builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10AddentryBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10AddentryEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10AddentrySubsetMisroutes());
-    System.out.println("  upgradeToMultiMaskWithNewBit  builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10UpgradeBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10UpgradeEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10UpgradeSubsetMisroutes());
-    System.out.println("  splitParentAndRecurse         builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10SplitparentBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10SplitparentEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10SplitparentSubsetMisroutes());
-    System.out.println("  rebuildParentAbsorbingSplit   builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10RebuildBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10RebuildEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10RebuildSubsetMisroutes());
-    System.out.println("  buildBucket(MultiMask)        builds="
-        + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10BucketBuilds()
-        + " equalityMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10BucketEqMisroutes()
-        + " subsetMisroutes=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7t10BucketSubsetMisroutes());
-    JsonTestHelper.deleteEverything();
-  }
-
-  private static void runWithPerKeyProbe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatBuilds();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatKeysSeen();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatEqualityMisroutes();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatSubsetMisroutes();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long b = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatBuilds();
-    final long ks = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatKeysSeen();
-    final long eq = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatEqualityMisroutes();
-    final long sub = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatSubsetMisroutes();
-    System.out.println("[phase7t9] " + label
-        + " · builds=" + b
-        + " · keysSeen=" + ks
-        + " · equalityMisroutes=" + eq
-        + " · subsetMisroutes=" + sub);
-    JsonTestHelper.deleteEverything();
-  }
-
-  private static void runWithMonotoneProbe(final String label, final int n,
-      final java.util.function.IntUnaryOperator valueFn) {
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInversions();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tAddpdepInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tAddpdepInversions();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tUpgradeInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tUpgradeInversions();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tSplitparentInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tSplitparentInversions();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebalanceInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebalanceInversions();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebuildInspections();
-    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tRebuildInversions();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = session.beginNodeTrx()) {
-      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
-      final var pathToValue = io.brackit.query.util.path.Path.parse(
-          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
-      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
-          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
-      ic.createIndexes(Set.of(def), trx);
-      final StringBuilder json = new StringBuilder("{\"k\":[");
-      for (int i = 0; i < n; i++) {
-        if (i > 0) json.append(',');
-        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
-      }
-      json.append("]}");
-      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
-      trx.commit();
-    }
-    final long bfIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInspections();
-    final long bfInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInversions();
-    final long apIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tAddpdepInspections();
-    final long apInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tAddpdepInversions();
-    final long upIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tUpgradeInspections();
-    final long upInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tUpgradeInversions();
-    final long spIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tSplitparentInspections();
-    final long spInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tSplitparentInversions();
-    final long rbIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebalanceInspections();
-    final long rbInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebalanceInversions();
-    final long rdIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebuildInspections();
-    final long rdInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tRebuildInversions();
-    System.out.println("[phase7t] " + label
-        + " · buildFlat=" + bfInv + "/" + bfIns
-        + " · addPdep=" + apInv + "/" + apIns
-        + " · upgrade=" + upInv + "/" + upIns
-        + " · splitParent=" + spInv + "/" + spIns
-        + " · rebalance=" + rbInv + "/" + rbIns
-        + " · rebuild=" + rdInv + "/" + rdIns);
-    JsonTestHelper.deleteEverything();
   }
 
   @Test
@@ -3092,10 +1533,13 @@ final class HOTFormalVerificationTest {
     final int n = 10_000;
     final Random rng = new Random(0xC0FFEEL);
     final int[] shuf = new int[n];
-    for (int i = 0; i < n; i++) shuf[i] = i;
+    for (int i = 0; i < n; i++)
+      shuf[i] = i;
     for (int i = n - 1; i > 0; i--) {
       final int j = rng.nextInt(i + 1);
-      final int tmp = shuf[i]; shuf[i] = shuf[j]; shuf[j] = tmp;
+      final int tmp = shuf[i];
+      shuf[i] = shuf[j];
+      shuf[j] = tmp;
     }
     buildAndValidateCas(n, i -> shuf[i], "comprehensive-rand-10K");
   }
@@ -3121,8 +1565,9 @@ final class HOTFormalVerificationTest {
     final int warm = 5_000;
     final int main = 5_000;
     final int warmupBase = 51_000_000;
-    buildAndValidateCas(warm + main, i -> i < warm ? warmupBase + i : i - warm,
-        "comprehensive-bimodal-5K+5K");
+    buildAndValidateCas(warm + main, i -> i < warm
+        ? warmupBase + i
+        : i - warm, "comprehensive-bimodal-5K+5K");
   }
 
   @Test
@@ -3158,7 +1603,9 @@ final class HOTFormalVerificationTest {
   void comprehensiveSparseHighDenseLow() {
     final int n = 10_000;
     // Even i → small (0..n/2); odd i → large (1M + i)
-    buildAndValidateCas(n, i -> (i & 1) == 0 ? i / 2 : 1_000_000 + i, "comprehensive-sparse-10K");
+    buildAndValidateCas(n, i -> (i & 1) == 0
+        ? i / 2
+        : 1_000_000 + i, "comprehensive-sparse-10K");
   }
 
   @Test
@@ -3168,7 +1615,8 @@ final class HOTFormalVerificationTest {
     final int n = 20_000;
     final Random rng = new Random(0xDEADBEEFL);
     final int[] vals = new int[n];
-    for (int i = 0; i < n; i++) vals[i] = rng.nextInt(1 << 16);
+    for (int i = 0; i < n; i++)
+      vals[i] = rng.nextInt(1 << 16);
     buildAndValidateCas(n, i -> vals[i], "comprehensive-randrep-20K");
   }
 
@@ -3186,8 +1634,9 @@ final class HOTFormalVerificationTest {
     final int warm = 5_000;
     final int main = 50_000;
     final int warmupBase = 51_000_000;
-    buildAndValidateCas(warm + main, i -> i < warm ? warmupBase + i : i - warm,
-        "comprehensive-bimodal-promoted-diag");
+    buildAndValidateCas(warm + main, i -> i < warm
+        ? warmupBase + i
+        : i - warm, "comprehensive-bimodal-promoted-diag");
   }
 
   // ============================================================
@@ -3213,10 +1662,13 @@ final class HOTFormalVerificationTest {
     final int n = 100_000;
     final Random rng = new Random(0xFEEDFACEL);
     final int[] shuf = new int[n];
-    for (int i = 0; i < n; i++) shuf[i] = i;
+    for (int i = 0; i < n; i++)
+      shuf[i] = i;
     for (int i = n - 1; i > 0; i--) {
       final int j = rng.nextInt(i + 1);
-      final int tmp = shuf[i]; shuf[i] = shuf[j]; shuf[j] = tmp;
+      final int tmp = shuf[i];
+      shuf[i] = shuf[j];
+      shuf[j] = tmp;
     }
     buildAndValidateCas(n, i -> shuf[i], "scale-rand-100K");
   }
@@ -3225,7 +1677,7 @@ final class HOTFormalVerificationTest {
   @DisplayName("Scale — small N (10/100/1000) sweep")
   @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
   void scaleSmallNSweep() {
-    for (final int n : new int[]{10, 100, 500, 1_000, 2_500}) {
+    for (final int n : new int[] {10, 100, 500, 1_000, 2_500}) {
       buildAndValidateCas(n, i -> i, "scale-small-N=" + n);
     }
   }

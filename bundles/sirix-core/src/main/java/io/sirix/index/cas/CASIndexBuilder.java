@@ -5,13 +5,9 @@ import io.sirix.api.visitor.VisitResultType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.AtomicUtil;
-import io.sirix.index.SearchMode;
 import io.sirix.index.hot.HOTBulkIndexLoader;
 import io.sirix.index.hot.HOTIndexWriter;
-import io.sirix.index.redblacktree.RBTreeReader;
-import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -32,67 +28,41 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
-import java.util.Optional;
 import java.util.Set;
 
 /**
  * Builder for CAS indexes.
- * 
- * <p>
- * Supports both traditional RBTree and high-performance HOT index backends.
- * </p>
  */
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
 
-  private final @Nullable RBTreeWriter<CASValue, NodeReferences> rbTreeWriter;
-  private final @Nullable HOTIndexWriter<CASValue> hotWriter;
+  private final HOTIndexWriter<CASValue> indexWriter;
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
   private final Type type;
-  private final boolean useHOT;
 
   /** Path-class records covered by {@link #paths}, resolved lazily on the first indexed node. */
   private @Nullable LongSet resolvedPCRs;
 
   /**
-   * Bulk loader for the HOT backend, non-{@code null} exactly when this builder starts against an
-   * empty index tree — the normal "create an index over an already-shredded revision" case. Every
-   * entry is collected and the trie is materialised once in {@link #finish()}; see
-   * {@link HOTBulkIndexLoader} for why that is not the same cost as n incremental inserts.
+   * Bulk loader, non-{@code null} exactly when this builder starts against an empty index tree — the
+   * normal "create an index over an already-shredded revision" case. Every entry is collected and the
+   * trie is materialised once in {@link #finish()}; see {@link HOTBulkIndexLoader} for why that is
+   * not the same cost as n incremental inserts.
    */
   private final @Nullable HOTBulkIndexLoader<CASValue> bulkLoader;
 
-  /**
-   * Constructor with RBTree writer (legacy path).
-   */
-  public CASIndexBuilder(final RBTreeWriter<CASValue, NodeReferences> indexWriter,
-      final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
-    this.pathSummaryReader = pathSummaryReader;
-    this.paths = paths;
-    this.rbTreeWriter = indexWriter;
-    this.hotWriter = null;
-    this.type = type;
-    this.useHOT = false;
-    this.bulkLoader = null;
-  }
-
-  /**
-   * Constructor with HOT writer (high-performance path).
-   */
-  public CASIndexBuilder(final HOTIndexWriter<CASValue> hotWriter, final PathSummaryReader pathSummaryReader,
+  public CASIndexBuilder(final HOTIndexWriter<CASValue> indexWriter, final PathSummaryReader pathSummaryReader,
       final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
-    this.rbTreeWriter = null;
-    this.hotWriter = hotWriter;
+    this.indexWriter = indexWriter;
     this.type = type;
-    this.useHOT = true;
     // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into
     // it, so an index that already holds entries (a rebuild over a populated definition) keeps
     // the incremental path.
-    this.bulkLoader = hotWriter.isEmptyTree()
-        ? hotWriter.createBulkLoader()
+    this.bulkLoader = indexWriter.isEmptyTree()
+        ? indexWriter.createBulkLoader()
         : null;
   }
 
@@ -132,11 +102,7 @@ public final class CASIndexBuilder {
 
         if (isOfType) {
           final CASValue value = new CASValue(typedValue, type, pathNodeKey);
-          if (useHOT) {
-            processHOT(node, value);
-          } else {
-            processRBTree(node, value);
-          }
+          indexNode(node.getNodeKey(), value);
         }
       }
     } catch (final PathException | SirixIOException e) {
@@ -175,18 +141,10 @@ public final class CASIndexBuilder {
         return;
       }
       final CASValue value = new CASValue(typedValue, type, pathNodeKey);
-      if (useHOT) {
-        assert hotWriter != null;
-        if (bulkLoader != null) {
-          bulkLoader.add(value, nodeKey);
-        } else {
-          hotWriter.indexNodeKey(value, nodeKey);
-        }
+      if (bulkLoader != null) {
+        bulkLoader.add(value, nodeKey);
       } else {
-        assert rbTreeWriter != null;
-        final Optional<NodeReferences> references = rbTreeWriter.get(value, SearchMode.EQUAL);
-        rbTreeWriter.index(value, references.orElseGet(NodeReferences::new).addNodeKey(nodeKey),
-            RBTreeReader.MoveCursor.NO_MOVE);
+        indexWriter.indexNodeKey(value, nodeKey);
       }
     } catch (final PathException | SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -216,18 +174,8 @@ public final class CASIndexBuilder {
     return pcrs.contains(pathNodeKey);
   }
 
-  private void processRBTree(final ImmutableNode node, final CASValue value) throws SirixIOException {
-    assert rbTreeWriter != null;
-    final Optional<NodeReferences> textReferences = rbTreeWriter.get(value, SearchMode.EQUAL);
-    if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(node, textReferences.get(), value);
-    } else {
-      setNodeReferencesRBTree(node, new NodeReferences(), value);
-    }
-  }
-
   /**
-   * Add {@code node} to {@code value}'s posting list in the HOT backend.
+   * Add {@code nodeKey} to {@code value}'s posting list.
    *
    * <p>
    * A HOT slot write is an OR-merge of the incoming bitmap into the stored one
@@ -238,12 +186,11 @@ public final class CASIndexBuilder {
    * corpus where a value repeats k times, k(k+1)/2 slot writes instead of k.
    * </p>
    */
-  private void processHOT(final ImmutableNode node, final CASValue value) throws SirixIOException {
-    assert hotWriter != null;
+  private void indexNode(final long nodeKey, final CASValue value) throws SirixIOException {
     if (bulkLoader != null) {
-      bulkLoader.add(value, node.getNodeKey());
+      bulkLoader.add(value, nodeKey);
     } else {
-      hotWriter.indexNodeKey(value, node.getNodeKey());
+      indexWriter.indexNodeKey(value, nodeKey);
     }
   }
 
@@ -255,12 +202,6 @@ public final class CASIndexBuilder {
     if (bulkLoader != null) {
       bulkLoader.flush();
     }
-  }
-
-  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references, final CASValue value)
-      throws SirixIOException {
-    assert rbTreeWriter != null;
-    rbTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
 }

@@ -5,31 +5,29 @@ package io.sirix.index.projection;
 
 /**
  * ALP (Adaptive Lossless floating-Point) encoding for {@code NUMERIC_DOUBLE} BODY streams
- * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6, §11-6), landed behind the reserved
- * width-byte escape {@link #WIDTH_ESCAPE_ALP} in the shared FOR wire form — escape bytes
- * 66..255 stay reserved and reject loudly exactly as before, and pre-ALP double stores
- * decode unchanged (their width bytes are ≤ 64).
+ * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6, §11-6), landed behind the reserved width-byte
+ * escape {@link #WIDTH_ESCAPE_ALP} in the shared FOR wire form — escape bytes 66..255 stay reserved
+ * and reject loudly exactly as before, and pre-ALP double stores decode unchanged (their width
+ * bytes are ≤ 64).
  *
  * <h2>Scheme</h2>
  *
- * Most real-world doubles are decimals (prices, ratings, measurements). For one leaf-column
- * vector (≤ {@link ProjectionIndexRowGroupPage#MAX_ROWS} cells) pick a decimal scale pair
- * {@code (e, f)} and encode each value {@code v} as the integer
- * {@code digits = round(v · 10^e / 10^f)}; decode is {@code (digits · 10^f) / 10^e} — the
- * trailing DIVISION is load-bearing: IEEE division is correctly rounded, so integer/10^k
- * decimals verify bit-exact where a reciprocal multiply ({@code digits · 0.1}) misses
- * about half of them. Every cell is verified at encode time against that exact decode
- * expression —
- * cells that fail (true binary fractions, huge magnitudes) go verbatim into an exceptions
- * list. The digits stream is FOR bit-packed with the codec's shared primitives, which is
- * the size win: a transform-domain double pattern needs ~50–64 bits under plain FOR, while
- * {@code 12.25} at {@code (e=2, f=0)} is the integer {@code 1225}.
+ * Most real-world doubles are decimals (prices, ratings, measurements). For one leaf-column vector
+ * (≤ {@link ProjectionIndexRowGroupPage#MAX_ROWS} cells) pick a decimal scale pair {@code (e, f)}
+ * and encode each value {@code v} as the integer {@code digits = round(v · 10^e / 10^f)}; decode is
+ * {@code (digits · 10^f) / 10^e} — the trailing DIVISION is load-bearing: IEEE division is
+ * correctly rounded, so integer/10^k decimals verify bit-exact where a reciprocal multiply
+ * ({@code digits · 0.1}) misses about half of them. Every cell is verified at encode time against
+ * that exact decode expression — cells that fail (true binary fractions, huge magnitudes) go
+ * verbatim into an exceptions list. The digits stream is FOR bit-packed with the codec's shared
+ * primitives, which is the size win: a transform-domain double pattern needs ~50–64 bits under
+ * plain FOR, while {@code 12.25} at {@code (e=2, f=0)} is the integer {@code 1225}.
  *
- * <p>Cells arrive and leave in the {@link ProjectionDoubleEncoding} transform domain (the
- * raw scan form's representation); ALP works on the decoded doubles and re-encodes on
- * decode. Byte-identity of the assembled raw form holds end-to-end because every non-
- * exception cell is verified bit-exact at encode time and exceptions carry raw
- * transform-domain bits.
+ * <p>
+ * Cells arrive and leave in the {@link ProjectionDoubleEncoding} transform domain (the raw scan
+ * form's representation); ALP works on the decoded doubles and re-encodes on decode. Byte-identity
+ * of the assembled raw form holds end-to-end because every non- exception cell is verified
+ * bit-exact at encode time and exceptions carry raw transform-domain bits.
  *
  * <h2>Wire form (after the shared {@code long base; byte width} head)</h2>
  *
@@ -42,9 +40,10 @@ package io.sirix.index.projection;
  *   per exception: int rowIdx; long transformBits
  * </pre>
  *
- * <p><b>Determinism</b> (required by the descriptor-hash no-op carry-forward, §3): scale
- * selection samples a fixed stride, walks candidates in a fixed order, and breaks ties
- * first-best — identical cells always produce identical bytes.
+ * <p>
+ * <b>Determinism</b> (required by the descriptor-hash no-op carry-forward, §3): scale selection
+ * samples a fixed stride, walks candidates in a fixed order, and breaks ties first-best — identical
+ * cells always produce identical bytes.
  */
 final class ProjectionAlpEncoding {
 
@@ -63,8 +62,8 @@ final class ProjectionAlpEncoding {
   }
 
   /**
-   * Digits whose magnitude reaches 2^53 cannot round-trip anyway (the integer grid is
-   * coarser than 1 beyond it) — bail before {@code Math.round} can misbehave.
+   * Digits whose magnitude reaches 2^53 cannot round-trip anyway (the integer grid is coarser than 1
+   * beyond it) — bail before {@code Math.round} can misbehave.
    */
   private static final double MAX_DIGITS = 0x1p53;
 
@@ -77,22 +76,21 @@ final class ProjectionAlpEncoding {
   /** Fixed per-exception wire cost: int rowIdx + long transformBits. */
   private static final int EXCEPTION_BYTES = 4 + 8;
 
-  private ProjectionAlpEncoding() {
-  }
+  private ProjectionAlpEncoding() {}
 
   /**
-   * Result of a successful ALP probe: the chosen scale pair, per-row digits (exception rows
-   * hold the first round-trippable digits value, keeping the FOR range tight), and the
-   * exception rows carrying raw transform-domain bits; {@code sizeBytes} is the exact wire
-   * size including the shared 9-byte head.
+   * Result of a successful ALP probe: the chosen scale pair, per-row digits (exception rows hold the
+   * first round-trippable digits value, keeping the FOR range tight), and the exception rows carrying
+   * raw transform-domain bits; {@code sizeBytes} is the exact wire size including the shared 9-byte
+   * head.
    */
   record Encoded(int e, int f, long[] digits, int[] exceptionRows, long[] exceptionBits, int sizeBytes) {
   }
 
   /**
-   * Probe ALP for one double column's transform-domain cells. Returns {@code null} when no
-   * scale pair round-trips at least {@code 7/8} of the rows with a strictly smaller wire
-   * size than {@code plainForSizeBytes} (the caller's plain FOR form, shared head included).
+   * Probe ALP for one double column's transform-domain cells. Returns {@code null} when no scale pair
+   * round-trips at least {@code 7/8} of the rows with a strictly smaller wire size than
+   * {@code plainForSizeBytes} (the caller's plain FOR form, shared head included).
    */
   static Encoded tryEncode(final long[] transformCells, final int rowCount, final int plainForSizeBytes) {
     if (rowCount <= 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS) {
@@ -144,8 +142,8 @@ final class ProjectionAlpEncoding {
   }
 
   /**
-   * Exact wire size (shared head included) under {@code (e, f)}, or {@code -1} when the
-   * pair fails too many cells. One pass, allocation-free.
+   * Exact wire size (shared head included) under {@code (e, f)}, or {@code -1} when the pair fails
+   * too many cells. One pass, allocation-free.
    */
   private static int probeSize(final double[] values, final int rowCount, final int e, final int f) {
     final int maxExceptions = Math.max(1, rowCount / MAX_EXCEPTION_DIVISOR);
@@ -185,14 +183,13 @@ final class ProjectionAlpEncoding {
     }
     final int forWidth = ProjectionIndexRowGroupCodec.widthOf(maxDigits - minDigits);
     // head: base(8) + width(1); ALP: e(1) + f(1) + excCount(4) + forBase(8) + forWidth(1)
-    //   + packed digits + EXCEPTION_BYTES per exception.
-    return 8 + 1 + 1 + 1 + 4 + 8 + 1 + ((rowCount * forWidth + 7) >>> 3)
-        + exceptions * EXCEPTION_BYTES;
+    // + packed digits + EXCEPTION_BYTES per exception.
+    return 8 + 1 + 1 + 1 + 4 + 8 + 1 + ((rowCount * forWidth + 7) >>> 3) + exceptions * EXCEPTION_BYTES;
   }
 
   /** Second pass with the winning pair: collect digits and exceptions exactly. */
-  private static Encoded materialize(final double[] values, final long[] transformCells,
-      final int rowCount, final int e, final int f, final int sizeBytes) {
+  private static Encoded materialize(final double[] values, final long[] transformCells, final int rowCount,
+      final int e, final int f, final int sizeBytes) {
     final double scale = EXP10[e] / EXP10[f];
     final double expF = EXP10[f];
     final double expE = EXP10[e];
@@ -236,12 +233,21 @@ final class ProjectionAlpEncoding {
   }
 
   /**
-   * Decode the ALP payload (cursor positioned immediately AFTER the shared
-   * {@code base + width} head) back to transform-domain cells — the exact inverse of the
-   * wire form above. The digits stream decodes through the PLAIN FOR decoder (an escape
-   * byte inside it is corruption and rejects loudly).
+   * Decode the ALP payload (cursor positioned immediately AFTER the shared {@code base + width} head)
+   * back to transform-domain cells — the exact inverse of the wire form above. The digits stream
+   * decodes through the PLAIN FOR decoder (an escape byte inside it is corruption and rejects
+   * loudly).
    */
   static long[] decode(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount) {
+    final long[] cells = new long[rowCount];
+    decodeInto(in, rowCount, cells);
+    return cells;
+  }
+
+  /**
+   * {@link #decode} into a caller-owned array of length {@code rowCount}; every cell is overwritten.
+   */
+  static void decodeInto(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount, final long[] cells) {
     final int e = in.readByte() & 0xFF;
     final int f = in.readByte() & 0xFF;
     if (e > 18 || f > e) {
@@ -249,10 +255,9 @@ final class ProjectionAlpEncoding {
     }
     final int exceptionCount = in.readInt();
     if (exceptionCount < 0 || exceptionCount > rowCount) {
-      throw new IllegalStateException("Corrupt ALP exception count " + exceptionCount
-          + " for rowCount " + rowCount);
+      throw new IllegalStateException("Corrupt ALP exception count " + exceptionCount + " for rowCount " + rowCount);
     }
-    final long[] cells = ProjectionIndexRowGroupCodec.decodePlainForBitPacked(in, rowCount);
+    ProjectionIndexRowGroupCodec.decodePlainForBitPackedInto(in, rowCount, cells);
     final double expF = EXP10[f];
     final double expE = EXP10[e];
     for (int i = 0; i < rowCount; i++) {
@@ -265,6 +270,5 @@ final class ProjectionAlpEncoding {
       }
       cells[row] = in.readLong();
     }
-    return cells;
   }
 }

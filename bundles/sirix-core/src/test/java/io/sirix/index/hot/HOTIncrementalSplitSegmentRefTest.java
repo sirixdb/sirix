@@ -3,6 +3,7 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTIncrementalInsert.BiNode;
 import io.sirix.page.HOTIndirectPage;
@@ -22,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -53,6 +55,64 @@ final class HOTIncrementalSplitSegmentRefTest {
     final byte[] out = new byte[8];
     PathKeySerializer.INSTANCE.serialize(slotKey, out, 0);
     return out;
+  }
+
+  @Test
+  @DisplayName("a second-half allocation failure retires the already-built first half")
+  void secondHalfFailureClosesFirstHalf() {
+    final HOTLeafPage source = new HOTLeafPage(1, 1, IndexType.PATH);
+    assertTrue(source.put(keyBytes(0), VALUE));
+    assertTrue(source.put(keyBytes(2), VALUE));
+    final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    final AtomicLong allocationCalls = new AtomicLong();
+    final IllegalStateException sentinel = new IllegalStateException("injected second-half allocation failure");
+
+    try {
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> HOTIncrementalInsert.splitLeafPage(source, keyBytes(1), VALUE, 2, IndexType.PATH, () -> {
+            if (allocationCalls.incrementAndGet() == 2) {
+              throw sentinel;
+            }
+            return 100 + allocationCalls.get();
+          }));
+
+      assertSame(sentinel, failure);
+      assertEquals(2, allocationCalls.get());
+      assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+          "the unpublished first half must not retain its 64 KiB frame");
+    } finally {
+      source.close();
+    }
+  }
+
+  @Test
+  @DisplayName("segment routing failure retires both unpublished split halves")
+  void segmentRoutingFailureClosesBothHalves() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final HOTLeafPage source = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.PATH);
+    assertTrue(source.put(keyBytes(0), VALUE));
+    assertTrue(source.put(keyBytes(2), VALUE));
+    final long missingOwnerRefKey = HOTLeafPage.overflowPageRefKey(99, 0);
+    final PageReference segmentReference = new PageReference();
+    segmentReference.setPage(new OverflowPage(new byte[] {99}));
+    source.setPageReference(missingOwnerRefKey, segmentReference);
+    final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+
+    try {
+      assertThrows(IllegalStateException.class, () -> HOTIncrementalInsert.splitLeafPage(source, keyBytes(1), VALUE, 2,
+          IndexType.PATH, allocator::getAndIncrement));
+
+      assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+          "neither unpublished half may survive a failed side-reference rehome");
+      assertEquals(1, source.segmentRefCount(), "the still-owned source keeps its side reference");
+      assertSame(segmentReference, source.getPageReference(missingOwnerRefKey));
+    } finally {
+      source.close();
+    }
   }
 
   @Test

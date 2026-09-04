@@ -50,10 +50,16 @@ import java.util.function.Consumer;
  * {@code $rootPath} selects the record set (e.g. {@code /[]} for a top-level array,
  * {@code /wrapper/records/[]} for a nested one); {@code $fields} are the projected column paths
  * relative to the document root; {@code $types} declare the per-column primitive shape —
- * {@code "long"} (also accepts {@code integer}/{@code int}), {@code "boolean"} ({@code bool}), or
- * {@code "string"} ({@code str}). Floating-point column types are not supported yet: numeric
- * columns store 64-bit longs and non-integral values are flagged unrepresentable, so declaring a
- * {@code double} column would silently degrade — it is rejected instead.
+ * {@code "long"} ({@code integer}/{@code int}), {@code "double"} ({@code float}), {@code "decimal"}
+ * ({@code dec}), {@code "boolean"} ({@code bool}), {@code "string"} ({@code str}),
+ * {@code "timestamp"} ({@code datetime}) or {@code "date"}, exactly as {@code mapType} accepts them
+ * and its rejection message lists them. Double/decimal columns store exact doubles in an
+ * order-preserving encoding; a decimal not exactly representable as a double marks the column
+ * not-value-exact and value-exact consumers decline it (fail-closed). A declared temporal column
+ * stores the epoch rather than the text and therefore requires every value to be exactly
+ * {@code YYYY-MM-DDTHH:MM:SS} (timestamp) or {@code YYYY-MM-DD} (date);
+ * {@code -Dsirix.projection.temporalKinds=false} makes such a column build and serve as an ordinary
+ * string-dictionary column instead (see {@code ProjectionTemporalCodec}).
  *
  * <p>
  * Projection indexes work like the other index families ({@code jn:create-path-index} etc.): each
@@ -62,17 +68,18 @@ import java.util.function.Consumer;
  * executor discovers them through the revision-scoped catalog and page layer
  * ({@code ProjectionIndexCatalog}) — after re-opening a database, queries use persisted projections
  * WITHOUT re-running this function. Calling it with an already-catalogued shape verifies the
- * persisted columns and returns; a stale or missing store (e.g. left behind by a dropped definition
- * or an unfinished load-time build) is rebuilt under the same definition; a different shape creates
- * an additional projection. Shape comparison uses the parsed paths' canonical form, so spelling
- * variants that parse to the same path match.
+ * persisted columns and returns. A stale, missing, or unreadable store is never rebuilt in place:
+ * the caller must drop and commit the unusable definition before creating a replacement, which gets
+ * a previously unallocated projection tree. A different shape likewise creates an additional
+ * projection. Shape comparison uses the parsed paths' canonical form, so spelling variants that
+ * parse to the same path match.
  *
  * <p>
  * The projection is built over the passed document's revision — like the sibling functions, a
  * document bound to an older revision reverts the write transaction to that revision first — and
- * written compactly (see {@code ProjectionIndexRowGroupCodec}) together with a self-describing
- * {@link ProjectionIndexMetadata} payload into the session's write transaction: call
- * {@code sdb:commit($doc)} afterwards to persist.
+ * written in the one segmented projection format (see {@code ProjectionIndexColumnSegmentCodec})
+ * together with a self-describing {@link ProjectionIndexMetadata} payload into the session's write
+ * transaction: call {@code sdb:commit($doc)} afterwards to persist.
  *
  * <p>
  * <b>Experimental.</b> Once built, the projection is maintained INCREMENTALLY by the update
@@ -155,9 +162,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
       }
     }
 
-    final String resourceKey = session.getResourceConfig().getResource().toString();
     final int revision = document.getTrx().getRevisionNumber();
-    final String[] names = fieldNames.toArray(new String[0]);
 
     // The resource's index catalogue is the durable source of truth for
     // which projections exist — same lifecycle as PATH/CAS/NAME indexes.
@@ -172,21 +177,24 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final IndexDef existingDef =
         controller.getIndexes().findProjectionIndex(rootPath, fieldPaths, fieldTypes).orElse(null);
     if (existingDef != null) {
-      // Persisted columns fresh at the document's revision? Nothing to do —
-      // the executor loads them lazily through the same catalog path.
-      if (ProjectionIndexCatalog.load(session, revision, existingDef) != null) {
+      // Probe through an open transaction's own writer so an index created earlier in this
+      // transaction is visible. Otherwise use the committed, revision-scoped catalogue path. Both
+      // are read-only: an unusable populated tree must never become an initializer target.
+      final boolean usable = openWtx.isPresent()
+          ? ProjectionIndexCatalog.loadUncommitted(openWtx.get().getStorageEngineWriter(), existingDef) != null
+          : ProjectionIndexCatalog.load(session, revision, existingDef) != null;
+      if (usable) {
         return existingDef.materialize();
       }
-      // Stale (invalidated by updates), never committed, or unreadable —
-      // rebuild under the same definition. Self-healing by design: leftover
-      // sub-tree payloads from dropped/older definitions are overwritten.
-      buildViaController(session, document, existingDef, rootPath, fieldPaths, fieldTypes, fieldNames);
-      return existingDef.materialize();
+      throw new QueryException(new QNm("Projection index " + existingDef.getID()
+          + " is catalogued but its store is missing, stale, or unreadable. It cannot be rebuilt in place. "
+          + "Drop the definition, commit that change, and create the projection again; the replacement uses "
+          + "a new, empty projection tree."));
     }
 
     // New projection — catalogued, built and persisted through the index
     // controller, like the other index families.
-    final IndexDef def = buildViaController(session, document, null, rootPath, fieldPaths, fieldTypes, fieldNames);
+    final IndexDef def = buildViaController(session, document, rootPath, fieldPaths, fieldTypes, fieldNames);
     return def.materialize();
   }
 
@@ -200,12 +208,10 @@ public final class CreateProjectionIndex extends AbstractFunction {
    * from the revision-scoped catalog after commit, so uncommitted or rolled-back builds are never
    * observable elsewhere.
    *
-   * @param defOrNull an already-catalogued definition to rebuild, or {@code null} to create a new one
-   *        under the next free id
    * @return the definition that was built
    */
   private static IndexDef buildViaController(final JsonResourceSession session, final JsonDBItem document,
-      final IndexDef defOrNull, final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
+      final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
       final List<String> fieldNames) {
     // Validate BEFORE touching any write transaction: a rejected creation
     // must neither leak a freshly-begun wtx (single-writer permit!) nor
@@ -230,17 +236,16 @@ public final class CreateProjectionIndex extends AbstractFunction {
         wtx.revertTo(document.getTrx().getRevisionNumber());
       }
       final JsonIndexController wtxController = session.getWtxIndexController(wtx.getRevisionNumber());
-      // Resolve the definition against the wtx controller's catalogue —
-      // IndexDef has identity semantics, so re-adding a same-shaped def from
-      // another controller would duplicate the entry.
-      IndexDef def = defOrNull == null
-          ? null
-          : wtxController.getIndexes().getIndexDef(defOrNull.getID(), IndexType.PROJECTION);
-      if (def == null) {
-        def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, defOrNull != null
-            ? defOrNull.getID()
-            : nextProjectionIndexNumber(wtxController), IndexDef.DbType.JSON);
+      final var storageEngineWriter = wtx.getStorageEngineWriter();
+      final int indexNumber =
+          storageEngineWriter.getProjectionIndexPage(storageEngineWriter.getActualRevisionRootPage())
+                             .nextUnallocatedIndex();
+      if (wtxController.getIndexes().getIndexDef(indexNumber, IndexType.PROJECTION) != null) {
+        throw new IllegalStateException("Projection catalogue contains definition " + indexNumber
+            + " without an initialized physical tree; refusing to reuse its id");
       }
+      final IndexDef def =
+          IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, indexNumber, IndexDef.DbType.JSON);
       wtxController.createIndexes(Set.of(def), wtx);
       // The built columns are uncommitted and the caller commits them, so from here a wtx we opened
       // is deliberately left open — closing it would throw the build away.
@@ -253,17 +258,6 @@ public final class CreateProjectionIndex extends AbstractFunction {
     }
   }
 
-
-  /** Next free id within the PROJECTION type (ids are unique per type). */
-  private static int nextProjectionIndexNumber(final JsonIndexController controller) {
-    int max = -1;
-    for (final IndexDef def : controller.getIndexes().getIndexDefs()) {
-      if (def.isProjectionIndex() && def.getID() > max) {
-        max = def.getID();
-      }
-    }
-    return max + 1;
-  }
 
   /**
    * Rejects declarations the executor could not tell apart at lookup time.
@@ -448,12 +442,16 @@ public final class CreateProjectionIndex extends AbstractFunction {
       case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
-      default -> throw new QueryException(
-          new QNm("Unsupported projection column type '" + type + "' — use long (integer/int), double "
-              + "(float), decimal (dec), boolean (bool), or string (str). Double/decimal columns "
-              + "store exact doubles in an order-preserving encoding; decimals that are not "
-              + "exactly representable as doubles mark the column not-value-exact and value-exact "
-              + "consumers decline it (fail-closed)."));
+      // Declared temporal columns: every value must be exactly YYYY-MM-DDTHH:MM:SS (timestamp) or
+      // YYYY-MM-DD (date), and the column stores the epoch rather than the text.
+      case "timestamp", "datetime" -> Type.DATI;
+      case "date" -> Type.DATE;
+      default -> throw new QueryException(new QNm("Unsupported projection column type '" + type
+          + "' — use long (integer/int), double "
+          + "(float), decimal (dec), boolean (bool), string (str), timestamp (datetime) or date. "
+          + "Double/decimal columns " + "store exact doubles in an order-preserving encoding; decimals that are not "
+          + "exactly representable as doubles mark the column not-value-exact and value-exact "
+          + "consumers decline it (fail-closed)."));
     };
   }
 }

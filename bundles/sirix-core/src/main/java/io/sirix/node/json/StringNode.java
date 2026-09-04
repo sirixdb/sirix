@@ -272,7 +272,28 @@ public final class StringNode extends AbstractFlyweightNode
     final int payloadLen = value != null
         ? value.length
         : 0;
-    return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
+    return estimateSerializedSize(payloadLen);
+  }
+
+  static int estimateSerializedSize(final int payloadLength) {
+    return FlyweightNode.saturatingSerializedSize((long) SERIALIZED_METADATA_UPPER_BOUND + payloadLength);
+  }
+
+  /**
+   * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset table
+   * + five varints of one byte each + compressed flag + one-byte payload-length varint. The floor of
+   * the wire {@code writeNewRecord} emits; see
+   * {@link io.sirix.node.interfaces.FlyweightNode#estimateSerializedSizeLowerBound()} for why the
+   * refusal in {@code KeyValueLeafPage#serializeToHeap} must key on a floor, not the padded ceiling.
+   */
+  private static final int SERIALIZED_METADATA_LOWER_BOUND = 1 + FIELD_COUNT + 5 + 1 + 1;
+
+  @Override
+  public int estimateSerializedSizeLowerBound() {
+    final int payloadLen = value != null
+        ? value.length
+        : 0;
+    return FlyweightNode.saturatingSerializedSize((long) SERIALIZED_METADATA_LOWER_BOUND + payloadLen);
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -765,6 +786,8 @@ public final class StringNode extends AbstractFlyweightNode
       final int slot = this.slotIndex;
       unbind();
       this.value = value;
+      this.isCompressed = false;
+      this.fsstSymbolTable = null;
       this.decodedValue = null;
       owner.resizeRecord(this, nk, slot);
       return;
@@ -772,6 +795,8 @@ public final class StringNode extends AbstractFlyweightNode
     if (page != null)
       unbind();
     this.value = value;
+    this.isCompressed = false;
+    this.fsstSymbolTable = null;
     this.decodedValue = null;
   }
 

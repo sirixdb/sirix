@@ -19,8 +19,8 @@ import java.util.function.LongConsumer;
  * Two internal representations, invisible through the API:
  * </p>
  * <ul>
- * <li><b>Bitmap-backed</b> — a {@link Roaring64Bitmap}, the historical form. Mutable, merge-
- * friendly; what the write path and the RB-tree backend build and serialize.</li>
+ * <li><b>Bitmap-backed</b> — a {@link Roaring64Bitmap}. Mutable and merge-friendly; used by index
+ * mutation/build paths and persisted posting lists.</li>
  * <li><b>Compact</b> — a sorted-ascending {@code long[]} slice, produced by the HOT read path. The
  * average CAS posting list holds one or two node keys, and materializing a Roaring bitmap
  * (container tree + wrapper) per lookup result was the single largest remaining allocation on the

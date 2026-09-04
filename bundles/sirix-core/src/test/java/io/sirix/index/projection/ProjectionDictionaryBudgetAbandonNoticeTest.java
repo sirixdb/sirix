@@ -19,6 +19,9 @@ import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
@@ -63,15 +66,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * control arm asserts exactly that by checking the published column kind. The load is armed with no
  * row-count hint ({@code -1}), the documented state in which the election-time decline cannot run
  * and "the writer's runtime cap is the only protection"; see the {@code expectedRows} contract on
- * {@link ProjectionIndexBuilder#setExpectedRows(long)}. The budget is CALIBRATED from the real
- * writer rather than hard-coded: it sits above what the sample's distinct values cost to flush and
- * below what the whole corpus costs, so the election succeeds and a later value breaches. Both ends
- * of that window are asserted before the load runs, so drift in the writer's arithmetic fails as a
- * calibration error instead of quietly turning this into a test of nothing.
+ * {@link ProjectionIndexBuilder#setExpectedRows(long)}. The writer/front component cap is
+ * CALIBRATED from the real writer rather than hard-coded: it sits above what the sample's distinct
+ * values cost to flush and below what the whole corpus costs. The configured combined envelope is
+ * exactly twice that cap, so the election succeeds and a later value breaches without either
+ * resident structure double-spending it. Both ends of that window are asserted before the load
+ * runs, so drift in the writer's arithmetic fails as a calibration error instead of quietly turning
+ * this into a test of nothing.
  */
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ_WRITE)
+@ResourceLock(value = Resources.SYSTEM_ERR, mode = ResourceAccessMode.READ_WRITE)
 final class ProjectionDictionaryBudgetAbandonNoticeTest {
 
   private static final int INDEX_NUMBER = 0;
+  private static final String BUDGET_PROPERTY = "sirix.projection.globalDict.budgetBytes";
+  private static final String MODE_PROPERTY = "sirix.projection.globalDict";
 
   /** Enough row groups that the leading decision sample is only a fraction of the corpus. */
   private static final int RECORDS = 30_000;
@@ -88,7 +97,7 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
    * Distinct values the election measures, give or take a partly-filled row group: the builder holds
    * back 16 leading leaves of at most {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows. Used only to
    * calibrate the budget, whose margin absorbs the difference; the window assertions in
-   * {@link #calibratedBudget()} are what guarantee the calibration is usable.
+   * {@link #calibratedCombinedBudget()} are what guarantee the calibration is usable.
    */
   private static final int SAMPLE_DISTINCT = 16 * ProjectionIndexRowGroupPage.MAX_ROWS / ROWS_PER_VALUE;
 
@@ -111,21 +120,21 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
       + " \\((\\d+) B retained\\)\\. (.*)$");
 
   private String priorBudget;
+  private String priorMode;
 
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
     ProjectionBulkLoad.clearActive();
-    priorBudget = System.getProperty("sirix.projection.globalDict.budgetBytes");
+    priorBudget = System.getProperty(BUDGET_PROPERTY);
+    priorMode = System.getProperty(MODE_PROPERTY);
+    System.setProperty(MODE_PROPERTY, "auto");
   }
 
   @AfterEach
   void tearDown() {
-    if (priorBudget == null) {
-      System.clearProperty("sirix.projection.globalDict.budgetBytes");
-    } else {
-      System.setProperty("sirix.projection.globalDict.budgetBytes", priorBudget);
-    }
+    restoreProperty(BUDGET_PROPERTY, priorBudget);
+    restoreProperty(MODE_PROPERTY, priorMode);
     ProjectionBulkLoad.clearActive();
     JsonTestHelper.deleteEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
@@ -138,8 +147,9 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
    */
   @Test
   void aDictionaryBudgetBreachAnnouncesTheAbandonedProjectionEvenWithLoggingOff() {
-    final long budget = calibratedBudget();
-    System.setProperty("sirix.projection.globalDict.budgetBytes", Long.toString(budget));
+    final long combinedBudget = calibratedCombinedBudget();
+    final long componentBudget = ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(combinedBudget);
+    System.setProperty(BUDGET_PROPERTY, Long.toString(combinedBudget));
 
     final Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
     final Level priorLevel = rootLogger.getLevel();
@@ -165,17 +175,23 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
     assertEquals(INDEX_NUMBER, Integer.parseInt(parsed.group(1)), "the notice must name the abandoned index");
     assertEquals(0, Integer.parseInt(parsed.group(2)), "the notice must name the column whose dictionary breached");
     assertTrue(Integer.parseInt(parsed.group(5)) > 0, "the notice must report how many values had been admitted");
-    assertEquals(budget, Long.parseLong(parsed.group(6)), "the notice must quote the budget that was breached");
-    assertTrue(parsed.group(8).contains("STALE") && parsed.group(8).contains("jn:create-projection-index"),
-        "the notice must say the projection is stale and name the call that rebuilds it: " + notice);
+    assertEquals(componentBudget, Long.parseLong(parsed.group(6)),
+        "the notice must quote the disjoint component cap that was breached");
+    final String remedy = parsed.group(8);
+    assertTrue(
+        remedy.contains("STALE") && remedy.contains("drop and commit this stale definition")
+            && remedy.contains("replacement in a new projection tree"),
+        "the notice must say the projection is stale and require drop+commit before a fresh-tree replacement: "
+            + notice);
 
     // THE POINT OF THE ARITHMETIC: the quantity the line announces as breaching must actually exceed
     // the budget the same line quotes. Reporting retention instead put a smaller number on the left
     // of a "past its ... budget" claim on every real breach.
     final long breachingBytes = Long.parseLong(parsed.group(3));
     final long retainedBytes = Long.parseLong(parsed.group(7));
-    assertTrue(breachingBytes > budget, "the notice announces a breach with a quantity that does NOT exceed the budget"
-        + " it quotes (" + breachingBytes + " B vs " + budget + " B): " + notice);
+    assertTrue(breachingBytes > componentBudget,
+        "the notice announces a breach with a quantity that does NOT exceed the component cap it quotes ("
+            + breachingBytes + " B vs " + componentBudget + " B): " + notice);
     assertFalse(parsed.group(4).isBlank(), "the breaching quantity must be named, or it cannot be acted on: " + notice);
     assertTrue(retainedBytes <= breachingBytes, "retention cannot exceed the retention-plus-reservation term that was"
         + " weighed against the budget: " + notice);
@@ -197,7 +213,7 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
    */
   @Test
   void aLoadThatStaysInsideItsBudgetPublishesTheGlobalColumnSilently() {
-    System.setProperty("sirix.projection.globalDict.budgetBytes", Long.toString(Long.MAX_VALUE));
+    System.setProperty(BUDGET_PROPERTY, Long.toString(Long.MAX_VALUE));
 
     final Capture capture = load();
 
@@ -213,19 +229,31 @@ final class ProjectionDictionaryBudgetAbandonNoticeTest {
   }
 
   /**
-   * A budget above the sample's flush peak and below the whole corpus's: the election admits the
-   * column, and a later value cannot fit. Measured on the real writer, so the window is expressed in
-   * the same arithmetic the load will use.
+   * A per-component cap above the sample's flush peak and below the whole corpus's, doubled into the
+   * configured writer/front envelope: the election admits the column, and a later value cannot fit.
+   * Measured on the real writer, so the window is expressed in the same arithmetic the load will use.
    */
-  private static long calibratedBudget() {
+  private static long calibratedCombinedBudget() {
     final long samplePeak = flushPeakForDistinctValues(SAMPLE_DISTINCT);
     final long corpusPeak = flushPeakForDistinctValues(TOTAL_DISTINCT);
-    final long budget = samplePeak * 5L / 4L;
-    assertTrue(budget >= GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES,
-        "calibration produced a budget below what an empty dictionary already retains: " + budget);
-    assertTrue(corpusPeak > budget, "the corpus can no longer outgrow a budget the sample fits in (sample peak "
-        + samplePeak + " B, corpus peak " + corpusPeak + " B) — recalibrate the corpus, this test would prove nothing");
-    return budget;
+    final long componentBudget = Math.multiplyExact(samplePeak, 5L) / 4L;
+    assertTrue(componentBudget >= GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES,
+        "calibration produced a component cap below what an empty dictionary already retains: " + componentBudget);
+    assertTrue(corpusPeak > componentBudget,
+        "the corpus can no longer outgrow a component cap the sample fits in (sample peak " + samplePeak
+            + " B, corpus peak " + corpusPeak + " B) — recalibrate the corpus, this test would prove nothing");
+    final long combinedBudget = Math.multiplyExact(componentBudget, 2L);
+    assertEquals(componentBudget, ProjectionIndexBuilder.streamingGlobalDictionaryComponentBudget(combinedBudget),
+        "combined calibration must give each simultaneously resident structure the measured component cap");
+    return combinedBudget;
+  }
+
+  private static void restoreProperty(final String property, final String value) {
+    if (value == null) {
+      System.clearProperty(property);
+    } else {
+      System.setProperty(property, value);
+    }
   }
 
   /** What a dictionary holding the first {@code distinct} corpus values costs at flush time. */

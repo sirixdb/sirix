@@ -16,6 +16,7 @@ import io.sirix.settings.Constants;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 
@@ -29,14 +30,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class StructuralPageNativeWireTest {
 
   private static final int BUFFER_CAPACITY = 64 * 1024;
+  private static final int OBSOLETE_CHILD_INDEX_BYTES = 256;
 
   private static final long REFERENCE_HASH = 0x0102_0304_0506_0708L;
 
   @Test
-  void hotIndirectAbaRetainsLegacyWireAndColdReadsBothLayouts() throws IOException {
+  void hotIndirectAbaUsesCompactWireAndColdReadsBothLayouts() throws IOException {
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("hot-indirect-native-wire").build();
     final HOTIndirectPage pageA = multiMaskPage();
-    final HOTIndirectPage pageB = indexedMultiNode();
+    final HOTIndirectPage pageB = singleMaskMultiNode();
     final PagePersister persister = new PagePersister();
 
     try (MemorySegmentBytesOut sink = new MemorySegmentBytesOut(BUFFER_CAPACITY)) {
@@ -45,9 +47,15 @@ final class StructuralPageNativeWireTest {
       final byte[] secondAWire = serialize(persister, config, sink, pageA);
 
       assertArrayEquals(firstAWire, secondAWire,
-          "A/B/A reuse must not retain the SingleMask child-index or partial-key fallback");
-      assertArrayEquals(serializeHOTIndirectLegacy(pageA), secondAWire);
-      assertArrayEquals(serializeHOTIndirectLegacy(pageB), pageBWire);
+          "A/B/A reuse must not retain the SingleMask node's partial-key payload");
+      assertArrayEquals(serializeHOTIndirectWithObsoleteTail(pageA), secondAWire);
+
+      final byte[] obsoletePageBWire = serializeHOTIndirectWithObsoleteTail(pageB);
+      assertEquals(obsoletePageBWire.length - OBSOLETE_CHILD_INDEX_BYTES, pageBWire.length,
+          "SingleMask MultiNode wire must drop exactly the obsolete 256-byte child-index tail");
+      assertArrayEquals(pageBWire, Arrays.copyOf(obsoletePageBWire, pageBWire.length),
+          "the format break must remove only the obsolete tail");
+      assertEquals(13, pageBWire[0] & 0xFF, "HOT indirect page-kind id remains stable");
 
       final HOTIndirectPage coldA =
           (HOTIndirectPage) persister.deserializePage(config, Bytes.wrapForRead(secondAWire), SerializationType.DATA);
@@ -59,12 +67,13 @@ final class StructuralPageNativeWireTest {
         assertArrayEquals(pageA.getExtractionMasks(), coldA.getExtractionMasks());
         assertArrayEquals(pageA.getPartialKeys(), coldA.getPartialKeys());
         assertChildKeys(pageA, coldA);
+        assertMultiMaskRoutingParity(pageA, coldA);
 
         assertEquals(HOTIndirectPage.LayoutType.SINGLE_MASK, coldB.getLayoutType());
         assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, coldB.getNodeType());
-        assertNull(coldB.getChildIndex(), "the legacy child-index tail remains intentionally discarded on read");
         assertArrayEquals(pageB.getPartialKeys(), coldB.getPartialKeys());
         assertChildKeys(pageB, coldB);
+        assertSingleMaskRoutingParity(pageB, coldB);
       } finally {
         coldB.close();
         coldA.close();
@@ -149,7 +158,8 @@ final class StructuralPageNativeWireTest {
     return sink.toByteArray();
   }
 
-  private static byte[] serializeHOTIndirectLegacy(final HOTIndirectPage page) {
+  /** Reconstruct the previous framing so the test can pin the format break to one removed suffix. */
+  private static byte[] serializeHOTIndirectWithObsoleteTail(final HOTIndirectPage page) {
     try (MemorySegmentBytesOut sink = new MemorySegmentBytesOut(BUFFER_CAPACITY)) {
       sink.writeByte(PageKind.HOT_INDIRECT_PAGE.getID());
       PageKind.writeVersionAndFlags(sink);
@@ -209,10 +219,7 @@ final class StructuralPageNativeWireTest {
 
       if (page.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
           && page.getNodeType() == HOTIndirectPage.NodeType.MULTI_NODE) {
-        final byte[] childIndex = page.getChildIndex();
-        sink.write(childIndex == null
-            ? new byte[256]
-            : childIndex);
+        sink.write(new byte[OBSOLETE_CHILD_INDEX_BYTES]);
       }
       return sink.toByteArray();
     }
@@ -291,12 +298,39 @@ final class StructuralPageNativeWireTest {
         childReferences(4, 1_000L), 3, (short) 0);
   }
 
-  private static HOTIndirectPage indexedMultiNode() {
-    final byte[] childIndex = new byte[256];
-    for (int index = 0; index < childIndex.length; index++) {
-      childIndex[index] = (byte) (index % 17);
+  private static HOTIndirectPage singleMaskMultiNode() {
+    final int[] partialKeys = new int[17];
+    for (int index = 0; index < partialKeys.length; index++) {
+      partialKeys[index] = index;
     }
-    return HOTIndirectPage.createMultiNode(12L, 8, 5, childIndex, childReferences(17, 2_000L));
+    return HOTIndirectPage.createMultiNode(12L, 8, 5, 0xF800_0000_0000_0000L, partialKeys, childReferences(17, 2_000L),
+        4);
+  }
+
+  private static void assertSingleMaskRoutingParity(final HOTIndirectPage hot, final HOTIndirectPage cold) {
+    final byte[] key = new byte[6];
+    for (int partial = 0; partial < 32; partial++) {
+      key[5] = (byte) (partial << 3);
+      assertEquals(hot.findChildIndex(key), cold.findChildIndex(key),
+          "cold SingleMask routing differs for dense partial " + partial);
+    }
+  }
+
+  private static void assertMultiMaskRoutingParity(final HOTIndirectPage hot, final HOTIndirectPage cold) {
+    final byte[] key = new byte[18];
+    for (int partial = 0; partial < 8; partial++) {
+      key[0] = (byte) ((partial & 0b100) == 0
+          ? 0
+          : 0x80);
+      key[9] = (byte) ((partial & 0b010) == 0
+          ? 0
+          : 0x40);
+      key[17] = (byte) ((partial & 0b001) == 0
+          ? 0
+          : 0x20);
+      assertEquals(hot.findChildIndex(key), cold.findChildIndex(key),
+          "cold MultiMask routing differs for dense partial " + partial);
+    }
   }
 
   private static PageReference[] childReferences(final int count, final long keyBase) {

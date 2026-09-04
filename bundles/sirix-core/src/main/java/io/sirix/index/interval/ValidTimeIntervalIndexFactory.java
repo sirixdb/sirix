@@ -12,24 +12,22 @@ import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTIndexWriter;
 
 /**
- * Constructs the {@link RelationalIntervalTree} that backs a valid-time interval index over a single
- * HOT sub-tree.
+ * Constructs the {@link RelationalIntervalTree} that backs a valid-time interval index over a
+ * single HOT sub-tree.
  *
- * <p>Both RI-tree stores (lower/upper) are realised on ONE HOT sub-tree (one {@code indexNumber} =
+ * <p>
+ * Both RI-tree stores (lower/upper) are realised on ONE HOT sub-tree (one {@code indexNumber} =
  * {@code IndexDef#getID()}); a one-byte store discriminator keeps them in disjoint contiguous key
  * ranges (see {@link ValidTimeKey}). The writer factory wires a single
  * {@link HOTIndexWriter}{@code <ValidTimeKey>} into both stores; the reader factory wires a single
- * {@link HOTIndexReader}{@code <ValidTimeKey>}.</p>
+ * {@link HOTIndexReader}{@code <ValidTimeKey>}.
+ * </p>
  *
- * <p><b>Backend is always HOT, by construction.</b> The persistent {@link OrderedStore} the RI-tree
- * needs (an order-preserving range-scannable ordered map) only exists on the HOT trie, so this
- * factory unconditionally constructs HOT readers/writers — it does NOT consult the global
- * {@code sirix.index.useHOT} / {@code ResourceConfiguration.indexBackendType} setting that selects
- * the CAS/PATH/NAME backend. A resource may therefore freely mix an RBTree CAS/PATH/NAME index
- * (default backend) with a HOT VALIDTIME index in the same revision: they live in different
- * {@code RevisionRootPage} reference slots ({@code CASPage}/{@code PathPage}/{@code NamePage} vs
- * {@link io.sirix.page.ValidTimeIndexPage}) and never share state, so the VALIDTIME index builds,
- * maintains, and queries correctly under DEFAULT JVM settings with no {@code -D} flag.</p>
+ * <p>
+ * The persistent {@link OrderedStore} required by the RI-tree is implemented by the canonical HOT
+ * trie. Valid-time entries live in their dedicated {@link io.sirix.page.ValidTimeIndexPage}
+ * reference slot, separate from the other index types.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */

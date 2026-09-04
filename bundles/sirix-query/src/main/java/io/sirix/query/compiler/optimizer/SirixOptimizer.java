@@ -85,8 +85,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.planCache = planCache;
     // 0. Debug only: dumps the incoming AST under -Dsirix.debug.ast=true, no-op otherwise.
     getStages().add(new AstDumpStage("incoming"));
-    // 0b. count(E[]) / count(for $x in E[] return $x) -> jn:size(E). Runs before everything else
-    // because it deletes the pipeline the later stages would otherwise spend effort planning.
+    // 0b. count(E[]) / count(for $x in E[] return $x) -> the Sirix stored-array size accessor. Runs
+    // before everything else because it deletes the pipeline the later stages would otherwise plan.
     getStages().add(new ArrayCountToSizeStage());
     // 1. JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());

@@ -198,8 +198,12 @@ final class ChunkedBodyLazyExpansionTest {
         expectedEncoded += layout.chunkEncLen[c];
       }
       assertEquals(expectedEncoded, encodedBytes, "the page does not hold exactly the chunk table's encoded bytes");
-      assertEquals(lazy.getSlottedPage().byteSize() + expectedEncoded, lazy.getActualMemorySize(),
-          "cache weight ignores the encoded chunks the page is holding");
+      final long retainedRegionBytes = lazy.getRegionTable() == null
+          ? 0L
+          : lazy.getRegionTable().retainedFootprintBytes();
+      assertEquals(Math.addExact(lazy.getSlottedPage().byteSize() + expectedEncoded, retainedRegionBytes),
+          lazy.getActualMemorySize(),
+          "cache weight must include the slotted frame, encoded chunks, and retained native regions");
 
       // Read one slot out of the middle chunk, through the accessor — the only door that gates.
       final int target = 1;

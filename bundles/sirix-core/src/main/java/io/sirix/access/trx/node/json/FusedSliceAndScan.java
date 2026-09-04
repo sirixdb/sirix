@@ -5,10 +5,11 @@ package io.sirix.access.trx.node.json;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -95,17 +96,273 @@ final class FusedSliceAndScan {
    *        coordinator did not ask for them. Only a load that must name every record — a one-pass
    *        projection build — needs them; an ordinary import pays neither the array nor the stores.
    */
-  record Chunk(byte[] bytes, int length, boolean isFinal, long nodes, long members, long lastMemberNodes,
+  record Chunk(ChunkBuffer bytes, int length, boolean isFinal, long nodes, long members, long lastMemberNodes,
       List<PathStep> newSteps, List<PathStep> touchedSteps, int[] stepOccurrences, List<String> newNames,
       List<int[]> nameTallies, long @Nullable [] memberNodes) {
   }
 
-  private static final int READ_BUFFER_BYTES = 1 << 20;
+  /**
+   * A recyclable, append-only byte buffer whose individual heap arrays never exceed 256 KiB.
+   *
+   * <p>
+   * The importer deliberately schedules multi-megabyte member-aligned chunks: that is large enough to
+   * amortize path resolution, worker dispatch and tail-page stitching. Representing such a chunk as
+   * one {@code byte[]} made every live pipeline slot a G1 humongous object, however, and the
+   * subsequent UTF-8 decode needed an even larger {@code char[]}. This slab chain preserves the
+   * scheduling unit without creating either array. It also admits a single record larger than the
+   * scheduling target; more slabs are linked instead of growing and copying a contiguous array.
+   * </p>
+   *
+   * <p>
+   * The two-level chain avoids a growing reference directory as well. A block contains only 256 slab
+   * references (2 KiB with 64-bit references), while each data slab has a 256 KiB payload. The
+   * ordinary 4 MiB chunk occupies one block and 16 slabs, so random name probes pay no linked walk in
+   * the common case.
+   * </p>
+   */
+  static final class ChunkBuffer extends InputStream {
+
+    static final int SLAB_BYTES = 256 << 10;
+    private static final int SLABS_PER_BLOCK = 256;
+    private static final int BLOCK_BYTES = SLAB_BYTES * SLABS_PER_BLOCK;
+
+    private static final class SlabBlock {
+      private final byte[][] slabs = new byte[SLABS_PER_BLOCK][];
+      private SlabBlock next;
+    }
+
+    private final SlabBlock firstBlock = new SlabBlock();
+    private SlabBlock appendBlock = firstBlock;
+    private int appendBlockIndex;
+    private int length;
+    private int readPosition;
+    private int readLimit;
+
+    int length() {
+      return length;
+    }
+
+    void append(final byte[] source, final int sourceOffset, final int byteCount) {
+      Objects.checkFromIndexSize(sourceOffset, byteCount, source.length);
+      if (byteCount == 0) {
+        return;
+      }
+      if (length > Integer.MAX_VALUE - byteCount) {
+        throw new IllegalStateException("one JSON import chunk exceeds the 2 GiB addressable limit");
+      }
+
+      int remaining = byteCount;
+      int sourcePosition = sourceOffset;
+      while (remaining > 0) {
+        final int blockIndex = length / BLOCK_BYTES;
+        moveAppendBlockTo(blockIndex);
+        final int offsetInBlock = length - blockIndex * BLOCK_BYTES;
+        final int slabIndex = offsetInBlock / SLAB_BYTES;
+        final int slabOffset = offsetInBlock - slabIndex * SLAB_BYTES;
+        byte[] slab = appendBlock.slabs[slabIndex];
+        if (slab == null) {
+          slab = new byte[SLAB_BYTES];
+          appendBlock.slabs[slabIndex] = slab;
+        }
+        final int copied = Math.min(remaining, SLAB_BYTES - slabOffset);
+        System.arraycopy(source, sourcePosition, slab, slabOffset, copied);
+        sourcePosition += copied;
+        remaining -= copied;
+        length += copied;
+      }
+    }
+
+    byte byteAt(final int index) {
+      Objects.checkIndex(index, length);
+      final int blockIndex = index / BLOCK_BYTES;
+      final int offsetInBlock = index - blockIndex * BLOCK_BYTES;
+      final byte[] slab = blockAt(blockIndex).slabs[offsetInBlock / SLAB_BYTES];
+      return slab[offsetInBlock & (SLAB_BYTES - 1)];
+    }
+
+    boolean matches(final byte[] expected, final int sourceOffset, final int byteCount) {
+      if (expected.length != byteCount || sourceOffset < 0 || byteCount < 0 || sourceOffset > length - byteCount) {
+        return false;
+      }
+      int sourcePosition = sourceOffset;
+      int expectedPosition = 0;
+      int remaining = byteCount;
+      while (remaining > 0) {
+        final int blockIndex = sourcePosition / BLOCK_BYTES;
+        final int offsetInBlock = sourcePosition - blockIndex * BLOCK_BYTES;
+        final int slabIndex = offsetInBlock / SLAB_BYTES;
+        final int slabOffset = offsetInBlock - slabIndex * SLAB_BYTES;
+        final int compared = Math.min(remaining, SLAB_BYTES - slabOffset);
+        if (Arrays.mismatch(expected, expectedPosition, expectedPosition + compared,
+            blockAt(blockIndex).slabs[slabIndex], slabOffset, slabOffset + compared) >= 0) {
+          return false;
+        }
+        sourcePosition += compared;
+        expectedPosition += compared;
+        remaining -= compared;
+      }
+      return true;
+    }
+
+    long fnv1a64(final int sourceOffset, final int byteCount) {
+      Objects.checkFromIndexSize(sourceOffset, byteCount, length);
+      long hash = 0xcbf29ce484222325L;
+      int sourcePosition = sourceOffset;
+      int remaining = byteCount;
+      while (remaining > 0) {
+        final int blockIndex = sourcePosition / BLOCK_BYTES;
+        final int offsetInBlock = sourcePosition - blockIndex * BLOCK_BYTES;
+        final int slabIndex = offsetInBlock / SLAB_BYTES;
+        final int slabOffset = offsetInBlock - slabIndex * SLAB_BYTES;
+        final int hashed = Math.min(remaining, SLAB_BYTES - slabOffset);
+        final byte[] slab = blockAt(blockIndex).slabs[slabIndex];
+        final int end = slabOffset + hashed;
+        for (int i = slabOffset; i < end; i++) {
+          hash = (hash ^ slab[i]) * 0x100000001b3L;
+        }
+        sourcePosition += hashed;
+        remaining -= hashed;
+      }
+      return hash;
+    }
+
+    void copyTo(final int sourceOffset, final byte[] destination, final int destinationOffset, final int byteCount) {
+      Objects.checkFromIndexSize(sourceOffset, byteCount, length);
+      Objects.checkFromIndexSize(destinationOffset, byteCount, destination.length);
+      int sourcePosition = sourceOffset;
+      int destinationPosition = destinationOffset;
+      int remaining = byteCount;
+      while (remaining > 0) {
+        final int blockIndex = sourcePosition / BLOCK_BYTES;
+        final int offsetInBlock = sourcePosition - blockIndex * BLOCK_BYTES;
+        final int slabIndex = offsetInBlock / SLAB_BYTES;
+        final int slabOffset = offsetInBlock - slabIndex * SLAB_BYTES;
+        final int copied = Math.min(remaining, SLAB_BYTES - slabOffset);
+        System.arraycopy(blockAt(blockIndex).slabs[slabIndex], slabOffset, destination, destinationPosition, copied);
+        sourcePosition += copied;
+        destinationPosition += copied;
+        remaining -= copied;
+      }
+    }
+
+    InputStream prepareRead(final int byteCount) {
+      if (byteCount < 0 || byteCount > length) {
+        throw new IllegalArgumentException("read length must be in [0, " + length + "], got " + byteCount);
+      }
+      readPosition = 0;
+      readLimit = byteCount;
+      return this;
+    }
+
+    @Override
+    public int read() {
+      return readPosition >= readLimit
+          ? -1
+          : byteAt(readPosition++) & 0xff;
+    }
+
+    @Override
+    public int read(final byte[] destination, final int destinationOffset, final int byteCount) {
+      Objects.checkFromIndexSize(destinationOffset, byteCount, destination.length);
+      if (byteCount == 0) {
+        return 0;
+      }
+      if (readPosition >= readLimit) {
+        return -1;
+      }
+      final int copied = Math.min(byteCount, readLimit - readPosition);
+      copyTo(readPosition, destination, destinationOffset, copied);
+      readPosition += copied;
+      return copied;
+    }
+
+    @Override
+    public int available() {
+      return readLimit - readPosition;
+    }
+
+    void clear() {
+      length = 0;
+      readPosition = 0;
+      readLimit = 0;
+      appendBlock = firstBlock;
+      appendBlockIndex = 0;
+    }
+
+    /**
+     * Keep at most the requested number of data slabs before returning this buffer to the pool. A
+     * single unusually large record may exceed the scheduling target by an arbitrary amount; its excess
+     * slabs must become reclaimable instead of inflating the steady-state pool forever.
+     */
+    void trimToBytes(final int retainedBytes) {
+      final int retainedSlabs = Math.max(1, 1 + (retainedBytes - 1) / SLAB_BYTES);
+      int remaining = retainedSlabs;
+      SlabBlock block = firstBlock;
+      while (true) {
+        if (remaining <= SLABS_PER_BLOCK) {
+          Arrays.fill(block.slabs, remaining, SLABS_PER_BLOCK, null);
+          block.next = null;
+          break;
+        }
+        remaining -= SLABS_PER_BLOCK;
+        if (block.next == null) {
+          break;
+        }
+        block = block.next;
+      }
+      appendBlock = firstBlock;
+      appendBlockIndex = 0;
+    }
+
+    int largestArrayPayloadBytes() {
+      return Math.max(SLAB_BYTES, SLABS_PER_BLOCK * Long.BYTES);
+    }
+
+    int allocatedSlabCount() {
+      int count = 0;
+      for (SlabBlock block = firstBlock; block != null; block = block.next) {
+        for (final byte[] slab : block.slabs) {
+          if (slab != null) {
+            count++;
+          }
+        }
+      }
+      return count;
+    }
+
+    private void moveAppendBlockTo(final int blockIndex) {
+      if (blockIndex < appendBlockIndex) {
+        appendBlock = firstBlock;
+        appendBlockIndex = 0;
+      }
+      while (appendBlockIndex < blockIndex) {
+        if (appendBlock.next == null) {
+          appendBlock.next = new SlabBlock();
+        }
+        appendBlock = appendBlock.next;
+        appendBlockIndex++;
+      }
+    }
+
+    private SlabBlock blockAt(final int blockIndex) {
+      SlabBlock block = firstBlock;
+      for (int i = 0; i < blockIndex; i++) {
+        block = block.next;
+        if (block == null) {
+          throw new IllegalStateException("missing slab block " + blockIndex + " for " + length + " bytes");
+        }
+      }
+      return block;
+    }
+  }
+
+  private static final int READ_BUFFER_BYTES = 256 << 10;
   private static final int INITIAL_DEPTH_CAPACITY = 64;
   private static final int NAME_TABLE_CAPACITY = 1 << 10;
 
   private final InputStream in;
   private final int chunkByteBudget;
+  private final int maxMembersPerChunk;
 
   private final byte[] readBuffer = new byte[READ_BUFFER_BYTES];
   private int position;
@@ -113,7 +370,7 @@ final class FusedSliceAndScan {
   /** Start of the not-yet-copied segment of the read buffer (bulk chunk copies). */
   private int segmentStart;
 
-  private byte[] chunkBuffer;
+  private ChunkBuffer chunkBuffer = new ChunkBuffer();
   private int chunkLength;
 
   private boolean inString;
@@ -164,28 +421,31 @@ final class FusedSliceAndScan {
   /** The trie root = the top-level array's own step; the coordinator sets its PCR up front. */
   private final PathStep rootStep = new PathStep(null, -1, null);
 
-  /**
-   * Recycled chunk buffers: a fresh multi-MB {@code byte[]} per chunk is a G1 humongous allocation —
-   * measured at ~2.8 GB of churn every 1.7 s on a 1M import, driving 10 of 12 collections. Receivers
-   * return buffers via {@link #releaseChunkBuffer} once the build is done.
-   */
-  private final ArrayBlockingQueue<byte[]> chunkBufferPool = new ArrayBlockingQueue<>(16);
+  /** Recycled slab chains; receivers return ownership once the worker has consumed the chunk. */
+  private final ArrayBlockingQueue<ChunkBuffer> chunkBufferPool = new ArrayBlockingQueue<>(16);
 
-  private byte[] acquireChunkBuffer(final int needed) {
-    final byte[] pooled = chunkBufferPool.poll();
-    if (pooled != null && pooled.length >= needed) {
+  private ChunkBuffer acquireChunkBuffer() {
+    final ChunkBuffer pooled = chunkBufferPool.poll();
+    if (pooled != null) {
+      pooled.clear();
       return pooled;
     }
-    return new byte[Math.max(needed, chunkByteBudget + (chunkByteBudget >> 2))];
+    return new ChunkBuffer();
   }
 
   /** Thread-safe; called by the importer (any thread) when a chunk's bytes are no longer read. */
-  void releaseChunkBuffer(final byte[] buffer) {
+  void releaseChunkBuffer(final ChunkBuffer buffer) {
+    buffer.clear();
+    final int headroom = chunkByteBudget >> 2;
+    final int pooledBytes = chunkByteBudget > Integer.MAX_VALUE - headroom
+        ? Integer.MAX_VALUE
+        : chunkByteBudget + headroom;
+    buffer.trimToBytes(pooledBytes);
     chunkBufferPool.offer(buffer);
   }
 
   FusedSliceAndScan(final InputStream in, final int chunkByteBudget) {
-    this(in, chunkByteBudget, false);
+    this(in, chunkByteBudget, false, Integer.MAX_VALUE);
   }
 
   /**
@@ -193,9 +453,17 @@ final class FusedSliceAndScan {
    *        coordinator can name every record's root key by range arithmetic
    */
   FusedSliceAndScan(final InputStream in, final int chunkByteBudget, final boolean trackMemberNodes) {
+    this(in, chunkByteBudget, trackMemberNodes, Integer.MAX_VALUE);
+  }
+
+  FusedSliceAndScan(final InputStream in, final int chunkByteBudget, final boolean trackMemberNodes,
+      final int maxMembersPerChunk) {
+    if (maxMembersPerChunk <= 0) {
+      throw new IllegalArgumentException("maxMembersPerChunk must be positive: " + maxMembersPerChunk);
+    }
     this.in = in;
     this.chunkByteBudget = Math.max(1024, chunkByteBudget);
-    this.chunkBuffer = new byte[this.chunkByteBudget + (this.chunkByteBudget >> 2)];
+    this.maxMembersPerChunk = maxMembersPerChunk;
     this.memberNodes = trackMemberNodes
         ? new LongArrayList(1024)
         : null;
@@ -415,7 +683,7 @@ final class FusedSliceAndScan {
   /** Closes the chunk at this member boundary when the budget is met. */
   private Chunk maybeCloseChunk() throws IOException {
     flushSegmentUpTo(position);
-    if (chunkLength < chunkByteBudget) {
+    if (chunkLength < chunkByteBudget && members < maxMembersPerChunk) {
       return null;
     }
     final boolean isFinal = peekArrayCloses();
@@ -452,17 +720,10 @@ final class FusedSliceAndScan {
   private void flushSegmentUpTo(final int end) {
     final int len = end - segmentStart;
     if (len > 0) {
-      ensureChunkCapacity(len);
-      System.arraycopy(readBuffer, segmentStart, chunkBuffer, chunkLength, len);
+      chunkBuffer.append(readBuffer, segmentStart, len);
       chunkLength += len;
     }
     segmentStart = end;
-  }
-
-  private void ensureChunkCapacity(final int extra) {
-    if (chunkLength + extra > chunkBuffer.length) {
-      chunkBuffer = Arrays.copyOf(chunkBuffer, Math.max(chunkBuffer.length << 1, chunkLength + extra));
-    }
   }
 
   private boolean fill() throws IOException {
@@ -482,10 +743,7 @@ final class FusedSliceAndScan {
   /** Name bytes live at {@code chunkBuffer[start .. endExclusive)} (closing quote excluded). */
   private void resolveName(final int start, final int endExclusive) {
     final int len = endExclusive - start;
-    long hash = 0xcbf29ce484222325L;
-    for (int i = start; i < endExclusive; i++) {
-      hash = (hash ^ chunkBuffer[i]) * 0x100000001b3L;
-    }
+    final long hash = chunkBuffer.fnv1a64(start, len);
     int slot = (int) hash & nameMask;
     while (true) {
       final byte[] existing = nameBytes[slot];
@@ -553,8 +811,8 @@ final class FusedSliceAndScan {
       step.chunkOccurrences = 0;
       step.touchedThisChunk = false;
     }
-    final byte[] out = acquireChunkBuffer(chunkLength);
-    System.arraycopy(chunkBuffer, 0, out, 0, chunkLength);
+    final ChunkBuffer out = chunkBuffer;
+    chunkBuffer = acquireChunkBuffer();
     final long[] memberNodeCounts = memberNodes == null
         ? null
         : memberNodes.toLongArray();
@@ -566,12 +824,12 @@ final class FusedSliceAndScan {
     if (existing.length != len) {
       return false;
     }
-    return Arrays.mismatch(existing, 0, len, chunkBuffer, start, start + len) < 0;
+    return chunkBuffer.matches(existing, start, len);
   }
 
   private void insertName(final int slot, final int start, final int len) {
     final byte[] copy = new byte[len];
-    System.arraycopy(chunkBuffer, start, copy, 0, len);
+    chunkBuffer.copyTo(start, copy, 0, len);
     final String decoded = decodeName(copy);
     final int nameId = nameCount++;
     nameBytes[slot] = copy;

@@ -2,6 +2,10 @@ package io.sirix.page.pax;
 
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.io.SharedArenas;
+import io.sirix.page.PageSectionDiag;
 import io.sirix.page.SirixLZ77Codec;
 
 import java.lang.foreign.Arena;
@@ -87,10 +91,11 @@ public final class RegionTable implements AutoCloseable {
   public static final byte KIND_STRING_DICT_SKETCH = 8;
 
   /**
-   * {@link NumberZoneMapRegion} — the per-tag min/max of {@link #KIND_NUMBER}, stored raw and on its
-   * own. Lets a range predicate rule a page out without decompressing the number column, which is
-   * where the zone maps used to live and therefore could not save the decompression they were meant
-   * to make unnecessary.
+   * {@link NumberZoneMapRegion} — the per-tag min/max of {@link #KIND_NUMBER}, stored on its own.
+   * Narrow maps stay raw; wide maps may use the independent per-region LZ77 envelope. Either form
+   * lets a range predicate rule a page out without decompressing the number column, which is where
+   * the zone maps used to live and therefore could not save the decompression they were meant to make
+   * unnecessary.
    */
   public static final byte KIND_NUMBER_ZONEMAP = 9;
 
@@ -111,6 +116,33 @@ public final class RegionTable implements AutoCloseable {
 
   /** Size of the fixed-slot storage. Bump when a new region kind is introduced. */
   public static final int KIND_COUNT = 12;
+
+  /**
+   * Stable diagnostic name for an on-disk region kind.
+   *
+   * <p>
+   * The default is deliberately total: diagnostics must not fail at JVM shutdown merely because a
+   * newer writer introduced another length-delimited kind. The normal reader already skips an unknown
+   * kind by length; its reporting path must be at least as defensive.
+   * </p>
+   */
+  public static String kindName(final int kind) {
+    return switch (kind) {
+      case KIND_NUMBER -> "number";
+      case KIND_STRING -> "string";
+      case KIND_STRUCT -> "struct";
+      case KIND_DEWEYID -> "deweyId";
+      case KIND_OBJECT_KEY_NAMEKEY -> "objKeyNameKey";
+      case KIND_BOOLEAN -> "boolean";
+      case KIND_HASH -> "hash";
+      case KIND_STRUCT_POINTERS -> "structPointers";
+      case KIND_STRING_DICT_SKETCH -> "stringDictSketch";
+      case KIND_NUMBER_ZONEMAP -> "numberZoneMap";
+      case KIND_RECORD_ORDINAL -> "recordOrdinal";
+      case KIND_DOUBLE -> "double";
+      default -> "unknown(" + kind + ')';
+    };
+  }
 
   /**
    * Sentinel empty payload, so an absent-but-present region needs no special case. NATIVE (a
@@ -148,28 +180,63 @@ public final class RegionTable implements AutoCloseable {
    * Arena backing this table's native payloads, created on first allocation.
    *
    * <p>
-   * {@link Arena#ofAuto()} rather than a closeable arena: a table's payloads are reachable from a
-   * page that a cache may hand to any thread and evict at any time, so there is no point at which an
-   * explicit close is provably safe. An automatic arena frees the memory once the arena and every
-   * segment from it are unreachable, which makes a stale payload reference impossible by construction
-   * rather than by discipline. Per table rather than per payload so a page's regions are reclaimed as
-   * one unit.
+   * Ordinary payloads up to the buffer allocator's largest size class are allocated from
+   * {@link Allocators#getInstance()} and returned individually when this table's final owner leaves.
+   * That is the common case and the HFT path: stable-address recyclable slots, one bounded native
+   * memory budget, and no shared-arena close handshake on every page eviction. The arena field is
+   * created only for an unusually large region that cannot fit a 256 KiB frame.
    *
    * <p>
    * The one exception is a table created by {@link #newConfinedWriterTable()}. That table exists only
    * while one disposable snapshot copy is being serialized, never escapes the serializer thread, and
    * is closed before the encoded copy is handed to the append thread. Its confined arena makes that
    * high-volume allocation deterministic without weakening the automatic lifetime of
-   * resident/read-side tables.
+   * resident/read-side tables. For oversized regions in a GraalVM native image {@link SharedArenas}
+   * keeps its existing shared-arena fallback because closing those arenas is incompatible with the
+   * Vector API in GraalVM 25; releasing the last ownership still drops every Java reference
+   * immediately.
    * </p>
    */
   private volatile Arena arena;
 
+  /** Process-wide bounded allocator used by normal resident/read-side payloads. */
+  private static final MemorySegmentAllocator PAYLOAD_ALLOCATOR = Allocators.getInstance();
+
+  /**
+   * Full allocator slots, retained so the final owner can return them (visible payloads are slices).
+   */
+  private MemorySegment[] allocatorAllocations;
+
+  private int allocatorAllocationCount;
+
   /** Whether this is a serializer-local table whose confined arena must be closed explicitly. */
   private final boolean confinedWriterTable;
 
-  /** Idempotence guard for the explicitly closeable writer-table variant. */
+  /** True after the table's last ownership has been released. */
   private volatile boolean closed;
+
+  /**
+   * Number of page/wrapper owners keeping this table alive. New tables transfer their initial
+   * ownership to the page that receives them. Sharing a table (resident-page column view or the
+   * single-fragment versioning shortcut) must first call {@link #tryRetain()}.
+   */
+  @SuppressWarnings("FieldMayBeFinal")
+  private volatile int referenceCount = 1;
+
+  private static final VarHandle REFERENCE_COUNT;
+
+  static {
+    try {
+      REFERENCE_COUNT = MethodHandles.lookup().findVarHandle(RegionTable.class, "referenceCount", int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
+  /**
+   * Native bytes requested from this table's arena, including decoder tail slack and stale payloads.
+   */
+  private long allocatedBytes;
 
   /** Live count — number of region slots whose payload is non-empty. */
   private int liveCount;
@@ -188,7 +255,7 @@ public final class RegionTable implements AutoCloseable {
    *
    * <p>
    * This factory is deliberately separate from the public constructor. Ordinary tables may be shared
-   * by cached pages and must retain their automatic arena lifetime; only a disposable writer that
+   * by cached pages and therefore use reference-counted ownership; only a disposable writer that
    * completes and closes the table on this same thread may use this variant.
    * </p>
    *
@@ -196,6 +263,31 @@ public final class RegionTable implements AutoCloseable {
    */
   public static RegionTable newConfinedWriterTable() {
     return new RegionTable(true);
+  }
+
+  /**
+   * Acquire one additional ownership without resurrecting a table whose final owner already left. The
+   * CAS is paid only when a table crosses an ownership boundary; payload reads remain one array load
+   * on the scan hot path.
+   *
+   * @return {@code true} when the ownership was acquired, {@code false} if the table was already
+   *         released
+   */
+  public boolean tryRetain() {
+    if (confinedWriterTable) {
+      throw new IllegalStateException("a confined writer region table cannot be shared");
+    }
+    int current = (int) REFERENCE_COUNT.getAcquire(this);
+    while (current > 0) {
+      if (current == Integer.MAX_VALUE) {
+        throw new IllegalStateException("region table ownership count overflow");
+      }
+      if (REFERENCE_COUNT.compareAndSet(this, current, current + 1)) {
+        return true;
+      }
+      current = (int) REFERENCE_COUNT.getAcquire(this);
+    }
+    return false;
   }
 
   /**
@@ -290,21 +382,7 @@ public final class RegionTable implements AutoCloseable {
    * the fast path.
    */
   private MemorySegment allocate(final int rawLen) {
-    Arena local = arena;
-    if (local == null) {
-      // Double-checked under the monitor: allocate() is reached both from the synchronized
-      // materializeDeferred and from the unsynchronized set(), so two threads could otherwise mint
-      // two arenas for one table and split its payloads across two independently reclaimed
-      // lifetimes — breaking the "reclaimed as one unit" invariant this field exists to provide.
-      synchronized (this) {
-        local = arena;
-        if (local == null) {
-          local = newPayloadArena();
-          arena = local;
-        }
-      }
-    }
-    return local.allocate(rawLen + DECODE_TAIL_SLACK, Long.BYTES).asSlice(0, rawLen);
+    return allocateWithSlack(rawLen).asSlice(0, rawLen);
   }
 
   /**
@@ -315,27 +393,58 @@ public final class RegionTable implements AutoCloseable {
    * caller write into it and slice ONCE at the end, instead of slicing here and widening the slice
    * back out. Each of those wrappers is an object per region per page.
    */
-  private MemorySegment allocateWithSlack(final int rawLen) {
-    Arena local = arena;
-    if (local == null) {
-      synchronized (this) {
-        local = arena;
-        if (local == null) {
-          local = newPayloadArena();
-          arena = local;
+  private synchronized MemorySegment allocateWithSlack(final int rawLen) {
+    if (rawLen < 0 || rawLen > Integer.MAX_VALUE - DECODE_TAIL_SLACK) {
+      throw new IllegalArgumentException("invalid region payload length: " + rawLen);
+    }
+    if (closed || (int) REFERENCE_COUNT.getAcquire(this) <= 0) {
+      throw new IllegalStateException("region table is already closed");
+    }
+    final long bytes = (long) rawLen + DECODE_TAIL_SLACK;
+    if (!confinedWriterTable && bytes <= MemorySegmentAllocator.TWO_FIFTYSIX_KB) {
+      final MemorySegment allocation = PAYLOAD_ALLOCATOR.allocate(bytes);
+      boolean retained = false;
+      try {
+        retainAllocatorAllocation(allocation);
+        retained = true;
+        allocatedBytes = Math.addExact(allocatedBytes, allocation.byteSize());
+        return allocation.asSlice(0, bytes);
+      } finally {
+        if (!retained) {
+          PAYLOAD_ALLOCATOR.release(allocation);
         }
       }
     }
-    return local.allocate(rawLen + DECODE_TAIL_SLACK, Long.BYTES);
+
+    Arena local = arena;
+    if (local == null) {
+      local = newPayloadArena();
+      arena = local;
+    }
+    final MemorySegment allocation = local.allocate(bytes, Long.BYTES);
+    allocatedBytes += bytes;
+    return allocation;
+  }
+
+  private void retainAllocatorAllocation(final MemorySegment allocation) {
+    MemorySegment[] retained = allocatorAllocations;
+    if (retained == null) {
+      retained = new MemorySegment[KIND_COUNT];
+      allocatorAllocations = retained;
+    } else if (allocatorAllocationCount == retained.length) {
+      retained = Arrays.copyOf(retained, retained.length << 1);
+      allocatorAllocations = retained;
+    }
+    retained[allocatorAllocationCount++] = allocation;
   }
 
   private Arena newPayloadArena() {
     if (closed) {
-      throw new IllegalStateException("confined writer region table is already closed");
+      throw new IllegalStateException("region table is already closed");
     }
     return confinedWriterTable
         ? Arena.ofConfined()
-        : Arena.ofAuto();
+        : SharedArenas.newSharedArena();
   }
 
   /** Copy {@code len} bytes of an array into a fresh native payload. */
@@ -495,6 +604,28 @@ public final class RegionTable implements AutoCloseable {
     return total;
   }
 
+  /**
+   * Actual retained footprint for cache charging without materializing deferred payloads.
+   *
+   * <p>
+   * The native side counts every arena allocation, including decoder slack and payloads replaced by
+   * invalidation: an arena can reclaim those only as a group. Deferred wire buffers are heap arrays
+   * and therefore count at their allocated length, including native-decoder input slack.
+   * </p>
+   */
+  public synchronized long retainedFootprintBytes() {
+    long total = allocatedBytes;
+    final byte[][] deferred = deferredWire;
+    if (deferred != null) {
+      for (final byte[] wire : deferred) {
+        if (wire != null) {
+          total = Math.addExact(total, wire.length);
+        }
+      }
+    }
+    return total;
+  }
+
   /** Payloads read in deferred form and not yet materialized. */
   private int deferredCount;
 
@@ -525,34 +656,98 @@ public final class RegionTable implements AutoCloseable {
   }
 
   /**
-   * Close a table created by {@link #newConfinedWriterTable()} and reclaim all of its native payloads
-   * immediately.
-   *
-   * <p>
-   * Ordinary tables intentionally reject this operation: their automatic arena can be shared by
-   * cached pages, including the single-fragment versioning shortcut, so closing one page must never
-   * invalidate another page's payload view. Confined writer tables, conversely, are serializer-local
-   * and this method must run on the thread that populated them.
-   * </p>
+   * Release this owner's claim. The last owner reclaims the complete arena and every deferred wire
+   * buffer. Confined writer tables have exactly one owner and retain their idempotent close contract.
    */
   @Override
-  public synchronized void close() {
-    if (!confinedWriterTable) {
-      throw new UnsupportedOperationException("automatic region tables cannot be closed explicitly");
-    }
-    if (closed) {
+  public void close() {
+    if (confinedWriterTable) {
+      closeConfinedWriterTable();
       return;
     }
 
+    final int previous = (int) REFERENCE_COUNT.getAndAdd(this, -1);
+    if (previous <= 0) {
+      REFERENCE_COUNT.getAndAdd(this, 1);
+      throw new IllegalStateException("region table ownership released more than once");
+    }
+    if (previous == 1) {
+      closeLastOwnership();
+    }
+  }
+
+  private synchronized void closeConfinedWriterTable() {
+    if (closed) {
+      return;
+    }
     final Arena local = arena;
     if (local != null) {
       // Close first. If the caller violates the same-thread contract, WrongThreadException leaves
       // the table intact so the owning thread can still close it instead of losing the only handle.
       local.close();
     }
+    closed = true;
+    REFERENCE_COUNT.setRelease(this, 0);
+    clearRetainedState();
+  }
 
+  private synchronized void closeLastOwnership() {
+    if (closed) {
+      return;
+    }
+    // Publish terminal state before invalidating the arena. A racing tryRetain that observes zero
+    // cannot resurrect it; every legitimate payload reader still owns a reference and therefore
+    // prevents this method from being reached.
+    closed = true;
+    Throwable cleanupFailure = releaseAllocatorAllocations();
+    final Arena local = arena;
+    if (local != null) {
+      try {
+        SharedArenas.close(local);
+      } catch (final RuntimeException | Error failure) {
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        } else if (cleanupFailure != failure) {
+          cleanupFailure.addSuppressed(failure);
+        }
+      }
+    }
+    clearRetainedState();
+    rethrowCleanupFailure(cleanupFailure);
+  }
+
+  private Throwable releaseAllocatorAllocations() {
+    Throwable first = null;
+    final MemorySegment[] retained = allocatorAllocations;
+    for (int i = 0; retained != null && i < allocatorAllocationCount; i++) {
+      try {
+        PAYLOAD_ALLOCATOR.release(retained[i]);
+      } catch (final RuntimeException | Error failure) {
+        if (first == null) {
+          first = failure;
+        } else if (first != failure) {
+          first.addSuppressed(failure);
+        }
+      }
+    }
+    return first;
+  }
+
+  private static void rethrowCleanupFailure(final Throwable failure) {
+    if (failure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+  }
+
+  private void clearRetainedState() {
     Arrays.fill(payloads, null);
     arena = null;
+    allocatorAllocations = null;
+    allocatorAllocationCount = 0;
+    allocatedBytes = 0L;
     liveCount = 0;
     deferredWire = null;
     deferredRawLen = null;
@@ -570,6 +765,13 @@ public final class RegionTable implements AutoCloseable {
    * length int eat any conceivable saving, and the attempt itself is not free.
    */
   private static final int MIN_COMPRESS_BYTES = 64;
+
+  /**
+   * Keep the genuinely small zone-map summaries directly readable. Wide schemas can make the
+   * supposedly-small map kilobytes long (24 bytes per numeric tag), at which point an independent
+   * decode is a better size/latency trade than storing that duplicate metadata raw on every page.
+   */
+  private static final int MIN_ACCELERATOR_COMPRESS_BYTES = 512;
 
   /**
    * Per-thread scratch for the encode attempt, sized to the LZ77 worst case and grown on demand.
@@ -635,17 +837,39 @@ public final class RegionTable implements AutoCloseable {
   }
 
   /**
-   * Region kinds that must never be compressed, however large they get.
+   * Whether this payload may enter the existing raw-vs-LZ77 bake-off.
    *
    * <p>
-   * These are the summaries a scan reads in order to decide whether it needs the region they
-   * summarise. Compressing one would put a decode between the reader and the decision, which is
-   * precisely the cost it exists to avoid — a zone map that must be decompressed before it can rule a
-   * page out has given the saving back before collecting it. They are small by construction, so the
-   * bytes given up are few.
+   * A normal narrow-schema zone map stays raw: decoding a few dozen summary bytes before it can prune
+   * the number column would give its saving back. A wide-schema map is different. Its V1 layout
+   * repeats 24 bytes per numeric tag and measured 1,774 bytes on every ClickBench leaf page. It
+   * remains much cheaper to materialize that independently compressed summary than the larger number
+   * column it can leave deferred, while the bake-off still refuses compression unless the complete
+   * encoded frame, including its extra encoded-length field, is strictly smaller.
    */
-  private static boolean neverCompress(final byte kind) {
-    return kind == KIND_NUMBER_ZONEMAP;
+  private static boolean mayCompress(final byte kind, final int length) {
+    return kind != KIND_NUMBER_ZONEMAP || length >= MIN_ACCELERATOR_COMPRESS_BYTES;
+  }
+
+  /**
+   * Decide whether the encoded payload pays for its complete per-region wire envelope.
+   *
+   * <p>
+   * The zone map is a latency accelerator: every cold prune must decode it before comparing bounds.
+   * The repository storage policy therefore requires at least 20% net persisted saving for this unit,
+   * including kind, codec, and length fields. Existing load-bearing regions retain their established
+   * strict-smaller election until they receive their own latency/size measurements.
+   */
+  static boolean compressionPays(final byte kind, final int rawLength, final int encodedLength) {
+    if (encodedLength <= 0) {
+      return false;
+    }
+    if (kind == KIND_NUMBER_ZONEMAP) {
+      final long rawWireBytes = rawLength + 1L + 1L + Integer.BYTES;
+      final long lz77WireBytes = encodedLength + 1L + 1L + Integer.BYTES + Integer.BYTES;
+      return lz77WireBytes * 5L <= rawWireBytes * 4L;
+    }
+    return encodedLength + Integer.BYTES < rawLength;
   }
 
   /**
@@ -670,6 +894,16 @@ public final class RegionTable implements AutoCloseable {
     return kind == KIND_NUMBER_ZONEMAP || kind == KIND_RECORD_ORDINAL || kind == KIND_DOUBLE;
   }
 
+  /**
+   * When {@code -Dsirix.pageSectionDiag=true} is set, {@link #write} reports what each region kind
+   * costs AS WRITTEN — after per-region LZ77 and with its framing — beside the raw payload size
+   * {@link PageSectionDiag#recordRegion} already records. A raw-byte split cannot say whether a
+   * region's bulk survives compression; only the pair can. Static final, so the disabled path folds
+   * the branch away entirely. Read here rather than through {@code PageSectionDiag} so a disabled
+   * build never initialises that class (and never registers its shutdown hook) on this account.
+   */
+  private static final boolean SECTION_DIAG = Boolean.getBoolean("sirix.pageSectionDiag");
+
   public void write(final BytesOut<?> sink, final boolean compress) {
     // A deferred region lives in deferredWire, not payloads, and the loop below reads only
     // payloads — so serializing such a table would drop those regions with no error at all, and
@@ -684,14 +918,18 @@ public final class RegionTable implements AutoCloseable {
     if (liveCount == 0) {
       return;
     }
+    final boolean sectionDiag = SECTION_DIAG;
     for (final byte kind : WRITE_ORDER) {
       final MemorySegment p = payloads[kind];
       if (p == null) {
         continue;
       }
+      final long regionStart = sectionDiag
+          ? sink.writePosition()
+          : 0L;
       final int len = (int) p.byteSize();
       sink.writeByte(kind);
-      if (compress && len >= MIN_COMPRESS_BYTES && !neverCompress(kind)) {
+      if (compress && len >= MIN_COMPRESS_BYTES && mayCompress(kind, len)) {
         final int bound = SirixLZ77Codec.maxEncodedSize(len);
         byte[] out = ENCODE_SCRATCH.get();
         if (out.length < bound) {
@@ -700,11 +938,16 @@ public final class RegionTable implements AutoCloseable {
         }
         // The encoder already reads from a segment, so a native payload needs no staging at all.
         final int encodedLen = SirixLZ77Codec.encode(p, 0L, len, out, 0);
-        if (encodedLen > 0 && encodedLen < len) {
+        // Compare complete wire sizes. The optional zone-map accelerator additionally has to clear
+        // the documented 20% net-saving gate before making every cold pruning read pay a decode.
+        if (compressionPays(kind, len, encodedLen)) {
           sink.writeByte(PAYLOAD_LZ77);
           sink.writeInt(len);
           sink.writeInt(encodedLen);
           sink.write(out, 0, encodedLen);
+          if (sectionDiag) {
+            PageSectionDiag.recordRegionWritten(kind, sink.writePosition() - regionStart, true);
+          }
           continue;
         }
       }
@@ -720,6 +963,9 @@ public final class RegionTable implements AutoCloseable {
         }
         MemorySegment.copy(p, ValueLayout.JAVA_BYTE, 0L, out, 0, len);
         sink.write(out, 0, len);
+      }
+      if (sectionDiag) {
+        PageSectionDiag.recordRegionWritten(kind, sink.writePosition() - regionStart, false);
       }
     }
   }
@@ -826,45 +1072,84 @@ public final class RegionTable implements AutoCloseable {
     return read(source, kindMask, deferMask, true);
   }
 
-  private static RegionTable read(final BytesIn<?> source, final int kindMask, final int deferMask,
+  /**
+   * Add {@link #KIND_NUMBER_ZONEMAP} to any request for {@link #KIND_NUMBER}.
+   *
+   * <p>
+   * The number column's per-tag directory — the tag ids, their counts and their bounds — is stored in
+   * the zone map rather than a second time inside the values (see
+   * {@code NumberRegion.ENC_PER_TAG_FOR_EXTERNAL}). That makes the summary part of how the values are
+   * READ, not merely a way to avoid reading them, so a request for the values is a request for both.
+   * Enforced here rather than at each call site because a caller that forgot would not get a wrong
+   * answer — it would silently lose columnar serving for the page, which is the kind of regression
+   * nothing fails on.
+   *
+   * <p>
+   * The summary is small (a few hundred bytes on a wide page, and the first region in write order),
+   * and it is never added to the DEFER mask: a prune that settles the page must not have to
+   * decompress anything.
+   */
+  private static int withNumberDirectory(final int kindMask) {
+    return (kindMask & maskOf(KIND_NUMBER)) != 0
+        ? kindMask | maskOf(KIND_NUMBER_ZONEMAP)
+        : kindMask;
+  }
+
+  private static RegionTable read(final BytesIn<?> source, final int requestedKindMask, final int deferMask,
       final boolean stopWhenSatisfied) {
+    final int kindMask = withNumberDirectory(requestedKindMask);
     final int count = source.readInt();
-    final RegionTable t = new RegionTable();
-    if (count == 0) {
-      return t;
+    if (count < 0 || (long) count * (Byte.BYTES * 2L + Integer.BYTES) > source.remaining()) {
+      throw new IllegalStateException(
+          "invalid region count " + count + " for " + source.remaining() + " remaining wire bytes");
     }
-    // Bits still outstanding. When this hits zero the rest of the table is of no interest and the
-    // read returns without touching it — which is what makes a bounded, partial page read possible.
-    int remaining = kindMask;
-    for (int i = 0; i < count; i++) {
-      if (stopWhenSatisfied && remaining == 0) {
-        break;
+    final RegionTable t = new RegionTable();
+    try {
+      if (count == 0) {
+        return t;
       }
-      final byte kind = source.readByte();
-      final byte codec = source.readByte();
-      final int rawLen = source.readInt();
-      // Unwanted kind: step over its bytes without touching them. RAW is the raw length;
-      // LZ77 stores the encoded length in the int that follows.
-      if (kind < 0 || kind >= KIND_COUNT || (kindMask & (1 << kind)) == 0) {
-        skipRegion(source, kind, codec, rawLen);
-        continue;
-      }
-      if ((deferMask & (1 << kind)) != 0) {
-        deferRegion(t, source, kind, codec, rawLen);
-        remaining &= ~(1 << kind);
-        continue;
-      }
-      final MemorySegment payload = materializeRegion(t, source, kind, codec, rawLen);
-      if (kind >= 0 && kind < KIND_COUNT) {
+      // Bits still outstanding. When this hits zero the rest of the table is of no interest and the
+      // read returns without touching it — which is what makes a bounded, partial page read possible.
+      int remaining = kindMask;
+      for (int i = 0; i < count; i++) {
+        if (stopWhenSatisfied && remaining == 0) {
+          break;
+        }
+        final byte kind = source.readByte();
+        final byte codec = source.readByte();
+        final int rawLen = source.readInt();
+        if (rawLen < 0 || rawLen > Integer.MAX_VALUE - DECODE_TAIL_SLACK) {
+          throw new IllegalStateException("region kind " + kind + " declares invalid rawLen=" + rawLen);
+        }
+        // Unwanted kind: step over its bytes without touching them. RAW is the raw length;
+        // LZ77 stores the encoded length in the int that follows.
+        if (kind < 0 || kind >= KIND_COUNT || (kindMask & (1 << kind)) == 0) {
+          skipRegion(source, kind, codec, rawLen);
+          continue;
+        }
+        if ((deferMask & (1 << kind)) != 0) {
+          deferRegion(t, source, kind, codec, rawLen);
+          remaining &= ~(1 << kind);
+          continue;
+        }
+        final MemorySegment payload = materializeRegion(t, source, kind, codec, rawLen);
         t.setSegment(kind, payload);
         remaining &= ~(1 << kind);
         if (READ_DIAG) {
           MATERIALIZED_BYTES[kind].add(rawLen);
         }
       }
-      // Unknown region kinds are silently skipped (forward-compat).
+      return t;
+    } catch (final RuntimeException | Error failure) {
+      try {
+        t.close();
+      } catch (final RuntimeException | Error cleanupFailure) {
+        if (cleanupFailure != failure) {
+          failure.addSuppressed(cleanupFailure);
+        }
+      }
+      throw failure;
     }
-    return t;
   }
 
   /** Step over an unwanted region's bytes without touching them. */
@@ -874,6 +1159,7 @@ public final class RegionTable implements AutoCloseable {
     }
     // RAW is the raw length; LZ77 stores the encoded length in the int that follows.
     if (codec == PAYLOAD_RAW) {
+      requireAvailable(source, rawLen, kind, "raw");
       if (rawLen > 0) {
         source.skip(rawLen);
       }
@@ -883,6 +1169,7 @@ public final class RegionTable implements AutoCloseable {
         throw new IllegalStateException("region kind " + kind + " declares a compressed payload" + " with rawLen="
             + rawLen + " encodedLen=" + encodedLen);
       }
+      requireAvailable(source, encodedLen, kind, "compressed");
       source.skip(encodedLen);
     } else {
       throw new IllegalStateException("region kind " + kind + " has unknown codec " + codec);
@@ -904,6 +1191,12 @@ public final class RegionTable implements AutoCloseable {
       throw new IllegalStateException("region kind " + kind + " declares a compressed payload" + " with rawLen="
           + rawLen + " encodedLen=" + wireLen);
     }
+    requireAvailable(source, wireLen, kind, codec == PAYLOAD_RAW
+        ? "raw"
+        : "compressed");
+    if (wireLen > Integer.MAX_VALUE - ENCODE_TAIL_SLACK) {
+      throw new IllegalStateException("region kind " + kind + " wire payload is too large: " + wireLen);
+    }
     // Over-sized by the native decoder's input tail slack. Sized exactly, the deferred payload
     // fails SirixLZ77Codec's `off + len + NATIVE_INPUT_TAIL_SLACK <= input.length` precondition
     // and every lazily materialized region silently takes the Java decoder — and deferral is
@@ -919,6 +1212,7 @@ public final class RegionTable implements AutoCloseable {
   private static MemorySegment materializeRegion(final RegionTable t, final BytesIn<?> source, final byte kind,
       final byte codec, final int rawLen) {
     if (codec == PAYLOAD_RAW) {
+      requireAvailable(source, rawLen, kind, "raw");
       if (rawLen == 0) {
         return EMPTY;
       }
@@ -938,6 +1232,10 @@ public final class RegionTable implements AutoCloseable {
       throw new IllegalStateException("region kind " + kind + " declares a compressed payload" + " with rawLen="
           + rawLen + " encodedLen=" + encodedLen);
     }
+    requireAvailable(source, encodedLen, kind, "compressed");
+    if (encodedLen > Integer.MAX_VALUE - ENCODE_TAIL_SLACK) {
+      throw new IllegalStateException("region kind " + kind + " compressed payload is too large: " + encodedLen);
+    }
     byte[] in = ENCODE_SCRATCH.get();
     if (in.length < encodedLen + ENCODE_TAIL_SLACK) {
       in = new byte[Math.max(encodedLen + ENCODE_TAIL_SLACK, in.length * 2)];
@@ -946,5 +1244,13 @@ public final class RegionTable implements AutoCloseable {
     source.read(in, 0, encodedLen);
     // Straight into the payload — no intermediate scratch, no copy afterwards.
     return t.decompressInto(in, encodedLen, rawLen, kind);
+  }
+
+  private static void requireAvailable(final BytesIn<?> source, final int length, final byte kind,
+      final String encoding) {
+    if (length < 0 || length > source.remaining()) {
+      throw new IllegalStateException("region kind " + kind + " declares " + encoding + " payload length " + length
+          + " with only " + source.remaining() + " wire bytes remaining");
+    }
   }
 }

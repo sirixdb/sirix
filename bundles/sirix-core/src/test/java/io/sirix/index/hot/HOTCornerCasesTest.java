@@ -411,10 +411,7 @@ class HOTCornerCasesTest {
     @DisplayName("Concurrent reads and writes maintain isolation")
     void testConcurrentReadDuringSplit() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         // Create initial data - revision 1
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
@@ -468,10 +465,7 @@ class HOTCornerCasesTest {
     @DisplayName("Range query finds all keys after split")
     void testRangeQueryAcrossSplit() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         // Create data that will span multiple pages
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
@@ -654,7 +648,6 @@ class HOTCornerCasesTest {
     void testSplitWithIncrementalVersioning() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.INCREMENTAL)
                                                .maxNumberOfRevisionsToRestore(5)
                                                .build());
@@ -712,10 +705,7 @@ class HOTCornerCasesTest {
     @DisplayName("Can read data from earlier revision")
     void testHistoricalRevisionRead() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         // Create initial data
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
@@ -769,10 +759,7 @@ class HOTCornerCasesTest {
     @DisplayName("Root split followed by new revision works correctly")
     void testRootSplitThenNewRevision() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         // Create large initial data (may cause root split)
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
@@ -815,7 +802,6 @@ class HOTCornerCasesTest {
     void testFragmentThreshold() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
                                                .versioningApproach(VersioningType.DIFFERENTIAL)
                                                .maxNumberOfRevisionsToRestore(3)
                                                .build());
@@ -860,10 +846,7 @@ class HOTCornerCasesTest {
     @DisplayName("Reader isolation during writer COW")
     void testReaderIsolationDuringCOW() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
-        db.createResource(ResourceConfiguration.newBuilder("resource")
-                                               .useHOTIndexes()
-                                               .versioningApproach(VersioningType.FULL)
-                                               .build());
+        db.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(VersioningType.FULL).build());
 
         // Create initial data
         try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {

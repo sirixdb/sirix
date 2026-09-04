@@ -102,6 +102,15 @@ them slot for slot (row-group descriptors and leaves, fence chunks and the physi
 per-column Bloom manifests and chunks, set-summary chunks, the record locator, the structural-order
 directory and the dictionary blobs) and fails on a single differing byte.
 
+The in-flight representation is bounded in the same units as the storage path. Raw JSON chunks keep
+the 4 MiB scheduling target but are chains of reusable 256 KiB slabs, decoded through a streaming
+reader; there is no chunk-sized `byte[]`, chunk copy, or chunk-sized `char[]`. Projection row counts
+also close a chunk before any row-indexed lane can exceed a 256 KiB payload. String bytes use 64 KiB
+arena chunks, and pending record roots/ends use FIFO blocks with two 256 KiB primitive lanes. A very
+large single record may link more slabs while it is processed, but excess slabs are trimmed before
+the buffer returns to the pool. This keeps the general path non-humongous without reducing the
+scheduling granularity that amortizes dispatch and page stitching.
+
 Under the async-flush pipeline, a record's row is fed only once its whole subtree has entered the
 intent log — the chunk's tail page is deliberately held out of the log until its successor's head
 merges into it, and the feed drains against that adopted-key watermark. The batch rows themselves
@@ -203,8 +212,16 @@ The 100M run is the full official corpus streamed through the NDJSON adapter: 99
 119.4 GiB on disk — scaling stays linear and per-row cost actually improves slightly as epochs
 amortize.
 
-GC profile under the parallel importer: zero full collections at every scale; chunk buffers and
-decode scratch are pooled, so no humongous-allocation-triggered cycles. Peak RSS for the 10M
+The 119.4 GiB figure was measured on 2026-08-26 (`faff8547f`) with overflow payload compression
+**off**, which was the default then. `sirix.page.overflow.compress` has defaulted to `true` since
+`53f33cfa7`, so a current import writes fewer bytes; the run has not been repeated since the flip.
+Treat 119.4 GiB as an upper bound for a fresh import at this scale, not as a comparable baseline
+against a compressed build. The wall-clock and GC numbers on this page come from that same run and
+were likewise not re-measured under the new default.
+
+GC profile under the parallel importer: zero full collections at every scale. The current chunk
+path uses the fixed-size slab/streaming representation described above, so it does not rely on
+pooling multi-megabyte heap arrays to avoid allocation churn. Peak RSS for the 10M
 import: 3.5 GB (heap 10 GB budgeted, off-heap capped at 8 GB). At 100M: 3,953 young pauses
 totaling 4.4 s of a 1,145 s wall (0.38%), max single pause 3.7 ms.
 

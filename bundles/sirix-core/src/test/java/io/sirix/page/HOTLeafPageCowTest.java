@@ -13,6 +13,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -22,8 +23,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.foreign.Arena;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -107,13 +110,14 @@ final class HOTLeafPageCowTest {
     final HOTLeafPage source = newPopulatedLeaf(IndexType.PATH, 1);
     final HOTLeafPage failingFragment = mock(HOTLeafPage.class);
     final StorageEngineReader reader = mock(StorageEngineReader.class);
-    final PageReference reference =
-        new PageReference().setKey(17L).setPageFragments(List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L)));
+    final List<PageFragmentKey> originalFragments = List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L));
+    final PageReference reference = new PageReference().setKey(17L).setPageFragments(originalFragments);
     final List<HOTLeafPage> fragments = List.of(failingFragment);
     final AssertionError carryFailure = new AssertionError("injected carry-forward failure");
     final IllegalStateException releaseFailure = new IllegalStateException("injected fragment release failure");
 
     when(reader.loadHOTLeafFragments(reference)).thenReturn(fragments);
+    when(reader.getRevisionNumber()).thenReturn(2);
     when(failingFragment.getEntryCount()).thenThrow(carryFailure);
     doThrow(releaseFailure).when(reader).releaseHOTLeafFragments(fragments, source);
 
@@ -126,9 +130,71 @@ final class HOTLeafPageCowTest {
       assertSame(carryFailure, thrown);
       assertEquals(1, thrown.getSuppressed().length);
       assertSame(releaseFailure, thrown.getSuppressed()[0]);
+      assertSame(originalFragments, reference.getPageFragments(),
+          "a failed carry-forward must restore the exact pre-bump fragment chain");
       assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
           "the unreturned CoW page must be retired after carry-forward fails");
     } finally {
+      source.close();
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  @DisplayName("every strategy restores the exact fragment chain when CoW allocation fails")
+  void everyVersioningTypeRestoresFragmentChainWhenCopyFails(final VersioningType versioningType) {
+    final HOTLeafPage source = mock(HOTLeafPage.class);
+    final StorageEngineReader reader = mock(StorageEngineReader.class);
+    final ArrayList<PageFragmentKey> originalFragments = new ArrayList<>();
+    final PageReference reference = new PageReference().setKey(17L).setPageFragments(originalFragments);
+    final OutOfMemoryError copyFailure = new OutOfMemoryError("injected CoW allocation failure");
+
+    when(source.getRevision()).thenReturn(1);
+    when(source.copyForRevision(2)).thenThrow(copyFailure);
+    when(reader.getRevisionNumber()).thenReturn(2);
+    when(reader.getDatabaseId()).thenReturn(1L);
+    when(reader.getResourceId()).thenReturn(1L);
+
+    final OutOfMemoryError thrown = assertThrows(OutOfMemoryError.class,
+        () -> versioningType.combineHOTLeafPagesForModification(source, 4, reader, reference));
+
+    assertSame(copyFailure, thrown);
+    assertSame(originalFragments, reference.getPageFragments(),
+        "the failed " + versioningType + " attempt must restore the exact list object");
+    assertTrue(reference.getPageFragments().isEmpty());
+  }
+
+  @Test
+  @DisplayName("versioning restores the fragment chain when borrowed-fragment release fails")
+  void versioningRestoresFragmentChainWhenFragmentReleaseFails() {
+    final FrameSlotAllocator frameAllocator = assertInstanceOf(FrameSlotAllocator.class, allocator);
+    final HOTLeafPage source = newPopulatedLeaf(IndexType.PATH, 1);
+    final HOTLeafPage olderFragment = newPopulatedLeaf(IndexType.PATH, 1);
+    final StorageEngineReader reader = mock(StorageEngineReader.class);
+    final List<PageFragmentKey> originalFragments = List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L));
+    final PageReference reference = new PageReference().setKey(17L).setPageFragments(originalFragments);
+    final List<HOTLeafPage> fragments = List.of(olderFragment);
+    final IllegalStateException releaseFailure = new IllegalStateException("injected fragment release failure");
+
+    when(reader.loadHOTLeafFragments(reference)).thenReturn(fragments);
+    when(reader.getRevisionNumber()).thenReturn(2);
+    when(reader.getDatabaseId()).thenReturn(1L);
+    when(reader.getResourceId()).thenReturn(1L);
+    doThrow(releaseFailure).when(reader).releaseHOTLeafFragments(fragments, source);
+
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    try {
+      final IllegalStateException thrown = assertThrows(IllegalStateException.class,
+          () -> VersioningType.SLIDING_SNAPSHOT.combineHOTLeafPagesForModification(source, 2, reader, reference));
+
+      assertSame(releaseFailure, thrown);
+      assertSame(originalFragments, reference.getPageFragments(),
+          "release failure must restore the exact pre-bump fragment chain");
+      assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+          "the successful-but-unreturned CoW page must be retired when fragment release fails");
+    } finally {
+      olderFragment.close();
       source.close();
     }
   }
@@ -166,6 +232,32 @@ final class HOTLeafPageCowTest {
         // Through the public surface, updateValue is invoked indirectly; do it via mergeWithNodeRefs
         // analogue: same-length put is treated as no-op (returns false), so use updateValueRange.
         assertTrue(cow.updateValueRange(idx, newValue, 0, newValue.length));
+        assertEquals(1, cow.getDirtyEntryCount());
+      } finally {
+        cow.close();
+      }
+    } finally {
+      src.close();
+    }
+  }
+
+  @Test
+  @DisplayName("range update shrinks a value in its existing slot")
+  void shrinkingRangeUpdateReusesExistingSlot() {
+    final HOTLeafPage src = new HOTLeafPage(1L, 1, IndexType.PATH);
+    try {
+      final byte[] key = keyOf(8);
+      assertTrue(src.put(key, "original-value".getBytes(StandardCharsets.UTF_8)));
+      final HOTLeafPage cow = src.copy();
+      try {
+        final int index = cow.findEntry(key);
+        final int usedBefore = cow.getUsedSlotsSize();
+        final byte[] source = "xxnewyy".getBytes(StandardCharsets.UTF_8);
+
+        assertTrue(cow.updateValueRange(index, source, 2, 3));
+        assertArrayEquals("new".getBytes(StandardCharsets.UTF_8), cow.copyStoredValue(index));
+        assertEquals(usedBefore - ("original-value".length() - 3), cow.getUsedSlotsSize(),
+            "a shrunken tail slot should release its trailing bytes immediately");
         assertEquals(1, cow.getDirtyEntryCount());
       } finally {
         cow.close();
@@ -378,7 +470,9 @@ final class HOTLeafPageCowTest {
       for (final int k : new int[] {10, 20, 30, 40}) { // live keys in the merged leaf (50 deleted)
         assertTrue(complete.put(keyOf(k), valueOf(k)));
       }
-      modified = complete.copy(); // mirrors the writer path: dirty cleared
+      modified = complete.copyForRevision(4); // mirrors the writer path: dirty cleared, new wire revision
+      assertEquals(3, complete.getRevision(), "the historical source revision must remain unchanged");
+      assertEquals(4, modified.getRevision(), "the CoW image must carry its writing revision");
       assertFalse(modified.hasDirty());
 
       VersioningType.carryForwardAgingHOTEntries(java.util.List.of(newest, middle, oldest), modified);

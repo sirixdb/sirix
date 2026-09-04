@@ -67,11 +67,12 @@ import java.util.concurrent.atomic.LongAdder;
  * ({@code -Dsirix.projection.cacheBytes}, default 8 GiB).</li>
  * </ul>
  *
- * <h2>Failure policy</h2> Expected non-usability (no payloads, older wire format, stale tombstone)
- * is cached silently. Corruption evidence (metadata that no longer matches the catalogued
- * definition, truncated leaf lists, decode failures) is logged at WARN and cached as unusable —
- * queries fall back to the always-correct generic pipeline. Unexpected transient failures (a
- * session closing mid-read, I/O errors) are logged and NOT cached, so the next query retries.
+ * <h2>Failure policy</h2> Expected non-usability (no payloads, unsupported format version, stale
+ * tombstone) is cached silently. Corruption evidence (metadata that no longer matches the
+ * catalogued definition, truncated leaf lists, decode failures) is logged at WARN and cached as
+ * unusable — queries fall back to the always-correct generic pipeline. Unexpected transient
+ * failures (a session closing mid-read, I/O errors) are logged and NOT cached, so the next query
+ * retries.
  *
  * <p>
  * Resource lifecycle: {@link #invalidateUnder(String)} drops all cached state for a
@@ -84,14 +85,11 @@ import java.util.concurrent.atomic.LongAdder;
  * readers through the cached tiers here and write-transaction readers through
  * {@link #lookupCoveringUncommitted} (read-your-writes, uncached). This class is the selection +
  * decode-cache engine behind that method; the decode cache is the projection family's one
- * structural extra over the other index types, needed because the compact persisted form is not the
- * scan form (the others scan their pages as stored, so the buffer manager suffices). The vectorized
- * executor's committed fast path calls the cached front-end here directly so a cache hit costs no
- * transaction open.
+ * structural extra over the other index types, needed because the canonical descriptor/segment
+ * persistence form is not the assembled scan form (the others scan their pages as stored, so the
+ * buffer manager suffices). The vectorized executor's committed fast path calls the cached
+ * front-end here directly so a cache hit costs no transaction open.
  *
- * <p>
- * The static {@link ProjectionIndexRegistry} remains as bench/test wiring for stores without
- * catalogued definitions — production lookups go through here first.
  */
 public final class ProjectionIndexCatalog {
 
@@ -151,6 +149,13 @@ public final class ProjectionIndexCatalog {
                       // flat charge an upper bound rather than a hope. Charging the whole-leaf
                       // projection instead put a 10 GB handle over this cache's own maximumWeight,
                       // so Caffeine evicted it on insert and every lookup re-decoded a fresh one.
+                      // R1 (headroom-gated residency) can only LOWER what a store retains — its
+                      // budget is min(eagerMaterializeBytes, the heap headroom share) and query-scope
+                      // exits release back down to it — so this charge, fixed at insert as Caffeine
+                      // requires, stays the upper bound it was. That is also the only sense in which
+                      // a release can "inform" the weigher: a fixed weight cannot be lowered later,
+                      // and lowering it would in any case only admit more handles than the heap has
+                      // room for the moment the released columns are filled again.
                       bytes += windowedResidentWeightBytes(handle.projectedWeightBytes());
                     } else {
                       // Eager handle: leaves are pre-materialized, so no materializer is needed.
@@ -434,9 +439,9 @@ public final class ProjectionIndexCatalog {
   /**
    * Load (decode-cached) the projection payloads of {@code def} as valid at {@code revision}.
    * Two-tier: a cheap slot-0 metadata probe decides usability and yields the BUILD revision, which
-   * keys the decoded leaves — so revisions that didn't rebuild the projection share one decoded copy.
-   * Fail-soft: unusable stores yield {@code null} and the caller falls back (or rebuilds, on the
-   * creation path).
+   * keys the decoded leaves — so revisions that did not change the projection share one decoded copy.
+   * Fail-soft: unusable stores yield {@code null} and query callers fall back. Creation refuses to
+   * overwrite the populated tree; replacement requires drop + commit + a fresh tree id.
    */
   public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final int revision,
       final IndexDef def) {
@@ -506,10 +511,10 @@ public final class ProjectionIndexCatalog {
       return UNUSABLE;
     }
     if (metadata == null || metadata.isStale()) {
-      // Expected: never persisted / older wire format / invalidated.
+      // Expected: never persisted, unsupported format version, or explicitly invalidated.
       if (DIAG) {
         System.err.println("[cat] probe UNUSABLE: metadata " + (metadata == null
-            ? "null (absent or wrong wire version)"
+            ? "null (absent or unsupported format version)"
             : "stale") + ", slot0 bytes="
             + (slot0 == null
                 ? -1
@@ -572,11 +577,10 @@ public final class ProjectionIndexCatalog {
       tParse = DIAG
           ? System.nanoTime()
           : 0L;
-      // Column-pruned serving works for BOTH layouts: the segment-slot directory reader captures each
-      // referenced segment's durable offset (and each bare-inline segment's bytes), so a column fill
-      // batches ONLY the queried column's offsets — reading one column's segments across all row
-      // groups and skipping the rest. Whole-leaf query shapes still materialize via the handle's
-      // layout-dispatched materializer.
+      // The segment-slot directory reader captures each segment's durable offset (and an inline
+      // segment slot's bytes), so a column fill batches ONLY the queried column's offsets — reading
+      // one column's segments across all row groups and skipping the rest. Whole-row-group query
+      // shapes materialize from the same directory representation.
       // This call site — and only this one — opts into the parallel walk: it runs under a fresh
       // read-only transaction on a COMMITTED revision, so extra leases resolve the same immutable
       // pages. The writer-facing decode path keeps the serial cursor walk (its reader consults a
@@ -1032,7 +1036,7 @@ public final class ProjectionIndexCatalog {
     // uncommitted (writer) reads alike — which is why this takes no read-only/writer mode: a
     // write transaction's reader consults the transaction intent log, whose read path mutates
     // shared state (reference rebinding), and no parallel hydrate runs over it. Segment-level
-    // corruption (hash/length mismatches, mixed layouts) throws IllegalStateException and is
+    // corruption (hash/length/shape mismatches) throws IllegalStateException and is
     // negative-cached below.
     final ProjectionIndexMetadata metadata;
     final List<byte[]> persisted;

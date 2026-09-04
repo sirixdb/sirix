@@ -1,7 +1,6 @@
 package io.sirix.index.cas;
 
 import io.sirix.utils.Iterators;
-import io.sirix.access.IndexBackendType;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.StorageEngineReader;
@@ -9,7 +8,6 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.AtomicUtil;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
-import io.sirix.index.IndexFilterAxis;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.node.interfaces.DataRecord;
@@ -18,12 +16,8 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.index.hot.AbstractHOTIndexReader;
 import io.sirix.index.hot.CASKeySerializer;
 import io.sirix.index.hot.HOTIndexReader;
-import io.sirix.index.redblacktree.RBNodeKey;
-import io.sirix.index.redblacktree.RBNodeValue;
-import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -35,13 +29,10 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
@@ -53,81 +44,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
       CASFilterRange filter) {
-    // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(storageEngineReader)) {
-      return openHOTIndexWithRangeFilter(storageEngineReader, indexDef, filter);
-    }
-
-    final RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader,
-            indexDef.getType(), indexDef.getID());
-
-    final Iterator<RBNodeKey<CASValue>> iter = reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-
-    return new IndexFilterAxis<>(reader, iter, Set.of(filter));
+    return openHOTIndexWithRangeFilter(storageEngineReader, indexDef, filter);
   }
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
       CASFilter filter) {
-    // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(storageEngineReader)) {
-      return openHOTIndexWithFilter(storageEngineReader, indexDef, filter);
-    }
-
-    // Use RBTree (default)
-    return openRBTreeIndex(storageEngineReader, indexDef, filter);
-  }
-
-  /**
-   * Checks if HOT indexes should be used for reading.
-   */
-  private static boolean isHOTEnabled(final StorageEngineReader storageEngineReader) {
-    // System property takes precedence (for testing)
-    final String sysProp = System.getProperty(CASIndexListenerFactory.USE_HOT_PROPERTY);
-    if (sysProp != null) {
-      return Boolean.parseBoolean(sysProp);
-    }
-
-    // Fall back to resource configuration
-    final var resourceConfig = storageEngineReader.getResourceSession().getResourceConfig();
-    return resourceConfig.indexBackendType == IndexBackendType.HOT;
-  }
-
-  /**
-   * Open HOT-based CAS index.
-   */
-  private Iterator<NodeReferences> openHOTIndex(StorageEngineReader storageEngineReader, IndexDef indexDef) {
-    final HOTIndexReader<CASValue> reader =
-        HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
-
-    // Iterate over all entries
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
-
-    return new Iterator<>() {
-      private NodeReferences next = null;
-
-      @Override
-      public boolean hasNext() {
-        if (next != null) {
-          return true;
-        }
-        if (entryIterator.hasNext()) {
-          next = entryIterator.next().getValue();
-          return true;
-        }
-        return false;
-      }
-
-      @Override
-      public NodeReferences next() {
-        if (!hasNext()) {
-          throw new NoSuchElementException();
-        }
-        NodeReferences result = next;
-        next = null;
-        return result;
-      }
-    };
+    return openHOTIndexWithFilter(storageEngineReader, indexDef, filter);
   }
 
   /**
@@ -611,12 +533,6 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     // it fell back to filters on `pcrsRequested` too (see matchesFilter), so both paths return the
     // postings of the one requested path class and nothing else. The sibling range method never had
     // the restriction either.
-    //
-    // Note what the RBTree backend below is NOT evidence for. It does point-look-up a multi-path
-    // index, but its multi-path branch wraps the hit in concatWithFilterAxis, i.e. it seeks and then
-    // re-checks each entry against the typed atomic; only its single-path branch returns unfiltered.
-    // This branch returns unfiltered, which matters because a HOT key is lossy where an RBTree
-    // CASValue is not — see the truncation note on the seek below.
     // A null probe key has nothing to seek to, so it falls through to the scan below.
     if (pcrsRequested.size() == 1 && filter != null && filter.getKey() != null) {
       final Atomic atomic = filter.getKey();
@@ -626,8 +542,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // The probe key must be typed like the entries the index stores, NOT like the atomic the
       // caller happened to pass: a HOT key is a byte string that carries the type id, so probing
       // an xs:decimal index with, say, an xs:double of the same numeric value produced a
-      // different key and the lookup silently found nothing. (The RBTree backend never had this
-      // problem — CASValue#compareTo coerces both sides with asType before comparing.)
+      // different key and the lookup silently found nothing.
       // A probe that is not of the index's declared type matches NOTHING, and saying so here is the
       // difference between an empty answer and a wrong one. CASIndexBuilder skips any node whose
       // value is not of the declared type, so nothing of that shape was ever indexed — but the
@@ -822,105 +737,4 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
-  /**
-   * Open RBTree-based CAS index (default).
-   */
-  private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
-      CASFilter filter) {
-    final RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader,
-            indexDef.getType(), indexDef.getID());
-
-    // PCRs requested.
-    final Set<Long> pcrsRequested = filter == null
-        ? Set.of()
-        : filter.getPCRs();
-
-    // PCRs available in index.
-    final Set<Long> pcrsAvailable = filter == null
-        ? Collections.emptySet()
-        : filter.getPCRCollector().getPCRsForPaths(indexDef.getPaths()).getPCRs();
-
-    // Only one path indexed and requested. All PCRs are the same in each CASValue.
-    if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1 && filter != null) {
-      final Atomic atomic = filter.getKey();
-      final long pcr = pcrsRequested.iterator().next();
-      final SearchMode mode = filter.getMode();
-
-      final CASValue value = new CASValue(atomic, atomic != null
-          ? atomic.type()
-          : null, pcr);
-
-      if (mode == SearchMode.EQUAL) {
-        // Compare for equality by PCR and atomic value.
-        final Optional<RBNodeKey<CASValue>> optionalNode = reader.getCurrentNodeAsRBNodeKey(value, mode);
-
-        return optionalNode.map(node -> {
-          reader.moveTo(node.getValueNodeKey());
-          final RBNodeValue<NodeReferences> currentNodeAsRBNodeValue = reader.getCurrentNodeAsRBNodeValue();
-          assert currentNodeAsRBNodeValue != null;
-          return Iterators.forArray(currentNodeAsRBNodeValue.getValue());
-        }).orElse(Iterators.unmodifiableIterator(Collections.emptyIterator()));
-      } else {
-        // Compare for search criteria by PCR and atomic value.
-        final Optional<RBNodeKey<CASValue>> optionalNode = reader.getCurrentNodeAsRBNodeKey(value, mode);
-
-        return optionalNode.map(concatWithFilterAxis(filter, reader)).orElse(Collections.emptyIterator());
-      }
-    } else if (pcrsRequested.size() == 1 && filter != null) {
-      final Atomic atomic = filter.getKey();
-      final long pcr = pcrsRequested.iterator().next();
-      final SearchMode mode = filter.getMode();
-
-      final CASValue value = new CASValue(atomic, atomic.type(), pcr);
-
-      if (mode == SearchMode.EQUAL) {
-        // Compare for equality by PCR and atomic value.
-        final Optional<RBNodeKey<CASValue>> optionalNode = reader.getCurrentNodeAsRBNodeKey(value, mode);
-
-        return optionalNode.map(concatWithFilterAxis(filter, reader)).orElse(Collections.emptyIterator());
-      } else {
-        // Compare for equality only by PCR.
-        final Optional<RBNodeKey<CASValue>> optionalNode = reader.getCurrentNodeAsRBNodeKey(value, SearchMode.EQUAL,
-            Comparator.comparingLong(CASValue::getPathNodeKey));
-
-        return optionalNode.map(findFirstNodeWithMatchingPCRAndAtomicValue(filter, reader, mode, value))
-                           .orElse(Collections.emptyIterator());
-      }
-    } else {
-      final Iterator<RBNodeKey<CASValue>> iter =
-          reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-
-      return new IndexFilterAxis<>(reader, iter, filter == null
-          ? Set.of()
-          : Set.of(filter));
-    }
-  }
-
-  private Function<RBNodeKey<CASValue>, Iterator<NodeReferences>> findFirstNodeWithMatchingPCRAndAtomicValue(
-      CASFilter filter, RBTreeReader<CASValue, NodeReferences> reader, SearchMode mode, CASValue value) {
-    return node -> {
-      // Now compare for equality by PCR and atomic value and find first
-      // node which satisfies criteria.
-      final Optional<RBNodeKey<CASValue>> firstFoundNode =
-          reader.getCurrentNodeAsRBNodeKey(node.getNodeKey(), value, mode);
-
-      return firstFoundNode.map(theNode -> {
-        // Iterate over subtree.
-        final Iterator<RBNodeKey<CASValue>> iter = reader.new RBNodeIterator(theNode.getNodeKey());
-
-        return (Iterator<NodeReferences>) new IndexFilterAxis<>(reader, iter, Set.of(filter));
-      }).orElse(Collections.emptyIterator());
-    };
-  }
-
-  private Function<RBNodeKey<CASValue>, Iterator<NodeReferences>> concatWithFilterAxis(CASFilter filter,
-      RBTreeReader<CASValue, NodeReferences> reader) {
-    return node -> {
-      // Iterate over subtree.
-      final Iterator<RBNodeKey<CASValue>> iter = reader.new RBNodeIterator(node.getNodeKey());
-
-      return new IndexFilterAxis<>(reader, iter, Set.of(filter));
-    };
-  }
 }

@@ -44,6 +44,12 @@ class HOTLeafPageTest {
     }
   }
 
+  private static byte[] singleBit(final long nodeKey) {
+    final NodeReferences references = new NodeReferences();
+    references.addNodeKey(nodeKey);
+    return NodeReferencesSerializer.serialize(references);
+  }
+
   @Test
   void testBasicPutAndFindEntry() {
     HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
@@ -149,6 +155,72 @@ class HOTLeafPageTest {
     assertEquals(2, merged.getNodeKeys().getLongCardinality());
 
     page.close();
+  }
+
+  @Test
+  void packedMergeGrowthSurvivesRequiredCompactionWithoutLosingScratchOrOtherSlots() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    final byte[] targetKey = "a000".getBytes(StandardCharsets.UTF_8);
+    final byte[] fragmentedKey = "z000".getBytes(StandardCharsets.UTF_8);
+    final byte[] fillerValue = new byte[600];
+    Arrays.fill(fillerValue, (byte) 0x44);
+
+    try {
+      assertTrue(page.put(targetKey, singleBit(10L)));
+      assertTrue(page.put(fragmentedKey, fillerValue));
+
+      int fillerNumber = 0;
+      while (page.getRemainingSpace() > 1_200) {
+        final byte[] key = String.format("m%04d", fillerNumber++).getBytes(StandardCharsets.UTF_8);
+        assertTrue(page.put(key, fillerValue));
+      }
+
+      // Consume the physical tail exactly. The next growing replacement can succeed only by
+      // compacting the hole created below; this exercises the internal merge scratch across compact.
+      final byte[] tailKey = "y9999".getBytes(StandardCharsets.UTF_8);
+      final int tailValueLength = Math.toIntExact(page.getRemainingSpace()) - 4 - tailKey.length;
+      assertTrue(tailValueLength > 0);
+      final byte[] tailValue = new byte[tailValueLength];
+      Arrays.fill(tailValue, (byte) 0x66);
+      assertTrue(page.put(tailKey, tailValue));
+      assertEquals(0L, page.getRemainingSpace());
+
+      final int fragmentedIndex = page.findEntry(fragmentedKey);
+      assertTrue(fragmentedIndex >= 0);
+      assertTrue(page.updateValueRange(fragmentedIndex, new byte[] {0x55}, 0, 1));
+      assertEquals(0L, page.getRemainingSpace(), "a non-tail shrink must leave a physical hole");
+
+      final int usedBeforeMerge = page.getUsedSlotsSize();
+      final byte[] incoming = singleBit(20L);
+      assertTrue(page.mergeWithNodeRefs(targetKey, targetKey.length, incoming, incoming.length));
+      assertTrue(page.getUsedSlotsSize() < usedBeforeMerge, "the growing merge must compact the fragmented page");
+
+      final NodeReferences merged = NodeReferencesSerializer.deserialize(page.getValue(page.findEntry(targetKey)));
+      assertEquals(2, merged.getNodeKeys().getLongCardinality());
+      assertTrue(merged.contains(10L));
+      assertTrue(merged.contains(20L));
+      assertArrayEquals(new byte[] {0x55}, page.getValue(page.findEntry(fragmentedKey)));
+      assertArrayEquals(tailValue, page.getValue(page.findEntry(tailKey)));
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void growingRangeReplacementThatCannotFitPreservesOldValue() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    final byte[] key = "key".getBytes(StandardCharsets.UTF_8);
+    final byte[] oldValue = singleBit(7L);
+    try {
+      assertTrue(page.put(key, oldValue));
+      final int index = page.findEntry(key);
+      final byte[] tooLarge = new byte[0xFFFF];
+
+      assertFalse(page.updateValueRange(index, tooLarge, 0, tooLarge.length));
+      assertArrayEquals(oldValue, page.getValue(index));
+    } finally {
+      page.close();
+    }
   }
 
   @Test

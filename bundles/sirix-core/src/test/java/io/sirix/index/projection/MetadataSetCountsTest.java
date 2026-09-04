@@ -74,7 +74,7 @@ final class MetadataSetCountsTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         final Map<Integer, Map<String, Long>> empty = new LinkedHashMap<>();
         empty.put(1, new LinkedHashMap<>());
-        final Map<Integer, Map<String, Long>> capabilities = ProjectionSetSummaryChunks.writeAll(storage, KINDS, empty);
+        final Map<Integer, Map<String, Long>> capabilities = initializeSummaries(storage, KINDS, empty);
         assertEquals(0, storage.getBlob(ProjectionSetSummaryChunks.slotKey(1))[4]);
         storage.putBlob(0, metadata(capabilities, 1).serialize());
         wtx.commit();
@@ -84,11 +84,10 @@ final class MetadataSetCountsTest {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         final ProjectionIndexMetadata prior = ProjectionIndexMetadata.parse(storage.getBlob(0));
-        final Map<Integer, Map<String, Long>> revived =
-            ProjectionSetSummaryChunks.readAll(storage, prior.setValueRowCounts());
-        revived.get(1).put("Drama", 3L);
-        final Map<Integer, Map<String, Long>> capabilities =
-            ProjectionSetSummaryChunks.writeAll(storage, KINDS, revived);
+        final ProjectionSetSummaryChunks.Accessor accessor =
+            ProjectionSetSummaryChunks.open(storage, prior.setValueRowCounts());
+        accessor.adjust(1, Map.of("Drama", 3L), 1L);
+        final Map<Integer, Map<String, Long>> capabilities = accessor.flush(KINDS);
         storage.putBlob(0, metadata(capabilities, 2).serialize());
         wtx.commit();
       }
@@ -121,7 +120,7 @@ final class MetadataSetCountsTest {
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      assertTrue(ProjectionSetSummaryChunks.writeAll(storage, KINDS, summaries).isEmpty());
+      assertTrue(initializeSummaries(storage, KINDS, summaries).isEmpty());
       assertNull(ProjectionSetSummaryChunks.readAll(storage, Map.of()).get(1));
     }
   }
@@ -186,8 +185,7 @@ final class MetadataSetCountsTest {
         final Map<Integer, Map<String, Long>> initial = new LinkedHashMap<>();
         initial.put(1, new LinkedHashMap<>(Map.of("Drama", 2L)));
         initial.put(2, new LinkedHashMap<>(Map.of("Comedy", 4L)));
-        assertEquals(capabilities.keySet(),
-            ProjectionSetSummaryChunks.writeAll(storage, MULTI_SET_KINDS, initial).keySet());
+        assertEquals(capabilities.keySet(), initializeSummaries(storage, MULTI_SET_KINDS, initial).keySet());
         untouchedBefore = storage.getBlob(ProjectionSetSummaryChunks.slotKey(2));
         assertNotNull(untouchedBefore);
         wtx.commit();
@@ -223,6 +221,22 @@ final class MetadataSetCountsTest {
       assertEquals(2L, revision1.get(1).get("Drama"));
       assertEquals(3L, revision2.get(1).get("Drama"));
       assertEquals(4L, revision2.get(2).get("Comedy"));
+    }
+  }
+
+  private static Map<Integer, Map<String, Long>> initializeSummaries(final ProjectionIndexHOTStorage storage,
+      final byte[] columnKinds, final Map<Integer, Map<String, Long>> summaries) {
+    final ProjectionSetSummaryChunks.BuildAccumulator initializer = new ProjectionSetSummaryChunks.BuildAccumulator();
+    try {
+      initializer.append(new ProjectionIndexRowGroupPage(columnKinds.clone()));
+      final Map<Integer, Map<String, Long>> capabilities = initializer.writeAll(storage, columnKinds);
+      final ProjectionSetSummaryChunks.Accessor accessor = ProjectionSetSummaryChunks.open(storage, capabilities);
+      for (final Map.Entry<Integer, Map<String, Long>> summary : summaries.entrySet()) {
+        accessor.adjust(summary.getKey(), summary.getValue(), 1L);
+      }
+      return accessor.flush(columnKinds);
+    } finally {
+      initializer.release();
     }
   }
 

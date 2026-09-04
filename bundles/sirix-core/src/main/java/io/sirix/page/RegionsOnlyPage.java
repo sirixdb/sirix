@@ -12,6 +12,7 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 
@@ -30,8 +31,10 @@ import org.jspecify.annotations.Nullable;
  * This class is what a scan gets when it asks for the columns only. The body blob is skipped by its
  * length prefix — never decompressed — and only the region kinds the query named are materialized
  * (see {@link RegionTable#read(io.sirix.node.BytesIn, int)}). What remains is a plain Java object
- * holding {@code byte[]} payloads: no off-heap allocation, no page guard, no cache entry, nothing
- * to close. It is created by one scan worker, consumed by that worker, and collected.
+ * holding native, SIMD-friendly payloads. The wrapper owns one reference to its
+ * {@link RegionTable}; callers must close it unless they transfer it into the executor's decoded
+ * column cache. Closing is idempotent and releases native storage as soon as the final page/wrapper
+ * owner leaves.
  *
  * <h2>Thread safety</h2> An instance is normally decoded, folded into an accumulator and dropped by
  * one worker. It is NOT confined to that worker, though: a scan may retain decoded columns in a
@@ -41,7 +44,7 @@ import org.jspecify.annotations.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class RegionsOnlyPage {
+public final class RegionsOnlyPage implements AutoCloseable {
 
   /** Key of the record page these regions belong to. */
   private final long pageKey;
@@ -51,6 +54,12 @@ public final class RegionsOnlyPage {
 
   /** The regions the caller asked for; kinds not requested are absent. */
   private final RegionTable regions;
+
+  /**
+   * Idempotence guard: a cache entry and a transient caller must never release the same ownership
+   * twice.
+   */
+  private boolean closed;
 
   /**
    * Populated slots on the page. Read from the page header the column-only decode passes over anyway,
@@ -79,19 +88,50 @@ public final class RegionsOnlyPage {
    */
   private final long[] slotBitmap;
 
+  /**
+   * Positive certificate that no record is stored through the overflow-reference section.
+   *
+   * <p>
+   * Overflow values are intentionally absent from the PAX regions. A column scan therefore must
+   * reconstruct a page unless completeness is known; otherwise it could either resurrect an older
+   * inline value or miss a predicate matching the current overflow value. Older images carry no
+   * positive bit and are conservatively treated as unknown.
+   */
+  private final boolean completeColumnCoverage;
+
   public RegionsOnlyPage(final long pageKey, final int revision, final int populatedSlotCount,
       final long fsstSymbolTableId, final RegionTable regions) {
-    this(pageKey, revision, populatedSlotCount, fsstSymbolTableId, regions, null);
+    this(pageKey, revision, populatedSlotCount, fsstSymbolTableId, regions, null, false);
   }
 
   public RegionsOnlyPage(final long pageKey, final int revision, final int populatedSlotCount,
       final long fsstSymbolTableId, final RegionTable regions, final long @Nullable [] slotBitmap) {
+    this(pageKey, revision, populatedSlotCount, fsstSymbolTableId, regions, slotBitmap, false);
+  }
+
+  public RegionsOnlyPage(final long pageKey, final int revision, final int populatedSlotCount,
+      final long fsstSymbolTableId, final RegionTable regions, final long @Nullable [] slotBitmap,
+      final boolean completeColumnCoverage) {
+    if (pageKey < 0L) {
+      throw new IllegalArgumentException("pageKey must be non-negative: " + pageKey);
+    }
+    if (revision < 0) {
+      throw new IllegalArgumentException("revision must be non-negative: " + revision);
+    }
+    if (populatedSlotCount < 0 || populatedSlotCount > Constants.NDP_NODE_COUNT) {
+      throw new IllegalArgumentException("populatedSlotCount out of range: " + populatedSlotCount);
+    }
+    if (slotBitmap != null && slotBitmap.length != PageLayout.BITMAP_WORDS) {
+      throw new IllegalArgumentException(
+          "slotBitmap must contain " + PageLayout.BITMAP_WORDS + " words, got " + slotBitmap.length);
+    }
     this.slotBitmap = slotBitmap;
     this.pageKey = pageKey;
     this.revision = revision;
     this.populatedSlotCount = populatedSlotCount;
     this.fsstSymbolTableId = fsstSymbolTableId;
-    this.regions = regions;
+    this.regions = Objects.requireNonNull(regions, "regions");
+    this.completeColumnCoverage = completeColumnCoverage;
   }
 
   /** Whether this fragment defines {@code slot} at all — including as a deletion. */
@@ -103,6 +143,14 @@ public final class RegionsOnlyPage {
   /** @return {@code true} when this page was read with its slot bitmap. */
   public boolean hasSlotBitmap() {
     return slotBitmap != null;
+  }
+
+  /**
+   * @return whether the page positively certifies that every value is covered by its inline
+   *         body/regions; {@code false} includes both known overflow and an older/unknown image
+   */
+  public boolean hasCompleteColumnCoverage() {
+    return completeColumnCoverage;
   }
 
   /**
@@ -223,7 +271,15 @@ public final class RegionsOnlyPage {
     if (payload == null || payload.byteSize() == 0) {
       return null;
     }
-    return scratch.parseInto(payload);
+    // A per-tag column whose directory lives in the zone map is only readable together with it. A
+    // read mask that asked for the values and not the summary therefore DECLINES here — the caller
+    // falls back to the record path, as it does for any column not on the wire — rather than
+    // decoding packed bytes against a directory it does not have.
+    final MemorySegment directory = regions.payload(RegionTable.KIND_NUMBER_ZONEMAP);
+    if (directory == null && NumberRegion.needsExternalDirectory(payload)) {
+      return null;
+    }
+    return scratch.parseInto(payload, directory);
   }
 
   /**
@@ -232,9 +288,10 @@ public final class RegionsOnlyPage {
    *
    * <p>
    * The one region accessor a scan can call without committing to anything: the zone map is stored
-   * uncompressed and separately from the number column, so reading it does not materialize
-   * {@link RegionTable#KIND_NUMBER}. A predicate that the bounds settle therefore never pays for the
-   * column at all — which is the whole reason the region exists.
+   * separately from the number column. A narrow map is raw and a wide map may use its own bounded
+   * LZ77 frame; either way, reading it does not materialize {@link RegionTable#KIND_NUMBER}. A
+   * predicate that the bounds settle therefore never pays for the column at all — which is the whole
+   * reason the region exists.
    *
    * <p>
    * {@code null} means "no bounds available", never "no match": pages written before this region
@@ -295,8 +352,8 @@ public final class RegionsOnlyPage {
    * read path had just gone out of its way NOT to decompress — and it did so before the caller had
    * even decided whether to keep the page.
    */
-  public int payloadBytes() {
-    return regions.retainedBytes();
+  public long payloadBytes() {
+    return regions.retainedFootprintBytes();
   }
 
   /**
@@ -322,5 +379,15 @@ public final class RegionsOnlyPage {
   /** Raw OBJECT_KEY-nameKey payload, or {@code null}. */
   public MemorySegment nameKeyPayload() {
     return regions.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+  }
+
+  /** Release this wrapper's ownership of the region table. */
+  @Override
+  public synchronized void close() {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    regions.close();
   }
 }

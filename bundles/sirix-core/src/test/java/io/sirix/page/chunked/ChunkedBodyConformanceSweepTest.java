@@ -66,8 +66,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("Chunked body conformance sweep")
 final class ChunkedBodyConformanceSweepTest {
 
-  private static final String[] FLAG_NAMES =
-      {"hashElision", "parentKeyColumn", "pathNodeKeyColumn", "valueElision", "nameKeyElision"};
+  private static final String[] FLAG_NAMES = {"hashElision", "parentKeyColumn", "pathNodeKeyColumn", "valueElision",
+      "nameKeyElision", "derivedElision", null, "extended"};
+
+  /** Names of the second flags byte's bits, in the same order. */
+  private static final String[] EXTENDED_FLAG_NAMES = {"rightSibColumn", "leftSibColumn"};
 
   private boolean previouslyEnabled;
   private int previousTarget;
@@ -243,7 +246,7 @@ final class ChunkedBodyConformanceSweepTest {
       if (layout.templateCount == 0) {
         degeneratePages++;
       } else {
-        flagCombos.merge(flagsToString(layout.structuralFlags), 1, Integer::sum);
+        flagCombos.merge(flagsToString(layout.structuralFlags, layout.extendedStructuralFlags), 1, Integer::sum);
       }
       chunkCounts.merge(layout.chunkCount, 1, Integer::sum);
       codecs.merge(layout.metaCodec, 1, Integer::sum);
@@ -256,20 +259,25 @@ final class ChunkedBodyConformanceSweepTest {
     }
   }
 
-  private static String flagsToString(final int flags) {
-    if (flags == 0) {
+  private static String flagsToString(final int flags, final int extendedFlags) {
+    if (flags == 0 && extendedFlags == 0) {
       return "(none)";
     }
     final StringBuilder text = new StringBuilder();
-    for (int bit = 0; bit < FLAG_NAMES.length; bit++) {
-      if ((flags & (1 << bit)) != 0) {
+    appendFlags(text, flags, FLAG_NAMES);
+    appendFlags(text, extendedFlags, EXTENDED_FLAG_NAMES);
+    return text.toString();
+  }
+
+  private static void appendFlags(final StringBuilder text, final int flags, final String[] names) {
+    for (int bit = 0; bit < names.length; bit++) {
+      if ((flags & (1 << bit)) != 0 && names[bit] != null) {
         if (!text.isEmpty()) {
           text.append('+');
         }
-        text.append(FLAG_NAMES[bit]);
+        text.append(names[bit]);
       }
     }
-    return text.toString();
   }
 
   private static void report(final Map<String, Integer> groupSizes, final int total, final long elapsedMillis,
@@ -307,13 +315,21 @@ final class ChunkedBodyConformanceSweepTest {
         + " activation predicates (PageKind.writeEncodedBody) and this generator's content, not about the"
         + " format; re-derive when either changes:\n");
     int unreached = 0;
-    for (int flags = 0; flags < 32; flags++) {
-      if (!stats.flagCombos.containsKey(flagsToString(flags))) {
-        out.append("  ").append(flagsToString(flags)).append('\n');
+    // Six flags in the first byte and two in the second, enumerated as one space so a lever that never
+    // activates in this sweep is named rather than silently absent.
+    final int combinations = 1 << 8;
+    for (int combo = 0; combo < combinations; combo++) {
+      final String name = flagsToString(combo & 0x3F, combo >>> 6);
+      if (!stats.flagCombos.containsKey(name)) {
+        out.append("  ").append(name).append('\n');
         unreached++;
       }
     }
-    out.append("  ").append(32 - unreached).append(" of 32 combinations reached\n");
+    out.append("  ")
+       .append(combinations - unreached)
+       .append(" of ")
+       .append(combinations)
+       .append(" combinations reached\n");
     System.out.println(out);
   }
 }

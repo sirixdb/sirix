@@ -1,15 +1,18 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.access.DatabaseType;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
-import io.sirix.api.ResourceSession;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
@@ -35,7 +38,6 @@ import io.sirix.index.path.PathIndex;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.vector.VectorIndex;
-import io.sirix.index.vector.VectorIndexListener;
 import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -262,7 +264,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public IndexController<R, W> createIndexListeners(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
+    requireNonNull(indexDefs);
     requireNonNull(nodeWriteTrx);
+    validateListenerRegistrations(indexDefs, nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {
       indexes.add(indexDef);
@@ -273,25 +277,21 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         case CAS -> addListener(
             createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
-        case VECTOR -> addListener(new VectorIndexListener(indexDef));
-        case VALIDTIME -> {
-          final ChangeListener vtListener = createValidTimeIndexListener(nodeWriteTrx, indexDef);
-          if (vtListener != null) {
-            addListener(vtListener);
-          }
+        // VECTOR is an explicit-API index: its HNSW entries cannot be derived from ordinary document
+        // notifications, and registering a no-op listener would advertise maintenance that never
+        // happens. Existing catalogued VECTOR definitions remain searchable and explicitly mutable;
+        // validateListenerRegistrations prevents this listener API from cataloguing a new one.
+        case VECTOR -> {
         }
+        case VALIDTIME -> addListener(requireNonNull(createValidTimeIndexListener(nodeWriteTrx, indexDef),
+            "A supported VALIDTIME definition must have an incremental change listener"));
         case PROJECTION -> {
-          // REPLACE any listener already bound for this definition (the wtx
-          // constructor binds one per catalogued def): a rebuild's
-          // createIndexes call needs a FRESH, armed listener — the old one
-          // may already be spent (invalidated once per transaction) and
-          // would silently stop tombstoning changes made after the rebuild,
-          // and after rollback/revertTo rebinds it may hold a closed writer.
+          // Rebinding can occur after rollback/revert or after drop reconstructs the complete listener
+          // set. Replace the same definition's old transaction-scoped listener so no closed writer
+          // or path-summary handle survives into the new epoch.
           removeProjectionListenerFor(indexDef.getID());
-          final ChangeListener projectionListener = createProjectionIndexListener(nodeWriteTrx, indexDef);
-          if (projectionListener != null) {
-            addListener(projectionListener);
-          }
+          addListener(requireNonNull(createProjectionIndexListener(nodeWriteTrx, indexDef),
+              "Projection-index controllers must provide an incremental change listener"));
         }
         default -> {
         }
@@ -304,17 +304,147 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Create a projection index change listener (invalidation-on-update maintenance). Default returns
-   * {@code null} (no maintenance); concrete controllers that support projection indexes (JSON)
-   * override this.
+   * Validate definitions before the standard document-index creation path mutates either the
+   * catalogue or an index tree.
+   *
+   * <p>
+   * Vector embeddings are caller-supplied data, not a value Sirix can reconstruct from a generic
+   * document-node change. They therefore have a separate explicit lifecycle through
+   * {@link VectorIndex}; accepting a VECTOR definition here used to catalogue an empty HNSW index and
+   * bind a listener whose methods were deliberate no-ops.
+   * </p>
+   *
+   * @param indexDefs definitions requested through {@link #createIndexes(Set, NodeTrx)}
+   * @param nodeWriteTrx transaction whose physical index slots are validated
+   * @throws UnsupportedOperationException if a definition has no correct document-listener lifecycle
+   */
+  protected final void validateNewIndexDefinitions(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
+    requireNonNull(indexDefs);
+    requireNonNull(nodeWriteTrx);
+
+    // Validate the whole request before consulting or mutating any physical container. In
+    // particular, a mixed request containing VECTOR must fail atomically even if another
+    // definition happens to precede it in the set's iteration order.
+    for (final IndexDef indexDef : indexDefs) {
+      requireNonNull(indexDef);
+      if (indexDef.isVectorIndex()) {
+        throw unsupportedVectorLifecycle();
+      }
+    }
+    validateSupportedIndexLifecycles(indexDefs, nodeWriteTrx);
+    if (indexDefs.isEmpty()) {
+      return;
+    }
+
+    boolean needsPhysicalProbe = false;
+    for (final IndexDef indexDef : indexDefs) {
+      final IndexDef existingDefinition = indexes.getIndexDef(indexDef.getID(), indexDef.getType());
+      if (existingDefinition == null) {
+        needsPhysicalProbe = true;
+      } else {
+        requireSameDefinition(existingDefinition, indexDef);
+      }
+    }
+    if (!needsPhysicalProbe) {
+      return;
+    }
+
+    final StorageEngineWriter storageEngineWriter = requireNonNull(nodeWriteTrx.getStorageEngineWriter());
+    final var revisionRoot = storageEngineWriter.getActualRevisionRootPage();
+    for (final IndexDef indexDef : indexDefs) {
+      final IndexType indexType = indexDef.getType();
+      final IndexDef existingDefinition = indexes.getIndexDef(indexDef.getID(), indexType);
+      if (existingDefinition != null) {
+        continue;
+      }
+
+      final boolean physicalIdWasInitialized = switch (indexType) {
+        case PATH -> storageEngineWriter.getPathPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        case CAS -> storageEngineWriter.getCASPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        case NAME ->
+          storageEngineWriter.getNamePage(revisionRoot)
+                             .isSecondaryNameIndexInitialized(databaseType(storageEngineWriter), indexDef.getID());
+        case PROJECTION ->
+          storageEngineWriter.getProjectionIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        case VALIDTIME -> storageEngineWriter.getValidTimeIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        default -> false;
+      };
+      if (physicalIdWasInitialized) {
+        throw new IllegalStateException("Cannot create " + indexType + " index " + indexDef.getID()
+            + ": that physical id was already initialized by a dropped or historical index; allocate a fresh id");
+      }
+    }
+  }
+
+  private static DatabaseType databaseType(final StorageEngineReader storageEngineReader) {
+    final ResourceSession<?, ?> resourceSession = storageEngineReader.getResourceSession();
+    if (resourceSession instanceof JsonResourceSession) {
+      return DatabaseType.JSON;
+    }
+    if (resourceSession instanceof XmlResourceSession) {
+      return DatabaseType.XML;
+    }
+    throw new IllegalStateException("Cannot determine database type from resource session " + resourceSession);
+  }
+
+  /** Reject unsupported or definition-changing listener registrations before catalogue mutation. */
+  private void validateListenerRegistrations(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
+    for (final IndexDef indexDef : indexDefs) {
+      requireNonNull(indexDef);
+      final IndexDef existingDefinition = indexes.getIndexDef(indexDef.getID(), indexDef.getType());
+      if (existingDefinition != null) {
+        requireSameDefinition(existingDefinition, indexDef);
+      } else if (indexDef.isVectorIndex()) {
+        throw unsupportedVectorLifecycle();
+      }
+    }
+    validateSupportedIndexLifecycles(indexDefs, nodeWriteTrx);
+  }
+
+  private static void requireSameDefinition(final IndexDef existingDefinition, final IndexDef requestedDefinition) {
+    if (!existingDefinition.hasSameDefinition(requestedDefinition)) {
+      throw new IllegalStateException("Cannot reuse " + requestedDefinition.getType() + " index "
+          + requestedDefinition.getID() + " with a different definition; allocate a fresh physical id");
+    }
+  }
+
+  private static UnsupportedOperationException unsupportedVectorLifecycle() {
+    return new UnsupportedOperationException("VECTOR indexes cannot be created through the standard document "
+        + "index lifecycle because document updates do not supply or delete embeddings. Use VectorIndex.createIndex, "
+        + "insertVector, and deleteVector explicitly.");
+  }
+
+  /**
+   * Validate resource-specific index lifecycles before a definition can reach the catalogue.
+   *
+   * <p>
+   * VALIDTIME is JSON-only and requires an explicit resource configuration. JSON overrides this hook
+   * to validate that configuration; every other controller rejects the definition.
+   * </p>
+   */
+  protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isValidTimeIndex()) {
+        throw new UnsupportedOperationException(
+            "VALIDTIME indexes are supported only for JSON resources with ValidTimeConfig");
+      }
+    }
+  }
+
+  /**
+   * Create the projection index's incremental change listener.
+   *
+   * <p>
+   * Every concrete resource controller must implement this lifecycle explicitly. There is no
+   * nullable/no-maintenance fallback: cataloguing a projection without a listener would leave the
+   * persisted index silently stale after the next document mutation.
+   * </p>
    *
    * @param nodeWriteTrx the write transaction
-   * @param indexDef the (PROJECTION) index definition
-   * @return the listener, or {@code null} if unsupported
+   * @param indexDef the projection-index definition
+   * @return the non-null incremental listener
    */
-  protected ChangeListener createProjectionIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
-    return null;
-  }
+  protected abstract ChangeListener createProjectionIndexListener(W nodeWriteTrx, IndexDef indexDef);
 
   /**
    * Per-transaction cache entry for a wtx-visible decoded projection handle: valid only for the SAME
@@ -411,12 +541,13 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Create a valid-time interval index listener. Default returns {@code null} (no maintenance);
-   * concrete controllers that support valid-time interval indexes (JSON) override this.
+   * Create a valid-time interval index listener. Unsupported controllers reject the definition in
+   * {@link #validateSupportedIndexLifecycles(Set, NodeTrx)} before this method can be reached; JSON
+   * overrides both lifecycle methods.
    *
    * @param nodeWriteTrx the write transaction
    * @param indexDef the (VALIDTIME) index definition
-   * @return a change listener, or {@code null} when valid-time indexes are unsupported
+   * @return a non-null change listener for a validated VALIDTIME definition
    */
   protected @Nullable ChangeListener createValidTimeIndexListener(final W nodeWriteTrx, final IndexDef indexDef) {
     return null;
@@ -428,6 +559,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     primitiveListeners.clear();
     listenerSnapshot = NO_CHANGE_LISTENERS;
     primitiveListenerSnapshot = NO_PRIMITIVE_LISTENERS;
+    // A rollback/revert may have reloaded this cached controller's catalogue before listener
+    // rebinding. Derive the fast-path flags from that authoritative catalogue so an aborted index
+    // definition cannot keep document notifications enabled for a listener that no longer exists.
+    refreshIndexCapabilities();
     // Wtx handle cache entries are bound to listener instances — clearing
     // the listeners invalidates them (and releases the decoded payloads).
     uncommittedHandles.clear();

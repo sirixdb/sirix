@@ -50,7 +50,6 @@ import org.junit.Test;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
 import io.sirix.access.Databases;
-import io.sirix.access.IndexBackendType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 
@@ -69,8 +68,8 @@ public final class XmlTestHelper {
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
 
   /**
-   * Per-JVM unique base directory. Using the PID ensures that parallel Gradle forks
-   * or concurrent test tasks don't share the same database files.
+   * Per-JVM unique base directory. Using the PID ensures that parallel Gradle forks or concurrent
+   * test tasks don't share the same database files.
    */
   private static final String SIRIX_BASE = "sirix-" + ProcessHandle.current().pid();
 
@@ -213,29 +212,6 @@ public final class XmlTestHelper {
       }
       final var database = Databases.openXmlDatabase(file);
       database.createResource(new ResourceConfiguration.Builder(RESOURCE).useDeweyIDs(true).build());
-      INSTANCES.put(file, database);
-      return database;
-    }
-  }
-
-  /**
-   * Getting a database with Red-Black tree indexes enabled for testing RBTree integration.
-   *
-   * @param file to be created
-   * @return a database-obj with RBTREE index backend
-   */
-  @Ignore
-  public static Database<XmlResourceSession> getDatabaseWithRedBlackTreeIndexes(final Path file) {
-    if (INSTANCES.containsKey(file)) {
-      return INSTANCES.get(file);
-    } else {
-      final DatabaseConfiguration config = new DatabaseConfiguration(file);
-      if (!Files.exists(file)) {
-        Databases.createXmlDatabase(config);
-      }
-      final var database = Databases.openXmlDatabase(file);
-      database.createResource(
-          new ResourceConfiguration.Builder(RESOURCE).indexBackendType(IndexBackendType.RBTREE).build());
       INSTANCES.put(file, database);
       return database;
     }

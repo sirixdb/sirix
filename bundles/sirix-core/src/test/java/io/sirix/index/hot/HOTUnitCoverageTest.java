@@ -349,74 +349,6 @@ class HOTUnitCoverageTest {
   }
 
   @Nested
-  @DisplayName("ChunkDirectory Unit Tests")
-  class ChunkDirectoryUnitTests {
-
-    @Test
-    @DisplayName("Create and populate directory")
-    void testCreateAndPopulate() {
-      ChunkDirectory dir = new ChunkDirectory();
-      assertTrue(dir.isEmpty());
-
-      PageReference ref1 = dir.getOrCreateChunkRef(0);
-      ref1.setKey(100);
-      assertFalse(dir.isEmpty());
-      assertEquals(1, dir.chunkCount());
-
-      PageReference ref2 = dir.getOrCreateChunkRef(65536);
-      ref2.setKey(200);
-      assertEquals(2, dir.chunkCount());
-    }
-
-    @Test
-    @DisplayName("Set and get chunk refs")
-    void testSetGetChunkRefs() {
-      ChunkDirectory dir = new ChunkDirectory();
-
-      PageReference ref = new PageReference();
-      ref.setKey(999);
-      dir.setChunkRef(10, ref);
-
-      PageReference retrieved = dir.getChunkRef(10);
-      assertNotNull(retrieved);
-      assertEquals(999, retrieved.getKey());
-    }
-
-    @Test
-    @DisplayName("Chunk index calculation")
-    void testChunkIndexCalculation() {
-      assertEquals(0, ChunkDirectory.chunkIndexFor(0));
-      assertEquals(0, ChunkDirectory.chunkIndexFor(65535));
-      assertEquals(1, ChunkDirectory.chunkIndexFor(65536));
-      assertEquals(15, ChunkDirectory.chunkIndexFor(1000000));
-    }
-
-    @Test
-    @DisplayName("Copy directory")
-    void testCopyDirectory() {
-      ChunkDirectory original = new ChunkDirectory();
-      original.getOrCreateChunkRef(0).setKey(100);
-      original.getOrCreateChunkRef(1).setKey(200);
-
-      ChunkDirectory copy = original.copy();
-      assertEquals(original.chunkCount(), copy.chunkCount());
-    }
-
-    @Test
-    @DisplayName("Modified flag")
-    void testModifiedFlag() {
-      ChunkDirectory dir = new ChunkDirectory();
-      assertFalse(dir.isModified());
-
-      dir.getOrCreateChunkRef(0);
-      assertTrue(dir.isModified());
-
-      dir.clearModified();
-      assertFalse(dir.isModified());
-    }
-  }
-
-  @Nested
   @DisplayName("PathKeySerializer Unit Tests")
   class PathKeySerializerUnitTests {
 
@@ -514,4 +446,3 @@ class HOTUnitCoverageTest {
     }
   }
 }
-

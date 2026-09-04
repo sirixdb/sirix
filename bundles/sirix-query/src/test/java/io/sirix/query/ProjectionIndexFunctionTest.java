@@ -5,8 +5,13 @@ import io.brackit.query.QueryException;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
@@ -276,15 +281,24 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           return {"revision": sdb:commit($doc)}
         """;
     query(floating);
-    // …while genuinely unsupported types still fail loudly.
+    // …while genuinely unsupported types still fail loudly. ('datetime' and 'date' used to stand
+    // here; they are DECLARABLE since the temporal column kinds landed, so the guard moved to a type
+    // the vocabulary still does not know — otherwise it would have gone quietly vacuous.)
     final String unsupported = """
           let $doc := jn:doc('json-path1','sales.jn')
           return jn:create-projection-index($doc, '/[]',
-              ('/[]/age'), ('datetime'))
+              ('/[]/age'), ('time'))
         """;
     final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(unsupported));
     Assertions.assertTrue(e.getMessage().contains("Unsupported projection column type"),
         () -> "unexpected message: " + e.getMessage());
+    // The message must name every type that IS declarable, or a caller cannot discover the temporal
+    // ones from the failure alone.
+    for (final String declarable : new String[] {"long", "double", "decimal", "boolean", "string", "timestamp",
+        "date"}) {
+      Assertions.assertTrue(e.getMessage().contains(declarable),
+          () -> "the rejection must list '" + declarable + "': " + e.getMessage());
+    }
   }
 
   @Test
@@ -534,28 +548,135 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void recreateAfterDropAndUpdateRebuildsFreshColumns() throws IOException {
-    // After a drop no listener maintains the sub-tree. An update followed by
-    // a same-shape re-creation reuses id 0 — the drop-time tombstone must
-    // force a REBUILD so the new columns include the update instead of the
-    // leftover pre-drop payloads being mistaken for fresh ones.
+  public void recreateAfterDropAndUpdateUsesANewTree() throws IOException {
+    // After a drop no listener maintains tree 0. The old tree stays immutable for historical
+    // revisions and can never be an initializer target again. A same-shape re-creation therefore
+    // receives tree 1 and builds the current records into that virgin tree.
     query(STORE_QUERY);
     query(CREATE_INDEX_QUERY);
+    final byte[] retiredTreeMetadata = readProjectionMetadata(0);
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
           let $dropped := jn:drop-projection-index($doc)
           return {"revision": sdb:commit($doc)}
         """);
+    Assertions.assertArrayEquals(retiredTreeMetadata, readProjectionMetadata(0),
+        "drop must not mutate the historical tree");
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
           return replace json value of $doc[0].age with 99
         """);
+    Assertions.assertArrayEquals(retiredTreeMetadata, readProjectionMetadata(0),
+        "updates after drop must not mutate the retired tree");
     query(CREATE_INDEX_QUERY);
-    // 211 - 30 + 99 = 280 — served from the REBUILT projection.
+    // 211 - 30 + 99 = 280 — served from the new projection, while the physical existence of tree 0
+    // proves its id was not recycled after the catalogue entry disappeared.
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return {"idx": jn:find-projection-index($doc, '/[]',
+                      ('/[]/age', '/[]/active', '/[]/dept')),
+                  "sum": sum(for $r in $doc[] return $r.age)}
+        """, "{\"idx\":1,\"sum\":280}");
+  }
+
+  @Test
+  public void unusableCataloguedProjectionCannotBeRebuiltInPlace() {
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    final byte[] staleMetadata = ProjectionIndexMetadata.staleTombstone().serialize();
+
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
+        final JsonResourceSession session = database.beginResourceSession("sales.jn");
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).putBlob(0, staleMetadata);
+      wtx.commit();
+    }
+    ProjectionIndexCatalog.clearCache();
+
+    final QueryException failure = Assertions.assertThrows(QueryException.class, () -> query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/active', '/[]/dept'),
+              ('long', 'boolean', 'string'))
+        """));
+    Assertions.assertTrue(failure.getMessage().contains("cannot be rebuilt in place"), failure::getMessage);
+    Assertions.assertArrayEquals(staleMetadata, readProjectionMetadata(0),
+        "refusing creation must not alter the unusable tree");
+  }
+
+  @Test
+  public void metadataLessCataloguedProjectionRejectsIncrementalMaintenance() throws IOException {
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
+        final JsonResourceSession session = database.beginResourceSession("sales.jn");
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).tombstoneBlob(0);
+      wtx.commit();
+    }
+    ProjectionIndexCatalog.clearCache();
+
+    final RuntimeException failure = Assertions.assertThrows(RuntimeException.class, () -> query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return replace json value of $doc[0].age with 99
+        """));
+    Assertions.assertTrue(causeChainContains(failure, "has no live metadata"), failure::toString);
+    Assertions.assertNull(readProjectionMetadata(0), "failed maintenance must not manufacture replacement metadata");
     test("""
           let $doc := jn:doc('json-path1','sales.jn')
           return sum(for $r in $doc[] return $r.age)
-        """, "280");
+        """, "211");
+  }
+
+  @Test
+  public void explicitlyAbandonedProjectionMakesLaterMaintenanceANoOp() throws IOException {
+    query(STORE_QUERY);
+    query(CREATE_INDEX_QUERY);
+    final byte[] staleMetadata =
+        ProjectionIndexMetadata.staleTombstone(ProjectionIndexMetadata.StaleReason.GLOBAL_DICTIONARY_BUDGET_EXCEEDED)
+                               .serialize();
+
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
+        final JsonResourceSession session = database.beginResourceSession("sales.jn");
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), 0).putBlob(0, staleMetadata);
+      wtx.commit();
+    }
+    ProjectionIndexCatalog.clearCache();
+
+    query("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return append json {"age": 7, "active": true, "dept": "Eng"} into $doc
+        """);
+    Assertions.assertArrayEquals(staleMetadata, readProjectionMetadata(0),
+        "ordinary writes must not touch an explicitly abandoned projection tree");
+    test("""
+          let $doc := jn:doc('json-path1','sales.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "218");
+  }
+
+  private static byte[] readProjectionMetadata(final int indexNumber) {
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
+        final JsonResourceSession session = database.beginResourceSession("sales.jn");
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      return ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), indexNumber, 0L);
+    }
+  }
+
+  private static boolean causeChainContains(final Throwable failure, final String text) {
+    Throwable cursor = failure;
+    for (int depth = 0; cursor != null && depth < 16; depth++, cursor = cursor.getCause()) {
+      if (cursor.getMessage() != null && cursor.getMessage().contains(text)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Test

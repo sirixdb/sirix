@@ -9,12 +9,12 @@ package io.sirix.index.projection;
  *
  * <p>
  * This is not corruption and must never be reported as such. The bytes decode fine; what is broken
- * is an agreement between them, which is a WRITER's mistake and is repaired by rebuilding, not by
- * quarantining a column. The distinction is the entire point of the type. Task #45 spent four
- * rounds chasing "known-corrupt BODY segment" before the actual fault turned out to be a leaf
- * descriptor that maintenance had rewritten with the declared column kind while the payload and the
- * metadata still carried the elected one; the message blamed the bytes because the code had no way
- * to say anything else.
+ * is an agreement between them, which is a WRITER's mistake and is repaired by replacing the
+ * unusable definition with a fresh tree, not by quarantining a column. Task #45 spent four rounds
+ * chasing "known-corrupt BODY segment" before the actual fault turned out to be a leaf descriptor
+ * that maintenance had rewritten with the declared column kind while the payload and the metadata
+ * still carried the elected one; the message blamed the bytes because the code had no way to say
+ * anything else.
  * </p>
  *
  * <p>
@@ -46,7 +46,7 @@ public final class ProjectionStoreInconsistentException extends IllegalStateExce
     super("Projection store is INCONSISTENT, not corrupt: leaf " + leaf + " disagrees with leaf 0 about the column"
         + " encodings (" + detail + "). Every leaf of one projection must declare the same kinds; the store's bytes"
         + " are fine but its leaves no longer describe the same thing, so no route over it can be trusted. Queries"
-        + " take the generic pipeline; jn:create-projection-index rebuilds the projection.");
+        + " take the generic pipeline. Drop the unusable definition, commit, and create a replacement in a new tree.");
     this.leaf = leaf;
   }
 

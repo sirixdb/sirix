@@ -26,23 +26,27 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * End-to-end regression for a complete projection HOT split dump in the middle of a fragment chain.
+ * End-to-end regression for a complete projection HOT split dump at a fresh-page version boundary.
  *
  * <p>
  * No page, page key, page reference, fragment list, or transaction-log entry is fabricated by this
  * test. All three revisions use the public
  * {@link ProjectionIndexHOTStorage#putColumnSegmentSlot(long, byte[])} production path: revision 1
  * fills a leaf and then branches an outlier into a second leaf, revision 2 inserts a missing slot
- * into the full non-root leaf so it splits, and revision 3 updates a retained slot. The split
- * reuses the left reference and page key, so the resulting durable history is sparse r3 -&gt;
- * complete r2 -&gt; complete r1 under one page reference.
+ * into the full non-root leaf so it splits, and revision 3 updates a retained slot. The shared
+ * incremental split publishes fresh half pages: the resulting live left-page history is sparse r3
+ * -&gt; complete r2, while r1 remains reachable only through revision 1's historical root. Keeping
+ * the old source page out of the new half's fragment chain is intentional — it prevents pre-split
+ * keys from being reconstructed into the fresh half.
  * </p>
  */
 @DisplayName("Projection HOT complete-dump fragment boundary")
@@ -53,8 +57,8 @@ final class HOTCompleteDumpFragmentBoundaryTest {
   private static final long SPLIT_INSERTED_KEY = 1;
   private static final long MOVED_RIGHT_KEY = 512;
   private static final long ROOT_SPLIT_OUTLIER_KEY = 1L << 40;
-  private static final byte[] SMALL_SEGMENT = {1};
-  private static final byte[] UPDATED_SEGMENT = {2};
+  private static final byte[] SMALL_SEGMENT = segment((byte) 1);
+  private static final byte[] UPDATED_SEGMENT = segment((byte) 2);
 
   @TempDir
   Path temporaryDirectory;
@@ -84,23 +88,21 @@ final class HOTCompleteDumpFragmentBoundaryTest {
         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final PageReference leftReference = leafReferenceForKey(reader, RETAINED_LEFT_KEY);
-      assertEquals(2, leftReference.getPageFragments().size(),
-          "r3 must retain the r2 complete split dump and r1 pre-split fragment");
+      assertEquals(1, leftReference.getPageFragments().size(),
+          "r3 must retain the r2 complete split dump, but not chain in the old split source");
 
       final List<HOTLeafPage> fragments = reader.loadHOTLeafFragments(leftReference);
       try {
-        assertEquals(3, fragments.size(), "the durable chain must be sparse r3, complete r2, and r1");
+        assertEquals(2, fragments.size(), "the live durable chain must be sparse r3 and complete r2");
         final long leftPageKey = fragments.getFirst().getPageKey();
         for (final HOTLeafPage fragment : fragments) {
           assertEquals(leftPageKey, fragment.getPageKey(),
-              "the normal writer must retain one left-leaf page key across all three revisions");
+              "the normal writer must retain the fresh left-half page key across r2 and r3");
         }
         assertFalse(fragments.get(0).isCompleteDump(), "r3 must be a sparse update");
         assertTrue(fragments.get(1).isCompleteDump(), "r2 must be the complete non-root split dump");
         assertTrue(fragments.get(1).findEntry(key(MOVED_RIGHT_KEY)) < 0,
             "r2's retained left half must exclude the key moved to the new right page");
-        assertTrue(fragments.get(2).findEntry(key(MOVED_RIGHT_KEY)) >= 0,
-            "the same key must still be present in the pre-split r1 fragment");
       } finally {
         reader.releaseHOTLeafFragments(fragments, null);
       }
@@ -110,6 +112,29 @@ final class HOTCompleteDumpFragmentBoundaryTest {
       assertTrue(reconstructed.findEntry(key(SPLIT_INSERTED_KEY)) >= 0);
       assertFalse(reconstructed.findEntry(key(MOVED_RIGHT_KEY)) >= 0,
           "the left page must not resurrect a key from before its complete split dump");
+
+      // Historical isolation: r1 still sees the source leaf, r2 sees the fresh split halves, and
+      // only r3 sees the replacement. This is the versioning contract the fresh page identities
+      // preserve without carrying r1 into the new left half's fragment chain.
+      try (JsonNodeReadOnlyTrx r1 = session.beginNodeReadOnlyTrx(1);
+          JsonNodeReadOnlyTrx r2 = session.beginNodeReadOnlyTrx(2);
+          JsonNodeReadOnlyTrx r3 = session.beginNodeReadOnlyTrx(3)) {
+        final StorageEngineReader reader1 = r1.getStorageEngineReader();
+        final StorageEngineReader reader2 = r2.getStorageEngineReader();
+        final StorageEngineReader reader3 = r3.getStorageEngineReader();
+        assertNotNull(ProjectionIndexHOTStorage.readColumnSegmentSlot(reader1, 0, MOVED_RIGHT_KEY));
+        assertNull(ProjectionIndexHOTStorage.readColumnSegmentSlot(reader1, 0, SPLIT_INSERTED_KEY));
+        assertNotNull(ProjectionIndexHOTStorage.readColumnSegmentSlot(reader2, 0, MOVED_RIGHT_KEY));
+        assertNotNull(ProjectionIndexHOTStorage.readColumnSegmentSlot(reader2, 0, SPLIT_INSERTED_KEY));
+        assertArrayEquals(SMALL_SEGMENT,
+            ProjectionIndexHOTStorage.readColumnSegmentSlot(reader2, 0, RETAINED_LEFT_KEY));
+        assertArrayEquals(UPDATED_SEGMENT,
+            ProjectionIndexHOTStorage.readColumnSegmentSlot(reader3, 0, RETAINED_LEFT_KEY));
+        assertTrue(ProjectionIndexHOTStorage.segmentPageOffset(reader2, 0, RETAINED_LEFT_KEY, 0) >= 0,
+            "r2's complete split dump must carry the referenced segment side page");
+        assertTrue(ProjectionIndexHOTStorage.segmentPageOffset(reader3, 0, RETAINED_LEFT_KEY, 0) >= 0,
+            "r3's sparse update must carry its referenced segment side page");
+      }
     }
   }
 
@@ -139,17 +164,14 @@ final class HOTCompleteDumpFragmentBoundaryTest {
         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final PageReference leftReference = leafReferenceForKey(reader, RETAINED_LEFT_KEY);
-      assertEquals(1, leftReference.getPageFragments().size(),
-          "the supported non-root split must retain the pre-split fragment on the left reference");
+      assertEquals(0, leftReference.getPageFragments().size(),
+          "a fresh incremental split half must not inherit the old source page's fragment chain");
 
       final List<HOTLeafPage> fragments = reader.loadHOTLeafFragments(leftReference);
       try {
-        assertEquals(2, fragments.size());
-        assertEquals(fragments.get(0).getPageKey(), fragments.get(1).getPageKey(),
-            "the supported split must retain the left page key");
-        assertTrue(fragments.get(0).isCompleteDump(), "the supported split must emit a complete left half");
+        assertEquals(1, fragments.size());
+        assertTrue(fragments.getFirst().isCompleteDump(), "the supported split must emit a complete fresh left half");
         assertTrue(fragments.get(0).findEntry(key(MOVED_RIGHT_KEY)) < 0);
-        assertTrue(fragments.get(1).findEntry(key(MOVED_RIGHT_KEY)) >= 0);
       } finally {
         reader.releaseHOTLeafFragments(fragments, null);
       }
@@ -189,5 +211,11 @@ final class HOTCompleteDumpFragmentBoundaryTest {
     final byte[] key = new byte[Long.BYTES];
     assertEquals(Long.BYTES, PathKeySerializer.INSTANCE.serialize(slotKey, key, 0));
     return key;
+  }
+
+  private static byte[] segment(final byte marker) {
+    final byte[] segment = new byte[600];
+    segment[0] = marker;
+    return segment;
   }
 }

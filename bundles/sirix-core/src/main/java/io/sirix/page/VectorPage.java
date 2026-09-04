@@ -45,9 +45,10 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 /**
  * Page to hold references to vector index trees for nearest-neighbor search on embeddings.
  *
- * <p>Follows the same delegation pattern as {@link CASPage}: starts with a
- * {@link ReferencesPage4} delegate and grows to a {@link BitmapReferencesPage}
- * when more than 4 index trees are needed.</p>
+ * <p>
+ * Follows the same delegation pattern as {@link CASPage}: starts with a {@link ReferencesPage4}
+ * delegate and grows to a {@link BitmapReferencesPage} when more than 4 index trees are needed.
+ * </p>
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
@@ -84,8 +85,7 @@ public final class VectorPage extends AbstractForwardingPage {
    * @param maxNodeKeys the deserialized max node keys map
    * @param currentMaxLevelsOfIndirectPages the deserialized max levels map
    */
-  VectorPage(final Page delegate, final Int2LongMap maxNodeKeys,
-      final Int2IntMap currentMaxLevelsOfIndirectPages) {
+  VectorPage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2IntMap currentMaxLevelsOfIndirectPages) {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
@@ -125,9 +125,8 @@ public final class VectorPage extends AbstractForwardingPage {
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createVectorIndexTree(final DatabaseType databaseType,
-      final StorageEngineReader storageEngineReader, final int index,
-      final TransactionIntentLog log) {
+  public void createVectorIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
+      final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -135,7 +134,7 @@ public final class VectorPage extends AbstractForwardingPage {
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.VECTOR, storageEngineReader, log);
+      PageUtils.createKeyedTrie(databaseType, reference, IndexType.VECTOR, storageEngineReader, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {

@@ -54,8 +54,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * ({@link io.sirix.index.IndexType#VALIDTIME}, a HOT-backed Relational-Interval-Tree) wired into
  * {@code jn:valid-at} / {@code jn:open-bitemporal}.
  *
- * <p>For a dataset of records with {@code validFrom}/{@code validTo} dateTime fields and a VALIDTIME
- * interval index, for MANY query instants (including every boundary case), this asserts that:</p>
+ * <p>
+ * For a dataset of records with {@code validFrom}/{@code validTo} dateTime fields and a VALIDTIME
+ * interval index, for MANY query instants (including every boundary case), this asserts that:
+ * </p>
  * <ol>
  * <li>the interval-index path ({@link ValidTimeIntervalIndex#tryIndexScan}, which we assert is
  * actually taken) returns exactly the brute-force Java reference set;</li>
@@ -64,11 +66,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <li>the {@code jn:valid-at} query over a plain resource (no index → linear-scan fallback) returns
  * exactly that set.</li>
  * </ol>
- * <p>All must agree, for every instant, by id-set equality.</p>
+ * <p>
+ * All must agree, for every instant, by id-set equality.
+ * </p>
  *
- * <p>Plus: INCREMENTAL maintenance (insert a record + delete a record, commit, re-query) exercises
- * the listener, and PERSISTENCE (reopen the resource at the committed revision and query) exercises
- * CoW page persistence — both re-asserted against brute force.</p>
+ * <p>
+ * Plus: INCREMENTAL maintenance (insert a record + delete a record, commit, re-query) exercises the
+ * listener, and PERSISTENCE (reopen the resource at the committed revision and query) exercises CoW
+ * page persistence — both re-asserted against brute force.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -110,20 +116,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   @Test
   @DisplayName("interval index == scan == brute force for all t (incl. boundaries) + incremental + persistence")
   void intervalIndexEqualsScanEqualsBruteForce() throws IOException {
-    // The VALIDTIME index forces the HOT backend INTERNALLY (ValidTimeIntervalIndexFactory always
-    // builds HOT readers/writers), so NO -Dsirix.index.useHOT flag is required. Explicitly clear it
-    // for the duration of this test to prove the index works under default settings.
-    final String prevUseHot = System.getProperty("sirix.index.useHOT");
-    System.clearProperty("sirix.index.useHOT");
-    try {
-      runGate();
-    } finally {
-      if (prevUseHot == null) {
-        System.clearProperty("sirix.index.useHOT");
-      } else {
-        System.setProperty("sirix.index.useHOT", prevUseHot);
-      }
-    }
+    runGate();
   }
 
   private void runGate() throws IOException {
@@ -227,8 +220,8 @@ public final class ValidTimeIntervalIndexDifferentialTest {
                 "Interval-index path must be taken on the indexed resource (a VALIDTIME index exists) at t=" + t);
             indexPathTakenCount++;
             assertEquals(brute, idsOfItems(indexScan.items()),
-                "Direct interval-index result must equal brute force at t=" + t
-                    + " (candidates examined: " + indexScan.candidatesExamined() + ")");
+                "Direct interval-index result must equal brute force at t=" + t + " (candidates examined: "
+                    + indexScan.candidatesExamined() + ")");
             // All result items wrap the document's trx; ids are materialized, so release it now.
             indexedDoc.getTrx().close();
 
@@ -354,9 +347,9 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   @Test
   @DisplayName("open-ended intervals (absent validFrom / validTo) agree across interval index, indexed query, and linear scan")
   void openEndedIntervalsAgreeAcrossPaths() throws IOException {
-    // id 1: closed   [2020-01-01 .. 2020-12-31].
-    // id 2: open END — validFrom present, NO validTo  => "valid from 2021-01-01 onward" [2021, +inf).
-    // id 3: open START — NO validFrom, validTo present => "valid up to 2019-12-31"      (-inf, 2019].
+    // id 1: closed [2020-01-01 .. 2020-12-31].
+    // id 2: open END — validFrom present, NO validTo => "valid from 2021-01-01 onward" [2021, +inf).
+    // id 3: open START — NO validFrom, validTo present => "valid up to 2019-12-31" (-inf, 2019].
     final String json = """
         [
           {"id": 1, "validFrom": "2020-01-01T00:00:00Z", "validTo": "2020-12-31T23:59:59Z"},
@@ -391,15 +384,13 @@ public final class ValidTimeIntervalIndexDifferentialTest {
     }
 
     // (instant, expected id-set) — the +inf / -inf semantics the new predicate and index must share.
-    final List<Instant> times = List.of(
-        Instant.parse("2018-06-01T00:00:00Z"),  // only id 3 (valid up to 2019)
-        Instant.parse("2019-12-31T23:59:59Z"),  // boundary: only id 3
-        Instant.parse("2020-06-01T00:00:00Z"),  // only id 1 (the closed record)
-        Instant.parse("2021-01-01T00:00:00Z"),  // boundary: only id 2 (open-ended start instant)
-        Instant.parse("2021-06-01T00:00:00Z"),  // only id 2
+    final List<Instant> times = List.of(Instant.parse("2018-06-01T00:00:00Z"), // only id 3 (valid up to 2019)
+        Instant.parse("2019-12-31T23:59:59Z"), // boundary: only id 3
+        Instant.parse("2020-06-01T00:00:00Z"), // only id 1 (the closed record)
+        Instant.parse("2021-01-01T00:00:00Z"), // boundary: only id 2 (open-ended start instant)
+        Instant.parse("2021-06-01T00:00:00Z"), // only id 2
         Instant.parse("2500-01-01T00:00:00Z")); // far future: only id 2 stays valid forever
-    final List<Set<Integer>> expected =
-        List.of(Set.of(3), Set.of(3), Set.of(1), Set.of(2), Set.of(2), Set.of(2));
+    final List<Set<Integer>> expected = List.of(Set.of(3), Set.of(3), Set.of(1), Set.of(2), Set.of(2), Set.of(2));
 
     Databases.getGlobalBufferManager().clearAllCaches();
     final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
@@ -415,8 +406,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
 
           // Path 1: the interval index directly (assert it is actually taken).
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final ValidTimeIntervalIndex.Result idx =
-              ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
+          final ValidTimeIntervalIndex.Result idx = ValidTimeIntervalIndex.tryIndexScan(indexedDoc, t, validTimeConfig);
           assertNotNull(idx, "interval index must be usable at t=" + t);
           assertEquals(want, idsOfItems(idx.items()), "interval-index path at t=" + t);
 
@@ -443,10 +433,8 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   }
 
   private static void createResourceWithValidTime(final Database<JsonResourceSession> database, final String name) {
-    final var resourceConfig = ResourceConfiguration.newBuilder(name)
-                                                    .validTimePaths(VALID_FROM, VALID_TO)
-                                                    .buildPathSummary(true)
-                                                    .build();
+    final var resourceConfig =
+        ResourceConfiguration.newBuilder(name).validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build();
     database.createResource(resourceConfig);
   }
 
@@ -467,8 +455,8 @@ public final class ValidTimeIntervalIndexDifferentialTest {
 
     final long maxFromOffsetDays = ChronoUnit.DAYS.between(base, UNIVERSAL); // ~883 days
     for (int i = 0; i < 160; i++) {
-      final Instant from = base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS)
-                               .plusSeconds(rnd.nextInt(86_400));
+      final Instant from =
+          base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
       final Instant to;
       if (i % 6 == 0) {
         to = Instant.parse("2999-12-31T23:59:59Z"); // open-ended
@@ -506,21 +494,21 @@ public final class ValidTimeIntervalIndexDifferentialTest {
   }
 
   private static String toJsonObject(final Record r) {
-    return "{\"id\": " + r.id() + ", \"" + VALID_FROM + "\": \"" + r.validFrom()
-        + "\", \"" + VALID_TO + "\": \"" + r.validTo() + "\"}";
+    return "{\"id\": " + r.id() + ", \"" + VALID_FROM + "\": \"" + r.validFrom() + "\", \"" + VALID_TO + "\": \""
+        + r.validTo() + "\"}";
   }
 
   /**
    * Curated test times: before all, after all, every record's exact validFrom and validTo (boundary
-   * equality on both ends), points just inside/outside those boundaries, fractional-second points,
-   * a guaranteed zero-match time, and a guaranteed all-match time. Well over 300 distinct instants.
+   * equality on both ends), points just inside/outside those boundaries, fractional-second points, a
+   * guaranteed zero-match time, and a guaranteed all-match time. Well over 300 distinct instants.
    */
   private static List<Instant> buildTestTimes(final List<Record> recs) {
     final Set<Instant> times = new LinkedHashSet<>();
 
     times.add(Instant.parse("1900-01-01T00:00:00Z")); // before all -> zero match
     times.add(Instant.parse("2998-01-01T00:00:00Z")); // after all closed intervals
-    times.add(UNIVERSAL);                              // inside every interval -> all match
+    times.add(UNIVERSAL); // inside every interval -> all match
 
     for (final Record r : recs) {
       times.add(r.validFrom());
@@ -566,7 +554,9 @@ public final class ValidTimeIntervalIndexDifferentialTest {
       if (wtx.isObject() && wtx.moveToFirstChild()) {
         do {
           if (wtx.getName() != null && "id".equals(wtx.getName().getLocalName())) {
-            final Number n = wtx.isNumberValue() ? wtx.getNumberValue() : null;
+            final Number n = wtx.isNumberValue()
+                ? wtx.getNumberValue()
+                : null;
             if (n != null && n.intValue() == id) {
               wtx.moveTo(objectKey);
               return objectKey;

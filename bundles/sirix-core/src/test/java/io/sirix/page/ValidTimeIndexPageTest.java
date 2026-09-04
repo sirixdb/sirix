@@ -10,13 +10,14 @@ import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -28,49 +29,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ValidTimeIndexPageTest {
 
   @Test
-  void defaultCtor_emptyCounters() {
+  void defaultCtorHasNoAllocatorEntriesOrInitializedIndexes() {
     final ValidTimeIndexPage page = new ValidTimeIndexPage();
-    assertEquals(0, page.getMaxNodeKeySize());
     assertEquals(0, page.getMaxHotPageKeySize());
-    assertEquals(0, page.getCurrentMaxLevelOfIndirectPagesSize());
+    assertFalse(page.isIndexInitialized(0));
+    assertEquals(0, page.nextUnallocatedIndex());
   }
 
   @Test
-  void maxNodeKey_incrementPerIndex() {
-    final ValidTimeIndexPage page = new ValidTimeIndexPage();
-    assertEquals(0L, page.getMaxNodeKey(0));
-    assertEquals(1L, page.incrementAndGetMaxNodeKey(0));
-    assertEquals(2L, page.incrementAndGetMaxNodeKey(0));
-    assertEquals(1L, page.incrementAndGetMaxNodeKey(1));
-    assertEquals(2L, page.getMaxNodeKey(0));
-    assertEquals(1L, page.getMaxNodeKey(1));
-    assertEquals(2, page.getMaxNodeKeySize());
-  }
-
-  @Test
-  void maxHotPageKey_independentFromNodeKey() {
+  void hotPageKeyIsIndependentPerIndexAndReservesThePhysicalId() {
     final ValidTimeIndexPage page = new ValidTimeIndexPage();
     assertEquals(1L, page.incrementAndGetMaxHotPageKey(0));
     assertEquals(2L, page.incrementAndGetMaxHotPageKey(0));
+    assertEquals(1L, page.incrementAndGetMaxHotPageKey(9));
     assertEquals(2L, page.getMaxHotPageKey(0));
-    assertEquals(0L, page.getMaxNodeKey(0), "node- and hot-page counters must not alias");
+    assertEquals(1L, page.getMaxHotPageKey(9));
+    assertTrue(page.isIndexInitialized(0));
+    assertTrue(page.isIndexInitialized(9));
+    assertEquals(1, page.nextUnallocatedIndex());
   }
 
   @Test
-  void deserializationCtor_preservesState() {
-    final Int2LongOpenHashMap maxNodeKeys = new Int2LongOpenHashMap();
-    maxNodeKeys.put(0, 42L);
+  void deserializationCtorPreservesOnlySparseHotState() {
     final Int2LongOpenHashMap maxHotPageKeys = new Int2LongOpenHashMap();
     maxHotPageKeys.put(0, 7L);
-    final Int2IntOpenHashMap maxLevels = new Int2IntOpenHashMap();
-    maxLevels.put(0, 3);
 
-    final ValidTimeIndexPage page =
-        new ValidTimeIndexPage(new ReferencesPage4(), maxNodeKeys, maxHotPageKeys, maxLevels);
+    final ValidTimeIndexPage page = new ValidTimeIndexPage(new ReferencesPage4(), maxHotPageKeys);
 
-    assertEquals(42L, page.getMaxNodeKey(0));
     assertEquals(7L, page.getMaxHotPageKey(0));
-    assertEquals(3, page.getCurrentMaxLevelOfIndirectPages(0));
+    assertTrue(page.isIndexInitialized(0));
   }
 
   @Test
@@ -86,6 +73,28 @@ final class ValidTimeIndexPageTest {
   void getIndirectPageReference_returnsNonNull() {
     final ValidTimeIndexPage page = new ValidTimeIndexPage();
     assertNotNull(page.getIndirectPageReference(0));
+    assertFalse(page.isIndexInitialized(0), "a virgin structural placeholder must not reserve an id");
+  }
+
+  @Test
+  void allocatorUsesRootAndSparseMetadataWitnessesWithoutMaterializingHoles() {
+    final ValidTimeIndexPage page = new ValidTimeIndexPage();
+    page.getIndirectPageReference(3).setKey(4L);
+    page.incrementAndGetMaxHotPageKey(5);
+
+    assertTrue(page.isIndexInitialized(3));
+    assertTrue(page.isIndexInitialized(5));
+    assertEquals(4, page.nextUnallocatedIndex(3));
+    assertEquals(6, page.nextUnallocatedIndex(5));
+    assertEquals(1, page.getReferencesCount(), "allocation probes must not create root references");
+  }
+
+  @Test
+  void indexOperationsRejectIdsOutsideThePhysicalReferenceSpace() {
+    final ValidTimeIndexPage page = new ValidTimeIndexPage();
+
+    assertThrows(IndexOutOfBoundsException.class, () -> page.isIndexInitialized(-1));
+    assertThrows(IndexOutOfBoundsException.class, () -> page.nextUnallocatedIndex(Constants.INP_REFERENCE_COUNT));
   }
 
   @Test
@@ -114,17 +123,17 @@ final class ValidTimeIndexPageTest {
   }
 
   /**
-   * Backward-compatibility: the {@link RevisionRootPage} delegate is a
-   * {@link BitmapReferencesPage} whose on-disk form stores a presence BITMAP, and whose
-   * deserializer ({@link io.sirix.page.SerializationType#deserializeBitmapReferencesPage}) reads
-   * EXACTLY {@code bitmap.cardinality()} references — it IGNORES the {@code referenceCount}
-   * argument. Therefore:
+   * Backward-compatibility: the {@link RevisionRootPage} delegate is a {@link BitmapReferencesPage}
+   * whose on-disk form stores a presence BITMAP, and whose deserializer
+   * ({@link io.sirix.page.SerializationType#deserializeBitmapReferencesPage}) reads EXACTLY
+   * {@code bitmap.cardinality()} references — it IGNORES the {@code referenceCount} argument.
+   * Therefore:
    *
    * <ul>
-   *   <li>a NEW revision root (11 set bits) round-trips to 11 references, and</li>
-   *   <li>an OLD revision root written before the VALIDTIME slot existed (only offsets 0..9 set, 10
-   *       references) round-trips to 10 references WITHOUT error, even though the deserialize ctor is
-   *       now called with {@code referenceCount = 11}.</li>
+   * <li>a NEW revision root (11 set bits) round-trips to 11 references, and</li>
+   * <li>an OLD revision root written before the VALIDTIME slot existed (only offsets 0..9 set, 10
+   * references) round-trips to 10 references WITHOUT error, even though the deserialize ctor is now
+   * called with {@code referenceCount = 11}.</li>
    * </ul>
    *
    * After deserializing the old form, the missing VALIDTIME slot (offset 10) is materialized lazily

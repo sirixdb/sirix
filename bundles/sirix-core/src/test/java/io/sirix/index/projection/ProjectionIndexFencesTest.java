@@ -83,6 +83,51 @@ final class ProjectionIndexFencesTest {
     storage.putBlob(ProjectionIndexFences.CHUNK_SLOT_BASE + chunkId, corrupted);
   }
 
+  /**
+   * Test-only linear locator for fixtures that mutate fences directly. Production callers locate the
+   * document position while resolving the changed JSON node and pass that position into the mutation;
+   * keeping this scan here prevents a hidden O(n) compatibility route from entering the production
+   * API.
+   */
+  private static ProjectionIndexFences.DocumentPosition positionAfterForTest(
+      final ProjectionIndexFences.Accessor fences, final int afterSlot) {
+    final int levels = fences.documentTailPosition().predecessors().length;
+    final int[] predecessors = new int[levels];
+    final int[] successors = new int[levels];
+    boolean found = false;
+    int cursor = fences.documentHead();
+    int traversed = 0;
+    while (cursor != 0) {
+      if (++traversed > fences.physicalRowGroupCount()) {
+        throw new IllegalStateException("projection document-order test fixture contains a cycle");
+      }
+      final int height = documentSkipHeightForTest(cursor, levels);
+      for (int level = 0; level < height; level++) {
+        if (!found) {
+          predecessors[level] = cursor;
+        } else if (successors[level] == 0) {
+          successors[level] = cursor;
+        }
+      }
+      if (cursor == afterSlot) {
+        found = true;
+      }
+      cursor = fences.next(cursor);
+    }
+    if (!found) {
+      throw new IllegalArgumentException("projection document-order test fixture does not contain slot " + afterSlot);
+    }
+    return new ProjectionIndexFences.DocumentPosition(predecessors, successors);
+  }
+
+  private static int documentSkipHeightForTest(final int physicalSlot, final int levels) {
+    long mixed = physicalSlot * 0x9E3779B97F4A7C15L;
+    mixed ^= mixed >>> 33;
+    mixed *= 0xC2B2AE3D27D4EB4FL;
+    mixed ^= mixed >>> 29;
+    return Math.min(levels, Long.numberOfTrailingZeros(mixed | (1L << (levels - 1))) + 1);
+  }
+
   @Test
   void writeRejectsMisalignedFenceArrays() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
@@ -93,9 +138,9 @@ final class ProjectionIndexFencesTest {
       // Exactly one entry per leaf: too short (out-of-bounds) and too long (stale trailing
       // entries read() would ignore) both fail loudly before any slot is written.
       assertThrows(IllegalArgumentException.class,
-          () -> ProjectionIndexFences.write(storage, 4, new long[3], new long[4], 0));
+          () -> ProjectionIndexFences.write(storage, 4, new long[3], new long[4]));
       assertThrows(IllegalArgumentException.class,
-          () -> ProjectionIndexFences.write(storage, 4, new long[4], new long[5], 0));
+          () -> ProjectionIndexFences.write(storage, 4, new long[4], new long[5]));
     }
   }
 
@@ -117,7 +162,7 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, n, rng[0], rng[1], 0);
+        ProjectionIndexFences.write(storage, n, rng[0], rng[1]);
         final long[][] readBack = ProjectionIndexFences.read(storage, n);
         assertArrayEquals(rng[0], readBack[0], "same-trx first fences");
         assertArrayEquals(rng[1], readBack[1], "same-trx last fences");
@@ -159,7 +204,7 @@ final class ProjectionIndexFencesTest {
           writer.append(storage, expected[0][index], expected[1][index]);
         }
         assertEquals(1, writer.chunksWritten(), "only the partial second chunk remains before finish");
-        writer.finish(storage, 0);
+        writer.finish(storage);
         assertEquals(2, writer.chunksWritten());
         wtx.commit();
       }
@@ -194,7 +239,7 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        writer.finish(storage, 0);
+        writer.finish(storage);
         wtx.commit();
       }
     }
@@ -217,7 +262,7 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, n, rng[0], rng[1], 0);
+        ProjectionIndexFences.write(storage, n, rng[0], rng[1]);
         wtx.commit();
       }
       // Move exactly one leaf that lives in chunk 0; chunk 1 must not be rewritten.
@@ -267,7 +312,7 @@ final class ProjectionIndexFencesTest {
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      ProjectionIndexFences.write(storage, 2, ranges[0], ranges[1], 0);
+      ProjectionIndexFences.write(storage, 2, ranges[0], ranges[1]);
       wtx.commit();
     }
 
@@ -294,7 +339,7 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 3, ranges[0], ranges[1], 0);
+        ProjectionIndexFences.write(storage, 3, ranges[0], ranges[1]);
         wtx.commit();
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -306,7 +351,7 @@ final class ProjectionIndexFencesTest {
         final int splitSlot = fences.allocateSlot();
         assertEquals(4, splitSlot, "three base slots make physical slot 4 the first allocated split");
         fences.set(splitSlot, split, ranges[1][0]);
-        fences.linkAfter(1, splitSlot);
+        fences.linkAfter(1, splitSlot, positionAfterForTest(fences, 1));
         fences.flush(4);
         assertEquals(1, fences.chunksWritten(), "slots 1 and 4 both belong to 32-entry chunk 0");
         assertEquals(4, fences.findSlot(split));
@@ -329,7 +374,7 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 3, baseRanges[0], baseRanges[1], 0);
+        ProjectionIndexFences.write(storage, 3, baseRanges[0], baseRanges[1]);
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 3);
         fences.set(1, baseRanges[0][0], baseRanges[0][0] + 499L);
         fences.flush(3);
@@ -345,7 +390,7 @@ final class ProjectionIndexFencesTest {
         assertEquals(4, newSlot);
         fences.set(newSlot, baseRanges[0][0] + 500L, baseRanges[1][0]);
 
-        assertThrows(IllegalStateException.class, () -> fences.linkAfter(1, newSlot));
+        assertThrows(IllegalStateException.class, () -> fences.linkAfter(1, newSlot, fences.documentTailPosition()));
         assertEquals(2, fences.next(1), "failed splice must preserve the corrupt source edge");
         assertEquals(0, fences.previous(2));
         assertEquals(0, fences.ownerBase(newSlot), "failed splice must not assign an owner");
@@ -364,19 +409,19 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L}, 0);
+        ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L});
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 2);
         fences.set(1, 10L, 19L);
         final int middleSlot = fences.allocateSlot();
         assertEquals(3, middleSlot);
         fences.set(middleSlot, 20L, 29L);
-        fences.linkAfter(1, middleSlot);
+        fences.linkAfter(1, middleSlot, positionAfterForTest(fences, 1));
         final int tailSlot = fences.allocateSlot();
         assertEquals(4, tailSlot);
         fences.set(tailSlot, 30L, 39L);
-        fences.linkAfter(middleSlot, tailSlot);
-        fences.recycle(middleSlot);
-        fences.recycle(tailSlot);
+        fences.linkAfter(middleSlot, tailSlot, positionAfterForTest(fences, middleSlot));
+        fences.recycle(middleSlot, positionAfterForTest(fences, middleSlot));
+        fences.recycle(tailSlot, positionAfterForTest(fences, tailSlot));
         fences.flush(2);
         wtx.commit();
       }
@@ -392,7 +437,7 @@ final class ProjectionIndexFencesTest {
         assertEquals(4, newSlot, "slot 4 is the free-list head, leaving corrupt successor 3 recycled");
         fences.set(newSlot, 20L, 29L);
 
-        assertThrows(IllegalStateException.class, () -> fences.linkAfter(1, newSlot));
+        assertThrows(IllegalStateException.class, () -> fences.linkAfter(1, newSlot, fences.documentTailPosition()));
         assertFalse(fences.isLivePhysicalSlot(3));
         assertEquals(3, fences.next(1), "failed splice must preserve the corrupt recycled edge");
         assertEquals(1, fences.previous(2));
@@ -412,13 +457,13 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L}, 0);
+        ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L});
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 2);
         fences.set(1, 10L, 19L);
         final int splitSlot = fences.allocateSlot();
         assertEquals(3, splitSlot);
         fences.set(splitSlot, 20L, 39L);
-        fences.linkAfter(1, splitSlot);
+        fences.linkAfter(1, splitSlot, positionAfterForTest(fences, 1));
         fences.flush(3);
         wtx.commit();
       }
@@ -430,7 +475,7 @@ final class ProjectionIndexFencesTest {
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 3);
         assertEquals(3, fences.findSlot(25L));
 
-        assertThrows(IllegalStateException.class, () -> fences.recycle(3));
+        assertThrows(IllegalStateException.class, () -> fences.recycle(3, fences.documentTailPosition()));
         assertEquals(3, fences.liveRowGroupCount());
         assertTrue(fences.isLivePhysicalSlot(3));
         assertEquals(3, fences.next(1), "failed recycle must not unlink its predecessor");
@@ -451,18 +496,18 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L}, 0);
+        ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L});
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 2);
         fences.set(1, 10L, 19L);
         final int middleSlot = fences.allocateSlot();
         assertEquals(3, middleSlot);
         fences.set(middleSlot, 20L, 29L);
-        fences.linkAfter(1, middleSlot);
+        fences.linkAfter(1, middleSlot, positionAfterForTest(fences, 1));
         final int tailSlot = fences.allocateSlot();
         assertEquals(4, tailSlot);
         fences.set(tailSlot, 30L, 39L);
-        fences.linkAfter(middleSlot, tailSlot);
-        fences.recycle(tailSlot);
+        fences.linkAfter(middleSlot, tailSlot, positionAfterForTest(fences, middleSlot));
+        fences.recycle(tailSlot, positionAfterForTest(fences, tailSlot));
         fences.flush(3);
         wtx.commit();
       }
@@ -475,7 +520,7 @@ final class ProjectionIndexFencesTest {
         assertFalse(fences.isLivePhysicalSlot(4));
         assertEquals(3, fences.findSlot(25L));
 
-        assertThrows(IllegalStateException.class, () -> fences.recycle(3));
+        assertThrows(IllegalStateException.class, () -> fences.recycle(3, fences.documentTailPosition()));
         assertEquals(3, fences.liveRowGroupCount());
         assertTrue(fences.isLivePhysicalSlot(3));
         assertFalse(fences.isLivePhysicalSlot(4));
@@ -498,7 +543,7 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 1, new long[] {1L}, new long[] {leaves}, 0);
+        ProjectionIndexFences.write(storage, 1, new long[] {1L}, new long[] {leaves});
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 1);
         // Shrink the base leaf's live range without shrinking its immutable numeric ownership bound.
         fences.set(1, 1L, 1L);
@@ -506,13 +551,13 @@ final class ProjectionIndexFencesTest {
           final int slot = fences.allocateSlot();
           assertEquals(key, slot, "fresh split slots must be allocated in physical-id order");
           fences.set(slot, key, key);
-          fences.linkAfter(slot - 1, slot);
+          fences.linkAfter(slot - 1, slot, fences.documentTailPosition());
         }
         for (int iteration = 0; iteration < 512; iteration++) {
-          fences.recycle(leaves);
+          fences.recycle(leaves, fences.documentTailPosition());
           assertEquals(leaves, fences.allocateSlot());
           fences.set(leaves, leaves, leaves);
-          fences.linkAfter(leaves - 1, leaves);
+          fences.linkAfter(leaves - 1, leaves, fences.documentTailPosition());
         }
         fences.flush(leaves);
         wtx.commit();
@@ -534,18 +579,18 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 1, new long[] {10L}, new long[] {39L}, 0);
+        ProjectionIndexFences.write(storage, 1, new long[] {10L}, new long[] {39L});
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 1);
         fences.set(1, 10L, 19L);
         final int middleSlot = fences.allocateSlot();
         assertEquals(2, middleSlot);
         fences.set(middleSlot, 20L, 29L);
-        fences.linkAfter(1, middleSlot);
+        fences.linkAfter(1, middleSlot, fences.documentTailPosition());
         final int tailSlot = fences.allocateSlot();
         assertEquals(3, tailSlot);
         fences.set(tailSlot, 30L, 39L);
-        fences.linkAfter(middleSlot, tailSlot);
-        fences.recycle(middleSlot);
+        fences.linkAfter(middleSlot, tailSlot, fences.documentTailPosition());
+        fences.recycle(middleSlot, positionAfterForTest(fences, middleSlot));
 
         assertEquals(2, fences.liveRowGroupCount());
         assertEquals(3, fences.physicalRowGroupCount());
@@ -580,7 +625,7 @@ final class ProjectionIndexFencesTest {
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      ProjectionIndexFences.write(storage, 3, first, last, 0);
+      ProjectionIndexFences.write(storage, 3, first, last);
       final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 3);
 
       assertEquals(Long.MAX_VALUE, fences.first(2));
@@ -610,7 +655,7 @@ final class ProjectionIndexFencesTest {
         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         ProjectionIndexFences.write(new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER),
-            rowGroupCount, first, last, 0);
+            rowGroupCount, first, last);
         wtx.commit();
       }
 
@@ -637,12 +682,12 @@ final class ProjectionIndexFencesTest {
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage =
           new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L}, 0);
+      ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L});
       final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 2);
       fences.set(1, 10L, 19L);
       final int splitSlot = fences.allocateSlot();
       fences.set(splitSlot, 20L, 30L);
-      fences.linkAfter(1, splitSlot);
+      fences.linkAfter(1, splitSlot, positionAfterForTest(fences, 1));
 
       fences.validateTouchedNormalBounds(1);
       fences.validateTouchedNormalBounds(splitSlot);
@@ -667,13 +712,13 @@ final class ProjectionIndexFencesTest {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, 1, new long[] {0L}, new long[] {100L}, 0);
+        ProjectionIndexFences.write(storage, 1, new long[] {0L}, new long[] {100L});
         final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 1);
         fences.set(1, 0L, 10L);
         final int splitSlot = fences.allocateSlot();
         assertEquals(2, splitSlot);
         fences.set(splitSlot, 20L, 30L);
-        fences.linkAfter(1, splitSlot);
+        fences.linkAfter(1, splitSlot, fences.documentTailPosition());
 
         assertEquals(100L, fences.maxRecordKey(), "base ownership must not shrink with its live fence");
         assertEquals(2, fences.findSlot(25L));
@@ -695,44 +740,6 @@ final class ProjectionIndexFencesTest {
   }
 
   @Test
-  void shrinkTombstonesOrphanChunks() {
-    // 72 physical slots occupy chunks 0, 1 and 2; 28 slots occupy only chunk 0.
-    final int wide = ProjectionIndexFences.CHUNK_LEAVES * 2 + 8;
-    final int narrow = ProjectionIndexFences.CHUNK_LEAVES - 4;
-    final long[][] wideR = ranges(wide, 5);
-    final long[][] narrowR = ranges(narrow, 5);
-    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
-        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, wide, wideR[0], wideR[1], 0);
-        wtx.commit();
-      }
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        ProjectionIndexFences.write(storage, narrow, narrowR[0], narrowR[1], wide);
-        wtx.commit();
-      }
-      Databases.getGlobalBufferManager().clearAllCaches();
-      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        // Both orphaned 32-entry chunks are gone (reader-side static read).
-        assertNull(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER,
-            ProjectionIndexFences.CHUNK_SLOT_BASE + 1), "orphan chunk 1 tombstoned");
-        assertNull(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER,
-            ProjectionIndexFences.CHUNK_SLOT_BASE + 2), "orphan chunk 2 tombstoned");
-      }
-      // The surviving fences read back exactly.
-      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        final ProjectionIndexHOTStorage storage =
-            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-        assertArrayEquals(narrowR[0], ProjectionIndexFences.read(storage, narrow)[0]);
-      }
-    }
-  }
-
-  @Test
   void readReturnsNullWhenAChunkIsMissing() {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
@@ -741,17 +748,13 @@ final class ProjectionIndexFencesTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         // Nothing written: reading a non-empty zone map must report the gap.
         assertNull(ProjectionIndexFences.read(storage, 4), "no chunks → null");
-        // Reading exactly one persisted 32-entry chunk succeeds.
-        final long[][] one = ranges(ProjectionIndexFences.CHUNK_LEAVES, 5);
-        ProjectionIndexFences.write(storage, ProjectionIndexFences.CHUNK_LEAVES, one[0], one[1], 0);
-        assertArrayEquals(one[0], ProjectionIndexFences.read(storage, ProjectionIndexFences.CHUNK_LEAVES)[0]);
-
-        // Persist a header for 33 leaves, then remove only its one-entry chunk 1. This is an
-        // actual missing-chunk fixture rather than a row-count/header mismatch.
+        // Initialise 33 leaves, then remove only its one-entry chunk 1. This is an actual
+        // missing-chunk fixture rather than a populated-tree replacement or row-count/header mismatch.
         final int twoChunkCount = ProjectionIndexFences.CHUNK_LEAVES + 1;
         final long[][] two = ranges(twoChunkCount, 5);
-        ProjectionIndexFences.write(storage, twoChunkCount, two[0], two[1], ProjectionIndexFences.CHUNK_LEAVES);
-        storage.tombstoneRowGroup(ProjectionIndexFences.CHUNK_SLOT_BASE + 1);
+        ProjectionIndexFences.write(storage, twoChunkCount, two[0], two[1]);
+        assertArrayEquals(two[0], ProjectionIndexFences.read(storage, twoChunkCount)[0]);
+        storage.tombstoneBlob(ProjectionIndexFences.CHUNK_SLOT_BASE + 1);
         assertNull(ProjectionIndexFences.read(storage, twoChunkCount), "persisted chunk 1 absent → null");
       }
     }

@@ -1657,12 +1657,17 @@ final class XmlNodeTrxImpl extends
             pendingStructuralChange = getNodeKey();
             indexController.notifyBeforeStructuralChange(pendingStructuralChange);
           }
-          renameStarted = true;
 
           // Get a TIL-owned copy via prepareRecordForModification (proper COW).
           final NameNode node =
               (NameNode) storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
           final long oldHash = node.computeHash(bytes);
+
+          // The rollback-only latch arms at the first statement a failed rename would need to
+          // unwind — the DELETE de-index below. The CoW registration and hash read above leave
+          // no half-applied state, and poisoning the transaction for an I/O failure there would
+          // make every unrelated uncommitted change uncommittable over a no-op.
+          renameStarted = true;
 
           // De-index under the OLD name/path before the rename — without this the NAME index
           // still lists the element/attribute under its old QNm and the CAS index keeps the old

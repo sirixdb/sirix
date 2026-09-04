@@ -114,6 +114,7 @@ public final class FullReferencesPageSerializationTest {
     final FullReferencesPage copied = new FullReferencesPage(converted);
     assertEquals(4_096L, copied.referenceAt(firstOffset).getKey());
     assertEquals(8_192L, copied.referenceAt(farOffset).getKey());
+    assertNull(copied.referenceAt(0), "copy-on-write must preserve unallocated physical slots");
 
     final BytesOut<?> out = Bytes.elasticOffHeapByteBuffer();
     copied.serializeReferences(out, SerializationType.DATA);

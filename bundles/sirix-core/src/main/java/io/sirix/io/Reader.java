@@ -185,8 +185,8 @@ public interface Reader extends AutoCloseable {
    * The columnar answer to a columnar question: a page's values are written column-oriented and the
    * full read path transposes them into a row heap, only for the scan to derive columns back out of
    * it. This entry point stops after the columns. It decompresses nothing but the region kinds named
-   * in {@code regionKindMask}, and allocates nothing off-heap, so a page read this way needs no guard
-   * and never enters the record-page cache.
+   * in {@code regionKindMask}, allocates their payloads from the bounded native frame allocator, and
+   * never enters the record-page cache.
    *
    * <p>
    * The default returns {@code null} — a backend without the fast path is not an error, it just sends
@@ -198,7 +198,8 @@ public interface Reader extends AutoCloseable {
    *        {@link io.sirix.page.pax.RegionTable#maskOf(byte)}
    * @param regionDeferMask subset of {@code regionKindMask} whose decompression waits until the
    *        caller actually reads it — lets a cheap region veto an expensive one
-   * @return the decoded regions, or {@code null} when unsupported / not a record page
+   * @return the decoded regions, or {@code null} when unsupported / not a record page; the caller
+   *         owns and must close a non-null result
    */
   default @Nullable RegionsOnlyPage readRegionsOnly(PageReference key, ResourceConfiguration resourceConfiguration,
       int regionKindMask, int regionDeferMask) {

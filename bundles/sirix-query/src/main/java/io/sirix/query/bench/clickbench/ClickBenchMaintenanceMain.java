@@ -336,7 +336,8 @@ public final class ClickBenchMaintenanceMain {
     return String.format(Locale.ROOT,
         "# HFT_CONFIG globalDict=auto autoCommitNodes=%d asyncFlushNodeCap=0 arenaStrategy=%s maxNewSizeBytes=%d "
             + "initialHeapBytes=%d maxHeapBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s "
-            + "storage=FILE_CHANNEL projectionMode=incremental expectedRows=%d pinnedTrieScanBudget=%d "
+            + "storage=FILE_CHANNEL importer=ordinary-maintenance projectionMode=incremental expectedRows=%d "
+            + "pinnedTrieScanBudget=%d "
             + "pinnedTrieBatchCapacity=%d versioningType=%s appendWorkers=%d appendQueueCapacity=%d",
         autoCommitNodes, SharedArenas.strategy().name().toLowerCase(Locale.ROOT), effectiveVmOption("MaxNewSize"),
         effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"), effectiveVmOption("G1HeapRegionSize"),

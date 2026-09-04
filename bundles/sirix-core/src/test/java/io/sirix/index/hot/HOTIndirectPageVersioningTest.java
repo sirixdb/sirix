@@ -57,13 +57,10 @@ class HOTIndirectPageVersioningTest {
     }
 
     tempDir = Files.createTempDirectory("sirix-hot-indirect-versioning-test");
-    System.setProperty("sirix.index.useHOT", "true");
   }
 
   @AfterEach
   void tearDown() throws IOException {
-    System.clearProperty("sirix.index.useHOT");
-
     if (tempDir != null) {
       deleteRecursively(tempDir);
     }
@@ -1079,4 +1076,3 @@ class HOTIndirectPageVersioningTest {
     }
   }
 }
-

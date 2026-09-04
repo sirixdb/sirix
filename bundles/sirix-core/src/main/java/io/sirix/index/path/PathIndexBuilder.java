@@ -2,7 +2,6 @@ package io.sirix.index.path;
 
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
-import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
@@ -10,25 +9,15 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.hot.HOTLongBulkIndexLoader;
 import io.sirix.index.hot.HOTLongIndexWriter;
 import io.sirix.index.path.summary.PathSummaryReader;
-import io.sirix.index.redblacktree.RBTreeReader.MoveCursor;
-import io.sirix.index.redblacktree.RBTreeWriter;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.utils.LogWrapper;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
-import java.util.Optional;
 import java.util.Set;
 
-/**
- * Builder for PATH indexes.
- * 
- * <p>
- * Supports both traditional RBTree and high-performance HOT index backends.
- * </p>
- */
+/** Builder for the persistent HOT PATH index. */
 public final class PathIndexBuilder {
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(PathIndexBuilder.class));
@@ -37,45 +26,23 @@ public final class PathIndexBuilder {
 
   private final PathSummaryReader pathSummaryReader;
 
-  private final @Nullable RBTreeWriter<Long, NodeReferences> rbTreeWriter;
-
-  private final @Nullable HOTLongIndexWriter hotWriter;
-
-  private final boolean useHOT;
+  private final HOTLongIndexWriter hotWriter;
 
   /** Path-class records covered by {@link #paths}, resolved lazily on the first indexed node. */
   private @Nullable LongSet resolvedPCRs;
 
   /**
-   * Bulk loader for the HOT backend, non-{@code null} exactly when this builder starts against an
-   * empty index tree — the normal "create an index over an already-shredded revision" case. Every
-   * entry is collected and the trie is materialised once in {@link #finish()}.
+   * Bulk loader, non-{@code null} exactly when this builder starts against an empty index tree — the
+   * normal "create an index over an already-shredded revision" case. Every entry is collected and the
+   * trie is materialised once in {@link #finish()}.
    */
   private final @Nullable HOTLongBulkIndexLoader bulkLoader;
 
-  /**
-   * Constructor with RBTree writer (legacy path).
-   */
-  public PathIndexBuilder(final RBTreeWriter<Long, NodeReferences> indexWriter,
-      final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
-    this.pathSummaryReader = pathSummaryReader;
-    this.paths = paths;
-    this.rbTreeWriter = indexWriter;
-    this.hotWriter = null;
-    this.useHOT = false;
-    this.bulkLoader = null;
-  }
-
-  /**
-   * Constructor with HOT writer (high-performance path).
-   */
   public PathIndexBuilder(final HOTLongIndexWriter hotWriter, final PathSummaryReader pathSummaryReader,
       final Set<Path<QNm>> paths) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
-    this.rbTreeWriter = null;
     this.hotWriter = hotWriter;
-    this.useHOT = true;
     // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into it,
     // so an index that already holds entries keeps the incremental path.
     this.bulkLoader = hotWriter.isEmptyTree()
@@ -87,11 +54,7 @@ public final class PathIndexBuilder {
     try {
       final long PCR = pathNodeKey;
       if (matchesIndexedPath(PCR)) {
-        if (useHOT) {
-          processHOT(node, PCR);
-        } else {
-          processRBTree(node, PCR);
-        }
+        processNode(node, PCR);
       }
     } catch (final PathException | SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -111,26 +74,18 @@ public final class PathIndexBuilder {
 
   /**
    * Primitive entry for feeders that hold no node object — the parallel bulk importer's coordinator
-   * drain. Same path filter, same HOT-vs-RBTree dispatch, same bulk-vs-incremental arm as
-   * {@link #process}; only the {@code ImmutableNode} indirection is gone.
+   * drain. Same path filter and same virgin-bulk-vs-incremental arm as {@link #process}; only the
+   * {@code ImmutableNode} indirection is gone.
    */
   public void add(final long pathNodeKey, final long nodeKey) {
     try {
       if (!matchesIndexedPath(pathNodeKey)) {
         return;
       }
-      if (useHOT) {
-        assert hotWriter != null;
-        if (bulkLoader != null) {
-          bulkLoader.add(pathNodeKey, nodeKey);
-        } else {
-          hotWriter.indexNodeKey(pathNodeKey, nodeKey);
-        }
+      if (bulkLoader != null) {
+        bulkLoader.add(pathNodeKey, nodeKey);
       } else {
-        assert rbTreeWriter != null;
-        final Optional<NodeReferences> references = rbTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
-        rbTreeWriter.index(pathNodeKey, references.orElseGet(NodeReferences::new).addNodeKey(nodeKey),
-            MoveCursor.NO_MOVE);
+        hotWriter.indexNodeKey(pathNodeKey, nodeKey);
       }
     } catch (final PathException | SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -144,16 +99,6 @@ public final class PathIndexBuilder {
    */
   public PathSummaryReader getPathSummaryReader() {
     return pathSummaryReader;
-  }
-
-  private void processRBTree(final ImmutableNode node, final long PCR) throws SirixIOException {
-    assert rbTreeWriter != null;
-    final Optional<NodeReferences> textReferences = rbTreeWriter.get(PCR, SearchMode.EQUAL);
-    if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(node, textReferences.get(), PCR);
-    } else {
-      setNodeReferencesRBTree(node, new NodeReferences(), PCR);
-    }
   }
 
   /**
@@ -180,17 +125,16 @@ public final class PathIndexBuilder {
   }
 
   /**
-   * Add {@code node} to {@code PCR}'s posting list in the HOT backend.
+   * Add {@code node} to {@code PCR}'s posting list.
    *
    * <p>
-   * A HOT slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
-   * reference needs neither a read-back of the stored references nor a re-insert of them. Doing so
-   * made building an index quadratic in the number of nodes sharing a key — and for a PATH index
-   * every node under the indexed path shares one key, so that was the whole index.
+   * A slot write is an OR-merge of the incoming bitmap into the stored one, so adding one reference
+   * needs neither a read-back of the stored references nor a re-insert of them. Doing so made
+   * building an index quadratic in the number of nodes sharing a key — and for a PATH index every
+   * node under the indexed path shares one key, so that was the whole index.
    * </p>
    */
-  private void processHOT(final ImmutableNode node, final long PCR) throws SirixIOException {
-    assert hotWriter != null;
+  private void processNode(final ImmutableNode node, final long PCR) throws SirixIOException {
     if (bulkLoader != null) {
       bulkLoader.add(PCR, node.getNodeKey());
     } else {
@@ -206,12 +150,6 @@ public final class PathIndexBuilder {
     if (bulkLoader != null) {
       bulkLoader.flush();
     }
-  }
-
-  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references,
-      final long pathNodeKey) throws SirixIOException {
-    assert rbTreeWriter != null;
-    rbTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 
 }

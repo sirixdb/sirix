@@ -54,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Targets:
  * </p>
  * <ul>
- * <li>{@code HOTTrieWriter} - split logic, path updates</li>
+ * <li>canonical HOT writer - split logic and path updates</li>
  * <li>{@code HOTTrieReader} - navigation, loading</li>
  * <li>{@code SparsePartialKeys} - all key types</li>
  * </ul>
@@ -72,13 +72,11 @@ class HOTTrieCoverageTest {
   void setUp() throws IOException {
     DATABASE_PATH = tempDir.resolve("hot-trie-db");
     Files.createDirectories(DATABASE_PATH);
-    System.setProperty("sirix.index.useHOT", "true");
     Allocators.getInstance();
   }
 
   @AfterEach
   void tearDown() {
-    System.clearProperty("sirix.index.useHOT");
     try {
       Databases.removeDatabase(DATABASE_PATH);
     } catch (Exception ignored) {
@@ -460,8 +458,9 @@ class HOTTrieCoverageTest {
           wtx.commit();
 
           // Query all entries
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/data/[]/val"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/data/[]/val"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -507,8 +506,9 @@ class HOTTrieCoverageTest {
           wtx.commit();
 
           // Query for values >= 10.0
-          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
-              Set.of("/floats/[]/val"), new Dbl(10.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
+          var casIndex =
+              indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
+                  Set.of("/floats/[]/val"), new Dbl(10.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
           while (casIndex.hasNext()) {
@@ -609,8 +609,8 @@ class HOTTrieCoverageTest {
     @DisplayName("MultiMask SpanNode creation and child lookup")
     void testMultiMaskSpanNodeLookup() {
       // Create a MultiMask node with disc bits at byte 0 and byte 10 (span > 8 bytes).
-      //   Byte 0,  bit 3 (MSB-first) → maskByte = 1 << (7-3) = 0x10
-      //   Byte 10, bit 5 (MSB-first) → maskByte = 1 << (7-5) = 0x04
+      // Byte 0, bit 3 (MSB-first) → maskByte = 1 << (7-3) = 0x10
+      // Byte 10, bit 5 (MSB-first) → maskByte = 1 << (7-5) = 0x04
       byte[] extractionPositions = {0, 10};
       // BE chunk packing: extraction-byte index 0 → long bits 56-63, index 1 → 48-55, etc.
       long[] extractionMasks = {(0x10L << 56) | (0x04L << 48)};
@@ -635,9 +635,8 @@ class HOTTrieCoverageTest {
       // MSB index = min absolute bit pos = byte 0 * 8 + bit 3 = 3
       short msbIndex = 3;
 
-      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(
-          1L, 1, extractionPositions, extractionMasks, numExtractionBytes,
-          partialKeys, children, 1, msbIndex);
+      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(1L, 1, extractionPositions, extractionMasks,
+          numExtractionBytes, partialKeys, children, 1, msbIndex);
 
       assertEquals(HOTIndirectPage.LayoutType.MULTI_MASK, node.getLayoutType());
       assertEquals(4, node.getNumChildren());
@@ -693,9 +692,8 @@ class HOTTrieCoverageTest {
       }
       short msbIndex = 16; // byte 2 * 8 + 0
 
-      HOTIndirectPage original = HOTIndirectPage.createSpanNodeMultiMask(
-          10L, 1, extractionPositions, extractionMasks, numExtractionBytes,
-          partialKeys, children, 1, msbIndex);
+      HOTIndirectPage original = HOTIndirectPage.createSpanNodeMultiMask(10L, 1, extractionPositions, extractionMasks,
+          numExtractionBytes, partialKeys, children, 1, msbIndex);
 
       // Copy constructor
       HOTIndirectPage copy = new HOTIndirectPage(original);
@@ -753,9 +751,8 @@ class HOTTrieCoverageTest {
       }
       short msbIndex = 0; // byte 0 * 8 + 0
 
-      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(
-          20L, 1, extractionPositions, extractionMasks, numExtractionBytes,
-          partialKeys, children, 1, msbIndex);
+      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(20L, 1, extractionPositions, extractionMasks,
+          numExtractionBytes, partialKeys, children, 1, msbIndex);
 
       assertEquals(10, node.getTotalDiscBits());
       assertEquals(10, node.getNumExtractionBytes());
@@ -770,9 +767,9 @@ class HOTTrieCoverageTest {
     void testSIMDGatherAllPatterns() {
       // 3 extraction bytes at positions 1, 8, 20 (span = 20 bytes, fits in 32-byte AVX2 vector)
       // Each extracts 2 bits → 6 disc bits total → 64 partial key combinations.
-      //   Extraction byte 0 = key[1], MSB-first bits 0,1 → maskByte 0xC0
-      //   Extraction byte 1 = key[8], MSB-first bits 6,7 → maskByte 0x03
-      //   Extraction byte 2 = key[20], MSB-first bits 2,3 → maskByte 0x30
+      // Extraction byte 0 = key[1], MSB-first bits 0,1 → maskByte 0xC0
+      // Extraction byte 1 = key[8], MSB-first bits 6,7 → maskByte 0x03
+      // Extraction byte 2 = key[20], MSB-first bits 2,3 → maskByte 0x30
       // BE chunk packing: extraction-byte 0 → long bits 56-63, byte 1 → 48-55, byte 2 → 40-47.
       byte[] extractionPositions = {1, 8, 20};
       long[] extractionMasks = {(0xC0L << 56) | (0x03L << 48) | (0x30L << 40)};
@@ -793,9 +790,8 @@ class HOTTrieCoverageTest {
       }
       short msbIndex = (short) (1 * 8); // byte 1, bit 0
 
-      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(
-          30L, 1, extractionPositions, extractionMasks, numExtractionBytes,
-          partialKeys, children, 1, msbIndex);
+      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(30L, 1, extractionPositions, extractionMasks,
+          numExtractionBytes, partialKeys, children, 1, msbIndex);
 
       // All zeros → pk = 0. Sparse-search: subsetPick on matchMask.
       byte[] key0 = new byte[21];
@@ -803,38 +799,38 @@ class HOTTrieCoverageTest {
 
       // key[1] = 0x80 (bit 0 = MSB set) → pk = (1<<5)|0 = 32. Subset of {0..7}? 32 has no
       // bits matching any small partial key, so subset search returns -1 (NOT_FOUND).
-      // (See findChildSpanNode: when no partial key is a subset, return NOT_FOUND.)
+      // (See findChildByPartialKey: when no partial key is a subset, return NOT_FOUND.)
       // Switch to a more interesting pattern: set both bits in key[1] →
       // key[1] = 0xC0 → pk = (1<<5)|(1<<4) = 48. Still doesn't match any small pk.
       // The original test exercised LE PEXT result mappings; under BE they're permuted. Test
       // with key combinations that DO hit the {0..7} partial-key set:
-      //   pk=1 requires only result-bit 0 = 1 → key[20]-bit3 = 1 → key[20] = 0x10.
+      // pk=1 requires only result-bit 0 = 1 → key[20]-bit3 = 1 → key[20] = 0x10.
       byte[] keyPk1 = new byte[21];
       keyPk1[20] = 0x10;
       assertEquals(1, node.findChildIndex(keyPk1));
 
-      //   pk=2 requires only result-bit 1 = 1 → key[20]-bit2 = 1 → key[20] = 0x20.
+      // pk=2 requires only result-bit 1 = 1 → key[20]-bit2 = 1 → key[20] = 0x20.
       byte[] keyPk2 = new byte[21];
       keyPk2[20] = 0x20;
       assertEquals(2, node.findChildIndex(keyPk2));
 
-      //   pk=3 → both result-bits 0,1 set → key[20] = 0x30.
+      // pk=3 → both result-bits 0,1 set → key[20] = 0x30.
       byte[] keyPk3 = new byte[21];
       keyPk3[20] = 0x30;
       assertEquals(3, node.findChildIndex(keyPk3));
 
-      //   pk=4 requires only result-bit 2 = 1 → key[8]-bit7 = 1 → key[8] = 0x01.
+      // pk=4 requires only result-bit 2 = 1 → key[8]-bit7 = 1 → key[8] = 0x01.
       byte[] keyPk4 = new byte[21];
       keyPk4[8] = 0x01;
       assertEquals(4, node.findChildIndex(keyPk4));
 
-      //   pk=5 → result-bits 0,2 → key[20]=0x10, key[8]=0x01.
+      // pk=5 → result-bits 0,2 → key[20]=0x10, key[8]=0x01.
       byte[] keyPk5 = new byte[21];
       keyPk5[20] = 0x10;
       keyPk5[8] = 0x01;
       assertEquals(5, node.findChildIndex(keyPk5));
 
-      //   pk=7 → result-bits 0,1,2 → key[20]=0x30, key[8]=0x01.
+      // pk=7 → result-bits 0,1,2 → key[20]=0x30, key[8]=0x01.
       byte[] keyPk7 = new byte[21];
       keyPk7[20] = 0x30;
       keyPk7[8] = 0x01;
@@ -845,8 +841,8 @@ class HOTTrieCoverageTest {
     @DisplayName("Scalar fallback for wide span (>32 bytes between extraction positions)")
     void testScalarFallbackWideSpan() {
       // Extraction positions at 0 and 40 → span = 41 bytes > 32 → scalar fallback.
-      //   Byte 0, bit 0 (MSB) → maskByte = 0x80
-      //   Byte 40, bit 7 (LSB) → maskByte = 0x01
+      // Byte 0, bit 0 (MSB) → maskByte = 0x80
+      // Byte 40, bit 7 (LSB) → maskByte = 0x01
       // BE chunk packing: extraction-byte 0 → long bits 56-63, byte 1 → 48-55.
       byte[] extractionPositions = {0, 40};
       long[] extractionMasks = {(0x80L << 56) | (0x01L << 48)};
@@ -864,9 +860,8 @@ class HOTTrieCoverageTest {
       }
       short msbIndex = 0;
 
-      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(
-          40L, 1, extractionPositions, extractionMasks, numExtractionBytes,
-          partialKeys, children, 1, msbIndex);
+      HOTIndirectPage node = HOTIndirectPage.createSpanNodeMultiMask(40L, 1, extractionPositions, extractionMasks,
+          numExtractionBytes, partialKeys, children, 1, msbIndex);
 
       // (0,0) → pk=0 → child 0
       byte[] key0 = new byte[41];
@@ -1056,8 +1051,7 @@ class HOTTrieCoverageTest {
         HOTLeafPage copy = original.copy();
         try {
           assertEquals(original.getCommonPrefixLen(), copy.getCommonPrefixLen());
-          assertArrayEquals(
-              java.util.Arrays.copyOf(original.getCommonPrefix(), original.getCommonPrefixLen()),
+          assertArrayEquals(java.util.Arrays.copyOf(original.getCommonPrefix(), original.getCommonPrefixLen()),
               java.util.Arrays.copyOf(copy.getCommonPrefix(), copy.getCommonPrefixLen()));
 
           // Keys should be identical
@@ -1275,4 +1269,3 @@ class HOTTrieCoverageTest {
 
   }
 }
-
