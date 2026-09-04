@@ -1,7 +1,6 @@
 package io.sirix.index.projection;
 
 import io.sirix.access.DatabaseType;
-import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.node.ValueDictionaryEntryNode;
 

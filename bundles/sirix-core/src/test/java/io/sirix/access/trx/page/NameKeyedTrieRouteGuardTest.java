@@ -18,7 +18,6 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.FsstSymbolTableNode;
 import io.sirix.node.interfaces.DataRecord;
-import io.sirix.page.NamePage;
 import io.sirix.page.PageConstants;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;

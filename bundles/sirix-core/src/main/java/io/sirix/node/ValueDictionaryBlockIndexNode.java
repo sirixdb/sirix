@@ -1,7 +1,6 @@
 package io.sirix.node;
 
 import io.sirix.node.interfaces.DataRecord;
-import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.ToStringHelper;
 
 /**

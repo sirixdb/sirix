@@ -33,7 +33,6 @@ import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.jspecify.annotations.Nullable;
-import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Iterator;
 import java.util.Map;

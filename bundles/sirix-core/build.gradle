@@ -146,6 +146,14 @@ test {
     // -Dsirix.pageSectionDiag=false still wins, so the gated-off path stays testable.
     systemProperty 'sirix.pageSectionDiag', System.getProperty('sirix.pageSectionDiag', 'true')
 
+    // The per-tag string-region census is a SUB-gate of the line above, and it needs its own half of
+    // the same contract: StringRegionTagCensusTest asserts PageSectionDiag.STRING_TAG_DIAG is on
+    // before it compares a per-tag census against the region's encoded length. Both gates are
+    // static-final reads (the sub-gate also sizes the per-tag table, so "off" means no footprint at
+    // all), so the suite cannot switch this on for itself either. An explicit
+    // -Dsirix.pageSectionDiag.stringTags=false still wins, so the gated-off path stays testable.
+    systemProperty 'sirix.pageSectionDiag.stringTags', System.getProperty('sirix.pageSectionDiag.stringTags', 'true')
+
     // Same assert-and-provide contract again, for the LZ77 dispatch counters:
     // CompressedBlockDecodeTakesTheNativePathTest asserts that a decode reaches the C decoder rather
     // than silently taking the 5.6x-slower Java one, and the ONLY way to observe which ran is these
