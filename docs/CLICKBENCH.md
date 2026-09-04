@@ -263,11 +263,17 @@ either would quietly weaken every verdict.
 
 ## Measured
 
-See [Numbers](#numbers) below. Scale caveat first, because it is the honest headline: the runs here
-are at **1 M rows**, not ClickBench's 100 M. At 1 M rows the load takes ~63 s and occupies 1.36 GB,
-which extrapolates to ~1.7 h and ~136 GB at 100 M — feasible, but not something this port has
-executed yet. A 100 M run needs the real `hits.parquet` and a box with the disk to hold both the
-JSON intermediate (~230 GB) and the database.
+See [Numbers](#numbers) below. Scale caveat first, because it is the honest headline: the per-query
+table here is at **1 M rows**, not ClickBench's 100 M. The 100 M build *has* since been run — see
+[At 100 M rows](#at-100-m-rows) for its figures, its protocol and what it costs to repeat — but it
+needs the real corpus and ~50 GB of free disk per database, so the 1 M table stays the one a reader
+can reproduce.
+
+Do not extrapolate one to the other. At 1 M the load below takes ~63 s and occupies 1.36 GB, which
+would put 100 M at ~136 GB; the measured 100 M database is **49.70 GB**, i.e. the naive ×100 is
+2.7× too high. The two are different configurations, not one workload at two sizes: the table below
+is synthetic data on the bare row path, the 100 M build is the real corpus on the
+global-dictionary and trie-lane route.
 
 Other things to keep in mind when reading the numbers:
 
@@ -345,6 +351,127 @@ min(try 2, try 3). Load: 62.7 s for 1 000 000 records; data size 1 357 109 623 b
 | 41 | window size, OFFSET 10000 | 3.189 | 3.181 |
 | 42 | DATE_TRUNC minute, OFFSET 1000 | 2.960 | 2.932 |
 | | **total** | **84.3** | **76.2** |
+
+## At 100 M rows
+
+The table above is 1 M. The 100 M build has since been run as an A/B — two *whole* databases, not
+one database re-measured — and this section records it, because until now those figures lived only
+in commit messages and a session transcript.
+
+**None of the 100 M figures below are reproducible on a host without the disk for them.** What a
+smaller host *can* check is [What a smaller host can reproduce](#what-a-smaller-host-can-reproduce),
+and that is a real subset — the storage direction and the answer identity — rather than a
+consolation prize. The leaderboard rank is not in it.
+
+### Prerequisites
+
+* **~50 GB free per database**, and two of them if you want to keep the previous build alongside the
+  new one, which an A/B of a storage lever requires;
+* **the official 100 M corpus** as `hits.json.gz` (23.7 GB). The synthetic generator does not stand
+  in here: the levers being measured are string- and timestamp-shaped, and the generator's string
+  lengths and cardinalities are not the real ones;
+* **the pre-pass value files.** `-Dsirix.import.prepassRunner` runs `ClickBenchLoadPrepassHook`
+  against the still-empty resource, which commits the resource-wide rank-ordered dictionaries named
+  by `-Dsirix.projection.globalDict.prepassValues=<Column>=<file>,…` and publishes their anchors, so
+  the load binds them at its first streaming epoch instead of running the election. Without them the
+  build is a different route and its bytes are not comparable to the ones below;
+* **`absent=0 afterClose=0`** on the load's `[trie-lane]` line. A non-zero count on either means the
+  lane converted fewer pages than it claims — `TrieLaneWriteDictionaries` puts it plainly: *"an arm
+  with a non-zero absent count has under-converted its pages, so its size is not this lever's
+  size"*. Both arms below read zero. A run that does not is not a measurement, and its storage
+  number must not be quoted.
+
+The full launch protocol — the GO/NO-GO memory diagnostic, the RSS and `df` watchdogs, and the
+SIGTERM-only kill discipline that preserves the shutdown-hook counter lines — is
+[`CLICKBENCH_100M_RESUMPTION_PLAN.md` §6](CLICKBENCH_100M_RESUMPTION_PLAN.md).
+
+### Storage
+
+_Two 100 M builds differing only in overflow compression (`-Dsirix.page.overflow.compress`, flipped
+to on by default) and the temporal lane (`-Dsirix.page.temporalLane`). Page-class rows are the
+writer-path `StorageProfile` figures (`-Dsirix.storage.profile=true`)._
+
+| | before | after | delta |
+|---|---:|---:|---|
+| database on disk | 52,488,784,824 B | 49,703,766,971 B | **−2.79 GB** |
+| `OverflowPage` | 10,862,700,646 B | 8,078,960,087 B | ratio **0.744** |
+| `KeyValueLeafPage` | 39,444,149,969 B | 39,444,812,649 B | **+0.66 MB** |
+
+The whole of the win is the overflow class. The `KeyValueLeafPage` row is the temporal lane, and it
+is a *non*-result recorded as one — see [the caveats](#two-caveats-that-travel-with-these-numbers).
+
+### Queries
+
+_Same two databases, same 43-query protocol._
+
+| | before | after |
+|---|---:|---:|
+| C6A hot geomean | 3.329 (rank 10) | **3.159 (rank 6)** |
+| paired per-query | — | **−2.244 ln**, 23 faster to 11 slower |
+| answers | — | **43/43 byte-identical** |
+
+Separately, and on one database rather than two, the stride-aware group budget was measured with
+`-Dsirix.projDiag=true` against its kill switch `-Dsirix.projection.groupTable.strideBudget=false`:
+**19 → 16 grouped passes** over a leg, −1.555 and −1.131 ln over two leg pairs.
+
+Geomeans are only comparable *within* a build pair. Two separately measured noise floors bound what
+counts as a result at all: repeating one build moves the C6A hot geomean by about ±0.08, and nothing
+under roughly 0.3 ln survives a repeated leg.
+
+The storage and query figures above are also carried, in the same form, by the javadoc on
+`PageKind.OVERFLOW_PAYLOAD_COMPRESSION_ENABLED` — the flag they justify — so the default and its
+evidence cannot drift apart unnoticed.
+
+### Two caveats that travel with these numbers
+
+1. **The overflow ratio is scale-dependent, and the query cost inverts outright.** The compression
+   ratio is 0.560 at 1 M against 0.744 at 100 M, and the sign of the *query* effect flips: the same
+   flag costs **+22.4 % hot at 1 M** and is **faster at 100 M**. A cache-resident working set makes
+   every decode pure added CPU buying no I/O back, while an I/O-bound scan gets the unread bytes
+   back with interest. Do not generalise a small-scale measurement of this flag — its sign is wrong
+   there. Both numbers are in `PageKind`'s javadoc for the same reason.
+2. **The temporal lane is worth ~0 on the route that ships.** It projects to about −1.06 GB at
+   100 M from its 1 M measurement, and measured **+0.66 MB** on the trie-lane + pre-pass route
+   above. Why it does not fire there is open; it is kept because it is correct, tested and cheap,
+   and it is **off by default**. See
+   [`ROADMAP_TO_30GB.md`](ROADMAP_TO_30GB.md), *"The temporal sub-lever, MEASURED"*.
+
+### What a smaller host can reproduce
+
+At 200 k–1 M rows the shipped tasks reproduce the *direction* of the storage result and the answer
+identity exactly. Two whole-database loads that differ only in the kill switch:
+
+```bash
+./gradlew :sirix-query:clickBenchLoad -Pclickbench.args="/tmp/cb-on  generate:200000:42" \
+    -Pclickbench.jvmArgs="-Dsirix.storage.profile=true"
+./gradlew :sirix-query:clickBenchLoad -Pclickbench.args="/tmp/cb-off generate:200000:42" \
+    -Pclickbench.jvmArgs="-Dsirix.storage.profile=true -Dsirix.page.overflow.compress=false"
+```
+
+| 200 k rows, seed 42 | off (kill switch) | on (default) | |
+|---|---:|---:|---|
+| ClickBench `Data size:` | 352,783,201 | 285,674,336 | −19.02 % |
+| `OverflowPage` bytes | 183,081,357 | 118,588,830 | ratio **0.648** |
+| `OverflowPage` writes | 112,892 | 112,892 | unchanged |
+
+Read those two rows differently. The `Data size:` delta lands on an exact 64 MiB boundary because
+`sirix.data` grows in 64 MiB extents, and the totals themselves drift by a couple of bytes between
+runs of the *same* arm (two independent runs of the compressed arm gave 285,674,336 and
+285,674,338), so quote it as a percentage and not as a byte count. The `StorageProfile`
+`OverflowPage` row is the un-quantised writer-path figure and reproduced *exactly* across both runs
+— it is the one that carries the ratio. Then `--dump` both databases and `diff -r` the two
+directories: all 43 `q*.jsonl` come back byte-equal.
+
+The group budget's one-sided safety property is observable on real shapes too — `-Dsirix.projDiag`
+prints one `[groupBudget]` line per grouped plan, and over a 43-query leg 13 of 28 grouped plans are
+charged less than the old flat 128 B/group (48/64/96/112 B at strides 3/4/6/7) while all 15 plans at
+stride ≥ 8 keep **exactly** the old 128 B and the identical 12,582,912-byte budget. No plan is ever
+charged more, so no shape can plan more passes than before.
+
+What a small host cannot show, and what this document therefore does not claim it shows: at 200 k
+rows the compressed database is about **5.6 % slower** over the 43-query sum — the same sign as the
++22.4 % at 1 M, and the reason caveat 1 exists. The inversion at 100 M, and the rank that follows
+from it, are the author's measurements alone.
 
 ## Against DuckDB
 
@@ -470,7 +597,8 @@ compilation context. Reproduction is one clone, one `nativeCompile`, and
 
 ## Known gaps
 
-* **Scale.** 1 M measured; 100 M not yet run.
+* **Scale.** 1 M is the reproducible table; 100 M has been run on the author's host and is recorded
+  in [At 100 M rows](#at-100-m-rows), but repeating it needs the real corpus and ~50 GB per database.
 * **No AOT/PGO number** — see the native-image section; that one is blocked on a GraalVM bug
   (oracle/graal#14255), not on us.
 * ~~Only 6 of 43 queries are projection-served.~~ As of the end of the 2026-08-16 campaign every
