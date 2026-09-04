@@ -106,25 +106,25 @@ final class GlobalValueDictionaryReadViewMissPathTest {
    * {@code RevisionRootPage} in the JVM carries Mockito's interception prologue — including
    * {@code getRevision()}, which is where the revision guard above ends up. That prologue allocates
    * per call on any JIT that cannot scalar-replace it: 48 B per guard and so 96 B per comparison
-   * under Temurin 25, byte-identical at 7 103 760 B over 72 000 probes on Linux, macOS and Windows;
-   * 0 B under GraalVM, whose partial escape analysis removes it; and 0 B under either when this
-   * class runs on its own, because then nothing has retransformed anything.
+   * under Temurin 25, byte-identical at 7 103 760 B over 72 000 probes on Linux, macOS and Windows; 0
+   * B under GraalVM, whose partial escape analysis removes it; and 0 B under either when this class
+   * runs on its own, because then nothing has retransformed anything.
    * </p>
    *
    * <p>
-   * That is the harness rewriting bytecode underneath the meter, not the compare path allocating,
-   * and an ABSOLUTE per-probe bound cannot tell the two apart — which is exactly how a bound
-   * calibrated by running this class alone came to be red in the suite on every CI lane. So the
-   * floor is MEASURED, on the same meter and through the same reader, and the two claims below are
-   * stated relative to it. It is zero whenever the harness has instrumented nothing, so the bounds
-   * stay as tight as they ever were.
+   * That is the harness rewriting bytecode underneath the meter, not the compare path allocating, and
+   * an ABSOLUTE per-probe bound cannot tell the two apart — which is exactly how a bound calibrated
+   * by running this class alone came to be red in the suite on every CI lane. So the floor is
+   * MEASURED, on the same meter and through the same reader, and the two claims below are stated
+   * relative to it. It is zero whenever the harness has instrumented nothing, so the bounds stay as
+   * tight as they ever were.
    * </p>
    *
    * <p>
-   * The probe count only has to make the per-call figure exact — the quantity is a fixed-size
-   * object per call, not a distribution — and it must run AFTER the windows it calibrates: a hot
-   * loop over the guard ahead of them re-shapes the JIT's inlining of that very guard, and then the
-   * floor being measured is no longer the floor those windows paid.
+   * The probe count only has to make the per-call figure exact — the quantity is a fixed-size object
+   * per call, not a distribution — and it must run AFTER the windows it calibrates: a hot loop over
+   * the guard ahead of them re-shapes the JIT's inlining of that very guard, and then the floor being
+   * measured is no longer the floor those windows paid.
    * </p>
    */
   private static final int GUARD_PROBES = 200_000;
@@ -369,11 +369,10 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         final double hotBeyondGuards = hotPerProbe - compareFloor;
 
         System.out.println("[readview-miss] " + allocated + " bytes over " + probes + " probes = " + thrashPerProbe
-            + " B/probe, " + missPerProbe + " B/probe net of the hot window; materialising control = "
-            + controlPerProbe + " B/probe");
-        System.out.println("[readview-hot] " + hotAllocated + " bytes = " + hotPerProbe + " B/probe, "
-            + hotBeyondGuards + " B/probe beyond a measured " + compareFloor + " B/compare guard floor ("
-            + guardBytes + " B/guard)");
+            + " B/probe, " + missPerProbe + " B/probe net of the hot window; materialising control = " + controlPerProbe
+            + " B/probe");
+        System.out.println("[readview-hot] " + hotAllocated + " bytes = " + hotPerProbe + " B/probe, " + hotBeyondGuards
+            + " B/probe beyond a measured " + compareFloor + " B/compare guard floor (" + guardBytes + " B/guard)");
 
         assertTrue(missPerProbe < SLICE_PATH_MAX_BYTES_PER_PROBE,
             "the miss path allocated " + missPerProbe + " B/probe beyond a hot comparison (" + allocated
@@ -387,8 +386,8 @@ final class GlobalValueDictionaryReadViewMissPathTest {
         // And from the other side: a floor ABOVE what a whole hot comparison costs would subtract a
         // regression away instead of the harness, leaving the assertion above true of anything.
         assertTrue(hotBeyondGuards > -1.0,
-            "the measured guard floor (" + compareFloor + " B/compare) exceeds a whole hot comparison ("
-                + hotPerProbe + " B/probe), so it is not calibrating this meter, it is hollowing it out");
+            "the measured guard floor (" + compareFloor + " B/compare) exceeds a whole hot comparison (" + hotPerProbe
+                + " B/probe), so it is not calibrating this meter, it is hollowing it out");
       }
     }
   }
