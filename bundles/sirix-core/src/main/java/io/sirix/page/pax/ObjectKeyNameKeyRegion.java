@@ -51,11 +51,46 @@ public final class ObjectKeyNameKeyRegion {
    * {@code ByteVector.fromMemorySegment} over a NATIVE segment (it addresses the segment as
    * heap-backed and segfaults — oracle/graal#14255, reproduced only in this compilation context), so
    * the scalar tails serve the whole range there. {@code -Dsirix.pax.scalarOnly=true} forces the same
-   * on the JVM for A/B measurement. The flag folds to a constant at image build time (the imagecode
-   * property is set during build-time class initialization) and stays a dead branch for JIT
-   * compilation on the JVM.
+   * on the JVM for A/B measurement.
+   *
+   * <p>
+   * The native-image half must be TESTED, not assumed: this field claimed the image was excluded
+   * "because the imagecode property is set at build-time class initialization" while reading only
+   * {@code sirix.pax.scalarOnly}, which nothing in the tree sets — so every image built with
+   * {@code --add-modules=jdk.incubator.vector} (sirix-rest-api/build.gradle) ran the very loops the
+   * comment said were disabled. {@link #vectorLoopsEnabled()} composes both terms and is exercised
+   * by {@code ObjectKeyNameKeyRegionTest}.
+   * </p>
+   *
+   * <p>
+   * Stays a {@code static final} so the loop guard folds away: on HotSpot the JIT drops the dead
+   * branch, in an image the loops are removed at build time.
+   * </p>
    */
-  private static final boolean VECTOR_OK = !Boolean.getBoolean("sirix.pax.scalarOnly");
+  private static final boolean VECTOR_OK = vectorLoopsEnabled();
+
+  /**
+   * The {@link #VECTOR_OK} decision, readable live so a test can pin BOTH of its terms. Package
+   * private for that test only; production code reads the folded constant.
+   *
+   * @return whether the SIMD dict-id loops may run in this process
+   */
+  static boolean vectorLoopsEnabled() {
+    return !Boolean.getBoolean("sirix.pax.scalarOnly") && !inNativeImage();
+  }
+
+  /**
+   * Whether we are running inside a GraalVM native image. The
+   * {@code org.graalvm.nativeimage.imagecode} property is set to {@code "buildtime"} by the image
+   * builder and {@code "runtime"} inside the image, and is never set on HotSpot; checking presence
+   * (not a value) keeps the answer correct even when this class initializes at image build time, and
+   * avoids a compile dependency on the GraalVM SDK's {@code ImageInfo}.
+   *
+   * @return whether this process is a native image
+   */
+  private static boolean inNativeImage() {
+    return System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+  }
 
   // Array VarHandles for the ENCODE path, which builds its output in a byte[] before the region
   // table copies it off-heap. Reads go through the payload segment instead (see the accessors

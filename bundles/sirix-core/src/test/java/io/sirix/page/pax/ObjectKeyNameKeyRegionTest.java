@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link ObjectKeyNameKeyRegion}'s bitmap expansion: the round-trip, and the corrupt
@@ -22,6 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 @DisplayName("ObjectKeyNameKeyRegion")
 final class ObjectKeyNameKeyRegionTest {
+
+  /** Set to "buildtime"/"runtime" by GraalVM, never set on HotSpot. */
+  private static final String NATIVE_IMAGE_PROPERTY = "org.graalvm.nativeimage.imagecode";
+
+  /** The A/B flag that forces the scalar tails on the JVM. */
+  private static final String SCALAR_ONLY_PROPERTY = "sirix.pax.scalarOnly";
 
   /** Slots spread across several bitmap words, in bitmap order. */
   private static final int[] SLOTS = {3, 64, 130, 700, 1023};
@@ -143,5 +151,55 @@ final class ObjectKeyNameKeyRegionTest {
     final byte[] empty = ObjectKeyNameKeyRegion.encode(new int[0], new int[0], 0);
     assertNotNull(empty, "the legacy encoder publishes an empty, zero-bitmap column");
     assertEquals(ObjectKeyNameKeyRegion.maxEncodedSize(0), empty.length);
+  }
+
+  /**
+   * The SIMD loops must not run inside a GraalVM native image: the compiler miscompiles
+   * {@code ByteVector.fromMemorySegment} over a NATIVE segment there (oracle/graal#14255) and the
+   * process segfaults. This pins BOTH terms of the decision, because the class shipped a javadoc
+   * claiming the image was excluded while reading only {@code sirix.pax.scalarOnly} — a property
+   * nothing in the tree sets, so the guard was inert exactly where it mattered.
+   *
+   * <p>
+   * Scope, stated rather than implied: this exercises {@code vectorLoopsEnabled()}, the live
+   * decision. {@code VECTOR_OK} itself is a {@code static final} frozen at class initialization so
+   * the hot loop guard folds away, and no in-process test can re-evaluate it.
+   * </p>
+   */
+  @Test
+  @DisplayName("the vector loops are refused in a native image and by the scalar-only flag")
+  void vectorLoopsAreRefusedInANativeImage() {
+    final String imageCode = System.getProperty(NATIVE_IMAGE_PROPERTY);
+    final String scalarOnly = System.getProperty(SCALAR_ONLY_PROPERTY);
+    try {
+      System.clearProperty(NATIVE_IMAGE_PROPERTY);
+      System.clearProperty(SCALAR_ONLY_PROPERTY);
+      assertTrue(ObjectKeyNameKeyRegion.vectorLoopsEnabled(),
+          "on a plain JVM with no flags the SIMD loops are the point of this region");
+
+      System.setProperty(NATIVE_IMAGE_PROPERTY, "runtime");
+      assertFalse(ObjectKeyNameKeyRegion.vectorLoopsEnabled(),
+          "inside the image the loops segfault (oracle/graal#14255), so presence of the property must refuse them");
+
+      System.setProperty(NATIVE_IMAGE_PROPERTY, "buildtime");
+      assertFalse(ObjectKeyNameKeyRegion.vectorLoopsEnabled(),
+          "the builder sets 'buildtime' while initializing classes; checking presence, not a value, is what keeps"
+              + " a build-time-initialized constant correct");
+
+      System.clearProperty(NATIVE_IMAGE_PROPERTY);
+      System.setProperty(SCALAR_ONLY_PROPERTY, "true");
+      assertFalse(ObjectKeyNameKeyRegion.vectorLoopsEnabled(), "the A/B flag still forces the scalar tails on the JVM");
+    } finally {
+      restore(NATIVE_IMAGE_PROPERTY, imageCode);
+      restore(SCALAR_ONLY_PROPERTY, scalarOnly);
+    }
+  }
+
+  private static void restore(final String key, final String value) {
+    if (value == null) {
+      System.clearProperty(key);
+    } else {
+      System.setProperty(key, value);
+    }
   }
 }
