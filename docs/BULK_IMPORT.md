@@ -212,6 +212,13 @@ The 100M run is the full official corpus streamed through the NDJSON adapter: 99
 119.4 GiB on disk — scaling stays linear and per-row cost actually improves slightly as epochs
 amortize.
 
+The 119.4 GiB figure was measured on 2026-08-26 (`faff8547f`) with overflow payload compression
+**off**, which was the default then. `sirix.page.overflow.compress` has defaulted to `true` since
+`53f33cfa7`, so a current import writes fewer bytes; the run has not been repeated since the flip.
+Treat 119.4 GiB as an upper bound for a fresh import at this scale, not as a comparable baseline
+against a compressed build. The wall-clock and GC numbers on this page come from that same run and
+were likewise not re-measured under the new default.
+
 GC profile under the parallel importer: zero full collections at every scale. The current chunk
 path uses the fixed-size slab/streaming representation described above, so it does not rely on
 pooling multi-megabyte heap arrays to avoid allocation churn. Peak RSS for the 10M

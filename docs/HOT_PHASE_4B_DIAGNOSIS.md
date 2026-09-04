@@ -1,5 +1,11 @@
 # HOT Phase 4b — Concrete Diagnosis & Fix Plan
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Date**: 2026-05-09. Branch: `fix/hot-strict-binna-conformance` (worktree `agent-af0791c89c23c37fe`).
 **Companion to**: `HOT_STRICT_BINNA_DESIGN.md` (campaign overview); this doc focuses Phase 4b only.
 

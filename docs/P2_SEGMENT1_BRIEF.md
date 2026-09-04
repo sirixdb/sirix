@@ -125,7 +125,8 @@ order and can emit the id lane once ranks exist — ~1.6 GB of sequential spill 
 | **≥ 5.0 GB saving** | **file size of a freshly loaded 100M database vs a freshly loaded HEAD one** — never a retrofit delta |
 | no per-query regression | unchanged |
 
-Measured against the shipped default (`sirix.page.overflow.compress=false`, opt-in since `8cfeb2207`), so the
+Measured against the then-shipped default (`sirix.page.overflow.compress=false`, opt-in since `8cfeb2207`;
+on by default since `53f33cfa7`), so the
 gate's 9.57 GB baseline stands; report the compression-on arm too, since P2 changes which bytes remain in that
 class and may change that lever's verdict.
 

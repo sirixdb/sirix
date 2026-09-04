@@ -1,5 +1,11 @@
 # HOT Strict-Binna Conformance — Multi-Session Engineering Project
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Status**: scoped engineering project; multi-session work plan.
 **Branch**: `fix/hot-strict-binna-conformance` (off `main` after PR #973 merge).
 **Audience**: implementer in any future session — read this first.

@@ -1,5 +1,11 @@
 # HOT Strict-Binna Conformance Campaign — Engineering Results
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Branch:** `fix/hot-strict-binna-conformance` (112 commits ahead of `main`).
 **Status:** Engineering campaign complete. 99.2% violation reduction; remaining 1
 marginal violation is documented and architecturally bounded.

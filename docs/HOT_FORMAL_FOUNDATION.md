@@ -1,5 +1,11 @@
 # HOT Routing — Formal Foundation and Verification Plan
 
+> **Archive note (2026-09-04).** `io/sirix/access/trx/page/HOTTrieWriter.java` was removed in
+> `09a20540c`; its role now sits in `HOTTrieReader` (descent and read paths) plus
+> `io/sirix/index/hot/AbstractHOTIndexWriter` (trie mutation). The `HOTTrieWriter` file and line
+> references below are historical and are deliberately left un-anchored — this document records the
+> reasoning as it stood at the time.
+
 **Status:** Theoretical foundation for the HOT structural-correctness work.
 Supersedes the empirical option-picking in `HOT_ROUTING_ENCODING_REWRITE.md`:
 that doc enumerated three encodings and *recommended* one; this doc *derives*
