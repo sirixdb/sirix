@@ -1356,7 +1356,11 @@ public final class GlobalValueDictionary {
       }
     }
     if (header.getForwardRootKey() == 0) {
-      // Only a fully ordered dictionary may omit the forward index, and that case returned above.
+      // Two dictionaries omit the forward index. A FULLY ORDERED one answered above, from the binary
+      // search over its sorted reverse index. A DECODE-ONLY one cannot answer at all: it kept no
+      // structure that maps a value to an id, which is the whole reason it is cheap to version.
+      // UNKNOWN, never ABSENT -- absence is a licence to mint a new id, and minting a second id for
+      // a value this dictionary already holds is exactly the silent corruption ids exist to prevent.
       return ID_UNKNOWN;
     }
     final long wanted = valueHash(utf8, offset, length);
